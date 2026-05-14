@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Annotator",
+  "version": "1.0.0",
+  "description": "Annotate any webpage, export as YAML, share with others.",
+  "permissions": ["storage", "scripting", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "dist/background.js"
+  },
+  "action": {
+    "default_title": "Annotator"
+  },
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; frame-src 'none'"
+  },
+  "icons": {}
+}
