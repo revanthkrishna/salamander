@@ -219,7 +219,7 @@ The exported YAML file must contain the following. Exact schema and field names 
 8. User can browse the site — entering annotation mode on each page reveals the imported pins
 9. User can add, edit, or delete annotations
    - As soon as any change is made, the filename indicator disappears (modified state)
-10. User can export the full annotation set (original + changes) as a new file
+10. User can export the current annotation set as a new file — this is simply the current state (imported annotations + any additions/edits/deletions made since). There is no separate tracking of "original" vs "changed" annotations; it is all one unified state.
 
 ---
 
@@ -268,6 +268,7 @@ Errors appear in **red above the toolbar**. Warnings in **yellow above the toolb
 
 - Real-time collaboration
 - Cloud sync or backend
+- Multi-tab annotation on the same domain simultaneously (v1 assumes single-tab use; concurrent multi-tab edits may cause conflicts)
 - Comment threads / replies
 - Multiple files active simultaneously / file merging
 - Mobile / non-Chrome browsers
