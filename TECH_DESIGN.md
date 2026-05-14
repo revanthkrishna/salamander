@@ -14,6 +14,8 @@
 4. [Element Fingerprinting](#4-element-fingerprinting)
 5. [Pin Rendering](#5-pin-rendering)
 6. [Toolbar Injection & Lifecycle](#6-toolbar-injection--lifecycle)
+   - 6.6 [Annotation Mode — Hover & Click Implementation](#66-annotation-mode--hover--click-implementation)
+   - 6.7 [Popover Implementation](#67-popover-implementation)
 7. [Cross-Tab Sync](#7-cross-tab-sync)
 8. [Import Pipeline](#8-import-pipeline)
 9. [Export Pipeline](#9-export-pipeline)
@@ -60,14 +62,20 @@ All cross-component communication uses `chrome.runtime.sendMessage` / `chrome.ta
 
 | Message | When | Payload |
 |---|---|---|
-| `{ type: "ACTIVATE" }` | Icon clicked, content script not yet present | none |
+| `{ type: "ACTIVATE", tabId: number }` | Icon clicked, content script not yet present | `tabId` — the tab's ID, passed so the content script can identify itself |
 | `{ type: "ICON_CLICKED" }` | Icon clicked, content script already active | none |
 
 #### Content Script → Background
 
 | Message | When | Payload |
 |---|---|---|
-| `{ type: "PING" }` | Background checks if content script is alive | → response: `{ alive: true }` |
+| `{ type: "PING" }` | Background checks if content script is alive | → response: `{ alive: true, tabId: number }` |
+
+**How the content script gets its tab ID:** Content scripts in MV3 cannot reliably self-identify their tab ID (`chrome.tabs.getCurrent()` is undefined in injected content scripts). The background passes the tab ID explicitly:
+- On `ACTIVATE`: the background includes `tabId` in the message payload
+- On PING: the background includes `tabId` in the response
+
+The content script stores this as `let myTabId = message.tabId` (or `response.tabId`) on receipt and uses it for all `activeTab:{tabId}` storage operations.
 
 #### Storage events (no direct messages)
 
@@ -117,7 +125,7 @@ All extension data lives under a single top-level key per domain. There is also 
 | Key Pattern | Type | Purpose |
 |---|---|---|
 | `annotations:{domain}` | Object | All annotation data for a normalised domain |
-| `activeTabIds` | Array\<number\> | Tab IDs where the toolbar is currently active |
+| `activeTab:{tabId}` | boolean (`true`) | Present when the toolbar is active on that tab; absent when inactive |
 
 #### Domain Object Structure
 
@@ -147,7 +155,7 @@ interface Fingerprint {
   xpath: string;
   textSnippet: string;           // first ~50 chars of element text
   tagName: string;               // lowercase
-  boundingBox: {                 // hint only — not used for resolution
+  boundingBox: {                 // hint only — not used for resolution; intentionally OMITTED from YAML export
     top: number;
     left: number;
     width: number;
@@ -221,9 +229,15 @@ On import, `meta.nextPinNumber` is set to `max(importedPins) + 1` regardless of 
 
 On delete: `meta.nextPinNumber` is **not** decremented. Gaps are preserved.
 
+**Known v1 limitation — concurrent multi-tab pin numbering:** The read-then-write sequence is not atomic. Two tabs annotating simultaneously can both read the same `nextPinNumber`, both assign the same pin number, and produce a duplicate. Since `chrome.storage.local` has no transactional writes, this is an inherent constraint in v1. It is accepted under the same "last-write-wins" policy as other concurrent writes (§7.3). Duplicate pin numbers created this way will not surface as import errors for the active session, but a re-exported file with duplicates would fail import on the duplicate check (§3.3 rule 6). The likelihood is low in practice (requires two tabs annotating within the same storage roundtrip window).
+
 ### 2.6 Tab Activation State
 
-The set of tabs where the toolbar is active is stored in `activeTabIds: number[]`. When a content script initialises, it registers its tab ID. When the tab closes or navigates away (full reload), it removes itself. This is used by the background service worker to decide whether to inject the content script or send a no-op message.
+Each tab where the toolbar is active stores a single key: `activeTab:{tabId}: true`. When the toolbar is deactivated or the tab closes, the key is deleted.
+
+**Why per-tab keys instead of a shared array:** A shared `activeTabIds: number[]` requires all tabs to do read-modify-write operations on the same key. Two tabs registering simultaneously would race and clobber each other's entries. Per-tab keys are independent — each tab owns only its own key and never needs to read others.
+
+The background service worker checks `chrome.storage.local.get('activeTab:' + tabId)` to decide whether to inject or send a no-op. The content script sets `chrome.storage.local.set({ ['activeTab:' + myTabId]: true })` on init and removes it on tab close.
 
 ---
 
@@ -281,6 +295,8 @@ annotations:
 | `annotations[].fingerprint.text_snippet` | string | ✅ | May be empty string if element has no text. |
 | `annotations[].fingerprint.tag_name` | string | ✅ | Lowercase tag. Used in text-match fallback. |
 | `annotations[].offset` | object | ✅ | Click position relative to element top-left. |
+
+> **Note on `boundingBox`:** The internal `Fingerprint` storage interface includes a `boundingBox` field (§2.2). This field is **intentionally excluded from the YAML export** — it is a rendering hint used only at runtime and is not needed for annotation resolution or round-trip fidelity. Do not include it in the export serializer.
 | `annotations[].offset.x` | number | ✅ | Pixels. |
 | `annotations[].offset.y` | number | ✅ | Pixels. |
 | `annotations[].created_at` | string (ISO 8601) | ✅ | UTC. |
@@ -301,6 +317,10 @@ On import, all of the following must pass or the file is rejected:
 10. Each annotation has all required fields
 
 ### 3.4 Versioning Strategy
+
+```javascript
+const CURRENT_EXPORT_VERSION = 1; // increment on breaking schema changes
+```
 
 - `version: 1` is the current format.
 - On a **breaking change** (field renamed, removed, or semantics changed): increment to `2`. Import code checks: if `file.version > CURRENT_VERSION`, show yellow warning and proceed; if schema fails validation, reject with red error.
@@ -503,19 +523,36 @@ function isFixedPosition(el) {
 
 The toolbar (unlike pins) uses **Shadow DOM** to prevent page styles from leaking in. The toolbar is appended to `<body>` as a `<div id="annotator-host">` with `attachShadow({ mode: 'closed' })`. All toolbar CSS lives inside the shadow root. This is appropriate for the toolbar because it has complex internal structure (buttons, text, alerts) that would be vulnerable to CSS cascade pollution from the page.
 
+**Critical implementation note:** `attachShadow({ mode: 'closed' })` returns the shadow root at creation time. After that, `host.shadowRoot` is `null` — the browser does not expose it externally. The returned reference **must** be stored in module scope:
+
+```javascript
+const toolbarHost = document.createElement('div');
+toolbarHost.id = 'annotator-host';
+const toolbarShadow = toolbarHost.attachShadow({ mode: 'closed' }); // STORE THIS
+document.body.appendChild(toolbarHost);
+// All subsequent toolbar DOM work uses toolbarShadow, not toolbarHost.shadowRoot
+```
+
 ### 5.6 Scroll and Resize Behaviour
 
 Pin positions are **recalculated on scroll and resize** by updating the `left` and `top` inline styles on each pin element. A single throttled event listener handles both:
 
 ```javascript
-const reposition = throttle(() => {
+const repositionOnScroll = throttle(() => {
   for (const [pinId, { element, offset, isFixed }] of activePins) {
+    if (isFixed) continue; // fixed-position pins don't move with scroll; skip to avoid wasteful recalculation
     updatePinPosition(pinId, element, offset, isFixed);
   }
 }, 16); // ~60fps cap
 
-window.addEventListener('scroll', reposition, { passive: true });
-window.addEventListener('resize', reposition, { passive: true });
+const repositionAll = throttle(() => {
+  for (const [pinId, { element, offset, isFixed }] of activePins) {
+    updatePinPosition(pinId, element, offset, isFixed); // resize can move fixed elements too
+  }
+}, 16);
+
+window.addEventListener('scroll', repositionOnScroll, { passive: true });
+window.addEventListener('resize', repositionAll, { passive: true });
 ```
 
 `activePins` is a `Map<pinId, { element: HTMLElement, offset: {x,y}, isFixed: bool }>` maintained by the content script.
@@ -539,16 +576,17 @@ body:not(.annotator-active) .annotator-pin { display: none !important; pointer-e
 1. User clicks extension icon
 2. Background service worker receives `chrome.action.onClicked`
 3. Background sends `{ type: "PING" }` to the active tab's content script
-4. **If ping times out (script not present):** Background calls `chrome.scripting.executeScript` to inject the content script, then `chrome.scripting.insertCSS` for the base styles. The injected content script calls `init()`.
-5. **If ping responds:** Background sends `{ type: "ICON_CLICKED" }`. Content script ignores it (toolbar already active — no-op per requirements §6 #18).
+4. **If ping times out (script not present):** Background calls `chrome.scripting.executeScript` to inject the content script. After injection completes, background sends `{ type: "ACTIVATE", tabId: tab.id }` so the content script knows its own tab ID (see §1.3). Content script calls `init(message.tabId)`.
+5. **If ping responds** with `{ alive: true, tabId }`: Background sends `{ type: "ICON_CLICKED" }`. Content script ignores it (toolbar already active — no-op per requirements §6 #18).
 
 The content script is **not** declared in `manifest.json` under `content_scripts`. It is injected on demand only. This prevents the extension from running on every page load when the user hasn't activated it.
 
-### 6.2 Content Script `init()`
+### 6.2 Content Script `init(tabId)`
 
-On first injection:
-1. Build and inject toolbar into `<body>` via Shadow DOM host div
-2. Register tab ID in `activeTabIds` storage
+On first injection (called with the tab ID passed from background via `ACTIVATE` message):
+1. Store `myTabId = tabId` in module scope
+2. Build and inject toolbar into `<body>` via Shadow DOM host div
+3. Register: `chrome.storage.local.set({ ['activeTab:' + myTabId]: true })`
 3. Load annotations from storage for the current normalised domain
 4. Determine current page URL (normalised)
 5. Render pins for annotations matching current page URL
@@ -560,34 +598,47 @@ On first injection:
 
 When the page reloads:
 - The content script is torn down (the page unloads)
-- `beforeunload` is fired → content script removes its tab ID from `activeTabIds`
+- `beforeunload` is fired → content script removes its per-tab key: `chrome.storage.local.remove('activeTab:' + myTabId)`
 
-Wait — but requirements say "toolbar re-activates automatically on reload". How?
-
-**Mechanism:** The tab ID is stored in `activeTabIds`. On full navigation, `chrome.tabs.onUpdated` fires in the background service worker. When `changeInfo.status === 'complete'` and the tab ID is in `activeTabIds`, the background auto-re-injects the content script.
+**Mechanism:** On full navigation, `chrome.tabs.onUpdated` fires in the background service worker. When `changeInfo.status === 'complete'` and `activeTab:{tabId}` exists in storage, the background auto-re-injects and sends `ACTIVATE`:
 
 ```javascript
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete') {
-    chrome.storage.local.get('activeTabIds', ({ activeTabIds = [] }) => {
-      if (activeTabIds.includes(tabId)) {
-        // Re-inject content script
-        chrome.scripting.executeScript({ target: { tabId }, files: ['content/index.js'] });
+    chrome.storage.local.get('activeTab:' + tabId, (result) => {
+      if (result['activeTab:' + tabId]) {
+        // Re-inject content script, then send ACTIVATE with tabId
+        chrome.scripting.executeScript(
+          { target: { tabId }, files: ['content/index.js'] },
+          () => chrome.tabs.sendMessage(tabId, { type: 'ACTIVATE', tabId })
+        );
       }
     });
   }
 });
 ```
 
-**Edge case:** The tab ID is removed from `activeTabIds` on `beforeunload`, but this event is not guaranteed to fire (e.g. if Chrome crashes). The `tabs.onUpdated` auto-reinject approach means if the tab ID stays in storage, the toolbar re-injects even unexpectedly. This is acceptable — the user can simply not interact with the toolbar if they didn't want it.
+**Edge case:** `beforeunload` is not guaranteed to fire (e.g. if Chrome crashes). If `activeTab:{tabId}` lingers after a crash and the tab re-opens with the same ID (rare but possible), the toolbar re-injects. This is acceptable — the user can ignore the toolbar.
 
-**Cleanup on tab close:** `chrome.tabs.onRemoved` removes the tab ID from `activeTabIds`:
+**Cleanup on tab close:** `chrome.tabs.onRemoved` deletes the per-tab key:
 
 ```javascript
 chrome.tabs.onRemoved.addListener((tabId) => {
-  chrome.storage.local.get('activeTabIds', ({ activeTabIds = [] }) => {
-    chrome.storage.local.set({
-      activeTabIds: activeTabIds.filter(id => id !== tabId)
+  chrome.storage.local.remove('activeTab:' + tabId);
+});
+```
+
+**Startup cleanup:** On background service worker startup, remove stale `activeTab:*` keys for tabs that no longer exist (e.g., after a browser restart where Chrome re-uses tab IDs or doesn't):
+
+```javascript
+chrome.runtime.onStartup.addListener(() => {
+  chrome.tabs.query({}, (liveTabs) => {
+    const liveIds = new Set(liveTabs.map(t => t.id));
+    chrome.storage.local.get(null, (all) => {
+      const staleKeys = Object.keys(all)
+        .filter(k => k.startsWith('activeTab:'))
+        .filter(k => !liveIds.has(parseInt(k.split(':')[1])));
+      if (staleKeys.length) chrome.storage.local.remove(staleKeys);
     });
   });
 });
@@ -602,7 +653,12 @@ SPAs change the URL without triggering a page reload. The content script detects
 window.addEventListener('popstate', handleUrlChange);
 ```
 
-**2. Monkey-patching `history.pushState` and `history.replaceState`** — fired when the SPA navigates programmatically:
+**2. `hashchange` event** — fired when the URL's hash fragment changes (hash-based routing used by React Router v5 hash mode, Vue Router hash mode, etc.):
+```javascript
+window.addEventListener('hashchange', handleUrlChange);
+```
+
+**3. Monkey-patching `history.pushState` and `history.replaceState`** — fired when the SPA navigates programmatically:
 ```javascript
 const origPush = history.pushState.bind(history);
 history.pushState = function(...args) {
@@ -645,6 +701,182 @@ POPOVER_OPEN
   └─ [✕ / click outside] → ACTIVE_ANNOTATING (no change)
 ```
 
+### 6.6 Annotation Mode — Hover & Click Implementation
+
+Annotation mode is controlled by a boolean `let annotationModeActive = false` in the content script. All annotation mode event listeners are registered once (at init) but short-circuit when `annotationModeActive` is false.
+
+#### Click Interception
+
+Native clicks are suppressed using a **capturing-phase listener** (third argument `true`). Capturing fires before the element's own handlers, enabling full suppression:
+
+```javascript
+document.addEventListener('click', (e) => {
+  if (!annotationModeActive) return;
+  if (isAnnotatorElement(e.target)) return; // let toolbar/popover handle their own clicks
+  e.preventDefault();
+  e.stopImmediatePropagation(); // stop all other handlers on this element too
+  handleAnnotationClick(e);
+}, true);
+```
+
+`isAnnotatorElement(el)` returns true if the element is inside the toolbar host, a pin, or the popover host:
+```javascript
+function isAnnotatorElement(el) {
+  return (
+    el.closest('#annotator-host') !== null ||
+    el.closest('#annotator-popover-host') !== null ||
+    el.classList?.contains('annotator-pin') ||
+    el.closest('.annotator-pin') !== null
+  );
+}
+```
+
+**`handleAnnotationClick(e)`:**
+1. If `e.target` is a pin element (or inside one): extract `pinId` from `data-pin-id`, open popover pre-filled with that annotation's note
+2. Otherwise: capture fingerprint at `e.target`, compute offset `{ x: e.clientX - rect.left, y: e.clientY - rect.top }`, open blank popover for new annotation
+
+#### Hover Highlight
+
+Hover uses `mouseover`/`mouseout` (not `mouseenter`/`mouseleave`) because `mouseover` bubbles and fires when entering any child — which gives us the immediate target element:
+
+```javascript
+let highlightedEl = null;
+
+document.addEventListener('mouseover', (e) => {
+  if (!annotationModeActive || popoverOpen) return;
+  if (isAnnotatorElement(e.target)) return;
+  if (highlightedEl) highlightedEl.classList.remove('annotator-highlighted');
+  highlightedEl = e.target;
+  highlightedEl.classList.add('annotator-highlighted');
+}, true);
+
+document.addEventListener('mouseout', (e) => {
+  if (!annotationModeActive) return;
+  if (e.target === highlightedEl) {
+    highlightedEl.classList.remove('annotator-highlighted');
+    highlightedEl = null;
+  }
+}, true);
+```
+
+Highlight CSS (injected by content script into the page, not Shadow DOM — it needs to apply to page elements):
+```css
+.annotator-highlighted {
+  outline: 2px solid #E040FB !important;
+  outline-offset: 2px !important;
+  cursor: crosshair !important;
+  box-sizing: border-box !important;
+}
+```
+
+**When annotation mode exits:** Remove `annotator-highlighted` from any currently highlighted element, set `annotationModeActive = false`, set `popoverOpen = false`.
+
+---
+
+### 6.7 Popover Implementation
+
+#### DOM Structure
+
+The popover is a separate Shadow DOM host appended to `<body>` (not inside the toolbar's shadow root, to avoid stacking context and positioning constraints):
+
+```javascript
+const popoverHost = document.createElement('div');
+popoverHost.id = 'annotator-popover-host';
+const popoverShadow = popoverHost.attachShadow({ mode: 'closed' }); // store this ref
+document.body.appendChild(popoverHost);
+```
+
+Internal structure:
+```html
+<!-- inside popoverShadow -->
+<div class="popover">
+  <button class="close" aria-label="Close">&#x2715;</button>
+  <textarea
+    class="note-input"
+    maxlength="400"
+    placeholder="Add a note..."
+  ></textarea>
+  <div class="footer">
+    <button class="delete">Delete</button>
+    <span class="counter">0 / 400</span>
+    <button class="add" disabled>Add</button>
+  </div>
+</div>
+```
+
+**Positioning:** The popover is `position: fixed` (so it doesn't scroll away) with `z-index: 2147483646`. Position is calculated from the pin's screen coordinates:
+
+```javascript
+function positionPopover(pinScreenX, pinScreenY) {
+  const PIN_SIZE = 24;
+  const MARGIN = 8;
+  const pw = popover.offsetWidth || 280;  // measured or fallback
+  const ph = popover.offsetHeight || 160;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  const candidates = [
+    { left: pinScreenX + PIN_SIZE + MARGIN,  top: pinScreenY },                          // bottom-right of pin
+    { left: pinScreenX + PIN_SIZE + MARGIN,  top: pinScreenY - ph + PIN_SIZE },           // top-right
+    { left: pinScreenX - pw - MARGIN,        top: pinScreenY - ph + PIN_SIZE },           // top-left
+    { left: pinScreenX - pw - MARGIN,        top: pinScreenY },                           // bottom-left
+  ];
+
+  const pos = candidates.find(c =>
+    c.left >= 0 && c.top >= 0 &&
+    c.left + pw <= vw && c.top + ph <= vh
+  ) || candidates[0]; // fallback to first if all overflow
+
+  Object.assign(popoverHost.style, { left: pos.left + 'px', top: pos.top + 'px', position: 'fixed' });
+}
+```
+
+#### Character Counter
+
+```javascript
+noteInput.addEventListener('input', () => {
+  counter.textContent = `${noteInput.value.length} / 400`;
+  addBtn.disabled = noteInput.value.trim().length === 0;
+});
+```
+
+#### Click-Outside Detection
+
+The popover's click-outside detection must coexist with annotation mode's click interception. Since annotation mode already stops propagation on all page clicks (capturing phase), the click-outside handler must also use the capturing phase and run before annotation mode's handler:
+
+```javascript
+document.addEventListener('click', (e) => {
+  if (!popoverOpen) return;
+  if (e.composedPath().includes(popoverHost)) return; // click inside popover
+  closePopover(/* save= */ false);
+  // Don't call e.stopPropagation() here — let annotation mode's handler also run
+}, true);
+```
+
+`e.composedPath()` correctly traverses through Shadow DOM boundaries, so clicks inside the shadow root are detected.
+
+**Listener ordering:** Register the click-outside listener before the annotation mode click listener (registration order determines capture-phase order). Or use a single unified handler that checks popover state first.
+
+#### Delete Confirmation
+
+The delete button shows an inline confirmation inside the popover (not a browser `confirm()` dialog — those are blocked in some contexts and look native/jarring):
+
+1. First click on Delete: popover body text changes to "Delete this annotation? This cannot be undone." with **Confirm** and **Cancel** buttons
+2. Confirm: delete annotation from storage, close popover
+3. Cancel: restore normal popover view
+
+#### Focus Management
+
+```javascript
+function openPopover(annotation) {
+  // ... set content ...
+  popoverHost.style.display = 'block';
+  popoverOpen = true;
+  // Focus textarea after display (use requestAnimationFrame to ensure layout is complete)
+  requestAnimationFrame(() => noteInput.focus());
+}
+```
+
 ---
 
 ## 7. Cross-Tab Sync
@@ -682,26 +914,17 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 Last-write-wins. Two tabs writing simultaneously may overwrite each other's changes. This is explicitly accepted in requirements (§2 Multi-Tab Behavior). No optimistic locking, no CRDTs, no merge strategy.
 
-### 7.4 Own-Write Deduplication
+### 7.4 Own-Write Handling
 
-When the current tab writes to storage, `onChanged` fires in the **same tab too**. To avoid redundant re-renders:
+When the current tab writes to storage, `onChanged` fires in the **same tab too**. The `suppressNextChange` boolean + `setTimeout` approach that was considered here is fragile: two rapid writes within the timeout window cause the flag to clear too early, and the timeout window is arbitrary.
 
-```javascript
-let suppressNextChange = false;
+**Decision: don't suppress own-write events.** Instead, make `refreshPinsFromStorage` idempotent so that re-processing the same state is a no-op:
 
-function writeAnnotations(data) {
-  suppressNextChange = true;
-  chrome.storage.local.set(data, () => {
-    // The onChanged listener will fire, but we suppress it
-    setTimeout(() => { suppressNextChange = false; }, 100);
-  });
-}
+- Pins already rendered with the correct position/note are not re-created (diff logic in §7.2: "Pins in both → update note only if changed")
+- Toolbar button states are set to the same values they already have
+- There is no visible flicker or user-facing side effect from processing an own-write
 
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (suppressNextChange) return;
-  // ... refresh
-});
-```
+This is the simpler and more correct approach. No suppression mechanism needed.
 
 ---
 
@@ -752,7 +975,9 @@ File selected via <input type="file">
   │   ├─ Show filename above buttons
   │   └─ Show page-level alert if unresolved pins exist
   │
-  └─ [activate annotation mode] (auto-enter per §1.4)
+  ├─ [activate annotation mode] (auto-enter per §1.4)
+  │
+  └─ [reset file input] input.value = '' — allows re-selection of same file on error or retry
 ```
 
 ### 8.2 File Reading
@@ -796,8 +1021,23 @@ function validateSchema(doc) {
 
   const pinNumbers = new Set();
   for (const ann of doc.annotations) {
-    if (!ann.pin_number || !ann.page_url || !ann.note || !ann.fingerprint || !ann.offset)
+    // Type-check required fields (presence + type)
+    if (!Number.isInteger(ann.pin_number) || ann.pin_number < 1)
+      throw new ImportError('WRONG_SCHEMA');  // pin_number must be a positive integer
+    if (typeof ann.page_url !== 'string' || !ann.page_url)
       throw new ImportError('WRONG_SCHEMA');
+    if (typeof ann.note !== 'string')          // allow empty string — don't use !ann.note
+      throw new ImportError('WRONG_SCHEMA');
+    if (!ann.fingerprint || typeof ann.fingerprint !== 'object')
+      throw new ImportError('WRONG_SCHEMA');
+    if (typeof ann.fingerprint.css_selector !== 'string' ||
+        typeof ann.fingerprint.xpath !== 'string' ||
+        typeof ann.fingerprint.text_snippet !== 'string' ||
+        typeof ann.fingerprint.tag_name !== 'string')
+      throw new ImportError('WRONG_SCHEMA');  // validate all fingerprint sub-fields
+    if (!ann.offset || typeof ann.offset.x !== 'number' || typeof ann.offset.y !== 'number')
+      throw new ImportError('WRONG_SCHEMA');  // offset x/y must be numbers
+
     if (pinNumbers.has(ann.pin_number))
       throw new ImportError('DUPLICATE_PINS');
     pinNumbers.add(ann.pin_number);
@@ -833,6 +1073,17 @@ const ERROR_MESSAGES = {
 ```
 
 Errors are displayed in the toolbar's notification area (above the buttons), styled red for errors and yellow for warnings. The notification auto-clears after 8 seconds or on the next user action.
+
+**Timer management:** Use a single `let notifTimer = null` in the notification module. Clear any existing timer before setting a new one to prevent an old timer from clearing a newer message:
+
+```javascript
+let notifTimer = null;
+function showNotification(msg, style) {
+  clearTimeout(notifTimer);           // cancel previous auto-clear
+  setNotificationContent(msg, style);
+  notifTimer = setTimeout(() => clearNotification(), 8000);
+}
+```
 
 ---
 
@@ -886,6 +1137,25 @@ function serialiseToYAML(doc) {
     schema: yaml.JSON_SCHEMA,
   });
 }
+```
+
+**Field order:** With `sortKeys: false`, output field order matches JS object property insertion order. Build the doc object and each annotation object in the exact order shown in §3.1 to ensure output matches the documented schema example:
+
+```javascript
+const ann = {
+  pin_number: a.pinNumber,
+  page_url: a.pageUrl,
+  note: a.note,
+  fingerprint: {
+    css_selector: a.fingerprint.cssSelector,
+    xpath: a.fingerprint.xpath,
+    text_snippet: a.fingerprint.textSnippet,
+    tag_name: a.fingerprint.tagName,
+    // boundingBox intentionally excluded from export
+  },
+  offset: { x: a.offset.x, y: a.offset.y },
+  created_at: a.createdAt,
+};
 ```
 
 ### 9.4 Download Trigger
