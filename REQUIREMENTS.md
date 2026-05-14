@@ -76,6 +76,12 @@ The exported YAML file must contain the following. Exact schema and field names 
 ### 1.5 Managing Annotations
 - [ ] User can edit an individual annotation
 - [ ] User can delete an individual annotation
+- [ ] User can delete all annotations at once via a **Delete All** button in the toolbar
+  - Requires a confirmation dialog before proceeding
+  - Deletes all annotations across all pages of the current domain
+  - If a file was imported, the in-extension annotations are cleared — but the original file on the user's device is untouched
+  - After deletion: toolbar returns to its default empty state (filename indicator gone, Export disabled)
+- [ ] All annotation changes (add, edit, delete, delete all) are **auto-saved immediately** — there is no manual save step
 
 ---
 
@@ -90,6 +96,24 @@ The exported YAML file must contain the following. Exact schema and field names 
 - Clicking elements in annotation mode does not trigger the page's native click behavior
 - Fast — annotation interactions feel instant (no lag)
 - Chrome desktop only (v1)
+
+### Permissions
+- The extension requests permission to run on **all websites** at install time — no per-site prompts after that
+- After initial permission grant, the extension toolbar injects directly into the page — no intermediate popup
+- The extension icon click: shows a permission prompt only on first use (or if permission was revoked); otherwise injects the toolbar directly into the page
+
+### Security
+- The extension must **never transmit any user data outside the device** — no network calls, no analytics, no telemetry
+- All data stays local: annotation storage, export files, and import processing all happen entirely on-device
+- The extension must not inject or execute any remotely-loaded scripts
+- The extension must request only the minimum permissions required to function
+- The codebase will be open-source — the implementation must be auditable and free of obfuscation
+
+### SPA & Navigation Resilience
+- The extension must survive **SPA-style navigation** — URL changes that happen without a full page reload (common in React, Vue, Angular apps like Figma, Notion, Twitter)
+- When the URL changes via client-side routing, the extension must: detect the URL change, hide pins from the previous page, and show pins for the new page (if any)
+- The toolbar must persist across SPA navigations without requiring the user to re-open the extension
+- The extension must also handle standard page navigations (full reloads) correctly
 
 ### Storage
 - Annotations must persist across browser close and reopen — they survive indefinitely until the user deletes them or uninstalls the extension
@@ -119,9 +143,11 @@ The exported YAML file must contain the following. Exact schema and field names 
 
 ### 3.3 Floating Toolbar
 - [ ] A floating toolbar appears in the bottom-right corner of the page when the extension is active
-- [ ] Toolbar buttons: **Start Annotating** | **Export** | **Upload**
+- [ ] Toolbar buttons: **Start Annotating** | **Export** | **Upload** | **Delete All**
 - [ ] When in annotation mode: toolbar shows **Exit** button instead of Start Annotating; Export button remains
 - [ ] Export button is disabled (greyed out) when there are no annotations; enabled when at least one exists
+- [ ] Delete All button is disabled when there are no annotations; enabled when at least one exists
+- [ ] Clicking Delete All shows a confirmation dialog: "Delete all X annotations? This cannot be undone." Confirm/Cancel
 - [ ] When a file is loaded via import: toolbar displays the filename above the buttons
 - [ ] When annotations are modified after import: filename indicator disappears
 - [ ] Errors appear in **red** above the toolbar
@@ -136,8 +162,8 @@ The exported YAML file must contain the following. Exact schema and field names 
 
 1. User opens any website in Chrome
 2. User clicks the Extensions icon (puzzle piece, top right) and opens **Annotator**
-3. If the extension hasn't been granted permission to run on this page, it prompts for it
-4. Once permitted, a floating toolbar appears in the bottom-right corner with three buttons: **Start Annotating**, **Export** (disabled), **Upload**
+3. On first ever use: Chrome shows a one-time permission prompt — "Allow Annotator on all websites?" — user approves
+4. After permission is granted (first time or already granted): the floating toolbar appears in the bottom-right corner with four buttons: **Start Annotating**, **Export** (disabled), **Upload**, **Delete All** (disabled)
 5. User clicks **Start Annotating** — annotation mode activates
    - Toolbar updates: **Start Annotating** becomes **Exit**; Export remains disabled
    - Hovering over page elements highlights them with an outline
@@ -150,8 +176,9 @@ The exported YAML file must contain the following. Exact schema and field names 
 9. User clicks **Exit** — leaves annotation mode
    - Pins disappear; the page returns to normal behavior
    - Annotations are saved in the background
-10. User navigates to another page on the same domain
-    - The toolbar reappears. No pins are visible (not in annotation mode)
+10. User navigates to another page on the same domain (standard link or SPA navigation)
+    - The toolbar persists automatically — no need to re-open the extension
+    - No pins are visible (not in annotation mode)
     - User clicks **Start Annotating** — pin numbering continues from where it left off (e.g. starts at 5)
 11. User annotates more elements on this page
 12. User clicks **Export** → browser downloads `annotations-{domain}.yaml` containing all annotations across all pages visited
@@ -160,8 +187,8 @@ The exported YAML file must contain the following. Exact schema and field names 
 
 1. User opens the same website in Chrome
 2. User opens **Annotator** from the Extensions menu
-3. Permission is requested if not already granted
-4. Floating toolbar appears with **Start Annotating**, **Export** (disabled), **Upload**
+3. Permission is requested if not already granted (first use only)
+4. Floating toolbar appears with **Start Annotating**, **Export** (disabled), **Upload**, **Delete All** (disabled)
 5. User clicks **Upload** → native file picker opens
 6. User selects the `.yaml` annotation file received from the first user
 7. Extension validates and loads the file:
