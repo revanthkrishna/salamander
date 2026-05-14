@@ -109,11 +109,13 @@ The exported YAML file must contain the following. Exact schema and field names 
 - The extension must request only the minimum permissions required to function
 - The codebase will be open-source — the implementation must be auditable and free of obfuscation
 
-### SPA & Navigation Resilience
-- The extension must survive **SPA-style navigation** — URL changes that happen without a full page reload (common in React, Vue, Angular apps like Figma, Notion, Twitter)
-- When the URL changes via client-side routing, the extension must: detect the URL change, hide pins from the previous page, and show pins for the new page (if any)
-- The toolbar must persist across SPA navigations without requiring the user to re-open the extension
-- The extension must also handle standard page navigations (full reloads) correctly
+### Toolbar Activation & Persistence
+- The toolbar is **on-demand** — it only appears when the user explicitly clicks the extension icon on a tab
+- The toolbar does not appear automatically on any website, even if the user has previously annotated that domain
+- Each tab is independent — opening the same domain in a new tab requires clicking the extension icon again on that tab
+- Once activated on a tab, the toolbar persists for the lifetime of that tab — including across SPA-style navigations (URL changes without a full page reload)
+- On SPA navigation within an active tab: the toolbar remains visible, annotation mode resets to off, and pins update to reflect the new page's annotations
+- On full page reload or standard navigation: the toolbar disappears (page fully reloads) and the user must click the extension icon again to reactivate
 
 ### Storage
 - Annotations must persist across browser close and reopen — they survive indefinitely until the user deletes them or uninstalls the extension
@@ -126,7 +128,10 @@ The exported YAML file must contain the following. Exact schema and field names 
 ## 3. UX / UI Requirements
 
 ### 3.1 Annotation Mode
-- [ ] Entering annotation mode: all native element click behaviors are suppressed
+- [ ] Entering annotation mode: all native element click behaviors are suppressed — the page cannot be interacted with via clicks
+- [ ] Scrolling continues to work normally in annotation mode
+- [ ] To navigate to another page, the user must first exit annotation mode, then click links normally
+- [ ] Annotation mode does not persist across page navigations — arriving on a new page always starts in normal (non-annotation) mode
 - [ ] Hovering over an element highlights it with a visible outline to indicate it is selectable
 - [ ] Clicking a non-annotated element opens a comment popover anchored near the click point (Figma-style)
 - [ ] Popover contains: text input (max 400 chars) + character counter + "Add" button + cancel/close
@@ -173,13 +178,13 @@ The exported YAML file must contain the following. Exact schema and field names 
    - A round magenta pin numbered **1** appears anchored to that element
    - Export button becomes enabled
 8. User continues annotating more elements → pins are numbered sequentially (2, 3, 4…)
-9. User clicks **Exit** — leaves annotation mode
-   - Pins disappear; the page returns to normal behavior
-   - Annotations are saved in the background
-10. User navigates to another page on the same domain (standard link or SPA navigation)
-    - The toolbar persists automatically — no need to re-open the extension
-    - No pins are visible (not in annotation mode)
-    - User clicks **Start Annotating** — pin numbering continues from where it left off (e.g. starts at 5)
+9. User clicks **Exit** — leaves annotation mode. Pins disappear; page returns to normal behavior. Annotations are auto-saved.
+10. User clicks a link and navigates to another page on the same domain
+    - If it's an SPA navigation: toolbar remains, annotation mode is off, no pins visible
+    - If it's a full page reload: toolbar disappears; user clicks the extension icon again to reactivate
+12. User clicks **Start Annotating** — pin numbering continues from where it left off (e.g. starts at 5)
+13. User annotates more elements on this page
+14. User clicks **Export** → browser downloads `annotations-{domain}.yaml` containing all annotations across all pages visited
 11. User annotates more elements on this page
 12. User clicks **Export** → browser downloads `annotations-{domain}.yaml` containing all annotations across all pages visited
 
