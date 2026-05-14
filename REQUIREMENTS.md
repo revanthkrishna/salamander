@@ -72,6 +72,12 @@ On import, the extension attempts to locate each element in order:
 - Fast — annotation interactions feel instant (no lag)
 - Chrome desktop only (v1)
 
+### Storage
+- Annotations must persist across browser close and reopen — they survive indefinitely until the user deletes them or uninstalls the extension
+- Storage is local to the device and Chrome profile — no sync across devices in v1
+- The storage mechanism must support at least 8MB of annotation data
+- Suggestion: `chrome.storage.local` is a strong candidate — it meets all the above requirements (local, persistent, ~10MB default limit). Final storage implementation decision to be made during technical design.
+
 ---
 
 ## 3. UX / UI Requirements
