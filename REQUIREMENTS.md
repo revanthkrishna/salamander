@@ -4,6 +4,11 @@
 
 ---
 
+## Definition: "Active"
+The extension is considered **active** on a page when the floating toolbar is visible. The extension is inactive when the toolbar is not shown (e.g. on a new tab before the user clicks the extension icon).
+
+---
+
 ## Status: 🟡 Draft — In Progress
 
 ---
@@ -18,7 +23,9 @@
 - [ ] User can delete an existing annotation
 - [ ] Annotations persist across page reloads (within the same session/browser)
 - [ ] Annotations are numbered globally and continuously across all pages of a domain (e.g. pins 1–3 on page A, pins 4–6 on page B)
-- [ ] Annotation numbering continues from the highest used number — gaps from deletions are not backfilled
+- [ ] Annotation numbering always continues from the **highest pin number currently in storage** — this applies whether pins were created by the user or imported from a file
+- [ ] Gaps from deletions are not backfilled (e.g. if pins 1, 2, 4, 7 exist, the next pin is 8)
+- [ ] On import: if the file contains pins 1–20, the next annotation the user creates is pin 21 — regardless of gaps in the file (e.g. file has 1, 2, 4, 7 → next pin is 8)
 
 ### 1.2 Element Targeting (How Annotations Attach to Elements)
 
@@ -62,6 +69,7 @@ The exported YAML file must contain the following. Exact schema and field names 
   - Page URL (base URL only — no query params or fragments)
   - Annotation text
   - Element fingerprint: CSS selector, XPath, text content snippet (~50 chars), element tag name
+  - Pin position: click offset relative to the element's top-left corner (x, y in pixels)
 
 **Readability standard:** The file should be readable and debuggable by a developer. It does not need to be friendly to non-technical users. Field names should be self-explanatory (e.g. `pin_number` not `pn`).
 
@@ -132,19 +140,28 @@ The exported YAML file must contain the following. Exact schema and field names 
 - [ ] To navigate to another page, the user must first exit annotation mode, then click links normally
 - [ ] Hovering over an element highlights it with a visible outline to indicate it is selectable
 - [ ] Clicking a non-annotated element opens a comment popover anchored near the click point (Figma-style)
-- [ ] Popover contains: text input (max 400 chars) + character counter + "Add" button + cancel/close
-- [ ] Clicking "Add" saves the annotation, closes the popover, and places a pin on the element
-- [ ] Clicking an existing pin in annotation mode shows the annotation text and options to edit or delete
+- [ ] Clicking an existing pin opens the same popover pre-filled with the annotation's current text
 
-### 3.2 Annotation Display
+### 3.2 Annotation Popover
+- [ ] Popover layout:
+  - Top right: **Close (✕)** button — closes popover without saving, annotation unchanged
+  - Bottom left: **Delete** button — deletes the annotation after confirmation
+  - Bottom right: **Add** button — saves the annotation (same label for both create and edit)
+- [ ] The **Add** button is disabled when the text input is empty
+- [ ] Text input has a max of 400 characters
+- [ ] A character counter is always visible (e.g. "240 / 400") — shown during both creation and editing
+- [ ] Closing the popover via ✕ or clicking outside discards any unsaved changes
+- [ ] Popover default position: bottom-right of the pin
+- [ ] Overflow handling priority: if bottom-right overflows the viewport, try top-right → top-left → bottom-left
+
+### 3.3 Annotation Display
 - [ ] Pins are **only visible in annotation mode** — when annotation mode is off, pins are hidden and the page behaves normally
 - [ ] Annotations are shown as round magenta/pink pins
 - [ ] Each pin displays its annotation number
-- [ ] Pins are anchored to the annotated element (top-left corner or closest visible edge)
-- [ ] Pins scroll with the page — they move as the user scrolls, staying attached to their elements
+- [ ] **Pin placement:** the pin appears at the exact point where the user clicked on the element. The position is stored as an (x, y) offset relative to the element's top-left corner. When the element moves (scroll, reflow, resize), the pin recalculates its screen position as: element's current top-left + stored offset. The pin always stays at the same visual point on the element.
 - [ ] Pin overlap is possible; no automatic collision avoidance in v1
 
-### 3.3 Floating Toolbar
+### 3.4 Floating Toolbar
 - [ ] A floating toolbar appears in the bottom-right corner of the page when the extension is active
 - [ ] Toolbar buttons: **Start Annotating** | **Export** | **Upload** | **Delete All**
 - [ ] When in annotation mode: toolbar shows **Exit** button instead of Start Annotating; Export button remains
