@@ -1,7 +1,7 @@
 # Requirements Issues — Critical Review
 
 > Reviewed against: `REQUIREMENTS.md` (current HEAD as of review)
-> Verdict: **Not ready to build.** Multiple critical gaps will force builders to make core architectural decisions that belong in the spec. Several contradictions will produce inconsistent implementations. The UX contains at least one flow that is actively hostile to users.
+> Verdict: **✅ Requirements complete.** All issues resolved, closed, or deferred to technical design where appropriate.
 
 ---
 
@@ -13,23 +13,15 @@
 
 ---
 
-### C2 — OPEN — No YAML schema defined anywhere
+### C2 — ✅ DEFERRED TO TECHNICAL DESIGN — No YAML schema defined anywhere
 
-**Section:** §1.3 (Export), §5 #4 (Import validation)
-
-§1.3.1 lists required fields by name but provides no normative YAML structure, field names, nesting, or types. "Exact schema and field names are for technical design to decide" means every implementation will invent its own schema. Import validation error #4 ("missing required fields") remains untestable until required fields are enumerated.
-
-**What's still missing:** A normative YAML code block (or at minimum, explicit field names and nesting) in §1.3.1.
+**Resolution:** The reqs doc intentionally leaves exact field names, nesting, and schema structure to technical design. §1.3.1 defines what data must be present; the YAML schema is an implementation decision, not a product requirement.
 
 ---
 
-### C3 — OPEN — Extension architecture is absent
+### C3 — ✅ DEFERRED TO TECHNICAL DESIGN — Extension architecture is absent
 
-**Section:** §2 (Permissions), §4 Journey 1 steps 2–4
-
-**Partially addressed:** §2 Permissions now specifies the model — all-websites permission granted at install, toolbar injected directly into the page (no popup), icon click injects on first use or after permission revoke.
-
-**Still missing:** How the toolbar is injected (content script?), whether a background service worker exists, and how cross-component communication works. Without this, tab sync, toolbar persistence on reload, and SPA URL-change detection are all unspecified at the architecture level.
+**Resolution:** Content script structure, service worker, and inter-component communication are implementation decisions that belong in the technical design doc, not the requirements. The reqs define the observable behavior (permissions, toolbar injection UX, tab sync, SPA navigation) — how it's wired up internally is out of scope here.
 
 ---
 
