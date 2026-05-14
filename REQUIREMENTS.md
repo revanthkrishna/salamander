@@ -42,7 +42,7 @@ On import, the extension attempts to locate each element in order:
 1. Try CSS selector — if found and unique, use it
 2. Try XPath — if found, use it
 3. Try text content match — find element with matching tag + text
-4. If none match: annotation is silently unresolved (no pin placed)
+4. If none match: annotation is unresolved — no pin placed. This contributes to the page-level resolution alert (see §3.4)
 
 **Known limitation (v1):** Highly dynamic pages (React/SPA apps with auto-generated class names or no stable IDs) may produce fragile selectors. Annotations on such elements may fail to resolve on re-import. This is accepted as a v1 limitation.
 
@@ -75,7 +75,9 @@ The exported YAML file must contain the following. Exact schema and field names 
 
 ### 1.4 Importing
 - [ ] User can import an annotation file via a file picker
+- [ ] On successful import, the extension **automatically enters annotation mode** on the current page
 - [ ] Extension applies annotations to the correct elements on the current page (and stores the rest for other pages in the domain)
+- [ ] On export, **all stored annotations are included** — not just those for the currently-visited page. Annotations for pages the user has not visited since importing are preserved in storage and included in the export. Importing then re-exporting a file produces a complete round-trip with no data loss.
 - [ ] Only one file can be active at a time — importing a new file replaces the current state entirely
 - [ ] The toolbar displays the active filename to indicate a file is loaded
 - [ ] If the user edits, adds, or deletes any annotation after importing, the filename indicator is removed (unsaved/modified state)
@@ -117,6 +119,12 @@ The exported YAML file must contain the following. Exact schema and field names 
 - The extension must request only the minimum permissions required to function
 - The codebase will be open-source — the implementation must be auditable and free of obfuscation
 
+### Multi-Tab Behavior
+- Annotations written on one tab are **immediately visible on other tabs** open on the same domain
+- When the user switches to another tab on the same domain, that tab's pins reflect the latest stored state (including any annotations added on other tabs)
+- `chrome.storage.onChanged` events should be used to keep all active tabs in sync
+- Last-write-wins for concurrent edits across tabs (no merge strategy needed in v1)
+
 ### Toolbar Activation & Persistence
 - The toolbar is **on-demand** — it only appears when the user explicitly clicks the extension icon on a tab
 - The toolbar does not appear automatically on any website, even if the user has previously annotated that domain
@@ -128,6 +136,7 @@ The exported YAML file must contain the following. Exact schema and field names 
 - Annotations must persist across browser close and reopen — they survive indefinitely until the user deletes them or uninstalls the extension
 - Storage is local to the device and Chrome profile — no sync across devices in v1
 - The storage mechanism must support at least 8MB of annotation data
+- Storage quota handling and quota-exceeded errors are **out of scope for v1** — no special behavior required when storage limits are reached
 - Suggestion: `chrome.storage.local` is a strong candidate — it meets all the above requirements (local, persistent, ~10MB default limit). Final storage implementation decision to be made during technical design.
 
 ---
@@ -141,6 +150,7 @@ The exported YAML file must contain the following. Exact schema and field names 
 - [ ] Hovering over an element highlights it with a visible outline to indicate it is selectable
 - [ ] Clicking a non-annotated element opens a comment popover anchored near the click point (Figma-style)
 - [ ] Clicking an existing pin opens the same popover pre-filled with the annotation's current text
+- [ ] **Import triggers annotation mode:** when a file is successfully imported, annotation mode is automatically entered on the current page (consistent with §1.4)
 
 ### 3.2 Annotation Popover
 - [ ] Popover layout:
@@ -173,6 +183,20 @@ The exported YAML file must contain the following. Exact schema and field names 
 - [ ] Errors appear in **red** above the toolbar
 - [ ] Warnings appear in **yellow** above the toolbar
 - [ ] Messages/notices appear in a neutral style above the toolbar
+
+#### Import Resolution Alerts (below filename, page-level)
+After a file is successfully imported, the toolbar shows a page-level alert **directly below the filename** indicating how many annotations could be placed on the current page. This alert updates automatically whenever the user navigates to a new page.
+
+| Scenario | Alert | Style |
+|----------|-------|-------|
+| All annotations for this page resolved successfully | No alert shown | — |
+| No annotations in the file target this page | No alert shown | — |
+| Annotations exist for this page but **some** couldn't be placed | "X of Y annotations couldn't be placed on this page." | 🟡 Yellow |
+| Annotations exist for this page but **none** could be placed | "None of the annotations could be placed on this page." | 🔴 Red |
+
+- These alerts are **per-page** — they reflect the resolution result for the current page only
+- On navigation to a new page, the alert is recalculated and updated for that page
+- These alerts are separate from import-time errors (wrong file type, domain mismatch, etc.) which appear above the toolbar and reject the file
 
 ---
 
@@ -227,20 +251,26 @@ The exported YAML file must contain the following. Exact schema and field names 
 
 Errors appear in **red above the toolbar**. Warnings in **yellow above the toolbar**. Never silent failures, never crashes.
 
+**Two distinct patterns are used:**
+- **Error/Warning messages** — passive inline text shown above the toolbar. Used when the file is rejected or something went wrong.
+- **Confirmation dialogs** — blocking modal with Confirm/Cancel buttons. Used when the action is valid but destructive (would overwrite or discard existing data). Same modal pattern as the Delete All confirmation in §1.5. The user must explicitly confirm before the import proceeds; cancelling leaves the current state untouched.
+
 | # | Error Case | Type | Behavior |
 |---|------------|------|----------|
 | 1 | Wrong file type (not `.yaml` or `.yml`) | 🔴 Error | "Invalid file type. Please upload a `.yaml` annotation file." File rejected. |
 | 2 | File is empty | 🔴 Error | "This file is empty. Nothing to import." |
 | 3 | File is not valid YAML (corrupted or malformed) | 🔴 Error | "Could not read this file — it appears to be corrupted or incorrectly formatted." |
 | 4 | Valid YAML but wrong schema (missing required fields) | 🔴 Error | "This file doesn't look like an Annotator file. Please check you're uploading the right file." |
-| 5 | Domain mismatch — file is from a different website | 🔴 Error | "This file contains annotations for `{other-domain}`. You're on `{current-domain}`. Import is not allowed." No proceed option. |
+| 5 | Domain mismatch — file is from a different website | 🔴 Error | "This file contains annotations for `{other-domain}`, but you're currently on `{current-domain}`." Shown as a red alert above the toolbar. File rejected — no proceed option. |
 | 6 | File version mismatch (future-proofing) | 🟡 Warning | "This file was created with a newer version of Annotator. Some annotations may not display correctly." Import proceeds. |
-| 7 | Domain matches but no annotations apply to the current page | ℹ️ Silent | Import succeeds. Toolbar shows filename. No pins appear on this page. Pins will appear on matching pages when navigated to. |
-| 8 | File has annotations but zero elements could be resolved on the current page | 🟡 Warning | "Annotations were loaded, but we couldn't find the annotated elements on this page. The page may have changed." |
-| 9 | File partially resolves — some elements found, some not | 🟡 Warning | "Some annotations couldn't be placed — the page may have changed since this file was created." Resolved pins shown; unresolved ones silently skipped. |
+| 7 | Domain matches but no annotations in the file target the current page | ℹ️ Silent | Import succeeds. Toolbar shows filename. No pins appear on this page (expected). No alert shown. Pins appear when user navigates to pages that have annotations. |
+| 8 | File has annotations for this page but **zero** elements could be resolved | 🔴 Alert (toolbar, below filename) | "None of the annotations could be placed on this page." Shown in red below filename. Updates per-page on navigation. |
+| 9 | File has annotations for this page and **some** (but not all) elements resolved | 🟡 Alert (toolbar, below filename) | "X of Y annotations couldn't be placed on this page." Shown in yellow below filename. Resolved pins are shown; unresolved ones skipped. Updates per-page on navigation. |
 | 10 | File has no annotations (empty list) | 🔴 Error | "This file exists but contains no annotations." |
-| 11 | User already has annotations → uploads a file | 🔴 Confirm | "Uploading a file will replace your current X annotation(s). Continue?" Confirm/Cancel. If confirmed, current annotations wiped and file loaded. |
-| 12 | User has unsaved changes (post-import edits) → uploads another file | 🔴 Confirm | "You have unsaved changes. Uploading a new file will discard them. Continue?" Confirm/Cancel. |
+| 13 | Import file exceeds 8MB | 🔴 Error | "This file is too large to import (max 8MB)." File rejected. |
+| 14 | Duplicate pin numbers in imported file | 🔴 Error | "This file appears to be corrupted (duplicate pin numbers detected)." Shown as a red error above the toolbar. File rejected. |
+| 11 | User already has annotations → uploads a file | 💬 Confirmation dialog | "Uploading this file will replace your current X annotation(s). This cannot be undone. Continue?" Confirm/Cancel. If confirmed, current annotations wiped and file loaded. If cancelled, nothing changes. |
+| 12 | User has unsaved changes (post-import edits) → uploads another file | 💬 Confirmation dialog | "You have unsaved changes. Uploading a new file will discard them. This cannot be undone. Continue?" Confirm/Cancel. If confirmed, proceed with import. If cancelled, nothing changes. |
 
 ---
 
@@ -256,11 +286,19 @@ Errors appear in **red above the toolbar**. Warnings in **yellow above the toolb
 | 6 | User tries to annotate inside an `<iframe>` | Out of scope v1. Iframes are not selectable. No highlight on hover. |
 | 7 | URL includes query params or fragments | Params and fragments are stripped. Base URL only is stored and matched. |
 | 8 | HTTP vs HTTPS same page | Treated as the same URL — normalized to HTTPS. |
+| 14 | Trailing slash in URL | `example.com/page` and `example.com/page/` are treated as the **same URL** — trailing slash is stripped during normalization. |
+| 15 | URL case sensitivity | URLs are treated as **case-sensitive** — `example.com/Page` and `example.com/page` are different pages. Only the scheme and hostname are lowercased; the path preserves its original case. |
+| 16 | www prefix | `www.example.com` and `example.com` are treated as the **same domain** — the `www.` prefix is stripped during normalization. Other subdomains (e.g. `app.example.com`, `aws.amazon.com`) are treated as distinct domains. |
+| 17 | Port numbers in URL | Port numbers are **ignored** for v1 — `example.com:8080` and `example.com` are treated as the same domain. |
+| 18 | Extension icon clicked while toolbar is already visible | Toolbar stays open. No toggle, no duplicate injection. Clicking the icon again does nothing if the toolbar is already active on that tab. |
+| 19 | Annotating a page behind authentication | If the recipient doesn't have access, the page content will differ from the sharer's — elements won't be found, triggering the standard page-level resolution alert (red: "None of the annotations could be placed on this page."). No special handling needed beyond existing error cases. |
+| 20 | Fixed-position elements (sticky headers, fixed navbars) | Pins must remain correctly anchored to their element as the user scrolls. Pin position calculation must account for `position: fixed` elements — use viewport-relative coordinates (`getBoundingClientRect`) rather than document-relative offsets when rendering pins on fixed elements. |
+| 21 | YAML file character encoding | Export files must be written as **UTF-8**. This ensures annotation text containing emoji, CJK characters, RTL text, or other non-ASCII content round-trips correctly. The import parser must also read files as UTF-8. |
 | 9 | User annotates a dynamic element (modal, dropdown) not always in DOM | Selector captured at annotation time. On import, if element not in DOM, annotation is silently skipped. |
 | 10 | Pin overlaps another pin or page UI | Possible in v1. No collision detection. Future improvement candidate. |
 | 11 | Annotation text reaches 400 char limit | Input is capped at 400 chars. Character counter shown in popover. |
 | 12 | Export filename collision | Browser handles natively (appends `(1)`, `(2)`, etc.). No special handling needed. |
-| 13 | Dynamic/SPA page (React, Vue, etc.) | Accepted v1 limitation. Multi-signal fingerprint used best-effort. If resolution fails on import, annotation silently skipped. No special warning per annotation. |
+| 13 | Dynamic/SPA page (React, Vue, etc.) | Accepted v1 limitation. Multi-signal fingerprint used best-effort. If individual annotations fail to resolve, they are silently skipped — but the page-level alert (§3.4) will reflect the count of unresolved annotations. |
 
 ---
 
@@ -268,7 +306,7 @@ Errors appear in **red above the toolbar**. Warnings in **yellow above the toolb
 
 - Real-time collaboration
 - Cloud sync or backend
-- Multi-tab annotation on the same domain simultaneously (v1 assumes single-tab use; concurrent multi-tab edits may cause conflicts)
+- Multi-tab conflict resolution (last-write-wins is acceptable in v1; no merge strategy needed)
 - Comment threads / replies
 - Multiple files active simultaneously / file merging
 - Mobile / non-Chrome browsers
