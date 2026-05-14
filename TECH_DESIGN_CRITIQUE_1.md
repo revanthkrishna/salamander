@@ -1,279 +1,157 @@
-# TECH_DESIGN_CRITIQUE_1.md — Senior Engineer Review
+# Annotator Tech Design — Senior Engineer Critique #1
 
+> **Author:** Senior engineer review (automated)  
 > **Date:** 2026-05-14  
-> **Reviewer:** Senior Engineer (AI review pass)  
-> **Document reviewed:** `TECH_DESIGN.md` v1.0 Draft  
-> **Requirements reviewed:** `REQUIREMENTS.md`
+> **Design reviewed:** TECH_DESIGN.md v1.0  
+> **Status:** Changes applied. See bottom of this file for full diff summary.
 
 ---
 
 ## Overall Assessment
 
-The design is solid in structure and covers the happy path well. Architecture choices are sound (MV3, `chrome.storage.local`, Shadow DOM for toolbar, on-demand injection). The YAML schema is clean and normative. The import pipeline logic is thorough.
+Solid design. The architecture decisions are mostly correct — Shadow DOM for toolbar, on-demand injection, `chrome.storage.local`, esbuild, no `downloads` permission, idempotent own-write handling. The trade-offs section shows the author thought through the alternatives. This design is 85% ready to hand to a developer.
 
-However, there are **several implementation-blocking gaps** — particularly around tab ID acquisition, storage concurrency, missing UI sections (popover, annotation mode mechanics), and SPA navigation edge cases. If an engineer starts building from this document, they will hit these gaps and either make a bad decision or block.
-
-Issues are categorized: **Critical** (blocks implementation or silently produces wrong behavior), **Significant** (causes bugs or implementation confusion), **Minor** (polish, potential future pain).
+There are two genuine bugs that would have shipped broken behavior, a handful of implementation gaps that would have caused confusion or incorrect code, and one dead abstraction (`boundingBox` in storage) that should just be deleted. None of this requires redesigning anything. These are surgical fixes.
 
 ---
 
-## Critical Issues
+## Critical Bugs
 
-### C1: Content script cannot self-identify its tab ID
+### Bug 1: `beforeunload` cleanup kills reload persistence (§6.3)
 
-**Location:** §2.6, §6.1, §6.3
+**This is a logic error that directly contradicts itself in the same section.**
 
-The design says the content script "registers its tab ID in `activeTabIds`." But content scripts in MV3 have no reliable way to get their own tab ID. `chrome.tabs.getCurrent()` is unreliable in content scripts and returns `undefined` when called from a background-injected script. The content script needs this ID to manage `activeTabIds`.
+The design says:
+1. `beforeunload` fires → content script calls `chrome.storage.local.remove('activeTab:' + myTabId)`
+2. `chrome.tabs.onUpdated` fires with `status === 'complete'` → background checks `activeTab:{tabId}` → if present, re-injects
 
-**Fix:** The background knows the tab ID at injection time. It must pass the tab ID to the content script — either as part of the `{ type: "ACTIVATE", tabId }` message (for icon-click injection), or by having the background respond to the PING with `{ alive: true, tabId }`. The content script stores this locally as `let myTabId`.
+These two steps cannot coexist. `beforeunload` fires *before* the new page loads. By the time `onUpdated` fires with `status: 'complete'`, the key is already gone. The background finds nothing and does not re-inject. Reload persistence is silently broken.
 
-The design has been updated to reflect this.
+The `beforeunload` handler should never touch `activeTab:{tabId}`. The key must persist through navigations. Only two things should clean it up: `chrome.tabs.onRemoved` (tab explicitly closed) and the startup stale-key sweep.
 
----
-
-### C2: `activeTabIds` shared array has a read-modify-write race condition
-
-**Location:** §2.2, §2.6, §6.3
-
-Multiple tabs doing `get("activeTabIds")` → mutate → `set("activeTabIds")` concurrently will clobber each other. `chrome.storage.local` is not transactional. Tab A and Tab B can both read `[1, 2]`, Tab A writes `[1, 2, 3]`, Tab B writes `[1, 2, 4]` — and Tab A's entry is lost.
-
-**Fix:** Replace the shared array with per-tab keys: `activeTab:{tabId}: true`. Each tab owns its own key and never touches other tabs' keys. No read-modify-write pattern needed. Background checks `chrome.storage.local.get('activeTab:' + tabId)`. The design has been updated throughout.
+**Fix applied:** Removed `chrome.storage.local.remove(...)` from the `beforeunload` handler. `beforeunload` now only does in-page DOM cleanup (removes toolbar from page). The key lives until the tab is closed.
 
 ---
 
-### C3: Pin numbering race condition is undocumented
+### Bug 2: `wasImported` state is untracked — confirmation dialogs #11 and #12 are indistinguishable (§8.1, §2.2)
 
-**Location:** §2.5
+The meta schema tracks `importedFilename: string | null`. When the user modifies annotations after import, `importedFilename` is cleared to null. At that point, the state is identical to "user created annotations from scratch, no import ever happened." There is no way to fire confirmation dialog #12 ("You have unsaved changes") vs. #11 ("This will replace your X annotations") correctly.
 
-Two tabs annotating simultaneously: both read `nextPinNumber: 5`, both write pin #5, and one clobbers the other. The design accepts "last write wins" for storage conflicts generally, but the pin number collision is silent — the user ends up with duplicate pin numbers in their data. The design doesn't mention this and doesn't document it as a known limitation.
-
-This is not worth a complex fix (CRDTs, etc.) for v1, but it must be documented so implementers don't be surprised.
-
-**Fix:** Document this in §2.5 and §7.3 as a known v1 limitation. The design has been updated with an explicit callout.
+**Fix applied:** Added `wasImported: boolean` to the meta schema. Set to `true` at import time. Never reset on modification — only reset on delete-all or successful new import. Logic for confirmation selection:
+- `wasImported && importedFilename === null` → case 12: "You have unsaved changes."
+- Otherwise (annotations exist) → case 11: "This will replace your current X annotations."
 
 ---
 
-### C4: `suppressNextChange` flag is fragile and should be removed
+## Important Gaps
 
-**Location:** §7.4
+### Gap 3: No manifest.json skeleton (§10.3)
 
-The boolean + `setTimeout(..., 100)` approach for own-write deduplication has multiple failure modes:
+The permissions are listed correctly in §10.3, but there is no manifest structure shown anywhere. This creates one significant footgun: `chrome.action.onClicked` **only fires if `action.default_popup` is absent from the manifest**. If a developer adds a popup for testing and forgets to remove it, `onClicked` never fires and the entire injection flow silently stops working. This will waste debugging hours.
 
-1. Two writes within 100ms: the second write resets the flag before the first `onChanged` fires
-2. The `onChanged` callback can fire immediately in the same event loop tick, before `suppressNextChange = true` is evaluated in some edge cases
-3. The 100ms window is arbitrary and network-unrelated — there's no principled basis for it
+The manifest also needs to show `"background": { "service_worker": "background.js" }` and the deliberate absence of a `content_scripts` entry (on-demand injection is the entire point, but it won't be obvious to every developer).
 
-The entire mechanism is unnecessary. The `refreshPinsFromStorage` diff logic described in §7.2 is already idempotent: "Pins in both → update note (no re-render needed unless offset changed)." Applying an own-write update is a no-op re-render. Just remove `suppressNextChange` entirely and always process `onChanged`.
-
-**Fix:** Remove `suppressNextChange` from the design. Add a note that `refreshPinsFromStorage` must be idempotent to handle own-write events safely.
+**Fix applied:** Added manifest.json skeleton to §10.3.
 
 ---
 
-### C5: No implementation section for annotation mode hover and click interception
+### Gap 4: `boundingBox` stored in `chrome.storage.local` but never used anywhere (§2.2)
 
-**Location:** Missing entirely
+The `Fingerprint` interface includes a `boundingBox` field. The design itself says: "hint only — not used for resolution; intentionally OMITTED from YAML export." Looking at every code path:
+- Pin rendering (§5.4): uses `element.getBoundingClientRect()` live at render time
+- Resolution (§4.4): does not use `boundingBox`
+- Export (§9.3): omits it
 
-The requirements specify that annotation mode suppresses all native clicks (§3.1), highlights hovered elements (§3.1), and that scrolling still works. None of this is described technically. An implementer reading this design doesn't know:
+This field is pure dead weight in storage. Every annotation wastes ~40 bytes on stale position data that is never read after it's written. The comment "intentionally OMITTED from YAML export" implies the author knew it was useless but kept it anyway with no rationale.
 
-- Whether to use `capture: true` or `bubble` phase for click interception
-- How to avoid highlighting annotator's own UI elements (pins, toolbar, popover)
-- How to avoid highlighting iframes
-- Whether to use `mouseover`/`mouseout` or `mouseenter`/`mouseleave`
-- What happens to hover state when a popover is open
-
-A new section has been added: **§6.6 Annotation Mode — Hover & Click Implementation**.
+**Fix applied:** Removed `boundingBox` from the `Fingerprint` storage interface. It is captured live via `getBoundingClientRect()` wherever needed. Updated concrete storage example accordingly.
 
 ---
 
-### C6: No implementation section for the popover
+### Gap 5: CSS class instability detection regex is wrong in both directions (§4.2)
 
-**Location:** Missing entirely
+The pattern `/[a-z]{1,3}_[a-z0-9]{4,}/` is supposed to detect "generated/hashed" class names. It fails in both directions:
 
-The popover is the central UI element for creating and editing annotations. The design references it extensively (state machine in §6.5, requirements §3.2) but provides zero implementation guidance on:
+**False negatives (misses real generated classes):**
+- CSS Modules: `_3mHRe`, `Button__container--active_3mHRe` (starts with `_`, contains `--`)
+- Numeric-only: `c123456`
 
-- DOM structure of the popover
-- How it's positioned relative to the pin (the 4-corner overflow algorithm mentioned in §11.9 is described in prose, not code)
-- Click-outside detection (important: must not conflict with annotation mode's click interception)
-- Character counter updates
-- Focus management (textarea should focus on open)
-- Delete confirmation dialog implementation
-- Whether it uses Shadow DOM or plain DOM
+**False positives (incorrectly flags stable classes):**
+- Tailwind utilities: `bg-blue-500`, `text-sm`, `flex-1` — these are stable, meaningful selectors
 
-A new section has been added: **§6.7 Popover Implementation**.
+The approach of detecting "generated" classes by regex is fundamentally fragile. There is no regex that reliably distinguishes "Tailwind class written by a human" from "CSS Module hash emitted by a build tool." They look too similar.
 
----
-
-### C7: SPA navigation missing `hashchange` event
-
-**Location:** §6.4
-
-The design handles `pushState`/`replaceState` monkey-patching and `popstate`. But hash-based routing (`#/home`, `#/about`) — used by older React Router v5, Vue Router hash mode, and many legacy SPAs — triggers `hashchange`, not `pushState`. A SPA using hash routing will navigate without the content script noticing, leaving stale pins from the old page visible.
-
-**Fix:** Add `window.addEventListener('hashchange', handleUrlChange)`. Updated in §6.4.
+**Fix applied:** Removed the class instability detection entirely. Step 3 of the CSS selector algorithm now falls directly to `tagName:nth-of-type(n)` when no ID or `data-*` is present. Classes may be included in the selector *alongside* `nth-of-type` for readability, but they are not relied upon for uniqueness. Structural selectors are more reliable on the pages that matter — especially SPAs.
 
 ---
 
-## Significant Issues
+### Gap 6: `chrome.storage.session` not considered for tab activation state (§2.6)
 
-### S1: Closed Shadow DOM reference not stored
+The design uses `chrome.storage.local` for `activeTab:{tabId}` keys. `storage.local` is persistent — keys survive browser restarts, creating the stale-key problem that the startup cleanup sweep is designed to handle.
 
-**Location:** §5.5
+`chrome.storage.session` (Chrome 102+, MV3 only) is session-scoped and automatically cleared on browser restart. It is the correct storage tier for ephemeral UI state like "is toolbar active on this tab." Using it would eliminate the stale-key problem entirely — and remove the need for the `chrome.runtime.onStartup` cleanup sweep.
 
-`attachShadow({ mode: 'closed' })` returns the shadow root at creation time. After that, `element.shadowRoot` is `null` — external code can't access it. The design says to use `mode: 'closed'` but doesn't explicitly say to store the returned shadow root. An implementer who writes `host.attachShadow({ mode: 'closed' })` without storing the return value has an inaccessible shadow root.
+The design doesn't mention this at all. It's in the trade-offs section where it belongs.
 
-**Fix:** Explicitly note: `const toolbarShadow = host.attachShadow({ mode: 'closed' })`. Store `toolbarShadow` in the module scope for all subsequent toolbar DOM operations. Updated in §5.5.
-
----
-
-### S2: File input not reset after import attempt
-
-**Location:** §8.1
-
-After a failed import, if the user tries to upload the same file (e.g., after fixing the file), the `<input type="file">` `change` event won't fire — the browser sees the value as unchanged. The input must be reset to `''` after every import attempt (success or failure) to allow re-selection.
-
-**Fix:** Add `input.value = ''` as the last step in the import pipeline (after success or error display). Added to §8.1.
-
----
-
-### S3: Schema validation doesn't check types or fingerprint sub-fields
-
-**Location:** §8.4
-
-The current `validateSchema` only checks for key presence with `!ann.field` checks. Problems:
-
-- `!ann.note` is `true` for empty string `""`. An imported annotation with `note: ""` would be incorrectly rejected as malformed. The correct check is `typeof ann.note !== 'string'`.
-- `pin_number` is not checked to be a positive integer. A file with `pin_number: "foo"` would pass.
-- `fingerprint` sub-fields (`css_selector`, `xpath`, `text_snippet`, `tag_name`) are not validated to be strings. A `fingerprint: {}` would pass schema validation and fail silently during resolution.
-- `offset.x`/`offset.y` are not validated to be numbers.
-
-**Fix:** Validate types explicitly. Updated `validateSchema` in §8.4.
-
----
-
-### S4: Error notification timer can be cancelled by a later error
-
-**Location:** §8.6
-
-The 8-second auto-clear timeout is set on each error display. If a new error fires before the first clears, two timers are running. The first timer fires and clears the newer error message. The notification area needs to clear any existing timer before setting a new one.
-
-**Fix:** Use a single `let notifTimer = null` in the notification module. Before setting a new timer, call `clearTimeout(notifTimer)`. Updated in §8.6.
-
----
-
-### S5: Fixed-position pins unnecessarily updated on scroll
-
-**Location:** §5.6
-
-The throttled `reposition` function iterates all active pins on scroll. Fixed-position pins don't scroll — updating them on every scroll event is wasted work (potentially 60x/second if the user is scrolling fast with many pins).
-
-**Fix:** Skip `updatePinPosition` for `isFixed === true` pins inside the scroll listener. Only update them on resize (where viewport geometry actually changes). Updated in §5.6.
-
----
-
-### S6: `boundingBox` in Fingerprint is stored internally but not exported — undocumented asymmetry
-
-**Location:** §2.2, §3.1
-
-The internal `Fingerprint` interface includes `boundingBox`. The YAML schema (§3) does not include it. This is a correct decision (bounding box is a hint used for future resolution, not needed for export), but the asymmetry is not mentioned anywhere. An implementer building the export serializer might include it by mistake, and someone reviewing the storage format vs. YAML schema will be confused.
-
-**Fix:** Add an explicit note in §2.2 and §3.2 that `boundingBox` is internal-only and intentionally omitted from the export format.
+**Fix applied:** Added §11.10 covering this trade-off. Added a note in §2.6 recommending `chrome.storage.session` and noting the Chrome 102+ floor. The current implementation still works correctly (after the `beforeunload` fix), but session storage is the cleaner long-term approach.
 
 ---
 
 ## Minor Issues
 
-### M1: `CURRENT_VERSION` constant is referenced but never defined
+### Minor 1: Z-index table references a non-existent "hover overlay" (§5.3)
 
-The code snippets in §8.3, §8.4, §8.5, and §9.1 reference `CURRENT_VERSION` and `CURRENT_EXPORT_VERSION` but neither constant is defined anywhere in the design. Easy fix but a real gap for implementers.
+The z-index table lists "Annotator hover overlay" at `INT_MAX`. There is no hover overlay element — hover highlighting is done by adding a CSS class (`annotator-highlighted`) to page elements. No overlay div is created. This confused row implies there's a transparent overlay that needs to be above everything, which is not the implementation.
 
-**Fix:** Define in §3.4: `const CURRENT_EXPORT_VERSION = 1;`. This is the only version constant needed (internal storage schema version is independent and handled separately).
-
----
-
-### M2: Stale `activeTab:{tabId}` keys not cleaned up on background restart
-
-After a browser or extension restart, previously stored `activeTab:{tabId}` keys may reference tabs that no longer exist. The background should call `chrome.tabs.query({})` on startup and remove stale `activeTab:*` keys for tabs not in the result. This prevents phantom re-injections.
-
-**Note:** Added as an implementation note in §6.3.
+**Fix applied:** Removed the "hover overlay" row. Hover highlight works via CSS class injection, not a z-indexed overlay element.
 
 ---
 
-### M3: `history.replaceState` patching can affect more than navigation
+### Minor 2: Popover not closed on SPA URL change (§6.4)
 
-`history.replaceState` is used by SPAs for URL cleanup (e.g., removing auth tokens from the URL bar) without actual navigation intent. Calling `handleUrlChange` on every `replaceState` could trigger unnecessary pin re-renders. In practice, the URL comparison in `handleUrlChange` ("if URL changed from last known URL") already prevents redundant work — but this is worth documenting.
+`handleUrlChange()` clears rendered pins and updates toolbar state, but there's no mention of the popover. If a user has the popover open and the SPA navigates, the popover stays on screen with no backing annotation. 
 
-**No change needed** — the design's URL comparison guard handles this correctly. Just noting it's intentionally covered.
-
----
-
-### M4: YAML `sortKeys: false` — field order depends on JS object insertion order
-
-With `sortKeys: false`, field order in the YAML output matches the JS object's property order. If the doc object is built in a different order than the schema example in §3.1, the YAML output won't match. Not a functional issue, but readability suffers. The export serializer should build the annotation objects in schema order.
-
-**Fix:** Added a note in §9.3 that the doc object must be built in schema-documented field order.
+**Fix applied:** Added `closePopover(false)` as the first step in `handleUrlChange()`.
 
 ---
 
-## Summary Table
+### Minor 3: `chrome.tabs.sendMessage` after `executeScript` should handle failures (§6.1)
 
-| # | Issue | Severity | Fixed in TD? |
-|---|-------|----------|--------------|
-| C1 | Content script can't self-identify tab ID | Critical | ✅ |
-| C2 | `activeTabIds` shared array race condition | Critical | ✅ |
-| C3 | Pin number collision under concurrent tabs | Critical | ✅ (documented) |
-| C4 | `suppressNextChange` fragile flag | Critical | ✅ (removed) |
-| C5 | Missing annotation mode implementation | Critical | ✅ (new §6.6) |
-| C6 | Missing popover implementation | Critical | ✅ (new §6.7) |
-| C7 | `hashchange` missing from SPA detection | Critical | ✅ |
-| S1 | Closed shadow root ref not stored | Significant | ✅ |
-| S2 | File input not reset after import | Significant | ✅ |
-| S3 | Shallow schema validation, wrong note check | Significant | ✅ |
-| S4 | Error notification timer not reset | Significant | ✅ |
-| S5 | Fixed pins repositioned on scroll | Significant | ✅ |
-| S6 | `boundingBox` asymmetry undocumented | Significant | ✅ |
-| M1 | `CURRENT_VERSION` undefined | Minor | ✅ |
-| M2 | Stale tab keys not cleaned on restart | Minor | ✅ (noted) |
-| M3 | `replaceState` over-triggering | Minor | No change needed |
-| M4 | YAML field order not guaranteed | Minor | ✅ |
+The `executeScript` callback fires after the script has fully executed synchronously, so the content script's listener IS registered — no race condition here. However, `sendMessage` can fail if the tab navigated between inject and callback (rare but possible). The code should wrap the `sendMessage` call or check `chrome.runtime.lastError`.
+
+**Fix applied:** Added `chrome.runtime.lastError` check in §6.1 code example.
 
 ---
 
-## Changes Made
+## What Is NOT Over-Engineered
 
-All changes made to `TECH_DESIGN.md`:
+The trade-offs section is well-reasoned. All of these are correct calls:
+- Shadow DOM for toolbar, plain DOM for pins ✅
+- `chrome.storage.local` over IndexedDB ✅
+- On-demand injection over `content_scripts` in manifest ✅
+- No MutationObserver ✅
+- No Popper.js/Floating UI ✅
+- No `downloads` permission ✅
+- esbuild ✅
+- Idempotent own-write handling instead of suppression ✅
 
-1. **§1.3 Message table** — Added `tabId` to `ACTIVATE` message payload. Added PING response returns `tabId`. Added explanation of how content script acquires its tab ID.
+The only mild case: per-annotation `created_at` in the export schema. Requirements only specify a file-level timestamp. Per-annotation timestamps add complexity to serialization/validation without a clear v1 use case. It's harmless — kept — but worth noting as a "nice to have" that wasn't required.
 
-2. **§2.2 Storage Schema** — Replaced `activeTabIds: Array<number>` with `activeTab:{tabId}: boolean` per-tab key pattern. Added note that `boundingBox` in Fingerprint is internal-only and not exported.
+---
 
-3. **§2.5 Pin Number Management** — Added explicit documentation of the known concurrent-tab pin number collision limitation.
+## Changes Made to TECH_DESIGN.md
 
-4. **§2.6 Tab Activation State** — Rewrote to use per-tab key pattern (`activeTab:{tabId}`) instead of shared array. Explained race-condition rationale.
-
-5. **§3.2 Field Reference** — Added note that `boundingBox` is intentionally absent from the export schema.
-
-6. **§3.4 Versioning Strategy** — Added `const CURRENT_EXPORT_VERSION = 1` constant definition.
-
-7. **§5.5 Toolbar Style Isolation** — Added explicit note that the shadow root returned by `attachShadow({ mode: 'closed' })` must be stored in module scope for subsequent DOM operations.
-
-8. **§5.6 Scroll and Resize Behaviour** — Updated `reposition` to skip fixed-position pins during scroll events; only recalculate them on resize.
-
-9. **§6.1 Injection Flow** — Updated step 4/5 to show `tabId` passed in ACTIVATE message. Updated PING response to include tabId.
-
-10. **§6.3 Full Page Reload Persistence** — Rewrote `tabs.onUpdated` and `tabs.onRemoved` handlers to use `activeTab:{tabId}` key. Added note about background startup cleanup of stale keys.
-
-11. **§6.4 SPA Navigation Detection** — Added `window.addEventListener('hashchange', handleUrlChange)` as a third detection mechanism.
-
-12. **§7.4 Own-Write Deduplication** — Removed `suppressNextChange` mechanism entirely. Replaced with explanation that `refreshPinsFromStorage` must be idempotent and own-write `onChanged` events are handled correctly by the existing diff logic.
-
-13. **§8.1 Import Pipeline** — Added "reset file input" as final step in the pipeline (after success or error).
-
-14. **§8.4 Schema Validation** — Rewrote `validateSchema` to check types explicitly: `typeof ann.note !== 'string'`, integer check for `pin_number`, string checks for fingerprint sub-fields, number checks for `offset.x/y`.
-
-15. **§8.6 Error Display** — Added `let notifTimer = null` with `clearTimeout` before each new notification to prevent old timers from clearing newer messages.
-
-16. **§9.3 YAML Serialisation** — Added note that doc object must be built in schema-documented field order when `sortKeys: false`.
-
-17. **New §6.6 Annotation Mode — Hover & Click Implementation** — Added full section covering: capturing-phase click interception, `mouseover`/`mouseout` hover highlight with self-exclusion guard, highlight CSS injection, annotation click dispatch (pin click vs. new annotation).
-
-18. **New §6.7 Popover Implementation** — Added full section covering: Shadow DOM structure, position calculation with 4-corner fallback, click-outside detection interaction with annotation mode, focus management, character counter, delete confirmation flow.
+| Section | Change | Reason |
+|---------|--------|--------|
+| §2.2 Fingerprint interface | Removed `boundingBox` | Never read after storage write |
+| §2.2 Meta schema | Added `wasImported: boolean` | Enables correct confirmation dialog selection (bug fix) |
+| §2.2 Concrete example | Updated to reflect both changes above | Consistency |
+| §2.6 Tab Activation | Added note recommending `chrome.storage.session` | Better-fit storage tier |
+| §4.2 CSS Selector | Removed class instability regex; classes excluded from uniqueness test | Regex was wrong in both directions |
+| §5.3 Z-index table | Removed "hover overlay" row | Non-existent element |
+| §6.1 Injection flow | Added `lastError` check on `sendMessage` | Defensive error handling |
+| §6.3 Full Page Reload | Fixed `beforeunload` handler — no longer removes `activeTab` key | Bug: was breaking reload persistence |
+| §6.4 SPA Navigation | Added `closePopover(false)` as first step of `handleUrlChange` | Open popover would orphan on navigation |
+| §8.1 Import pipeline | Added `wasImported = true` to store step | Required for bug fix #2 |
+| §10.3 Permissions | Added manifest.json skeleton with default_popup footgun warning | Developer onboarding gap |
+| §11 Trade-offs | Added §11.10: chrome.storage.session for tab activation | Was missing from alternatives |
