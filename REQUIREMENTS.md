@@ -44,7 +44,26 @@ On import, the extension attempts to locate each element in order:
 - [ ] Export is only enabled when at least one annotation exists
 - [ ] Export file format: YAML
 - [ ] Default filename: `annotations-{domain}.yaml` where domain dots are replaced with underscores (e.g. `annotations-figma_com.yaml`)
-- [ ] Export file includes: website domain, per-page URL (base URL only — query params and fragments excluded), element fingerprint (CSS selector, XPath, text snippet), annotation text, pin number
+- [ ] Export file includes all data described in §1.3.1 below
+
+#### 1.3.1 Export File Contents (YAML)
+
+The exported YAML file must contain the following. Exact schema and field names are for technical design to decide.
+
+**File-level metadata:**
+- Extension version number (for forward compatibility — enables version mismatch detection on import)
+- Creation timestamp (ISO 8601 format — for human reference when reading the file)
+- Website domain the annotations belong to
+
+**Annotations:**
+- A flat list of annotations, ordered by pin number
+- Each annotation contains:
+  - Pin number
+  - Page URL (base URL only — no query params or fragments)
+  - Annotation text
+  - Element fingerprint: CSS selector, XPath, text content snippet (~50 chars), element tag name
+
+**Readability standard:** The file should be readable and debuggable by a developer. It does not need to be friendly to non-technical users. Field names should be self-explanatory (e.g. `pin_number` not `pn`).
 
 ### 1.4 Importing
 - [ ] User can import an annotation file via a file picker
