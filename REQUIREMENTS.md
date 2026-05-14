@@ -112,10 +112,9 @@ The exported YAML file must contain the following. Exact schema and field names 
 ### Toolbar Activation & Persistence
 - The toolbar is **on-demand** — it only appears when the user explicitly clicks the extension icon on a tab
 - The toolbar does not appear automatically on any website, even if the user has previously annotated that domain
-- Each tab is independent — opening the same domain in a new tab requires clicking the extension icon again on that tab
-- Once activated on a tab, the toolbar persists for the lifetime of that tab — including across SPA-style navigations (URL changes without a full page reload)
-- On SPA navigation within an active tab: the toolbar remains visible, annotation mode resets to off, and pins update to reflect the new page's annotations
-- On full page reload or standard navigation: the toolbar disappears (page fully reloads) and the user must click the extension icon again to reactivate
+- **New tab:** requires clicking the extension icon to activate the toolbar
+- **Full page reload (same tab):** toolbar re-activates automatically — no need to click the extension icon again
+- **SPA navigation (same tab, no reload):** toolbar remains visible, annotation mode is off, pins update to reflect the new page's annotations
 
 ### Storage
 - Annotations must persist across browser close and reopen — they survive indefinitely until the user deletes them or uninstalls the extension
@@ -131,7 +130,6 @@ The exported YAML file must contain the following. Exact schema and field names 
 - [ ] Entering annotation mode: all native element click behaviors are suppressed — the page cannot be interacted with via clicks
 - [ ] Scrolling continues to work normally in annotation mode
 - [ ] To navigate to another page, the user must first exit annotation mode, then click links normally
-- [ ] Annotation mode does not persist across page navigations — arriving on a new page always starts in normal (non-annotation) mode
 - [ ] Hovering over an element highlights it with a visible outline to indicate it is selectable
 - [ ] Clicking a non-annotated element opens a comment popover anchored near the click point (Figma-style)
 - [ ] Popover contains: text input (max 400 chars) + character counter + "Add" button + cancel/close
