@@ -1,27 +1,79 @@
-// TODO: Implement in Phase 2 - Storage & Types Engineer
-export interface Annotation {
-  pinNumber: number;
-  note: string;
-  fingerprint: Fingerprint;
-  offset: { x: number; y: number };
-  createdAt: string;
-}
+// Phase 2A: Storage & Types — fully implemented
 
 export interface Fingerprint {
   cssSelector: string;
   xpath: string;
-  textSnippet: string;
-  tagName: string;
+  textSnippet: string;   // first ~50 chars of element text; may be empty string
+  tagName: string;       // lowercase
+}
+
+export interface Annotation {
+  pinNumber: number;
+  note: string;          // max 400 chars
+  fingerprint: Fingerprint;
+  offset: { x: number; y: number };  // click point relative to element top-left
+  createdAt: string;     // ISO 8601 UTC
 }
 
 export interface DomainMeta {
-  nextPinNumber: number;
-  importedFilename: string | null;
-  wasImported: boolean;
-  version: number;
+  nextPinNumber: number;         // always max(all pinNumbers) + 1; starts at 1
+  importedFilename: string | null;  // null if no import, or if modified after import
+  wasImported: boolean;          // true if state originated from import
+                                 // reset to FALSE on delete-all
+                                 // NEVER reset on annotation edit/add/delete
+  version: number;               // storage schema version, currently 1
 }
 
 export interface DomainData {
   meta: DomainMeta;
-  pages: Record<string, Annotation[]>;
+  pages: Record<string, Annotation[]>;  // keyed by normalised page URL
+}
+
+// For YAML import/export (snake_case field names per TECH_DESIGN.md §3)
+export interface YamlAnnotation {
+  pin_number: number;
+  page_url: string;
+  note: string;
+  fingerprint: {
+    css_selector: string;
+    xpath: string;
+    text_snippet: string;
+    tag_name: string;
+  };
+  offset: { x: number; y: number };
+  created_at: string;
+}
+
+export interface YamlDocument {
+  version: number;
+  exported_at: string;
+  domain: string;
+  annotations: YamlAnnotation[];
+}
+
+// Import errors
+export type ImportErrorCode =
+  | 'FILE_TOO_LARGE'
+  | 'WRONG_TYPE'
+  | 'EMPTY_FILE'
+  | 'MALFORMED'
+  | 'WRONG_SCHEMA'
+  | 'EMPTY_ANNOTATIONS'
+  | 'DUPLICATE_PINS'
+  | 'WRONG_DOMAIN'
+  | 'VERSION_MISMATCH';
+
+export interface ImportErrorDetails {
+  fileDomain?: string;
+  currentDomain?: string;
+}
+
+export class ImportError extends Error {
+  code: ImportErrorCode;
+  details?: ImportErrorDetails;
+  constructor(code: ImportErrorCode, details?: ImportErrorDetails) {
+    super(code);
+    this.code = code;
+    this.details = details;
+  }
 }
