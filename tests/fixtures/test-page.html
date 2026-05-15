@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Annotator Test Page</title>
+  <style>
+    body { margin: 0; padding: 0; font-family: system-ui, sans-serif; background: #fff; color: #111; }
+    #fixed-header {
+      position: fixed; top: 0; left: 0; right: 0; height: 60px;
+      background: #333; color: white; z-index: 100;
+      display: flex; align-items: center; padding: 0 20px;
+      font-size: 18px; font-weight: bold;
+    }
+    #content { padding-top: 80px; padding-left: 20px; padding-right: 20px; padding-bottom: 2000px; }
+    h1, p, div { margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+  <div id="fixed-header">Fixed Header</div>
+  <div id="content">
+    <h1 id="main-heading">Test Page</h1>
+    <p id="intro-para">This is a test paragraph with some content.</p>
+    <div id="section-1">Section one content</div>
+    <div id="section-2">Section two content</div>
+    <div id="section-3">Extra content for scrolling.</div>
+    <div id="section-4">More content.</div>
+    <div id="section-5">Even more content here to allow scrolling.</div>
+    <div id="section-6">Bottom content area.</div>
+  </div>
+</body>
+</html>

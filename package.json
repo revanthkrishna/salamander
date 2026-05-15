@@ -8,11 +8,13 @@
     "test": "jest"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/chrome": "^0.0.270",
     "@types/jest": "^29.5.0",
     "esbuild": "^0.20.0",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^30.4.1",
+    "playwright": "^1.60.0",
     "ts-jest": "^29.1.0",
     "typescript": "^5.4.0"
   },
