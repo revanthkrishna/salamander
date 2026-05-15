@@ -112,12 +112,20 @@ export async function importFile(file: File, callbacks: ImportCallbacks): Promis
     return;
   }
 
-  // Step 9: Existing data check — show confirmation dialog if annotations exist
+  // Step 9: Existing data check — show confirmation dialog if annotations exist.
+  // Case #12 (REQUIREMENTS §5): if state came from an import AND has been modified
+  // (wasImported=true, importedFilename=null), show "unsaved changes" message.
+  // Case #11: otherwise, show the generic "replace annotations" message.
   const count = await callbacks.getAnnotationCount();
   if (count > 0) {
-    const confirmed = await callbacks.showConfirm(
-      `Uploading this file will replace your current ${count} annotation${count === 1 ? '' : 's'}. This cannot be undone. Continue?`
-    );
+    const existingData = await getDomainData(currentDomain);
+    const hasUnsavedChanges =
+      existingData?.meta.wasImported === true &&
+      existingData?.meta.importedFilename === null;
+    const confirmMsg = hasUnsavedChanges
+      ? 'You have unsaved changes. Uploading a new file will discard them. This cannot be undone. Continue?'
+      : `Uploading this file will replace your current ${count} annotation${count === 1 ? '' : 's'}. This cannot be undone. Continue?`;
+    const confirmed = await callbacks.showConfirm(confirmMsg);
     if (!confirmed) return;
   }
 

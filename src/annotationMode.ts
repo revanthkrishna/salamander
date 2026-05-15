@@ -308,7 +308,7 @@ function buildPopoverDOM(): void {
   closeBtn = document.createElement('button');
   closeBtn.className = 'close-btn';
   closeBtn.setAttribute('aria-label', 'Close');
-  closeBtn.innerHTML = '&#x2715;';
+  closeBtn.textContent = '\u2715'; // ✕ close character; textContent only — no innerHTML
   header.appendChild(closeBtn);
 
   // Textarea

@@ -451,14 +451,11 @@ export function initToolbar(callbacks: ToolbarCallbacks): () => void {
     elFileInput!.value = '';
   });
 
-  // Delete All: show confirmation dialog; only fire callback if confirmed
-  elBtnDeleteAll!.addEventListener('click', async () => {
-    const plural = currentAnnotationCount === 1 ? 'annotation' : 'annotations';
-    const msg = `Delete all ${currentAnnotationCount} ${plural}? This cannot be undone.`;
-    const confirmed = await showConfirmDialog(msg);
-    if (confirmed) {
-      callbacks.onDeleteAll();
-    }
+  // Delete All: delegate entirely to the content layer which owns the
+  // confirmation dialog (avoids double-confirm when toolbar + content.ts
+  // both showed a dialog independently).
+  elBtnDeleteAll!.addEventListener('click', () => {
+    callbacks.onDeleteAll();
   });
 
   // Confirm dialog buttons

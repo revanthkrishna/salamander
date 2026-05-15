@@ -146,6 +146,9 @@ export async function addAnnotation(
   }
   data.pages[pageUrl].push(annotation);
   data.meta.nextPinNumber = annotation.pinNumber + 1;
+  // Clear filename indicator: any add after import puts us in "modified" state
+  // (consistent with updateAnnotation and deleteAnnotation)
+  data.meta.importedFilename = null;
   await saveDomainData(domain, data);
 }
 
