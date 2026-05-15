@@ -36,20 +36,9 @@ let elBtnExport: HTMLButtonElement | null = null;
 let elBtnUpload: HTMLButtonElement | null = null;
 let elBtnDeleteAll: HTMLButtonElement | null = null;
 let elFileInput: HTMLInputElement | null = null;
-let elConfirmDialog: HTMLDivElement | null = null;
-let elConfirmBackdrop: HTMLDivElement | null = null;
-let elConfirmMessage: HTMLParagraphElement | null = null;
-let elConfirmOk: HTMLButtonElement | null = null;
-let elConfirmCancel: HTMLButtonElement | null = null;
 
 // Notification auto-clear timer — single instance; cancel-before-set
 let notifTimer: ReturnType<typeof setTimeout> | null = null;
-
-// Annotation count — stored here so confirmDialog can build "Delete all N annotations?" message
-let currentAnnotationCount = 0;
-
-// Pending Promise resolver for the confirm dialog
-let confirmResolve: ((value: boolean) => void) | null = null;
 
 // ---------------------------------------------------------------------------
 // CSS (inside Shadow DOM — never leaks to the page)
@@ -181,77 +170,6 @@ const TOOLBAR_CSS = `
   }
   .btn[hidden] { display: none !important; }
 
-  /* ---- Confirm Dialog ---- */
-  /* The dialog wraps backdrop + box; position:fixed covers viewport */
-  .confirm-dialog {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 2147483647;
-  }
-  .confirm-dialog[hidden] { display: none !important; }
-
-  .confirm-backdrop {
-    position: fixed;
-    inset: 0;
-    background: var(--annotator-overlay);
-    z-index: 2147483646;
-  }
-
-  .confirm-box {
-    position: relative;
-    z-index: 2147483647;
-    width: 300px;
-    background: var(--annotator-bg-popover);
-    border-radius: 12px;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.60);
-    padding: 20px;
-    color: var(--annotator-text-primary);
-    font-family: inherit;
-  }
-
-  .confirm-message {
-    font-size: 14px;
-    line-height: 1.5;
-    color: var(--annotator-text-primary);
-    margin: 0 0 16px 0;
-  }
-
-  .confirm-buttons {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-  }
-
-  .btn-confirm-cancel,
-  .btn-confirm-ok {
-    height: 36px;
-    padding: 0 16px;
-    border: none;
-    border-radius: var(--annotator-radius-btn);
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    font-family: inherit;
-  }
-
-  .btn-confirm-cancel {
-    background: var(--annotator-btn-secondary-bg);
-    color: var(--annotator-text-primary);
-  }
-  .btn-confirm-cancel:hover {
-    background: var(--annotator-btn-secondary-hover);
-  }
-
-  .btn-confirm-ok {
-    background: var(--annotator-btn-destructive-bg);
-    color: var(--annotator-btn-destructive-text);
-  }
-  .btn-confirm-ok:hover {
-    background: #d32f2f;
-  }
 `;
 
 // ---------------------------------------------------------------------------
@@ -338,44 +256,7 @@ function buildToolbarDOM(shadow: ShadowRoot): void {
   elFileInput.style.display = 'none';
   toolbar.appendChild(elFileInput);
 
-  // -- Confirm Dialog (modal, inside shadow root) --
-  elConfirmDialog = document.createElement('div');
-  elConfirmDialog.className = 'confirm-dialog';
-  elConfirmDialog.setAttribute('hidden', '');
-  elConfirmDialog.setAttribute('role', 'dialog');
-  elConfirmDialog.setAttribute('aria-modal', 'true');
-
-  elConfirmBackdrop = document.createElement('div');
-  elConfirmBackdrop.className = 'confirm-backdrop';
-
-  const confirmBox = document.createElement('div');
-  confirmBox.className = 'confirm-box';
-
-  elConfirmMessage = document.createElement('p');
-  elConfirmMessage.className = 'confirm-message';
-
-  const confirmButtons = document.createElement('div');
-  confirmButtons.className = 'confirm-buttons';
-
-  elConfirmCancel = document.createElement('button');
-  elConfirmCancel.className = 'btn-confirm-cancel';
-  elConfirmCancel.textContent = 'Cancel';
-
-  elConfirmOk = document.createElement('button');
-  elConfirmOk.className = 'btn-confirm-ok';
-  elConfirmOk.textContent = 'Confirm';
-
-  confirmButtons.appendChild(elConfirmCancel);
-  confirmButtons.appendChild(elConfirmOk);
-  confirmBox.appendChild(elConfirmMessage);
-  confirmBox.appendChild(confirmButtons);
-  elConfirmDialog.appendChild(elConfirmBackdrop);
-  elConfirmDialog.appendChild(confirmBox);
-
-  // Append dialog to shadow root directly (not inside toolbar div)
-  // so it can cover the full viewport without being clipped by overflow:hidden
   shadow.appendChild(toolbar);
-  shadow.appendChild(elConfirmDialog);
 }
 
 // ---------------------------------------------------------------------------
@@ -456,20 +337,6 @@ export function initToolbar(callbacks: ToolbarCallbacks): () => void {
   // both showed a dialog independently).
   elBtnDeleteAll!.addEventListener('click', () => {
     callbacks.onDeleteAll();
-  });
-
-  // Confirm dialog buttons
-  elConfirmOk!.addEventListener('click', () => {
-    resolveConfirmDialog(true);
-  });
-
-  elConfirmCancel!.addEventListener('click', () => {
-    resolveConfirmDialog(false);
-  });
-
-  // Clicking the backdrop also cancels
-  elConfirmBackdrop!.addEventListener('click', () => {
-    resolveConfirmDialog(false);
   });
 
   return () => destroyToolbar();
@@ -596,46 +463,18 @@ export function showResolutionAlert(unresolvedCount: number, total: number): voi
 }
 
 /**
- * Set annotation count so the toolbar can build the correct
- * "Delete all N annotations?" confirmation message.
+ * No-op: kept for API compatibility.
  */
-export function setAnnotationCount(count: number): void {
-  currentAnnotationCount = count;
+export function setAnnotationCount(_count: number): void {
+  // No longer needed — confirm dialogs use native window.confirm()
 }
 
 /**
- * Show a blocking confirmation dialog.
+ * Show a native browser confirmation dialog.
  * Returns true if user confirmed, false if cancelled.
  */
 export function showConfirmDialog(message: string): Promise<boolean> {
-  if (!elConfirmDialog || !elConfirmMessage) {
-    // Fallback if toolbar not initialised (shouldn't happen in normal usage)
-    return Promise.resolve(false);
-  }
-
-  // If a dialog is already open, resolve the previous one as cancelled
-  if (confirmResolve) {
-    confirmResolve(false);
-    confirmResolve = null;
-  }
-
-  elConfirmMessage.textContent = message;
-  elConfirmDialog.removeAttribute('hidden');
-
-  return new Promise<boolean>((resolve) => {
-    confirmResolve = resolve;
-  });
-}
-
-/** Internal: resolve the confirm dialog and clean up. */
-function resolveConfirmDialog(value: boolean): void {
-  if (!elConfirmDialog) return;
-  elConfirmDialog.setAttribute('hidden', '');
-  if (confirmResolve) {
-    const resolve = confirmResolve;
-    confirmResolve = null;
-    resolve(value);
-  }
+  return Promise.resolve(window.confirm(message));
 }
 
 /**
@@ -646,12 +485,6 @@ export function destroyToolbar(): void {
   if (notifTimer !== null) {
     clearTimeout(notifTimer);
     notifTimer = null;
-  }
-
-  // Resolve any pending confirm dialog as cancelled
-  if (confirmResolve) {
-    confirmResolve(false);
-    confirmResolve = null;
   }
 
   // Remove host from DOM
@@ -672,9 +505,4 @@ export function destroyToolbar(): void {
   elBtnUpload = null;
   elBtnDeleteAll = null;
   elFileInput = null;
-  elConfirmDialog = null;
-  elConfirmBackdrop = null;
-  elConfirmMessage = null;
-  elConfirmOk = null;
-  elConfirmCancel = null;
 }

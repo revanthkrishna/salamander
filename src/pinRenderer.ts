@@ -225,6 +225,12 @@ export function addPin(
   targetElement: Element,
   onPinClick: (annotation: Annotation) => void
 ): void {
+  // Dedup guard: if a pin with this number already exists in the DOM (can
+  // happen due to a race between the chrome.storage.onChanged re-render and
+  // the direct addPin call in handleNewAnnotation), remove it first so we
+  // never end up with two pin elements sharing the same pin number.
+  removePin(annotation.pinNumber);
+
   const fixed = isFixedPosition(targetElement);
   const pinEl = createPinElement(annotation, targetElement, onPinClick);
 
