@@ -594,7 +594,7 @@ export function initAnnotationMode(cbs: AnnotationModeCallbacks): void {
   // ── Hover highlight — mouseout ────────────────────────────────────────────
   document.addEventListener('mouseout', (e) => {
     if (!annotationModeActive) return;
-    if (e.target === highlightedEl) {
+    if (highlightedEl && e.target === highlightedEl) {
       highlightedEl.classList.remove('annotator-highlighted');
       highlightedEl = null;
     }

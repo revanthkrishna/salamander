@@ -165,7 +165,7 @@ function buildXPath(element: Element): string {
 
   while (node && node.nodeType === Node.ELEMENT_NODE) {
     const tag = node.tagName.toLowerCase();
-    const parent = node.parentElement;
+    const parent: Element | null = node.parentElement;
 
     if (!parent) {
       parts.unshift(tag);
