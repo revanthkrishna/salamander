@@ -29,9 +29,11 @@ export function normaliseUrl(url: string): string {
     hostname = hostname.slice(4);
   }
 
-  // Preserve path case; strip trailing slash (unless root path)
+  // Preserve path case; strip trailing slash
   let path = parsed.pathname;
-  if (path.endsWith('/') && path.length > 1) {
+  if (path === '/') {
+    path = ''; // root URL: omit the slash entirely
+  } else if (path.endsWith('/')) {
     path = path.slice(0, -1);
   }
 
