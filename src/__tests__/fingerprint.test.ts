@@ -78,13 +78,16 @@ describe('captureFingerprint — CSS selector generation', () => {
     expect(fp.xpath).toContain('p');
   });
 
-  test('single sibling — no nth-of-type needed', () => {
+  test('single sibling — always emits nth-of-type(1) for determinism', () => {
     document.body.innerHTML = '<div><p>only child</p></div>';
     const el = document.querySelector('div > p')!;
     const fp = captureFingerprint(el);
-    // No nth-of-type needed since there's only one <p> sibling
-    expect(fp.cssSelector).not.toContain('nth-of-type');
-    expect(fp.cssSelector).toContain('p');
+    // Always emit a positional index, even for single siblings, so the
+    // selector stays deterministic when same-tag siblings are added later.
+    // (See DEEP_DIVE_B FP-2 / `segmentFor` in fingerprint.ts.)
+    expect(fp.cssSelector).toContain('p:nth-of-type(1)');
+    // And the selector is always body-anchored.
+    expect(fp.cssSelector.startsWith('body > ')).toBe(true);
   });
 
   test('prefers data-testid over data-id', () => {

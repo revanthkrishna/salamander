@@ -25,7 +25,6 @@ import {
   getPageAnnotations,
   getAnnotationCount,
 } from './storage';
-import { resolvePageAnnotations } from './fingerprint';
 import {
   initPinRenderer,
   renderPins,
@@ -35,6 +34,8 @@ import {
   addPin,
   removePin,
   refreshPins,
+  setStatsListener,
+  type PinRenderStats,
 } from './pinRenderer';
 import {
   initToolbar,
@@ -101,6 +102,10 @@ async function init(tabId: number): Promise<void> {
 
   initPinRenderer();
 
+  // Keep the toolbar resolution alert in sync as the MutationObserver retry
+  // queue inside pinRenderer resolves async-mounted elements.
+  setStatsListener(handlePinStats);
+
   initToolbar({
     onSButtonClick: handleSButtonClick,
     onExit: handleExit,
@@ -118,13 +123,19 @@ async function init(tabId: number): Promise<void> {
     onCancelCreate: handleCancelCreate,
   });
 
-  await refreshPageAnnotations(domain, pageUrl);
-
+  // Register BEFORE the first awaited storage read so we don't miss any
+  // changes that arrive while `refreshPageAnnotations` is in-flight.
   chrome.storage.onChanged.addListener(handleStorageChanged);
+
+  await refreshPageAnnotations(domain, pageUrl);
 
   setupNavigationDetection();
 
   window.addEventListener('beforeunload', handleBeforeUnload);
+}
+
+function handlePinStats(stats: PinRenderStats): void {
+  showResolutionAlert(stats.unresolved, stats.total);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -136,12 +147,13 @@ async function refreshPageAnnotations(domain: string, pageUrl: string): Promise<
   const annotations = domainData?.pages[pageUrl] ?? [];
   const totalForDomain = await getAnnotationCount(domain);
 
-  renderPins(annotations, handlePinClick);
+  // renderPins now returns the initial resolution stats. The stats listener
+  // registered in init() also fires — here and on each subsequent retry tick
+  // — so we don't need a second `resolvePageAnnotations` pass.
+  const stats = renderPins(annotations, handlePinClick);
 
   updateButtonStates(totalForDomain > 0, isAnnotationModeActive());
-
-  const { unresolvedCount } = resolvePageAnnotations(annotations);
-  showResolutionAlert(unresolvedCount, annotations.length);
+  showResolutionAlert(stats.unresolved, stats.total);
 
   if (domainData?.meta.importedFilename) {
     setFilename(domainData.meta.importedFilename);
@@ -162,24 +174,42 @@ function handleStorageChanged(
 
   const domain = normaliseDomain(location.hostname);
   const domainKey = `annotations:${domain}`;
+  const writerKey = `lastWriter:${domain}`;
+
+  // Skip our own writes — we already updated the DOM directly via addPin /
+  // removePin / updatePin / clearPins. Re-rendering from storage here would
+  // clear and re-resolve all pins, which can clobber the live element ref
+  // (e.g. a React subtree that has since remounted between addPin and now).
+  if (changes[writerKey] !== undefined &&
+      changes[writerKey].newValue === myTabId) {
+    return;
+  }
+
   if (!changes[domainKey]) return;
 
   const newData = changes[domainKey].newValue as DomainData | undefined;
-  if (!newData) return;
+
+  if (!newData) {
+    // Domain data was cleared from another tab. Mirror that locally.
+    clearPins();
+    setFilename(null);
+    updateButtonStates(false, isAnnotationModeActive());
+    setAnnotationCount(0);
+    showResolutionAlert(0, 0);
+    return;
+  }
 
   const pageUrl = normaliseUrl(location.href);
   const annotations = newData.pages[pageUrl] ?? [];
   const totalCount = Object.values(newData.pages).flat().length;
 
-  refreshPins(annotations, handlePinClick);
+  const stats = refreshPins(annotations, handlePinClick);
   updateButtonStates(totalCount > 0, isAnnotationModeActive());
 
   setFilename(newData.meta.importedFilename);
 
   setAnnotationCount(totalCount);
-
-  const { unresolvedCount } = resolvePageAnnotations(annotations);
-  showResolutionAlert(unresolvedCount, annotations.length);
+  showResolutionAlert(stats.unresolved, stats.total);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -281,6 +311,7 @@ async function handleDeleteAll(): Promise<void> {
   );
   if (!confirmed) return;
 
+  await markTabAsWriter(domain);
   await clearDomainData(domain);
   clearPins();
   setFilename(null);
@@ -300,6 +331,7 @@ async function handleDismissFile(): Promise<void> {
     setFilename(null);
     return;
   }
+  await markTabAsWriter(domain);
   await clearDomainData(domain);
   clearPins();
   setFilename(null);
@@ -325,6 +357,7 @@ async function handleNewAnnotation(params: {
     createdAt: new Date().toISOString(),
   };
 
+  await markTabAsWriter(domain);
   await addAnnotation(domain, pageUrl, annotation);
 
   addPin(annotation, params.targetElement, handlePinClick);
@@ -342,6 +375,7 @@ async function handleNewAnnotation(params: {
 async function handleEditAnnotation(pinNumber: number, note: string): Promise<void> {
   const domain = normaliseDomain(location.hostname);
   const pageUrl = normaliseUrl(location.href);
+  await markTabAsWriter(domain);
   await updateAnnotation(domain, pageUrl, pinNumber, note);
   const domainData = await getDomainData(domain);
   if (domainData?.meta.wasImported && !domainData.meta.importedFilename) {
@@ -351,6 +385,7 @@ async function handleEditAnnotation(pinNumber: number, note: string): Promise<vo
 
 async function handleDeleteAnnotationByPin(pinNumber: number): Promise<void> {
   const domain = normaliseDomain(location.hostname);
+  await markTabAsWriter(domain);
   await deleteAnnotation(domain, pinNumber);
   removePin(pinNumber);
 
@@ -398,6 +433,24 @@ function handleBeforeUnload(): void {
   clearPins();
 
   chrome.storage.onChanged.removeListener(handleStorageChanged);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tab-writer marker
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Stamp this tab as the most recent writer for `domain`. Called immediately
+ * before each storage mutation that originates in this tab. The companion
+ * check in `handleStorageChanged` reads back `lastWriter:{domain}` and skips
+ * the same-tab re-render — we already updated the DOM directly via
+ * `addPin` / `removePin` / `updatePin` / `clearPins`.
+ */
+async function markTabAsWriter(domain: string): Promise<void> {
+  if (myTabId < 0) return;
+  await new Promise<void>((resolve) => {
+    chrome.storage.local.set({ [`lastWriter:${domain}`]: myTabId }, () => resolve());
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
