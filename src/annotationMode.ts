@@ -139,23 +139,20 @@ const POPOVER_CSS = `
     padding: 8px 16px;
     border-radius: 16px 16px 0 0;
     display: flex;
-    flex-direction: column;
   }
-  .counter-row {
-    display: flex;
-    justify-content: flex-end;
-    padding: 0 0 4px 0;
-  }
+  /* Character counter — lives in the footer bar, shown only at ≥350 chars */
   .char-counter {
+    display: none;           /* hidden until threshold reached */
+    align-self: center;
+    padding: 0 6px;
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.50);
-    text-align: right;
     font-family: inherit;
     line-height: 1;
+    color: rgba(255, 255, 255, 0.60);
+    white-space: nowrap;
   }
-  .counter-warn {
-    color: #FB645A;
-  }
+  .char-counter.counter-visible { display: block; }
+  .char-counter.counter-warn    { color: #FB645A; }
   .note-input {
     width: 100%;
     min-height: 63px;     /* (79 area - 16 vertical padding = 63 textarea) */
@@ -286,14 +283,7 @@ function buildPopoverDOM(): void {
   noteInput.rows = 3;
   taWrap.appendChild(noteInput);
 
-  // Character counter (always visible per §3.2 of REQUIREMENTS)
-  const counterRow = document.createElement('div');
-  counterRow.className = 'counter-row';
-  charCounter = document.createElement('span');
-  charCounter.className = 'char-counter';
-  charCounter.textContent = '0 / 400';
-  counterRow.appendChild(charCounter);
-  taWrap.appendChild(counterRow);
+  // (counter is in footer, built below)
 
   // Footer
   footerEl = document.createElement('div');
@@ -322,6 +312,12 @@ function buildPopoverDOM(): void {
     deleteBtn.appendChild(ic);
   }
 
+  // Character counter — sits between the left buttons and the spacer.
+  // Shown only when character count reaches 350+.
+  charCounter = document.createElement('span');
+  charCounter.className = 'char-counter';
+  charCounter.textContent = '350 / 400';
+
   const spacer = document.createElement('div');
   spacer.className = 'spacer';
 
@@ -343,6 +339,7 @@ function buildPopoverDOM(): void {
 
   footerEl.appendChild(cancelBtn);
   footerEl.appendChild(deleteBtn);
+  footerEl.appendChild(charCounter); // after left buttons, before spacer
   footerEl.appendChild(spacer);
   footerEl.appendChild(saveBtn);
 
@@ -494,7 +491,9 @@ function handleCancel(): void {
 
 function updateCharCounter(): void {
   const len = noteInput.value.length;
+  const visible = len >= 350;
   charCounter.textContent = `${len} / 400`;
+  charCounter.classList.toggle('counter-visible', visible);
   charCounter.classList.toggle('counter-warn', len >= 380);
 }
 
