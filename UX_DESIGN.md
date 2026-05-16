@@ -1,71 +1,83 @@
 # Annotator — UX Design Specification
 
-> **Status:** Complete  
-> **Version:** 1.0  
-> **Author:** Phase 1A UX Designer  
-> **Audience:** Engineers implementing the Annotator Chrome extension  
+> **Status:** Complete
+> **Version:** 2.0
+> **Author:** Phase 1A UX Designer (rev. 2026-05-16)
+> **Audience:** Engineers implementing the Annotator Chrome extension
 > **Source of truth:** REQUIREMENTS.md (do not modify). TECH_DESIGN.md governs implementation details.
 
 Every value in this document is a specific number, color hex, or literal string. If you see a vague word like "appropriate" or "some padding," treat it as a bug in this document and ask for clarification.
 
 ---
 
+## Style Guidelines
+
+### Lowercase Everywhere
+**All visible text in the UI must be lowercase — no exceptions.**
+This applies to:
+- All button labels (e.g. `save`, `delete`, `export`, `import`)
+- All placeholder text (e.g. `type something...`)
+- All error, warning, and status messages
+- All browser `alert()`, `confirm()`, and `prompt()` text
+- All tooltips
+- Filenames displayed in the UI (display as-is — do not transform)
+
+The only exception is filenames, which are rendered as-is from the file system. All other copy is lowercase.
+
+---
+
 ## Table of Contents
 
 1. [Design Tokens / Variables](#1-design-tokens--variables)
-2. [Floating Toolbar](#2-floating-toolbar)
-   - 2.1 [Toolbar Layout](#21-toolbar-layout)
-   - 2.2 [Button States](#22-button-states)
-   - 2.3 [Toolbar Named States](#23-toolbar-named-states)
-   - 2.4 [Delete All Confirmation Dialog](#24-delete-all-confirmation-dialog)
-3. [Annotation Mode Hover Highlight](#3-annotation-mode-hover-highlight)
-4. [Annotation Pins](#4-annotation-pins)
-5. [Annotation Popover](#5-annotation-popover)
-   - 5.1 [Layout](#51-layout)
-   - 5.2 [Character Counter](#52-character-counter)
-   - 5.3 [Button States](#53-button-states)
-   - 5.4 [Popover Positions (Overflow Handling)](#54-popover-positions-overflow-handling)
-   - 5.5 [Delete Confirmation (Inline)](#55-delete-confirmation-inline)
-   - 5.6 [Popover States](#56-popover-states)
-6. [Import Resolution Alerts](#6-import-resolution-alerts)
-7. [Error & Warning Messages](#7-error--warning-messages)
-8. [Interaction Flows](#8-interaction-flows)
-9. [Accessibility Notes](#9-accessibility-notes)
-10. [Implementation Notes for Engineers](#10-implementation-notes-for-engineers)
+2. [S Button (Idle State)](#2-s-button-idle-state)
+3. [Floating Toolbar (Annotation Mode)](#3-floating-toolbar-annotation-mode)
+   - 3.1 [Toolbar Layout](#31-toolbar-layout)
+   - 3.2 [Filename Bar](#32-filename-bar)
+   - 3.3 [Warning / Error Area](#33-warning--error-area)
+   - 3.4 [Icon Button Row](#34-icon-button-row)
+   - 3.5 [Toolbar States](#35-toolbar-states)
+4. [Annotation Mode Hover Highlight](#4-annotation-mode-hover-highlight)
+5. [Annotation Pins](#5-annotation-pins)
+6. [Annotation Popover](#6-annotation-popover)
+   - 6.1 [Layout](#61-layout)
+   - 6.2 [New Annotation State (CREATE)](#62-new-annotation-state-create)
+   - 6.3 [Existing Annotation State (EDIT)](#63-existing-annotation-state-edit)
+   - 6.4 [Popover Positioning (Overflow Handling)](#64-popover-positioning-overflow-handling)
+7. [Import / Export Behavior](#7-import--export-behavior)
+8. [Error & Warning Messages](#8-error--warning-messages)
+9. [Interaction Flows](#9-interaction-flows)
+10. [Accessibility Notes](#10-accessibility-notes)
+11. [Implementation Notes for Engineers](#11-implementation-notes-for-engineers)
 
 ---
 
 ## 1. Design Tokens / Variables
 
-All values in this section are the canonical source. Use CSS custom properties (see §10) to reference them throughout implementation.
+All values are the canonical source. Use CSS custom properties (see §11) throughout implementation.
 
 ### Colors
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| `--annotator-accent` | `#E040FB` | Pins, active state highlights |
-| `--annotator-error` | `#F44336` | Error messages, destructive actions, red alerts |
-| `--annotator-warning` | `#FFC107` | Warning messages, yellow alerts |
-| `--annotator-neutral-msg` | `#9E9E9E` | Neutral notices in message area |
-| `--annotator-bg-toolbar` | `rgba(28, 28, 30, 0.96)` | Toolbar background |
+| `--annotator-accent` | `#FFC107` | Pins, hover highlight, active elements |
+| `--annotator-error` | `#F44336` | Error messages, destructive actions |
+| `--annotator-warning` | `#FF9800` | Warning messages |
+| `--annotator-neutral-msg` | `#9E9E9E` | Neutral notices |
+| `--annotator-bg-toolbar` | `rgba(18, 18, 18, 0.97)` | Toolbar and S button background |
 | `--annotator-bg-popover` | `rgba(36, 36, 38, 0.98)` | Popover background |
+| `--annotator-bg-popover-footer` | `rgba(18, 18, 18, 1.00)` | Popover footer bar background |
 | `--annotator-text-primary` | `#FFFFFF` | Primary text on dark backgrounds |
 | `--annotator-text-secondary` | `rgba(255, 255, 255, 0.60)` | Secondary text, placeholders, subtle labels |
-| `--annotator-text-disabled` | `rgba(255, 255, 255, 0.38)` | Disabled button labels |
-| `--annotator-btn-primary-bg` | `#E040FB` | Primary/accent button background |
-| `--annotator-btn-primary-text` | `#FFFFFF` | Primary button label |
-| `--annotator-btn-secondary-bg` | `rgba(255, 255, 255, 0.10)` | Secondary button background (default/neutral) |
-| `--annotator-btn-secondary-bg-hover` | `rgba(255, 255, 255, 0.18)` | Secondary button hover |
-| `--annotator-btn-destructive-bg` | `#F44336` | Delete / Confirm Delete background |
-| `--annotator-btn-destructive-text` | `#FFFFFF` | Delete button label |
-| `--annotator-btn-disabled-bg` | `rgba(255, 255, 255, 0.08)` | Disabled button background |
-| `--annotator-divider` | `rgba(255, 255, 255, 0.10)` | Dividers between toolbar sections |
-| `--annotator-overlay` | `rgba(0, 0, 0, 0.55)` | Modal dialog background overlay |
-| `--annotator-counter-normal` | `rgba(255, 255, 255, 0.50)` | Character counter, within limit |
-| `--annotator-counter-warning` | `#F44336` | Character counter, at/near limit (≥ 380 chars) |
-| `--annotator-pin-bg` | `#E040FB` | Pin background |
-| `--annotator-pin-border` | `#FFFFFF` | Pin border |
-| `--annotator-pin-text` | `#FFFFFF` | Pin number text |
+| `--annotator-text-disabled` | `rgba(255, 255, 255, 0.38)` | Disabled states |
+| `--annotator-btn-icon-bg` | `transparent` | Icon button default background |
+| `--annotator-btn-icon-bg-hover` | `rgba(255, 255, 255, 0.12)` | Icon button hover background |
+| `--annotator-btn-icon-color` | `#FFFFFF` | Icon button color |
+| `--annotator-btn-primary-bg` | `#FFC107` | Save / primary action button |
+| `--annotator-btn-primary-text` | `#000000` | Save / primary action button label |
+| `--annotator-btn-destructive-color` | `#F44336` | Delete button icon/text color |
+| `--annotator-divider` | `rgba(255, 255, 255, 0.10)` | Dividers between sections |
+| `--annotator-pin-bg` | `#FFC107` | Pin background |
+| `--annotator-pin-text` | `#000000` | Pin number text |
 
 ### Typography
 
@@ -73,9 +85,7 @@ All values in this section are the canonical source. Use CSS custom properties (
 |----------|-------|
 | Font family | `system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif` |
 | No web fonts | True — zero network requests for fonts |
-| Base font size (toolbar) | `13px` |
-| Base font size (popover) | `13px` |
-| Char counter font size | `11px` |
+| Base font size | `13px` |
 | Pin number font size | `11px` |
 | Pin number font weight | `700` (bold) |
 | Button font weight | `500` (medium) |
@@ -84,385 +94,253 @@ All values in this section are the canonical source. Use CSS custom properties (
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| `--annotator-toolbar-width` | `220px` | Fixed toolbar width |
+| `--annotator-s-btn-size` | `44px` | S button width and height |
 | `--annotator-toolbar-margin` | `16px` | Distance from viewport right and bottom edges |
-| `--annotator-pin-size` | `24px` | Pin diameter |
+| `--annotator-icon-btn-size` | `40px` | Icon button width and height |
+| `--annotator-pin-size` | `24px` | Pin height and min-width (circle) |
+| `--annotator-pin-padding` | `0 6px` | Padding for multi-digit pills |
 | `--annotator-popover-width` | `280px` | Fixed popover width |
-| `--annotator-popover-min-height` | `160px` | Popover minimum height |
 | `--annotator-popover-margin` | `8px` | Gap between pin edge and popover edge |
-| `--annotator-radius-toolbar` | `12px` | Toolbar border radius |
-| `--annotator-radius-popover` | `10px` | Popover border radius |
+| `--annotator-radius-large` | `12px` | Toolbar, S button, popover border radius |
 | `--annotator-radius-btn` | `6px` | Button border radius |
-| `--annotator-radius-pin` | `50%` | Pin border radius (full circle) |
+| `--annotator-radius-pin` | `50%` | Pin border radius (single-digit circle) |
 
 ### Shadows
 
 | Element | Shadow value |
 |---------|-------------|
-| Toolbar | `0 4px 24px rgba(0, 0, 0, 0.40), 0 1px 6px rgba(0, 0, 0, 0.30)` |
+| S button / Toolbar | `0 4px 24px rgba(0, 0, 0, 0.40), 0 1px 6px rgba(0, 0, 0, 0.30)` |
 | Popover | `0 8px 32px rgba(0, 0, 0, 0.50), 0 2px 8px rgba(0, 0, 0, 0.30)` |
 | Pin | `0 2px 6px rgba(0, 0, 0, 0.50), 0 1px 2px rgba(0, 0, 0, 0.30)` |
-| Modal dialog | `0 8px 40px rgba(0, 0, 0, 0.60)` |
 
-### Z-Indexes (from TECH_DESIGN.md §5.3)
+### Z-Indexes
 
 | Layer | Z-index |
 |-------|---------|
 | Pins | `2147483640` |
-| Toolbar | `2147483644` |
+| S Button / Toolbar | `2147483644` |
 | Popover | `2147483646` |
-| Modal dialog overlay | `2147483647` |
 
 ---
 
-## 2. Floating Toolbar
-
-The toolbar lives in a Shadow DOM host (`<div id="annotator-host">`). All toolbar CSS is scoped inside the shadow root. See TECH_DESIGN.md §5.5 for Shadow DOM implementation.
-
-### 2.1 Toolbar Layout
-
-**Position:** `position: fixed; bottom: 16px; right: 16px;`  
-**Width:** `220px` (fixed — does not expand or shrink)  
-**Max-width:** `220px`  
-**Background:** `rgba(28, 28, 30, 0.96)`  
-**Border-radius:** `12px`  
-**Box-shadow:** `0 4px 24px rgba(0,0,0,0.40), 0 1px 6px rgba(0,0,0,0.30)`  
-**Z-index:** `2147483644`  
-**Padding:** `0` (internal sections use their own padding)  
-**Overflow:** `hidden` (rounded corners clip child sections)
-
-#### Internal Section Order (top to bottom)
-
-All sections stack vertically inside the toolbar. Each section is `display: none` when hidden. A `1px` divider (`rgba(255,255,255,0.10)`) separates adjacent visible sections.
-
----
-
-**Section 1 — Message Area**
-
-- **Purpose:** Display errors (red), warnings (yellow), and neutral notices.
-- **Visibility:** Hidden when no message is active. Visible when a message is set.
-- **Padding:** `10px 12px`
-- **Font size:** `12px`
-- **Font weight:** `400`
-- **Line height:** `1.4`
-- **Color:** Determined by message type:
-  - Error: `#F44336`
-  - Warning: `#FFC107`
-  - Neutral: `#9E9E9E`
-- **Auto-clear:** Message disappears after **8 seconds**. A new message resets the 8-second timer.
-- **No dismiss button.** Messages auto-clear only.
-- **Background:** Inherits toolbar background (no separate background for this section).
-- **Border-bottom:** `1px solid rgba(255,255,255,0.10)` when visible (divider below it, above filename or buttons).
-
----
-
-**Section 2 — Filename Area**
-
-- **Purpose:** Show the active imported filename (e.g. `annotations-figma_com.yaml`).
-- **Visibility:**
-  - Visible when a file is loaded AND annotations have not been modified since import.
-  - **Completely hidden** (`display: none`) when:
-    - No file has been imported, or
-    - Annotations were modified after import (FILE_MODIFIED state — filename disappears entirely, not grayed out).
-- **Padding:** `8px 12px`
-- **Font size:** `11px`
-- **Font weight:** `400`
-- **Color:** `rgba(255,255,255,0.60)` (secondary text)
-- **Prefix text:** `📄 ` (file emoji + space) before the filename string — rendered via `textContent`, not `innerHTML`
-- **Truncation:** Truncate with `overflow: hidden; text-overflow: ellipsis; white-space: nowrap` if filename exceeds 220px width.
-- **Border-bottom:** `1px solid rgba(255,255,255,0.10)` when visible.
-
----
-
-**Section 3 — Resolution Alert Area**
-
-- **Purpose:** Show page-level import resolution alerts (some or all annotations couldn't be placed on this page).
-- **Visibility:** Hidden when no alert applies (see §6 for full logic).
-- **Padding:** `8px 12px`
-- **Font size:** `12px`
-- **Font weight:** `400`
-- **Line height:** `1.4`
-- **Color:** `#FFC107` (yellow, partial failure) or `#F44336` (red, total failure) — see §6.
-- **Border-bottom:** `1px solid rgba(255,255,255,0.10)` when visible.
-- **Updates:** Recalculated and re-rendered on every SPA navigation.
-
----
-
-**Section 4 — Button Row**
-
-- **Purpose:** The four action buttons.
-- **Layout:** Vertical stack of buttons, one per row.
-- **Padding:** `8px` (around the button group; `4px` vertical gap between buttons)
-- **Button dimensions:** Full width (`width: 100%`), height `36px`
-- **Button border-radius:** `6px`
-- **Button font size:** `13px`
-- **Button font weight:** `500`
-- **Button gap:** `4px` between adjacent buttons
-
-Button order (top to bottom within section):
-1. **Start Annotating** (or **Exit** in annotation mode — mutually exclusive)
-2. **Export**
-3. **Upload**
-4. **Delete All**
-
-### 2.2 Button States
-
-#### Button: Start Annotating / Exit
-
-These are the same button slot — they swap based on annotation mode.
-
-| State | Label | Visible? | Background | Text Color | Cursor |
-|-------|-------|----------|------------|------------|--------|
-| Default (idle) | `Start Annotating` | Yes | `rgba(255,255,255,0.10)` | `#FFFFFF` | `pointer` |
-| Hover (idle) | `Start Annotating` | Yes | `rgba(255,255,255,0.18)` | `#FFFFFF` | `pointer` |
-| Annotation mode ON | `Exit` | Yes (replaces Start) | `rgba(255,255,255,0.10)` | `#FFFFFF` | `pointer` |
-| Hover (annotation mode) | `Exit` | Yes | `rgba(255,255,255,0.18)` | `#FFFFFF` | `pointer` |
-
-"Start Annotating" is `display: block` when annotation mode is off; `display: none` when on.  
-"Exit" is `display: block` when annotation mode is on; `display: none` when off.
-
-#### Button: Export
-
-| State | Label | Background | Text Color | Cursor |
-|-------|-------|------------|------------|--------|
-| Enabled | `Export` | `rgba(255,255,255,0.10)` | `#FFFFFF` | `pointer` |
-| Hover (enabled) | `Export` | `rgba(255,255,255,0.18)` | `#FFFFFF` | `pointer` |
-| Disabled | `Export` | `rgba(255,255,255,0.08)` | `rgba(255,255,255,0.38)` | `default` |
-
-Enabled when: at least one annotation exists (across all pages on the domain).  
-Disabled when: zero annotations exist.  
-`pointer-events: none` when disabled.
-
-#### Button: Upload
-
-| State | Label | Background | Text Color | Cursor |
-|-------|-------|------------|------------|--------|
-| Always enabled | `Upload` | `rgba(255,255,255,0.10)` | `#FFFFFF` | `pointer` |
-| Hover | `Upload` | `rgba(255,255,255,0.18)` | `#FFFFFF` | `pointer` |
-
-Upload is always enabled regardless of state.
-
-#### Button: Delete All
-
-| State | Label | Background | Text Color | Cursor |
-|-------|-------|------------|------------|--------|
-| Enabled | `Delete All` | `rgba(255,255,255,0.10)` | `#FFFFFF` | `pointer` |
-| Hover (enabled) | `Delete All` | `rgba(255,255,255,0.18)` | `#FFFFFF` | `pointer` |
-| Disabled | `Delete All` | `rgba(255,255,255,0.08)` | `rgba(255,255,255,0.38)` | `default` |
-
-Enabled when: at least one annotation exists.  
-Disabled when: zero annotations exist.  
-`pointer-events: none` when disabled.
-
-**No tooltips** on any buttons — labels are self-explanatory and always visible.
-
-### 2.3 Toolbar Named States
-
-Each state is named for developer reference. States map to which sections are visible and which button states are active.
-
----
-
-#### State: IDLE_EMPTY
-**Trigger:** Toolbar just activated (no annotations, no file imported, annotation mode off)
-
-| Section | Visible? | Content |
-|---------|----------|---------|
-| Message area | No | — |
-| Filename area | No | — |
-| Resolution alert | No | — |
-| Button row | Yes | See below |
-
-| Button | State |
-|--------|-------|
-| Start Annotating | Enabled |
-| Exit | Hidden |
-| Export | Disabled |
-| Upload | Enabled |
-| Delete All | Disabled |
-
----
-
-#### State: IDLE_HAS_ANNOTATIONS
-**Trigger:** Annotations exist, no file loaded, annotation mode off
-
-| Section | Visible? | Content |
-|---------|----------|---------|
-| Message area | No | — |
-| Filename area | No | — |
-| Resolution alert | No | — |
-| Button row | Yes | See below |
-
-| Button | State |
-|--------|-------|
-| Start Annotating | Enabled |
-| Exit | Hidden |
-| Export | Enabled |
-| Upload | Enabled |
-| Delete All | Enabled |
-
----
-
-#### State: ANNOTATING_EMPTY
-**Trigger:** Annotation mode on, zero annotations exist
-
-| Section | Visible? | Content |
-|---------|----------|---------|
-| Message area | No | — |
-| Filename area | No | — |
-| Resolution alert | No | — |
-| Button row | Yes | See below |
-
-| Button | State |
-|--------|-------|
-| Start Annotating | Hidden |
-| Exit | Enabled |
-| Export | Disabled |
-| Upload | Enabled |
-| Delete All | Disabled |
-
----
-
-#### State: ANNOTATING_HAS_ANNOTATIONS
-**Trigger:** Annotation mode on, at least one annotation exists
-
-| Section | Visible? | Content |
-|---------|----------|---------|
-| Message area | No | — |
-| Filename area | No | — |
-| Resolution alert | No | — |
-| Button row | Yes | See below |
-
-| Button | State |
-|--------|-------|
-| Start Annotating | Hidden |
-| Exit | Enabled |
-| Export | Enabled |
-| Upload | Enabled |
-| Delete All | Enabled |
-
----
-
-#### State: FILE_LOADED
-**Trigger:** File successfully imported. Annotation mode automatically enters.
-
-| Section | Visible? | Content |
-|---------|----------|---------|
-| Message area | No | — |
-| Filename area | Yes | `📄 annotations-figma_com.yaml` (actual filename) |
-| Resolution alert | Conditional | See §6 — shows only if some/all annotations couldn't be placed on current page |
-| Button row | Yes | See below |
-
-| Button | State |
-|--------|-------|
-| Start Annotating | Hidden (annotation mode is on post-import) |
-| Exit | Enabled |
-| Export | Enabled (imported file has annotations) |
-| Upload | Enabled |
-| Delete All | Enabled |
-
-Note: Annotation mode is automatically entered on successful import (per REQUIREMENTS.md §1.4). The toolbar immediately shows the Exit button, not Start Annotating.
-
----
-
-#### State: FILE_MODIFIED
-**Trigger:** Any annotation is added, edited, or deleted after a file was imported.
-
-| Section | Visible? | Content |
-|---------|----------|---------|
-| Message area | No | — |
-| Filename area | **No — completely hidden** | Filename indicator removed |
-| Resolution alert | Conditional | Still shown if applicable to current page |
-| Button row | Yes | Same as ANNOTATING_HAS_ANNOTATIONS |
-
-The filename disappears the moment any mutation occurs. There is no "modified" indicator — the filename simply goes away. The resolution alert area may still be visible if it was showing before the modification.
-
----
-
-#### State: ERROR_STATE
-**Trigger:** An error or warning message is set (e.g., import failed).
-
-| Section | Visible? | Content |
-|---------|----------|---------|
-| Message area | **Yes** | Error (red), warning (yellow), or neutral message text |
-| Filename area | Conditional | Unchanged from previous state |
-| Resolution alert | Conditional | Unchanged from previous state |
-| Button row | Yes | Unchanged from previous state |
-
-ERROR_STATE overlays on top of any other state — it adds the message area without changing button states. After 8 seconds the message area hides and the toolbar reverts to whichever base state it was in.
-
-### 2.4 Delete All Confirmation Dialog
-
-The confirmation dialog is a **centered modal** — not anchored to the toolbar.
-
-**Placement:** Centered in the viewport (`position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%)`).
-
-**Overlay:** A full-viewport dim layer behind the dialog:
-- `position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 2147483646`
-
-**Dialog container:**
-- `position: fixed; z-index: 2147483647`
-- `width: 300px`
-- `background: rgba(36, 36, 38, 0.98)`
-- `border-radius: 12px`
-- `box-shadow: 0 8px 40px rgba(0,0,0,0.60)`
-- `padding: 20px`
-- `color: #FFFFFF`
-- `font-family:` system-ui stack (see §1)
-
-**Dialog copy:**  
-`"Delete all [N] annotation[s]? This cannot be undone."`
-
-Where `[N]` is the exact count of annotations across all pages of the domain, and `[s]` is the literal letter "s" when N ≠ 1 (singular: "Delete all 1 annotation?", plural: "Delete all 3 annotations?").
-
-**Example:**  
-- 1 annotation: `Delete all 1 annotation? This cannot be undone.`
-- 4 annotations: `Delete all 4 annotations? This cannot be undone.`
-
-**Copy styling:**
-- Font size: `14px`
-- Line height: `1.5`
+## 2. S Button (Idle State)
+
+The S button is the extension's resting state — visible when annotation mode is **off**.
+
+**Appearance:**
+- Shape: rounded square
+- Size: `44px × 44px`
+- Border-radius: `12px`
+- Background: `rgba(18, 18, 18, 0.97)`
+- Box-shadow: `0 4px 24px rgba(0,0,0,0.40), 0 1px 6px rgba(0,0,0,0.30)`
+- Z-index: `2147483644`
+
+**Label:**
+- Text: `S`
+- Font size: `18px`
+- Font weight: `700`
 - Color: `#FFFFFF`
-- Margin below text: `16px`
+- Centered (`display: flex; align-items: center; justify-content: center`)
 
-**Button row layout:**
-- Two buttons side by side: `display: flex; justify-content: flex-end; gap: 8px`
+**Position:**
+- `position: fixed; bottom: 16px; right: 16px`
 
-| Button | Label | Background | Text Color | Width |
-|--------|-------|------------|------------|-------|
-| Cancel | `Cancel` | `rgba(255,255,255,0.10)` | `#FFFFFF` | `auto` |
-| Delete | `Delete` | `#F44336` | `#FFFFFF` | `auto` |
-
-Both buttons: `height: 36px; padding: 0 16px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; border: none`
-
-**Cancel** is on the left, **Delete** (destructive) is on the right.
+**Hover state:**
+- Background: `rgba(40, 40, 40, 0.97)` (slightly lighter)
+- Cursor: `pointer`
 
 **Behavior:**
-- Dialog blocks all interaction with the page and toolbar behind it.
-- Pressing **Delete:** destroys all annotations across all pages for the current domain, closes dialog, toolbar transitions to IDLE_EMPTY.
-- Pressing **Cancel:** closes dialog, no changes made, toolbar returns to previous state.
-- Clicking the dim overlay: same as Cancel (closes without action).
-- No keyboard shortcut for confirm/cancel in v1 (no keyboard shortcut spec in requirements).
+- Clicking the S button starts annotation mode and replaces it with the floating toolbar.
+- The S button is `display: none` when the toolbar is visible.
+- The toolbar is `display: none` when the S button is visible.
+- They share the same fixed position — only one is shown at a time.
 
 ---
 
-## 3. Annotation Mode Hover Highlight
+## 3. Floating Toolbar (Annotation Mode)
 
-When annotation mode is active and the user hovers a page element:
+The toolbar is visible when annotation mode is **on**. It replaces the S button in the same bottom-right position.
 
-- **Outline:** `2px solid #E040FB`
-- **Outline-offset:** `2px` (outline draws outside the element boundary by 2px)
+The toolbar lives in a Shadow DOM host (`<div id="annotator-host">`). All CSS is scoped inside the shadow root.
+
+### 3.1 Toolbar Layout
+
+**Position:** `position: fixed; bottom: 16px; right: 16px`
+**Background:** `rgba(18, 18, 18, 0.97)`
+**Border-radius:** `12px`
+**Box-shadow:** `0 4px 24px rgba(0,0,0,0.40), 0 1px 6px rgba(0,0,0,0.30)`
+**Z-index:** `2147483644`
+**Width:** auto (fits content)
+**Overflow:** `hidden`
+
+**Internal section order (top to bottom):**
+
+1. **Filename bar** — optional, shown when a file is loaded
+2. **Warning / Error area** — optional, shown when there's a message
+3. **Icon button row** — always visible
+
+Each section is `display: none` when not applicable. A `1px` divider (`rgba(255,255,255,0.10)`) separates visible sections.
+
+---
+
+### 3.2 Filename Bar
+
+Shown when a file has been successfully imported.
+
+**Layout:** `display: flex; align-items: center; justify-content: space-between`
+**Padding:** `8px 12px`
+**Border-bottom:** `1px solid rgba(255,255,255,0.10)`
+
+**Filename text:**
+- Font size: `11px`
+- Color: `rgba(255,255,255,0.60)`
+- Max-width: truncate with `overflow: hidden; text-overflow: ellipsis; white-space: nowrap`
+- Prefix: `📎 ` (paperclip emoji + space) before the filename, via `textContent`
+
+**Dismiss button (✕):**
+- Size: `16px × 16px`
+- Icon: `✕` or `×`
+- Color: `rgba(255,255,255,0.50)`
+- Hover: color `#FFFFFF`
+- Background: transparent
+- Cursor: `pointer`
+- `aria-label="remove file"`
+- `flex-shrink: 0; margin-left: 8px`
+
+**Behavior on dismiss:**
+- Removes the imported file reference
+- **Also removes all annotations** that were loaded from that file
+- Toolbar transitions to TOOLBAR_EMPTY state
+- Filename bar hides
+
+---
+
+### 3.3 Warning / Error Area
+
+Shown when there is an active warning or error message.
+
+**Padding:** `8px 12px`
+**Font size:** `12px`
+**Font weight:** `400`
+**Line height:** `1.4`
+**Border-bottom:** `1px solid rgba(255,255,255,0.10)` when visible
+
+**Color by type:**
+- Error: `#F44336`
+- Warning: `#FF9800`
+
+**Persistence:** Messages in this area are **persistent** — they do not auto-clear. They are replaced only when a new message is set, or when the relevant state is resolved (e.g. file is dismissed).
+
+This area is used for import resolution alerts (e.g. `16 of 17 annotations could not be placed on this page`) and file-level errors (e.g. `file is corrupted`).
+
+See §8 for the full list of message cases and exact copy.
+
+---
+
+### 3.4 Icon Button Row
+
+The row of 4 action icon buttons, always visible when the toolbar is shown.
+
+**Layout:** `display: flex; flex-direction: row; align-items: center; padding: 6px; gap: 4px`
+**Background:** inherits toolbar background
+
+**Button order (left to right):**
+1. **Export** (⬇ download icon)
+2. **Import / Upload** (⬆ upload icon)
+3. **Delete All** (🗑 trash icon)
+4. **Exit** (✕ close icon)
+
+**Each icon button:**
+- Size: `40px × 40px`
+- Border-radius: `8px`
+- Background: `transparent`
+- Color: `#FFFFFF`
+- Hover background: `rgba(255, 255, 255, 0.12)`
+- Cursor: `pointer`
+- `display: flex; align-items: center; justify-content: center`
+- Tooltip (`title` attribute): lowercase label — `export`, `import`, `delete all`, `exit`
+
+**Button behaviors:**
+
+| Button | Behavior |
+|--------|----------|
+| Export | Always enabled. If no annotations exist → `alert("nothing to export")`. Otherwise → download YAML immediately. |
+| Import | Always enabled. Opens native file picker. See §9.1 for import flow. |
+| Delete All | If no annotations exist → do nothing (no alert, no feedback). If annotations exist → `confirm("delete all [n] annotation[s]? this cannot be undone.")`. Confirmed → delete all, toolbar goes to TOOLBAR_EMPTY. |
+| Exit | Always enabled. Exits annotation mode → hides toolbar, shows S button. Annotations remain. |
+
+**No disabled states.** All 4 buttons are always enabled (export and delete handle the empty case programmatically).
+
+---
+
+### 3.5 Toolbar States
+
+States describe what sections are visible in the toolbar. Button row is always visible in all states.
+
+---
+
+#### TOOLBAR_EMPTY
+**Trigger:** Annotation mode active, no annotations, no file loaded.
+
+| Section | Visible? |
+|---------|----------|
+| Filename bar | No |
+| Warning / Error area | No |
+| Icon button row | Yes |
+
+---
+
+#### TOOLBAR_HAS_ANNOTATIONS
+**Trigger:** Annotation mode active, annotations exist, no file loaded.
+
+| Section | Visible? |
+|---------|----------|
+| Filename bar | No |
+| Warning / Error area | No |
+| Icon button row | Yes |
+
+---
+
+#### TOOLBAR_FILE_LOADED
+**Trigger:** File successfully imported.
+
+| Section | Visible? | Content |
+|---------|----------|---------|
+| Filename bar | Yes | `📎 [filename]` with ✕ button |
+| Warning / Error area | Conditional | Only if some/all annotations couldn't be placed on current page |
+| Icon button row | Yes | — |
+
+---
+
+#### TOOLBAR_FILE_LOAD_ERROR
+**Trigger:** File import failed, or file was valid but had resolution issues.
+
+| Section | Visible? | Content |
+|---------|----------|---------|
+| Filename bar | Conditional | Shown if a file was previously loaded |
+| Warning / Error area | Yes | Error or warning message text |
+| Icon button row | Yes | — |
+
+---
+
+## 4. Annotation Mode Hover Highlight
+
+When annotation mode is active (toolbar is visible) and the user hovers over a page element:
+
+- **Outline:** `2px solid #FFC107`
+- **Outline-offset:** `2px`
 - **Cursor:** `crosshair`
-- **No dim overlay:** The rest of the page is not dimmed or obscured. Outline only.
-- **Box-sizing:** `border-box !important` (prevent layout shift on outline)
+- **No background dim.** Only the outline is applied.
+- **Box-sizing:** `border-box !important` (prevent layout shift)
 
-Iframes are **not highlighted** on hover. The hover listener skips elements inside `<iframe>` (iframes are out of scope, REQUIREMENTS.md §6 edge case 6).
+Iframes are **not highlighted** on hover (out of scope per REQUIREMENTS.md §6).
 
-When the popover is open, hover highlighting is suspended — no highlight changes while the popover is visible (per TECH_DESIGN.md §6.6).
+When the popover is open, hover highlighting is **suspended** — no outline changes while the popover is visible.
 
 CSS injected into the page (not Shadow DOM):
 ```css
 .annotator-highlighted {
-  outline: 2px solid #E040FB !important;
+  outline: 2px solid #FFC107 !important;
   outline-offset: 2px !important;
   cursor: crosshair !important;
   box-sizing: border-box !important;
@@ -471,51 +349,62 @@ CSS injected into the page (not Shadow DOM):
 
 ---
 
-## 4. Annotation Pins
+## 5. Annotation Pins
 
 ### Shape & Appearance
 
-| Property | Value |
-|----------|-------|
-| Shape | Circle |
-| Diameter | `24px` (width and height both `24px`) |
-| Border-radius | `50%` |
-| Background | `#E040FB` |
-| Border | `2px solid #FFFFFF` |
-| Box-shadow | `0 2px 6px rgba(0,0,0,0.50), 0 1px 2px rgba(0,0,0,0.30)` |
-| Z-index | `2147483640` |
+Pins are **always visible** regardless of whether annotation mode is on or off. They are removed only when explicitly deleted.
+
+**Single-digit numbers (1–9):**
+- Shape: circle
+- Size: `24px × 24px`
+- Border-radius: `50%`
+- Background: `#FFC107`
+- Box-shadow: `0 2px 6px rgba(0,0,0,0.50), 0 1px 2px rgba(0,0,0,0.30)`
+
+**Multi-digit numbers (10+):**
+- Shape: pill (width expands to fit)
+- Height: `24px`
+- Min-width: `24px`
+- Padding: `0 6px`
+- Border-radius: `12px` (half of height — full pill)
+- Background: `#FFC107`
+- Box-shadow: same as above
+
+**No border** on pins.
 
 ### Number Label
 
 | Property | Value |
 |----------|-------|
 | Font size | `11px` |
-| Font weight | `700` (bold) |
-| Color | `#FFFFFF` |
+| Font weight | `700` |
+| Color | `#000000` |
 | Text align | `center` |
-| Vertical align | `middle` (use `display: flex; align-items: center; justify-content: center` on the pin div) |
+| Vertical align | `display: flex; align-items: center; justify-content: center` |
 | User-select | `none` |
+| White-space | `nowrap` |
 
-### Visibility
+### Interactivity
 
-- **Annotation mode ON:** `display: block; pointer-events: auto`
-- **Annotation mode OFF:** `display: none; pointer-events: none`
+- **Annotation mode OFF (S button shown):** Pins are visible but **not clickable** (`pointer-events: none`).
+- **Annotation mode ON (toolbar shown):** Pins are visible and **clickable** (`pointer-events: auto`, `cursor: pointer`). Clicking opens the EDIT popover.
 
-Implemented by toggling `.annotator-active` on `<body>`:
 ```css
-body:not(.annotator-active) .annotator-pin {
-  display: none !important;
-  pointer-events: none !important;
+/* default: always visible */
+.annotator-pin {
+  pointer-events: none;
+}
+
+/* in annotation mode: clickable */
+body.annotator-active .annotator-pin {
+  pointer-events: auto !important;
+  cursor: pointer !important;
 }
 ```
 
-### Cursor
-
-When annotation mode is ON: `cursor: pointer` on pins (clicking opens the edit popover).
-
 ### Animation on Pin Appearance
 
-When a new pin is created, apply a brief pop-in animation:
 ```css
 @keyframes annotator-pin-appear {
   from { transform: scale(0.5); opacity: 0; }
@@ -526,459 +415,396 @@ When a new pin is created, apply a brief pop-in animation:
 }
 ```
 
-Duration: `150ms`. Easing: `ease-out`. Keep it subtle — not distracting.
-
 ---
 
-## 5. Annotation Popover
+## 6. Annotation Popover
 
-The popover is a separate Shadow DOM host (`<div id="annotator-popover-host">`). See TECH_DESIGN.md §6.7.
+The popover is a Shadow DOM host (`<div id="annotator-popover-host">`). It has two states: CREATE (new annotation) and EDIT (existing annotation).
 
-### 5.1 Layout
+### 6.1 Layout
 
 **Dimensions:**
 - Width: `280px` (fixed)
-- Min-height: `160px`
-- Height: grows with content (textarea is fixed height — see below)
+- Height: auto (textarea is fixed height)
 
 **Appearance:**
-- Background: `rgba(36, 36, 38, 0.98)`
-- Border-radius: `10px`
+- Border-radius: `12px`
 - Box-shadow: `0 8px 32px rgba(0,0,0,0.50), 0 2px 8px rgba(0,0,0,0.30)`
 - Z-index: `2147483646`
 - Position: `fixed`
-- Color: `#FFFFFF`
-- Font-family: system-ui stack
+- Overflow: `hidden` (border-radius clips footer)
 
-**Internal structure (top to bottom):**
+**Internal structure:**
 
 ```
-┌─────────────────────────────────────┐
-│  [Header row: ✕ button right-aligned] │  — 36px tall
-│─────────────────────────────────────│
-│  [Textarea: note input]              │  — 88px fixed height
-│─────────────────────────────────────│
-│  [Footer row: Delete | counter | Add] │  — 40px tall
-└─────────────────────────────────────┘
+┌──────────────────────────────────────┐
+│  textarea area (dark bg)              │  — grows with content (min: 80px)
+│  placeholder: "type something..."     │
+│──────────────────────────────────────│
+│  footer bar (darker/black bg)         │  — 44px tall
+│  [✕ cancel]   [🗑 delete]   [✓ save] │
+└──────────────────────────────────────┘
 ```
 
-**Overall internal padding:** `12px` on all four sides.
+**Pin number badge:**
+A small pin badge (same style as annotation pins, §5) is shown anchored to the top-left corner of the popover, overlapping the border. It indicates which pin number this popover belongs to.
+- Offset: `-8px` from top-left corner of popover (`position: absolute; top: -8px; left: -8px`)
+- Z-index: above popover
 
 ---
 
-**Header row:**
-- `display: flex; justify-content: flex-end; align-items: center`
-- Height: `28px`
-- Margin-bottom: `8px`
-- Close button (✕): right-aligned, `24px × 24px`, icon-only, border-radius `50%`
-  - Background: transparent
-  - Color: `rgba(255,255,255,0.60)`
-  - Hover: background `rgba(255,255,255,0.12)`, color `#FFFFFF`
-  - Font: `16px`, content: `✕` (U+2715 MULTIPLICATION X)
-  - `aria-label="Close"`
+**Textarea area:**
+- Background: `rgba(36, 36, 38, 0.98)`
+- Padding: `12px`
+- Width: `100%` (fills popover width)
 
-**Textarea:**
-- Width: `100%` (full width minus container padding — `calc(100% - 0px)` since padding is on container)
-- Height: `88px` (fixed, no auto-grow in v1)
+**Textarea element:**
+- Width: `100%`
+- Min-height: `80px`
+- Height: auto (grows with content, up to a max)
+- Max-height: `160px`
+- Overflow-y: `auto` (scroll when content exceeds max-height)
 - Resize: `none`
-- Background: `rgba(255,255,255,0.07)`
-- Border: `1px solid rgba(255,255,255,0.15)`
-- Border-radius: `6px`
-- Padding: `8px 10px`
+- Background: `transparent`
+- Border: `none`
+- Outline: `none`
 - Font size: `13px`
 - Color: `#FFFFFF`
-- Placeholder text: `Add a note…`
-- Placeholder color: `rgba(255,255,255,0.35)`
-- `maxlength="400"` (enforced at HTML level)
+- Placeholder: `type something...` (all lowercase)
+- Placeholder color: `rgba(255, 255, 255, 0.35)`
+- `maxlength="400"`
 - `spellcheck="true"`
-- Outline on focus: `2px solid #E040FB; outline-offset: 0`
-- Margin-bottom: `8px`
 
-**Footer row:**
-- `display: flex; justify-content: space-between; align-items: center`
-- Height: `36px`
-- Gap between elements: `8px`
+**Footer bar:**
+- Background: `rgba(18, 18, 18, 1.00)`
+- Height: `44px`
+- Padding: `0 12px`
+- `display: flex; align-items: center; justify-content: space-between`
 
-Layout of footer row items:
-- **Left:** Delete button (or empty space in CREATE state)
-- **Center:** Character counter
-- **Right:** Add button
+---
 
-### 5.2 Character Counter
+### 6.2 New Annotation State (CREATE)
 
-- Always visible in both CREATE and EDIT states.
-- Format: `"[current] / 400"` — e.g. `"0 / 400"`, `"240 / 400"`, `"400 / 400"`
-- Font size: `11px`
-- Font weight: `400`
-- **Color:**
-  - `0–379 chars:` `rgba(255,255,255,0.50)` (neutral gray)
-  - `380–400 chars:` `#F44336` (red — at or near limit)
-  - Threshold: **380 characters** triggers the red color.
-- `white-space: nowrap`
-- `flex-shrink: 0`
+**Trigger:** User clicked a non-annotated element in annotation mode.
 
-### 5.3 Button States
+**Footer contents:**
 
-**Close (✕) button:**
-- Always enabled and visible in all popover states.
-- Size: `24px × 24px`
-- Background: `transparent`
-- Color: `rgba(255,255,255,0.60)`
-- Hover: `background: rgba(255,255,255,0.12); color: #FFFFFF`
-- Border: none
+| Position | Element | Details |
+|----------|---------|---------|
+| Left | ✕ cancel button | Icon or text `✕` |
+| Right | ✓ save button | Enabled only when textarea has ≥ 1 non-whitespace character |
+
+**Delete button:** hidden (not rendered)
+
+**Cancel behavior:**
+- Closes popover
+- **Removes the pin** that was just placed
+- Returns to annotation mode (hover highlighting resumes)
+
+**Save behavior:**
+- Saves annotation to storage
+- Closes popover
+- Pin remains on the page
+- Returns to annotation mode
+
+**Save button states:**
+
+| State | Background | Color | Condition |
+|-------|------------|-------|-----------|
+| Disabled | `rgba(255, 255, 255, 0.08)` | `rgba(255, 255, 255, 0.38)` | Textarea empty or whitespace-only |
+| Enabled | `#FFC107` | `#000000` | ≥ 1 non-whitespace character |
+| Hover (enabled) | `#e6ac00` (10% darker) | `#000000` | — |
+
+**Save button dimensions:**
+- Height: `28px`
+- Padding: `0 12px`
+- Border-radius: `6px`
+- Font size: `13px`
+- Font weight: `500`
+- Label: `✓ save` (checkmark + space + lowercase "save")
+
+**Cancel button:**
+- Label: `✕`
+- Background: transparent
+- Color: `rgba(255, 255, 255, 0.60)`
+- Hover: color `#FFFFFF`
+- Size: `28px × 28px`
 - Border-radius: `50%`
-- `aria-label="Close"`
+- `aria-label="cancel"`
+
+---
+
+### 6.3 Existing Annotation State (EDIT)
+
+**Trigger:** User clicked an existing pin in annotation mode.
+
+**Footer contents:**
+
+| Position | Element | Details |
+|----------|---------|---------|
+| Left | ✕ cancel button | Same style as CREATE state |
+| Center | 🗑 delete button | Icon-only, destructive |
+| Right | ✓ save button | Enabled (pre-filled text is non-empty) |
+
+**Textarea:** pre-filled with existing annotation text. Cursor at end. Focused immediately.
+
+**Cancel behavior:** Closes popover, no changes saved.
 
 **Delete button:**
-- **Shown only in EDIT state.** Hidden (not just disabled) in CREATE state.
-- Label: `Delete`
-- Height: `30px`
-- Padding: `0 12px`
-- Background: `transparent`
+- Icon: trash icon (`🗑` or SVG)
+- Background: transparent
 - Color: `#F44336`
-- Hover: `background: rgba(244,67,54,0.15)`
-- Border: `1px solid rgba(244,67,54,0.50)`
-- Border-radius: `6px`
-- Font size: `13px`
-- Font weight: `500`
-- Cursor: `pointer`
+- Hover background: `rgba(244, 67, 54, 0.15)`
+- Size: `28px × 28px`
+- Border-radius: `50%`
+- `aria-label="delete annotation"`
 
-**Add button:**
-- Visible in both CREATE and EDIT states.
-- Label: `Add` (same label for both create and edit)
-- Height: `30px`
-- Padding: `0 14px`
-- Border-radius: `6px`
-- Font size: `13px`
-- Font weight: `500`
-- **Enabled state:** Background `#E040FB`, color `#FFFFFF`, cursor `pointer`
-- **Hover (enabled):** Background `#CE35DC` (10% darker than accent), color `#FFFFFF`
-- **Disabled state:** Background `rgba(224,64,251,0.30)`, color `rgba(255,255,255,0.38)`, cursor `default`, `pointer-events: none`
-- Disabled when: textarea content is empty or whitespace-only.
-- Enabled when: textarea contains at least 1 non-whitespace character.
+**Delete behavior:**
+- No inline confirmation, no separate modal
+- Immediately deletes the annotation from storage
+- Removes the pin from the page
+- Closes the popover
+- Renumbers remaining pins sequentially
 
-### 5.4 Popover Positions (Overflow Handling)
+**Save button:** same style as CREATE state, always enabled in EDIT state (pre-filled content is non-empty).
 
-The pin is `24px` in diameter. The MARGIN constant (gap between pin edge and popover edge) is **`8px`**.
+**Save behavior:** Updates annotation in storage, closes popover, pin remains.
+
+---
+
+### 6.4 Popover Positioning (Overflow Handling)
+
+The MARGIN constant (gap between pin edge and popover edge) is `8px`.
+Pin diameter: `24px`.
+Popover width: `280px`.
 
 Four candidate positions, attempted in this order:
 
 | Priority | Position | `left` | `top` |
 |----------|----------|--------|-------|
-| 1 (default) | Bottom-right of pin | `pinScreenX + 24 + 8` | `pinScreenY` |
-| 2 | Top-right of pin | `pinScreenX + 24 + 8` | `pinScreenY - popoverHeight + 24` |
-| 3 | Top-left of pin | `pinScreenX - 280 - 8` | `pinScreenY - popoverHeight + 24` |
-| 4 | Bottom-left of pin | `pinScreenX - 280 - 8` | `pinScreenY` |
+| 1 (default) | Bottom-right of pin | `pinX + 24 + 8` | `pinY` |
+| 2 | Top-right of pin | `pinX + 24 + 8` | `pinY - popoverH + 24` |
+| 3 | Top-left of pin | `pinX - 280 - 8` | `pinY - popoverH + 24` |
+| 4 | Bottom-left of pin | `pinX - 280 - 8` | `pinY` |
 
-Where:
-- `pinScreenX` = left edge of pin in viewport coordinates
-- `pinScreenY` = top edge of pin in viewport coordinates
-- `popoverHeight` = `popoverHost.offsetHeight` (measured after first render, or use `160` as pre-layout fallback)
-- `280` = `--annotator-popover-width`
+Where `pinX` / `pinY` = top-left of pin in viewport coords (from `getBoundingClientRect()`).
+`popoverH` = `popoverHost.offsetHeight` after first render, or `160` as fallback.
 
-A position is **valid** if:
-- `left >= 0`
-- `top >= 0`
-- `left + 280 <= window.innerWidth`
-- `top + popoverHeight <= window.innerHeight`
+A position is **valid** when:
+- `left >= 0` and `left + 280 <= window.innerWidth`
+- `top >= 0` and `top + popoverH <= window.innerHeight`
 
-Use the first valid candidate. If all four overflow, use candidate 1 (bottom-right) as the fallback — better to slightly overflow the viewport than to position the popover off-screen.
-
-`pinScreenX` and `pinScreenY` are obtained from the pin element's `getBoundingClientRect()` at the moment the popover opens.
-
-### 5.5 Delete Confirmation (Inline)
-
-When the user clicks **Delete** inside a popover:
-
-The popover content transforms inline — no separate modal dialog for single annotation deletion. The popover maintains its position and size.
-
-**Visual transformation:**
-
-1. The textarea is hidden (`display: none`).
-2. A confirmation message replaces it: `"Delete this annotation? This cannot be undone."`
-   - Font size: `13px`
-   - Line height: `1.5`
-   - Color: `#FFFFFF`
-   - Padding: `8px 0` (vertical padding only — horizontal comes from container)
-3. The header row (✕ button) remains visible.
-4. The footer row is replaced with:
-
-```
-┌──────────────────────────────────────┐
-│  [Confirm Delete (red)] [Cancel]     │
-│  (left-aligned, flex row, gap: 8px)  │
-└──────────────────────────────────────┘
-```
-
-| Button | Label | Background | Color | Border |
-|--------|-------|------------|-------|--------|
-| Confirm Delete | `Confirm Delete` | `#F44336` | `#FFFFFF` | none |
-| Cancel | `Cancel` | `rgba(255,255,255,0.10)` | `#FFFFFF` | none |
-
-Both buttons: `height: 30px; padding: 0 12px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer`
-
-**Cancel** restores the popover to EDIT state (textarea re-appears with original content, original footer re-appears).  
-**Confirm Delete** deletes the annotation from storage, closes the popover, removes the pin.
-
-The character counter is hidden in DELETE_CONFIRM state.
-
-### 5.6 Popover States
-
-#### State: CREATE
-**Trigger:** User clicked a non-annotated element.
-
-| Element | State |
-|---------|-------|
-| Header (✕) | Visible, enabled |
-| Textarea | Visible, empty, focused |
-| Delete button | **Hidden** |
-| Character counter | Visible: `"0 / 400"`, neutral color |
-| Add button | **Disabled** |
-
-#### State: EDIT
-**Trigger:** User clicked an existing pin.
-
-| Element | State |
-|---------|-------|
-| Header (✕) | Visible, enabled |
-| Textarea | Visible, pre-filled with annotation text, focused, cursor at end |
-| Delete button | **Visible, enabled** |
-| Character counter | Visible: `"[N] / 400"`, color based on N |
-| Add button | **Enabled** (pre-filled text is non-empty) |
-
-#### State: DELETE_CONFIRM
-**Trigger:** User clicked Delete in EDIT state.
-
-| Element | State |
-|---------|-------|
-| Header (✕) | Visible, enabled (closes popover if clicked — no delete) |
-| Textarea | Hidden |
-| Confirmation text | Visible: `"Delete this annotation? This cannot be undone."` |
-| Character counter | Hidden |
-| Footer | Replaced: `Confirm Delete` (red) + `Cancel` buttons |
+Use the first valid candidate. If all four overflow, fall back to candidate 1.
 
 ---
 
-## 6. Import Resolution Alerts
+## 7. Import / Export Behavior
 
-Shown in **Section 3** of the toolbar (Resolution Alert Area), below the filename and above buttons. Updated on every page navigation.
+### Export
+- Always enabled (button is never disabled)
+- If no annotations exist: `alert("nothing to export")`
+- Otherwise: triggers download of `annotations-{domain}.yaml` immediately
+- No loading state, no success message
 
-| Scenario | Alert text | Color |
-|----------|------------|-------|
-| All annotations for this page resolved successfully | *(nothing shown — section hidden)* | — |
-| No annotations in file target this page | *(nothing shown — section hidden)* | — |
-| Annotations exist for this page but **some** couldn't be placed | `X of Y annotations couldn't be placed on this page.` | `#FFC107` (yellow) |
-| Annotations exist for this page but **none** could be placed | `None of the annotations could be placed on this page.` | `#F44336` (red) |
+### Import
+- Always enabled
+- Opens native file picker: `<input type="file" accept=".yaml,.yml">`
+- On file selection: runs validation pipeline (see §8)
+- **If user has existing annotations:** `confirm("importing this file will replace your [n] annotation[s]. this cannot be undone. continue?")`
+  - Confirmed → proceed with import, replace all annotations
+  - Cancelled → abort, reset file input
 
-Where `X` = number unresolved, `Y` = total targeting this page (both are integers rendered via `textContent`).
-
-**Font size:** `12px`  
-**Font weight:** `400`  
-**Line height:** `1.4`
-
-These alerts are **per-page** (recalculated on every SPA navigation or page reload). They are distinct from import-time errors, which appear in Section 1 (message area) and reject the file.
-
----
-
-## 7. Error & Warning Messages
-
-All messages appear in **Section 1** (Message Area) of the toolbar. Messages auto-clear after **8 seconds**. Starting a new message resets the timer.
-
-**Error display:** red text (`#F44336`)  
-**Warning display:** yellow text (`#FFC107`)  
-**Neutral display:** gray text (`#9E9E9E`)
-
-Confirmation dialogs (cases 11 and 12) use the same modal pattern as Delete All (§2.4): centered viewport modal with dim overlay.
-
-### All 14 Error/Warning Cases
-
-| # | Case | Display Type | Exact Copy |
-|---|------|-------------|------------|
-| 1 | Wrong file type | 🔴 Error (message area) | `Invalid file type. Please upload a .yaml annotation file.` |
-| 2 | File is empty | 🔴 Error (message area) | `This file is empty. Nothing to import.` |
-| 3 | File is not valid YAML | 🔴 Error (message area) | `Could not read this file — it appears to be corrupted or incorrectly formatted.` |
-| 4 | Valid YAML, wrong schema | 🔴 Error (message area) | `This file doesn't look like an Annotator file. Please check you're uploading the right file.` |
-| 5 | Domain mismatch | 🔴 Error (message area) | `This file contains annotations for \`{fileDomain}\`, but you're currently on \`{currentDomain}\`.` |
-| 6 | Version mismatch (newer file) | 🟡 Warning (message area) | `This file was created with a newer version of Annotator. Some annotations may not display correctly.` |
-| 7 | Domain matches, no annotations for this page | *(silent — no message)* | *(no display)* |
-| 8 | Some annotations couldn't be placed | 🔴 Alert (resolution area, below filename) | `None of the annotations could be placed on this page.` |
-| 9 | Partial resolution | 🟡 Alert (resolution area, below filename) | `X of Y annotations couldn't be placed on this page.` |
-| 10 | File has no annotations | 🔴 Error (message area) | `This file exists but contains no annotations.` |
-| 11 | User has annotations → uploads file | 💬 Confirmation dialog | `Uploading this file will replace your current X annotation(s). This cannot be undone. Continue?` |
-| 12 | User has unsaved post-import changes → uploads another file | 💬 Confirmation dialog | `You have unsaved changes. Uploading a new file will discard them. This cannot be undone. Continue?` |
-| 13 | File exceeds 8MB | 🔴 Error (message area) | `This file is too large to import (max 8MB).` |
-| 14 | Duplicate pin numbers in file | 🔴 Error (message area) | `This file appears to be corrupted (duplicate pin numbers detected).` |
-
-#### Case 5 — Domain Mismatch Formatting Note
-
-The backtick-wrapped domain names (`` `figma.com` ``) should render as inline `code` style if the toolbar supports it. If rendering is plain text only, render as: `This file contains annotations for "figma.com", but you're currently on "other.com".` (use quotation marks). Use `textContent` — never `innerHTML`.
-
-#### Cases 11 and 12 — Confirmation Dialog Spec
-
-Same modal pattern as Delete All (§2.4):
-
-| Property | Case 11 | Case 12 |
-|----------|---------|---------|
-| Copy | `Uploading this file will replace your current X annotation(s). This cannot be undone. Continue?` | `You have unsaved changes. Uploading a new file will discard them. This cannot be undone. Continue?` |
-| Confirm button label | `Continue` | `Continue` |
-| Confirm button color | `#F44336` (destructive) | `#F44336` (destructive) |
-| Cancel button label | `Cancel` | `Cancel` |
-| Overlay | `rgba(0,0,0,0.55)` | `rgba(0,0,0,0.55)` |
-
-Case 11: `X` = number of existing annotations (integer). Singular/plural: `1 annotation` / `3 annotations`.  
-Case 11 singular: `Uploading this file will replace your current 1 annotation. This cannot be undone. Continue?`
-
-**Confirmed → Continue:** proceed with import pipeline, replace all current annotations.  
-**Cancelled:** close dialog, leave current state untouched, reset file input.
+### File Removal (dismiss ✕ on filename bar)
+- Removes the imported file reference
+- **Also removes all annotations** loaded from that file
+- Toolbar transitions to TOOLBAR_EMPTY state
+- No confirmation dialog required
 
 ---
 
-## 8. Interaction Flows
+## 8. Error & Warning Messages
 
-### 8.1 Import Flow
+Messages appear in the **Warning / Error Area** (§3.3) of the toolbar. They are persistent until resolved.
 
-**Step 1:** User clicks **Upload** button → toolbar triggers click on a hidden `<input type="file" accept=".yaml,.yml">` — the browser's native file picker opens. No UI change in toolbar.
+All message copy is **lowercase** (per style guidelines).
 
-**Step 2:** User selects a file → file picker closes → import validation begins immediately.
+### Import Validation Messages
 
-**No loading indicator.** File processing is synchronous/near-instant for valid files. Do not add a loading spinner.
+| # | Case | Type | Exact Copy |
+|---|------|------|------------|
+| 1 | Wrong file type | ❌ Error | `invalid file type. please upload a .yaml annotation file.` |
+| 2 | File is empty | ❌ Error | `this file is empty. nothing to import.` |
+| 3 | File is not valid YAML | ❌ Error | `could not read this file — it appears to be corrupted or incorrectly formatted.` |
+| 4 | Valid YAML, wrong schema | ❌ Error | `this file doesn't look like an annotator file. please check you're uploading the right file.` |
+| 5 | Domain mismatch | ❌ Error | `this file contains annotations for "{fileDomain}", but you're currently on "{currentDomain}".` |
+| 6 | Version mismatch (newer file) | ⚠️ Warning | `this file was created with a newer version of annotator. some annotations may not display correctly.` |
+| 7 | File has no annotations | ❌ Error | `this file exists but contains no annotations.` |
+| 8 | File exceeds 8MB | ❌ Error | `this file is too large to import (max 8mb).` |
+| 9 | Duplicate pin numbers in file | ❌ Error | `this file appears to be corrupted (duplicate pin numbers detected).` |
 
-**Step 3 — Success path:**
-1. Filename area appears: `📄 [filename]`
-2. If any annotations for the current page failed to resolve: resolution alert appears below filename.
-3. Toolbar transitions to FILE_LOADED state.
-4. Annotation mode automatically activates → Start Annotating hidden, Exit shown.
-5. Pins appear on any resolved elements for the current page.
+### Import Resolution Messages (post-import, per page)
 
-**Step 4 — Error path:**
-1. Red error message appears in message area above buttons.
-2. File input is reset (`input.value = ''`).
-3. Toolbar returns to its pre-upload state.
-4. Message auto-clears after 8 seconds.
+Shown after successful import when some/all annotations couldn't be placed on the current page.
 
-**Step 5 — Confirmation needed (cases 11 and 12):**
-1. Confirmation modal appears (centered, with dim overlay). See §7.
-2. **User confirms:** import proceeds (Step 3 success path).
-3. **User cancels:** modal closes, no changes, file input reset.
+| Scenario | Type | Exact Copy |
+|----------|------|------------|
+| Some couldn't be placed | ⚠️ Warning | `[x] of [y] annotations could not be placed on this page.` |
+| None could be placed | ❌ Error | `none of the annotations could be placed on this page.` |
+| All resolved | *(hidden)* | — |
 
-### 8.2 Export Flow
+These are recalculated on every SPA navigation.
 
-**Step 1:** User clicks **Export** → download begins immediately.  
-**No UI change.** No loading state, no success message. The browser handles the download natively (file picker or auto-download based on browser settings).  
-The export filename is: `annotations-{domain}.yaml` where domain dots are replaced with underscores.
+### Confirmation Dialogs (browser `confirm()`)
 
-### 8.3 Annotation Create Flow
+Use native browser `confirm()` for destructive confirmations. All copy is lowercase.
 
-1. User clicks **Start Annotating** → toolbar transitions (Start Annotating hidden, Exit shown). Cursor changes to `crosshair` on all hoverable elements.
+| Case | Copy |
+|------|------|
+| Delete all annotations | `delete all [n] annotation[s]? this cannot be undone.` |
+| Import replaces existing | `importing this file will replace your [n] annotation[s]. this cannot be undone. continue?` |
 
-2. User moves cursor over elements → hover highlight appears (magenta outline, `2px solid #E040FB`, offset 2px).
+Where `[n]` = integer count and `[s]` = `s` when n ≠ 1.
 
-3. User clicks an element (non-annotated):
-   - Native click behavior is suppressed (capturing-phase event listener).
-   - Hover highlight is cleared from the element.
-   - Popover appears in CREATE state, positioned at the best valid candidate position (§5.4), `position: fixed`.
-   - Textarea receives focus immediately (`requestAnimationFrame` → `textarea.focus()`).
-
-4. User types their note:
-   - Character counter updates live on every keystroke: `"[N] / 400"`.
-   - Counter turns red at 380+ characters.
-   - Add button becomes enabled as soon as ≥ 1 non-whitespace character exists.
-   - Input is capped at 400 characters (via `maxlength="400"` attribute).
-
-5. User clicks **Add**:
-   - Popover closes.
-   - Pin appears at the exact click point with a `150ms ease-out` pop-in animation.
-   - Pin is numbered with the next global pin number for the domain.
-   - Export and Delete All buttons become enabled (if first annotation).
-   - Annotation is written to `chrome.storage.local` immediately.
-
-6. User remains in annotation mode and can continue clicking elements.
-
-### 8.4 Annotation Edit Flow
-
-1. User (in annotation mode) clicks an existing pin.
-2. Popover appears in EDIT state, pre-filled with annotation text. Cursor is placed at end of text.
-3. User edits text and clicks **Add** → annotation updated, popover closes, pin remains.
-4. Or user clicks **Delete** → DELETE_CONFIRM inline state appears within popover.
-5. Or user clicks **✕** or clicks outside popover → popover closes, no changes saved.
-
-### 8.5 Click-Outside-to-Dismiss
-
-When the popover is open:
-- Clicking any area outside the popover (and outside annotator elements) closes the popover without saving.
-- Any unsaved text in the textarea is discarded.
-- If in DELETE_CONFIRM state: clicking outside cancels the deletion and closes the popover.
-- Hover highlighting resumes after popover closes.
+Singular: `delete all 1 annotation? this cannot be undone.`
+Plural: `delete all 3 annotations? this cannot be undone.`
 
 ---
 
-## 9. Accessibility Notes
+## 9. Interaction Flows
+
+### 9.1 Extension Activation Flow
+
+1. User clicks the extension icon in Chrome's toolbar → the **S button** appears at bottom-right of the page.
+2. User clicks the S button → annotation mode activates, S button is replaced by the floating toolbar.
+3. Hover highlights are activated. User can now click elements to annotate.
+4. User clicks **✕ exit** in toolbar → annotation mode deactivates, toolbar is replaced by S button. Annotations and pins remain.
+
+### 9.2 Annotation Create Flow
+
+1. In annotation mode, user hovers an element → yellow outline appears (`2px solid #FFC107`).
+2. User clicks the element:
+   - Click suppressed (capturing-phase listener)
+   - Hover outline cleared
+   - Pin placed at click point with next sequential number, pop-in animation (`150ms ease-out`)
+   - Popover opens in CREATE state, positioned at best valid candidate (§6.4)
+   - Textarea is focused immediately (`requestAnimationFrame(() => textarea.focus())`)
+3. User types their note → save button becomes enabled at ≥ 1 non-whitespace character.
+4. User clicks **✓ save**:
+   - Annotation saved to `chrome.storage.local`
+   - Popover closes
+   - User remains in annotation mode
+5. User clicks **✕ cancel** (or clicks outside popover):
+   - Popover closes
+   - **Pin is removed** (since it was not saved)
+   - User remains in annotation mode
+
+### 9.3 Annotation Edit Flow
+
+1. In annotation mode, user clicks an existing pin.
+2. Popover opens in EDIT state, pre-filled with annotation text, cursor at end.
+3. Options:
+   - **Save:** updates annotation, closes popover
+   - **Delete:** immediately deletes annotation + removes pin, closes popover (no confirmation)
+   - **Cancel / click outside:** closes popover, no changes
+
+### 9.4 Import Flow
+
+1. User clicks **⬆ import** → hidden `<input type="file" accept=".yaml,.yml">` is clicked, native file picker opens.
+2. User selects a file → validation runs.
+3. **If existing annotations:** `confirm()` dialog shown (see §8). User must confirm to continue.
+4. **Validation error:** error message shown in warning/error area. File input reset.
+5. **Success:** filename bar appears with filename and ✕. Pins appear for resolved annotations on current page. Resolution message shown if some couldn't be placed.
+
+### 9.5 Export Flow
+
+1. User clicks **⬇ export**.
+2. If no annotations → `alert("nothing to export")`.
+3. Otherwise → download begins immediately. Filename: `annotations-{domain}.yaml`.
+
+### 9.6 Delete All Flow
+
+1. User clicks **🗑 delete all**.
+2. If no annotations → do nothing.
+3. If annotations exist → `confirm("delete all [n] annotation[s]? this cannot be undone.")`
+4. Confirmed → all annotations deleted, pins removed, toolbar transitions to TOOLBAR_EMPTY.
+5. Cancelled → no changes.
+
+### 9.7 Click-Outside-to-Dismiss
+
+When popover is open:
+- Clicking outside the popover (not on a pin or toolbar) → popover closes without saving.
+- If CREATE state: pin is removed.
+- If EDIT state: no changes saved.
+- Hover highlighting resumes.
+
+---
+
+## 10. Accessibility Notes
 
 | Element | Requirement |
 |---------|-------------|
-| Close (✕) button | `aria-label="Close"` required — icon-only button |
-| Upload button | No special aria needed — label is `Upload` |
-| All toolbar buttons | Use `<button>` elements (not `<div>`) for native keyboard accessibility |
-| Disabled buttons | `disabled` attribute on `<button>` element (do not use only `pointer-events: none`) |
-| Popover textarea | `placeholder="Add a note…"` as helper text; no separate `<label>` needed since context is clear |
-| Focus management | On popover open: focus moves to `textarea` using `requestAnimationFrame(() => textarea.focus())` |
-| Focus trap | No focus trap in v1. Tab navigates naturally. |
-| Color as sole indicator | Never use color alone — error messages include descriptive text, not just color. Delete button uses label `Delete` not just red color. |
-| Modal dialogs | Set `role="dialog"` and `aria-modal="true"` on the dialog container |
-| Pin elements | `aria-label="Annotation [N]"` on each pin div |
-| Popover | `role="dialog"` on the popover container; `aria-label="Annotation note"` |
+| S button | `aria-label="start annotating"` |
+| Exit button | `aria-label="exit annotation mode"` |
+| Export button | `aria-label="export"` |
+| Import button | `aria-label="import"` |
+| Delete All button | `aria-label="delete all"` |
+| Filename dismiss ✕ | `aria-label="remove file"` |
+| Popover cancel ✕ | `aria-label="cancel"` |
+| Popover delete 🗑 | `aria-label="delete annotation"` |
+| Popover save | `aria-label="save annotation"` |
+| All toolbar buttons | Use `<button>` elements, not `<div>` |
+| Popover textarea | `placeholder="type something..."` |
+| Focus on popover open | `requestAnimationFrame(() => textarea.focus())` |
+| Pin elements | `aria-label="annotation [n]"` on each pin |
+| Popover container | `role="dialog"; aria-label="annotation note"` |
+| Color as sole indicator | Never — all messages include descriptive text |
 
 ---
 
-## 10. Implementation Notes for Engineers
+## 11. Implementation Notes for Engineers
 
 ### CSS Custom Properties
 
-Define all of the following in the Shadow DOM `:host` rule for the toolbar, and in the popover shadow root's `:host` rule:
+Define in Shadow DOM `:host` for both the toolbar shadow root and popover shadow root:
 
 ```css
 :host {
-  --annotator-accent:               #E040FB;
+  --annotator-accent:               #FFC107;
   --annotator-error:                #F44336;
-  --annotator-warning:              #FFC107;
+  --annotator-warning:              #FF9800;
   --annotator-neutral-msg:          #9E9E9E;
-  --annotator-bg-toolbar:           rgba(28, 28, 30, 0.96);
+  --annotator-bg-toolbar:           rgba(18, 18, 18, 0.97);
   --annotator-bg-popover:           rgba(36, 36, 38, 0.98);
+  --annotator-bg-popover-footer:    rgba(18, 18, 18, 1.00);
   --annotator-text-primary:         #FFFFFF;
   --annotator-text-secondary:       rgba(255, 255, 255, 0.60);
   --annotator-text-disabled:        rgba(255, 255, 255, 0.38);
-  --annotator-btn-primary-bg:       #E040FB;
-  --annotator-btn-primary-text:     #FFFFFF;
-  --annotator-btn-secondary-bg:     rgba(255, 255, 255, 0.10);
-  --annotator-btn-secondary-hover:  rgba(255, 255, 255, 0.18);
-  --annotator-btn-destructive-bg:   #F44336;
-  --annotator-btn-destructive-text: #FFFFFF;
-  --annotator-btn-disabled-bg:      rgba(255, 255, 255, 0.08);
+  --annotator-btn-icon-bg:          transparent;
+  --annotator-btn-icon-bg-hover:    rgba(255, 255, 255, 0.12);
+  --annotator-btn-icon-color:       #FFFFFF;
+  --annotator-btn-primary-bg:       #FFC107;
+  --annotator-btn-primary-text:     #000000;
+  --annotator-btn-destructive-color:#F44336;
   --annotator-divider:              rgba(255, 255, 255, 0.10);
-  --annotator-overlay:              rgba(0, 0, 0, 0.55);
-  --annotator-counter-normal:       rgba(255, 255, 255, 0.50);
-  --annotator-counter-warning:      #F44336;
-  --annotator-pin-bg:               #E040FB;
-  --annotator-pin-border:           #FFFFFF;
-  --annotator-pin-text:             #FFFFFF;
-  --annotator-toolbar-width:        220px;
+  --annotator-pin-bg:               #FFC107;
+  --annotator-pin-text:             #000000;
+  --annotator-s-btn-size:           44px;
   --annotator-toolbar-margin:       16px;
+  --annotator-icon-btn-size:        40px;
   --annotator-pin-size:             24px;
   --annotator-popover-width:        280px;
-  --annotator-radius-toolbar:       12px;
-  --annotator-radius-popover:       10px;
+  --annotator-radius-large:         12px;
   --annotator-radius-btn:           6px;
 }
 ```
 
-### Z-Index Values (from TECH_DESIGN.md §5.3)
+### Z-Index Values
 
 ```js
 const Z = {
   PINS:    2147483640,
-  TOOLBAR: 2147483644,
+  TOOLBAR: 2147483644,  // also used for S button
   POPOVER: 2147483646,
-  MODAL:   2147483647,
 };
 ```
 
@@ -990,25 +816,61 @@ font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, s
 
 ### Key CSS Patterns
 
-**Pin visibility toggle (injected into page, not Shadow DOM):**
-```css
-body:not(.annotator-active) .annotator-pin {
-  display: none !important;
-  pointer-events: none !important;
-}
-```
-
 **Hover highlight (injected into page):**
 ```css
 .annotator-highlighted {
-  outline: 2px solid #E040FB !important;
+  outline: 2px solid #FFC107 !important;
   outline-offset: 2px !important;
   cursor: crosshair !important;
   box-sizing: border-box !important;
 }
 ```
 
-**Pin pop-in animation (injected into page):**
+**Pin visibility & interactivity:**
+```css
+/* Pins always visible */
+.annotator-pin {
+  display: block;
+  pointer-events: none; /* not clickable when toolbar closed */
+}
+
+/* Clickable only in annotation mode */
+body.annotator-active .annotator-pin {
+  pointer-events: auto !important;
+  cursor: pointer !important;
+}
+```
+
+**Pin shape — single vs multi-digit:**
+```css
+.annotator-pin {
+  height: 24px;
+  min-width: 24px;
+  border-radius: 12px; /* pill for all — looks like circle when min-width = height */
+  padding: 0 5px;
+  background: #FFC107;
+  color: #000000;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+```
+
+**S button / toolbar mutual exclusion:**
+```css
+/* JS-controlled — add/remove .annotator-active on <body> */
+#annotator-s-btn   { display: flex; }  /* default */
+#annotator-host    { display: none; }  /* default */
+
+body.annotator-active #annotator-s-btn  { display: none; }
+body.annotator-active #annotator-host   { display: block; }
+```
+
+**Pin pop-in animation:**
 ```css
 @keyframes annotator-pin-appear {
   from { transform: scale(0.5); opacity: 0; }
@@ -1021,22 +883,20 @@ body:not(.annotator-active) .annotator-pin {
 
 ### CSS Gotchas
 
-1. **Shadow DOM `closed` mode — store the reference.** `attachShadow({ mode: 'closed' })` returns the shadow root; after that, `host.shadowRoot` is `null`. Store the returned reference in module scope. See TECH_DESIGN.md §5.5.
+1. **Shadow DOM `closed` mode — store the reference.** `attachShadow({ mode: 'closed' })` returns the shadow root once; after that `host.shadowRoot` is `null`. Store the returned reference.
 
-2. **Popover width for position calculation.** Use the hardcoded constant `280` (not `popover.offsetWidth`) when calculating candidate positions. `offsetWidth` is `0` before the element is laid out. See TECH_DESIGN.md §6.7.
+2. **Popover width for position calculation.** Use the constant `280` (not `popover.offsetWidth`) when computing candidate positions — `offsetWidth` is `0` before layout.
 
-3. **Pin positioning for fixed elements.** Detect `position: fixed` on the target element's ancestor chain. Use viewport coordinates (no `window.scrollX/Y` addition) for fixed-position element pins. See TECH_DESIGN.md §5.4.
+3. **Pin for fixed-position elements.** Detect `position: fixed` ancestors. Use viewport coordinates (skip `window.scrollX/Y` addition) for pinning to fixed elements.
 
-4. **Character counter threshold.** The red warning color activates at **380 characters** (not 400). At 400, the textarea is full (enforced by `maxlength`).
+4. **`textContent` only — never `innerHTML`.** Filenames, annotation text, domain names from files — all via `textContent` or `.value`. Never `innerHTML`.
 
-5. **`textContent` only — no `innerHTML`.** All user-provided strings (annotation notes, filenames, domain names from imported files) must be inserted via `textContent` or as textarea `.value`. Never `innerHTML`. See TECH_DESIGN.md §10.6.
+5. **Disabled buttons.** Use the `disabled` attribute on `<button>`, not just `pointer-events: none`. (`pointer-events: none` does not prevent keyboard activation or provide accessibility semantics.)
 
-6. **Disabled buttons.** Use the actual `disabled` attribute on `<button>` elements, not only `pointer-events: none`. The `disabled` attribute prevents focus, keyboard activation, and provides accessibility semantics.
+6. **File input reset.** After any import error or cancellation, reset with `input.value = ''` so the same file can be re-selected.
 
-7. **Resolution alert uses `textContent` for numbers.** The `X` and `Y` values in alert strings are integers — interpolate them into a string and set via `textContent`. Example: `alertEl.textContent = \`\${unresolved} of \${total} annotations couldn't be placed on this page.\``
+7. **Cancel on CREATE removes pin.** When the user cancels a new annotation (or clicks outside the popover while in CREATE state), the freshly placed pin must be removed from the DOM and from storage.
 
-8. **Notification timer management.** Always `clearTimeout` the existing notification timer before setting a new one. A stale timer clearing a newer message is a common bug. See TECH_DESIGN.md §8.6.
+8. **Delete in EDIT has no confirmation.** Single-annotation delete is immediate — no inline confirm, no modal. Only "Delete All" uses `confirm()`.
 
-9. **File input reset.** After any import error or cancellation, reset the file input (`input.value = ''`) so the user can re-select the same file. The browser won't fire `change` events on a file already selected.
-
-10. **Modal overlay must be in the same Shadow DOM or above it.** The dim overlay for Delete All and import confirmation dialogs should be in the toolbar's Shadow DOM host or appended to `<body>` with `z-index: 2147483647` to ensure it covers the toolbar itself.
+9. **Pins always in DOM, not toggled by annotation mode.** Pins are rendered and visible at all times. Only their `pointer-events` changes based on annotation mode. Do not use `display: none` on pins to hide them.
