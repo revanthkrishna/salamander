@@ -59,24 +59,16 @@ All values are the canonical source. Use CSS custom properties (see §11) throug
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| `--annotator-accent` | `#FFC107` | Pins, hover highlight, active elements |
-| `--annotator-error` | `#F44336` | Error messages, destructive actions |
-| `--annotator-warning` | `#FF9800` | Warning messages |
-| `--annotator-neutral-msg` | `#9E9E9E` | Neutral notices |
-| `--annotator-bg-toolbar` | `rgba(18, 18, 18, 0.97)` | Toolbar and S button background |
-| `--annotator-bg-popover` | `rgba(36, 36, 38, 0.98)` | Popover background |
-| `--annotator-bg-popover-footer` | `rgba(18, 18, 18, 1.00)` | Popover footer bar background |
-| `--annotator-text-primary` | `#FFFFFF` | Primary text on dark backgrounds |
-| `--annotator-text-secondary` | `rgba(255, 255, 255, 0.60)` | Secondary text, placeholders, subtle labels |
-| `--annotator-text-disabled` | `rgba(255, 255, 255, 0.38)` | Disabled states |
-| `--annotator-btn-icon-bg` | `transparent` | Icon button default background |
-| `--annotator-btn-icon-bg-hover` | `rgba(255, 255, 255, 0.12)` | Icon button hover background |
-| `--annotator-btn-icon-color` | `#FFFFFF` | Icon button color |
-| `--annotator-btn-primary-bg` | `#FFC107` | Save / primary action button |
-| `--annotator-btn-primary-text` | `#000000` | Save / primary action button label |
-| `--annotator-btn-destructive-color` | `#F44336` | Delete button icon/text color |
-| `--annotator-divider` | `rgba(255, 255, 255, 0.10)` | Dividers between sections |
-| `--annotator-pin-bg` | `#FFC107` | Pin background |
+| `--annotator-accent` | `#FEC800` | Hover state: icon/text color on all buttons |
+| `--annotator-error` | `#FB645A` | Error bar text and icon tint |
+| `--annotator-warning` | `#D6AE7C` | Warning bar text and icon tint |
+| `--annotator-bg-toolbar` | `#000000` | Toolbar, S button, popover footer, filename/warning bars |
+| `--annotator-bg-popover` | `#3E3E3E` | Popover textarea area background |
+| `--annotator-text-primary` | `#FFFFFF` | Icons, button text (default state) |
+| `--annotator-text-secondary` | `#B7B7B7` | Filename text and clip icon |
+| `--annotator-text-placeholder` | `#D1D1D1` | Popover textarea placeholder color |
+| `--annotator-pin-bg` | `#FEC800` | Pin background |
+| `--annotator-pin-border` | `#000000` | Pin border (1px solid) |
 | `--annotator-pin-text` | `#000000` | Pin number text |
 
 ### Typography
@@ -94,24 +86,33 @@ All values are the canonical source. Use CSS custom properties (see §11) throug
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| `--annotator-s-btn-size` | `44px` | S button width and height |
+| `--annotator-s-btn-size` | `56px` | S button width and height |
 | `--annotator-toolbar-margin` | `16px` | Distance from viewport right and bottom edges |
-| `--annotator-icon-btn-size` | `40px` | Icon button width and height |
-| `--annotator-pin-size` | `24px` | Pin height and min-width (circle) |
-| `--annotator-pin-padding` | `0 6px` | Padding for multi-digit pills |
-| `--annotator-popover-width` | `280px` | Fixed popover width |
+| `--annotator-icon-btn-size` | `56px` | Each icon button width and height in toolbar |
+| `--annotator-toolbar-total-width` | `224px` | Total toolbar width (4 × 56px) |
+| `--annotator-filename-bar-height` | `35px` | Filename bar height |
+| `--annotator-warning-bar-height` | `44px` | Warning bar height |
+| `--annotator-error-bar-height` | `32px` | Error bar height |
+| `--annotator-pin-height` | `14px` | Pin height |
+| `--annotator-pin-min-width` | `14px` | Pin minimum width (expands for multi-digit) |
+| `--annotator-pin-padding` | `0 2px` | Pin horizontal padding |
+| `--annotator-popover-width` | `300px` | Fixed popover width |
+| `--annotator-popover-textarea-height` | `79px` | Popover textarea section height |
+| `--annotator-popover-footer-height` | `40px` | Popover footer bar height |
 | `--annotator-popover-margin` | `8px` | Gap between pin edge and popover edge |
-| `--annotator-radius-large` | `12px` | Toolbar, S button, popover border radius |
-| `--annotator-radius-btn` | `6px` | Button border radius |
-| `--annotator-radius-pin` | `50%` | Pin border radius (single-digit circle) |
+| `--annotator-radius-large` | `16px` | S button, toolbar end caps, popover corners |
+| `--annotator-radius-pin` | `30px` | Pin border radius (pill shape for all) |
 
 ### Shadows
 
+All shadow values use `filter: drop-shadow(...)` (not `box-shadow`) so they correctly follow non-rectangular shapes like the pill toolbar.
+
 | Element | Shadow value |
 |---------|-------------|
-| S button / Toolbar | `0 4px 24px rgba(0, 0, 0, 0.40), 0 1px 6px rgba(0, 0, 0, 0.30)` |
-| Popover | `0 8px 32px rgba(0, 0, 0, 0.50), 0 2px 8px rgba(0, 0, 0, 0.30)` |
-| Pin | `0 2px 6px rgba(0, 0, 0, 0.50), 0 1px 2px rgba(0, 0, 0, 0.30)` |
+| S button | `filter: drop-shadow(0px 0px 8px rgba(0, 0, 0, 0.25))` |
+| Toolbar | `filter: drop-shadow(0px 0px 8px rgba(0, 0, 0, 0.25))` |
+| Popover | `filter: drop-shadow(0px 0px 8px rgba(0, 0, 0, 0.25))` |
+| Pin | `box-shadow: 0 1px 3px rgba(0, 0, 0, 0.40)` (box-shadow is fine for pill shape) |
 
 ### Z-Indexes
 
@@ -769,32 +770,25 @@ Define in Shadow DOM `:host` for both the toolbar shadow root and popover shadow
 
 ```css
 :host {
-  --annotator-accent:               #FFC107;
-  --annotator-error:                #F44336;
-  --annotator-warning:              #FF9800;
-  --annotator-neutral-msg:          #9E9E9E;
-  --annotator-bg-toolbar:           rgba(18, 18, 18, 0.97);
-  --annotator-bg-popover:           rgba(36, 36, 38, 0.98);
-  --annotator-bg-popover-footer:    rgba(18, 18, 18, 1.00);
+  --annotator-accent:               #FEC800;
+  --annotator-error:                #FB645A;
+  --annotator-warning:              #D6AE7C;
+  --annotator-bg-toolbar:           #000000;
+  --annotator-bg-popover:           #3E3E3E;
   --annotator-text-primary:         #FFFFFF;
-  --annotator-text-secondary:       rgba(255, 255, 255, 0.60);
-  --annotator-text-disabled:        rgba(255, 255, 255, 0.38);
-  --annotator-btn-icon-bg:          transparent;
-  --annotator-btn-icon-bg-hover:    rgba(255, 255, 255, 0.12);
-  --annotator-btn-icon-color:       #FFFFFF;
-  --annotator-btn-primary-bg:       #FFC107;
-  --annotator-btn-primary-text:     #000000;
-  --annotator-btn-destructive-color:#F44336;
-  --annotator-divider:              rgba(255, 255, 255, 0.10);
-  --annotator-pin-bg:               #FFC107;
+  --annotator-text-secondary:       #B7B7B7;
+  --annotator-text-placeholder:     #D1D1D1;
+  --annotator-pin-bg:               #FEC800;
+  --annotator-pin-border:           #000000;
   --annotator-pin-text:             #000000;
-  --annotator-s-btn-size:           44px;
+  --annotator-s-btn-size:           56px;
   --annotator-toolbar-margin:       16px;
-  --annotator-icon-btn-size:        40px;
-  --annotator-pin-size:             24px;
-  --annotator-popover-width:        280px;
-  --annotator-radius-large:         12px;
-  --annotator-radius-btn:           6px;
+  --annotator-icon-btn-size:        56px;
+  --annotator-pin-height:           14px;
+  --annotator-pin-min-width:        14px;
+  --annotator-popover-width:        300px;
+  --annotator-radius-large:         16px;
+  --annotator-radius-pin:           30px;
 }
 ```
 
