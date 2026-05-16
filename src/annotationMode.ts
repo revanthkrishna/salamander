@@ -523,14 +523,28 @@ export function initAnnotationMode(cbs: AnnotationModeCallbacks): void {
     closePopover();
   }, { capture: true, signal });
 
-  // Annotation-mode click interceptor (bubble phase, NOT capture).
+  // Safety-net: clear the toolbar pointerdown flag after any pointer release.
+  // The flag is consumed by the click listener below; this handles the edge
+  // case where pointerup fires without a subsequent click (e.g. drag away).
+  document.addEventListener('pointerup', () => {
+    setTimeout(() => { (window as any).__annotatorToolbarPointerDown = false; }, 0);
+  }, { capture: true, signal });
+
+  // Annotation-mode click interceptor (bubble phase).
   document.addEventListener('click', (e) => {
     if (!annotationModeActive) return;
-    // Primary guard: coordinate hit-test against toolbar bounding rects.
-    // Chrome omits the shadow host from composedPath() when the host has
-    // pointer-events:none + 0x0 size, so stopPropagation() inside the shadow
-    // does NOT reliably prevent the event from escaping. The coordinate check
-    // is the only reliable way to detect toolbar clicks.
+
+    // Primary guard: toolbarHost.pointerdown bubbles to the host even with
+    // pointer-events:none (per spec). Flag is set before any click fires.
+    // This is the most reliable toolbar-click detection with a closed
+    // zero-size shadow host where composedPath() and stopPropagation() are
+    // unreliable in Chrome.
+    if ((window as any).__annotatorToolbarPointerDown) {
+      (window as any).__annotatorToolbarPointerDown = false;
+      return;
+    }
+
+    // Secondary: coordinate check (covers keyboard-triggered toolbar actions)
     if (e instanceof MouseEvent && isPointOnToolbar(e.clientX, e.clientY)) return;
     // Pins and popover
     if ((e.target as Element)?.closest?.('.annotator-pin')) return;

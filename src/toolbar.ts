@@ -440,6 +440,15 @@ export function initToolbar(callbacks: ToolbarCallbacks): () => void {
   toolbarShadow = toolbarHost.attachShadow({ mode: 'closed' });
   document.body.appendChild(toolbarHost);
 
+  // KEY: even with pointer-events:none on the host, pointer events from shadow
+  // DOM children still bubble out to the host (per spec / MDN). We use this to
+  // set a reliable flag that the annotation-mode click listener can check.
+  // This sidesteps all composed-path / stopPropagation unreliability with
+  // zero-size closed shadow hosts in Chrome.
+  toolbarHost.addEventListener('pointerdown', () => {
+    (window as any).__annotatorToolbarPointerDown = true;
+  });
+
   buildDOM(toolbarShadow);
 
   // Wire events.
