@@ -20,6 +20,7 @@
 
 import type { Annotation, Fingerprint } from './types';
 import { captureFingerprint } from './fingerprint';
+import { isPointOnToolbar } from './toolbar';
 
 // ─── Callbacks ────────────────────────────────────────────────────────────────
 
@@ -472,20 +473,30 @@ function handleAnnotationClick(e: MouseEvent): void {
 }
 
 /**
- * Returns true if the click event originated inside any annotator-owned element.
- * Uses composedPath() for reliable Shadow DOM (closed root) detection — e.target
- * alone is not reliable because closed shadow roots may retarget it to the host
- * or to whatever element is behind the host's 0×0 bounding box.
+ * Returns true if the pointer event originated inside any annotator-owned UI.
+ *
+ * We use a coordinate hit-test against toolbar element bounding rects as the
+ * primary guard. This is reliable even when the shadow host has
+ * pointer-events:none + a zero bounding box, which causes Chrome to produce an
+ * unexpected composedPath() that may not include the host element. The
+ * popover host is a normal-sized element so composedPath works fine for it.
  */
 function isAnnotatorClick(e: Event): boolean {
+  // 1. Coordinate check against toolbar bounding rects (most reliable)
+  if (e instanceof MouseEvent && isPointOnToolbar(e.clientX, e.clientY)) return true;
+
+  // 2. composedPath check for popover and pins
   const path = e.composedPath() as EventTarget[];
+  if (path.includes(popoverHost)) return true;
+
+  // 3. Fallback: ID/class scan of composed path
   return path.some((node) => {
     if (!(node instanceof Element)) return false;
-    const id = (node as Element).id;
+    const el = node as Element;
     return (
-      id === 'annotator-host' ||
-      id === 'annotator-popover-host' ||
-      (node as Element).classList.contains('annotator-pin')
+      el.id === 'annotator-host' ||
+      el.id === 'annotator-popover-host' ||
+      el.classList.contains('annotator-pin')
     );
   });
 }

@@ -644,6 +644,27 @@ export function setAnnotationCount(_count: number): void {
   // intentionally empty
 }
 
+/**
+ * Returns true if the given viewport coordinates land on any visible part of
+ * the toolbar widget (S button or expanded panel). Used by annotationMode.ts
+ * to guard against intercepting toolbar button clicks.
+ *
+ * We use this coordinate approach because composedPath() from a document-level
+ * capture listener is unreliable when the shadow host has pointer-events:none
+ * and a zero bounding box — Chrome may not include the host in the composed
+ * path in that configuration.
+ */
+export function isPointOnToolbar(x: number, y: number): boolean {
+  const hit = (el: HTMLElement | null): boolean => {
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 &&
+      x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  };
+  return hit(elSButton) || hit(elToolbarPanel) || hit(elFilenameBar) ||
+         hit(elWarningBar) || hit(elErrorBar);
+}
+
 export function destroyToolbar(): void {
   if (notifTimer !== null) {
     clearTimeout(notifTimer);
