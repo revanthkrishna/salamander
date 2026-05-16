@@ -442,22 +442,28 @@ export function initToolbar(callbacks: ToolbarCallbacks): () => void {
 
   buildDOM(toolbarShadow);
 
-  // Wire events
-  elSButton!.addEventListener('click', () => {
+  // Wire events.
+  // IMPORTANT: every handler calls e.stopPropagation() so toolbar clicks never
+  // bubble up to the document-level annotation click listener.
+  elSButton!.addEventListener('click', (e) => {
+    e.stopPropagation();
     setExpanded(true);
     callbacksRef?.onSButtonClick();
   });
 
-  elBtnExit!.addEventListener('click', () => {
+  elBtnExit!.addEventListener('click', (e) => {
+    e.stopPropagation();
     setExpanded(false);
     callbacksRef?.onExit();
   });
 
-  elBtnExport!.addEventListener('click', () => {
+  elBtnExport!.addEventListener('click', (e) => {
+    e.stopPropagation();
     callbacksRef?.onExport();
   });
 
-  elBtnUpload!.addEventListener('click', () => {
+  elBtnUpload!.addEventListener('click', (e) => {
+    e.stopPropagation();
     elFileInput!.click();
   });
 
@@ -467,11 +473,13 @@ export function initToolbar(callbacks: ToolbarCallbacks): () => void {
     elFileInput!.value = '';
   });
 
-  elBtnDeleteAll!.addEventListener('click', () => {
+  elBtnDeleteAll!.addEventListener('click', (e) => {
+    e.stopPropagation();
     callbacksRef?.onDeleteAll();
   });
 
-  elFilenameDismissBtn!.addEventListener('click', () => {
+  elFilenameDismissBtn!.addEventListener('click', (e) => {
+    e.stopPropagation();
     callbacksRef?.onDismissFile?.();
   });
 

@@ -312,7 +312,9 @@ function buildPopoverDOM(): void {
   document.body.appendChild(popoverHost);
 
   // ── Wire internal events ──
-  cancelBtn.addEventListener('click', () => handleCancel());
+  // stopPropagation on all popover buttons so clicks don't bubble to the
+  // document-level annotation listener.
+  cancelBtn.addEventListener('click', (e) => { e.stopPropagation(); handleCancel(); });
 
   noteInput.addEventListener('input', () => {
     if (currentMode === 'create') {
@@ -334,7 +336,8 @@ function buildPopoverDOM(): void {
     }
   });
 
-  saveBtn.addEventListener('click', () => {
+  saveBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
     const note = noteInput.value.trim();
     if (currentMode === 'create') {
       if (!note) return;
@@ -355,7 +358,8 @@ function buildPopoverDOM(): void {
     closePopover({ wasSaved: true });
   });
 
-  deleteBtn.addEventListener('click', () => {
+  deleteBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
     // Immediate delete — no inline confirmation per spec
     if (currentPinNumber !== null) {
       callbacks?.onDeleteAnnotation(currentPinNumber);
@@ -519,14 +523,20 @@ export function initAnnotationMode(cbs: AnnotationModeCallbacks): void {
     closePopover();
   }, { capture: true, signal });
 
-  // Annotation-mode click interceptor.
+  // Annotation-mode click interceptor (bubble phase, NOT capture).
+  // Toolbar buttons call e.stopPropagation() in their own handlers, so their
+  // clicks never bubble up here. This is simpler and more reliable than trying
+  // to detect shadow DOM elements in a capture-phase composedPath check.
   document.addEventListener('click', (e) => {
     if (!annotationModeActive) return;
-    if (isAnnotatorClick(e)) return;  // click on toolbar, popover, or pin — do not intercept
+    // Pins have their own handlers — skip them here
+    if ((e.target as Element)?.closest?.('.annotator-pin')) return;
+    // Popover clicks are stopped inside the shadow; belt-and-suspenders check
+    if (e.composedPath().includes(popoverHost)) return;
     e.preventDefault();
     e.stopImmediatePropagation();
     handleAnnotationClick(e as MouseEvent);
-  }, { capture: true, signal });
+  }, { capture: false, signal });
 
   // Hover highlight — mouseover.
   document.addEventListener('mouseover', (e) => {
