@@ -1,10 +1,10 @@
 /**
- * annotationMode.ts — UI redesign
+ * annotationMode.ts - UI redesign
  *
  * Handles:
  *  - Hover highlight (#FEC800 outline) on hovered elements in annotation mode
  *  - Click interception (capture page clicks in annotation mode)
- *  - Annotation popover (Shadow DOM) — create / edit / delete
+ *  - Annotation popover (Shadow DOM) - create / edit / delete
  *
  * Popover layout (Figma):
  *   ┌────────────────────────────┐
@@ -14,8 +14,8 @@
  *   └────────────────────────────┘
  *
  * Footer states:
- *   CREATE: [cancel]  ……spacer……  [save]
- *   EDIT:   [cancel] [delete]  ……spacer……  [save]
+ *   CREATE: [cancel]  ......spacer......  [save]
+ *   EDIT:   [cancel] [delete]  ......spacer......  [save]
  */
 
 import type { Annotation, Fingerprint } from './types';
@@ -37,7 +37,7 @@ export interface AnnotationModeCallbacks {
   onDeleteAnnotation: (pinNumber: number) => void;
 
   /**
-   * Called when an existing pin is clicked — integration layer should
+   * Called when an existing pin is clicked - integration layer should
    * respond by calling openPopoverForAnnotation() with the full Annotation.
    */
   onExistingPinClick: (pinNumber: number) => void;
@@ -140,7 +140,7 @@ const POPOVER_CSS = `
     border-radius: 16px 16px 0 0;
     display: flex;
   }
-  /* Character counter — lives in the footer bar, shown only at ≥350 chars */
+  /* Character counter - lives in the footer bar, shown only at ≥350 chars */
   .char-counter {
     display: none;           /* hidden until threshold reached */
     align-self: center;
@@ -216,13 +216,13 @@ const POPOVER_CSS = `
     transition: transform 80ms ease;
   }
 
-  /* Cancel — bottom-left corner */
+  /* Cancel - bottom-left corner */
   .btn-cancel {
     width: 52px;
     height: 40px;
     border-radius: 0 0 0 16px;
   }
-  /* Delete — middle (edit mode only), no radius */
+  /* Delete - middle (edit mode only), no radius */
   .btn-delete {
     width: 52px;
     height: 40px;
@@ -233,7 +233,7 @@ const POPOVER_CSS = `
   /* Spacer fills remaining horizontal space */
   .spacer { flex: 1 1 auto; background: var(--bg-footer); }
 
-  /* Wiggle animation — triggered by adding .annotator-wiggle to .popover */
+  /* Wiggle animation - triggered by adding .annotator-wiggle to .popover */
   @keyframes annotator-wiggle {
     0%, 100% { transform: translateX(0); }
     15%       { transform: translateX(-8px); }
@@ -245,7 +245,7 @@ const POPOVER_CSS = `
     animation: annotator-wiggle 380ms ease-in-out;
   }
 
-  /* Save — bottom-right corner with icon+label */
+  /* Save - bottom-right corner with icon+label */
   .btn-save {
     width: 103px;
     height: 40px;
@@ -312,7 +312,7 @@ function buildPopoverDOM(): void {
     deleteBtn.appendChild(ic);
   }
 
-  // Character counter — sits between the left buttons and the spacer.
+  // Character counter - sits between the left buttons and the spacer.
   // Shown only when character count reaches 350+.
   charCounter = document.createElement('span');
   charCounter.className = 'char-counter';
@@ -399,7 +399,7 @@ function buildPopoverDOM(): void {
 
   deleteBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    // Immediate delete — no inline confirmation per spec
+    // Immediate delete - no inline confirmation per spec
     if (currentPinNumber !== null) {
       callbacks?.onDeleteAnnotation(currentPinNumber);
     }
@@ -575,65 +575,66 @@ export function initAnnotationMode(cbs: AnnotationModeCallbacks): void {
   listenerAbortController = new AbortController();
   const { signal } = listenerAbortController;
 
-  // Click-outside detection (registered BEFORE the annotation handler).
-  document.addEventListener('click', (e) => {
+  // ALL capture-phase listeners use WINDOW (not document) as the target.
+  // This is critical for MFEs like Gmail that register their own window-level
+  // capture handlers. Window is the absolute top of the event path — nothing
+  // fires before it. Using stopImmediatePropagation() here fully suppresses
+  // clicks before any page code (React, jQuery, Gmail, etc.) can act on them.
+
+  // 1. Click-outside detection for popover (must run before annotation handler).
+  window.addEventListener('click', (e) => {
     if (!popoverOpen) return;
     if ((e.composedPath() as EventTarget[]).includes(popoverHost)) return;
 
     const hasText = noteInput.value.trim().length > 0;
 
     if (currentMode === 'edit' || (currentMode === 'create' && hasText)) {
-      // User has content or is in edit mode — don’t close, wiggle instead.
-      e.stopPropagation();
+      e.stopImmediatePropagation();
       e.preventDefault();
       wigglePopover();
       return;
     }
 
-    // CREATE + empty: close and let annotation handler (bubble phase)
-    // reopen the popover at the newly clicked element.
+    // CREATE + empty: close, then let annotation handler open popover at new target.
     closePopover();
   }, { capture: true, signal });
 
-  // Safety-net: clear the toolbar pointerdown flag after any pointer release.
-  // The flag is consumed by the click listener below; this handles the edge
-  // case where pointerup fires without a subsequent click (e.g. drag away).
-  document.addEventListener('pointerup', () => {
+  // 2. Toolbar pointerdown guard — set flag at window level so it fires before
+  //    any MFE pointerdown handlers too.
+  window.addEventListener('pointerdown', (e) => {
+    if (isPointOnToolbar(e.clientX, e.clientY)) {
+      (window as any).__annotatorToolbarPointerDown = true;
+    }
+  }, { capture: true, signal });
+
+  // 3. Safety-net: clear flag after pointer release.
+  window.addEventListener('pointerup', () => {
     setTimeout(() => { (window as any).__annotatorToolbarPointerDown = false; }, 0);
   }, { capture: true, signal });
 
-  // Annotation-mode click interceptor (CAPTURE phase).
-  // Capture phase fires before any page handlers (React onClick, jQuery, etc.),
-  // so calling stopPropagation()/stopImmediatePropagation() here fully suppresses
-  // the click from reaching the target or bubble-phase listeners.
-  document.addEventListener('click', (e) => {
+  // 4. Annotation-mode click interceptor — window capture = absolute first handler.
+  window.addEventListener('click', (e) => {
     if (!annotationModeActive) return;
-    // Programmatic clicks (e.g. a.click() for file download) have isTrusted=false.
-    // Never treat them as annotation clicks.
-    if (!e.isTrusted) return;
+    if (!e.isTrusted) return; // ignore programmatic clicks (e.g. a.click() for download)
 
-    // Primary guard: toolbarHost.pointerdown bubbles to the host even with
-    // pointer-events:none (per spec). Flag is set before any click fires.
-    // This is the most reliable toolbar-click detection with a closed
-    // zero-size shadow host where composedPath() and stopPropagation() are
-    // unreliable in Chrome.
+    // Toolbar guard (flag set by pointerdown above)
     if ((window as any).__annotatorToolbarPointerDown) {
       (window as any).__annotatorToolbarPointerDown = false;
       return;
     }
-
-    // Secondary: coordinate check (covers keyboard-triggered toolbar actions)
+    // Coordinate fallback for keyboard-activated toolbar actions
     if (e instanceof MouseEvent && isPointOnToolbar(e.clientX, e.clientY)) return;
     // Pins and popover
     if ((e.target as Element)?.closest?.('.annotator-pin')) return;
     if (e.composedPath().includes(popoverHost)) return;
+
     e.preventDefault();
     e.stopImmediatePropagation();
     handleAnnotationClick(e as MouseEvent);
   }, { capture: true, signal });
 
-  // Hover highlight — mouseover.
-  document.addEventListener('mouseover', (e) => {
+  // 5. Hover highlight — window level so highlight works on MFEs too.
+  window.addEventListener('mouseover', (e) => {
     if (!annotationModeActive || popoverOpen) return;
     if (isAnnotatorClick(e)) return;
     if (highlightedEl) highlightedEl.classList.remove('annotator-highlighted');
@@ -641,8 +642,7 @@ export function initAnnotationMode(cbs: AnnotationModeCallbacks): void {
     highlightedEl.classList.add('annotator-highlighted');
   }, { capture: true, signal });
 
-  // Hover highlight — mouseout.
-  document.addEventListener('mouseout', (e) => {
+  window.addEventListener('mouseout', (e) => {
     if (!annotationModeActive) return;
     if (highlightedEl && e.target === highlightedEl) {
       highlightedEl.classList.remove('annotator-highlighted');
@@ -699,7 +699,7 @@ export function openPopoverForAnnotation(
 
   noteInput.value = annotation.note;
   deleteBtn.hidden = false;
-  // In edit mode, save is always enabled (allows save without changes — no-op),
+  // In edit mode, save is always enabled (allows save without changes - no-op),
   // but spec says "always enabled in edit", so we honour that here.
   saveBtn.disabled = false;
   updateCharCounter();
