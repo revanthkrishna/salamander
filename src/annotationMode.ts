@@ -1,12 +1,21 @@
 /**
- * annotationMode.ts — Phase 2F
+ * annotationMode.ts — UI redesign
  *
  * Handles:
- *  - Hover highlight (magenta outline on hovered elements in annotation mode)
- *  - Click interception (capture all page clicks in annotation mode)
- *  - Annotation popover (Shadow DOM component for create / edit / delete)
+ *  - Hover highlight (#FEC800 outline) on hovered elements in annotation mode
+ *  - Click interception (capture page clicks in annotation mode)
+ *  - Annotation popover (Shadow DOM) — create / edit / delete
  *
- * Does NOT handle: storage, pin rendering, or toolbar state.
+ * Popover layout (Figma):
+ *   ┌────────────────────────────┐
+ *   │ textarea area  (bg #3E3E3E)│   radius 16 16 0 0
+ *   ├────────────────────────────┤
+ *   │ footer bar  (bg #000)      │   radius 0 0 16 16 (left/right buttons)
+ *   └────────────────────────────┘
+ *
+ * Footer states:
+ *   CREATE: [cancel]  ……spacer……  [save]
+ *   EDIT:   [cancel] [delete]  ……spacer……  [save]
  */
 
 import type { Annotation, Fingerprint } from './types';
@@ -15,7 +24,6 @@ import { captureFingerprint } from './fingerprint';
 // ─── Callbacks ────────────────────────────────────────────────────────────────
 
 export interface AnnotationModeCallbacks {
-  /** Called when user saves a new annotation via the popover. */
   onNewAnnotation: (params: {
     targetElement: Element;
     fingerprint: Fingerprint;
@@ -23,10 +31,8 @@ export interface AnnotationModeCallbacks {
     note: string;
   }) => void;
 
-  /** Called when user saves an edit to an existing annotation. */
   onEditAnnotation: (pinNumber: number, note: string) => void;
 
-  /** Called when user confirms deletion of an annotation. */
   onDeleteAnnotation: (pinNumber: number) => void;
 
   /**
@@ -34,7 +40,20 @@ export interface AnnotationModeCallbacks {
    * respond by calling openPopoverForAnnotation() with the full Annotation.
    */
   onExistingPinClick: (pinNumber: number) => void;
+
+  /**
+   * Called when the user cancels CREATE mode (either via the cancel button
+   * or by clicking outside the popover). The newly-placed pin should be
+   * removed by the caller because the annotation was never saved.
+   */
+  onCancelCreate?: () => void;
 }
+
+// ─── Inline icon SVGs (use currentColor so CSS hover recolors them) ───────────
+
+const ICON_CROSS_SMALL = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><polygon points="18.707 6.707 17.293 5.293 12 10.586 6.707 5.293 5.293 6.707 10.586 12 5.293 17.293 6.707 18.707 12 13.414 17.293 18.707 18.707 17.293 13.414 12 18.707 6.707"/></svg>`;
+const ICON_CHECK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 507.506 507.506" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="M163.865,436.934c-14.406,0.006-28.222-5.72-38.4-15.915L9.369,304.966c-12.492-12.496-12.492-32.752,0-45.248c12.496-12.492,32.752-12.492,45.248,0l109.248,109.248L452.889,79.942c12.496-12.492,32.752-12.492,45.248,0c12.492,12.496,12.492,32.752,0,45.248L202.265,421.019C192.087,431.214,178.271,436.94,163.865,436.934z"/></svg>`;
+const ICON_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="M21,4H17.9A5.009,5.009,0,0,0,13,0H11A5.009,5.009,0,0,0,6.1,4H3A1,1,0,0,0,3,6H4V19a5.006,5.006,0,0,0,5,5h6a5.006,5.006,0,0,0,5-5V6h1a1,1,0,0,0,0-2ZM11,2h2a3.006,3.006,0,0,1,2.829,2H8.171A3.006,3.006,0,0,1,11,2Zm7,17a3,3,0,0,1-3,3H9a3,3,0,0,1-3-3V6H18Z"/><path d="M10,18a1,1,0,0,0,1-1V11a1,1,0,0,0-2,0v6A1,1,0,0,0,10,18Z"/><path d="M14,18a1,1,0,0,0,1-1V11a1,1,0,0,0-2,0v6A1,1,0,0,0,14,18Z"/></svg>`;
 
 // ─── Module-level state ───────────────────────────────────────────────────────
 
@@ -43,7 +62,6 @@ let popoverOpen = false;
 let highlightedEl: Element | null = null;
 let callbacks: AnnotationModeCallbacks | null = null;
 
-// Current popover context (only valid while popover is open)
 type PopoverMode = 'create' | 'edit';
 let currentMode: PopoverMode = 'create';
 let currentPinNumber: number | null = null;
@@ -54,231 +72,156 @@ let currentOffset: { x: number; y: number } | null = null;
 // ─── Popover Shadow DOM refs ──────────────────────────────────────────────────
 
 let popoverHost: HTMLDivElement;
-let popoverShadow: ShadowRoot; // stored — host.shadowRoot is null after closed attachShadow
+let popoverShadow: ShadowRoot;
 
-// Popover DOM element refs (inside shadow)
 let popoverEl: HTMLDivElement;
 let noteInput: HTMLTextAreaElement;
-let counter: HTMLSpanElement;
-let addBtn: HTMLButtonElement;
-let deleteBtn: HTMLButtonElement;
-let closeBtn: HTMLButtonElement;
 let footerEl: HTMLDivElement;
-let deleteConfirmEl: HTMLDivElement;
+let cancelBtn: HTMLButtonElement;
+let deleteBtn: HTMLButtonElement;
+let saveBtn: HTMLButtonElement;
 
-// AbortController for event listener cleanup
 let listenerAbortController: AbortController | null = null;
 
-// ─── Highlight CSS (injected to page <head>, not Shadow DOM) ──────────────────
+// ─── Hover highlight CSS (injected to <head>) ─────────────────────────────────
 
 function injectHighlightCSS(): void {
   if (document.getElementById('annotator-highlight-css')) return;
   const style = document.createElement('style');
   style.id = 'annotator-highlight-css';
   style.textContent = `
-    .annotator-highlighted {
-      outline: 2px solid #E040FB !important;
+    body.annotator-active .annotator-highlighted {
+      outline: 2px solid #FEC800 !important;
       outline-offset: 2px !important;
       cursor: crosshair !important;
       box-sizing: border-box !important;
+    }
+    body.annotator-active *:not(.annotator-pin) {
+      cursor: crosshair;
     }
   `;
   document.head.appendChild(style);
 }
 
-// ─── Popover CSS (inside shadow root) ────────────────────────────────────────
+// ─── Popover CSS (inside shadow root) ─────────────────────────────────────────
 
 const POPOVER_CSS = `
   :host {
-    --accent:               #E040FB;
-    --error:                #F44336;
-    --bg:                   rgba(36, 36, 38, 0.98);
-    --text:                 #FFFFFF;
-    --text-secondary:       rgba(255, 255, 255, 0.60);
-    --btn-secondary:        rgba(255, 255, 255, 0.10);
-    --btn-secondary-hover:  rgba(255, 255, 255, 0.18);
-    --counter-normal:       rgba(255, 255, 255, 0.50);
-    --counter-warning:      #F44336;
+    --accent: #FEC800;
+    --bg-textarea: #3E3E3E;
+    --bg-footer: #000000;
+    --text: #FFFFFF;
+    --placeholder: #D1D1D1;
+    --shadow: drop-shadow(0px 0px 8px rgba(0,0,0,0.25));
     font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
 
+  *, *::before, *::after { box-sizing: border-box; }
+
   .popover {
     position: fixed;
-    width: 280px;
-    min-height: 160px;
-    background: var(--bg);
-    border-radius: 10px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.50), 0 2px 8px rgba(0,0,0,0.30);
+    width: 300px;
     z-index: 2147483646;
     color: var(--text);
-    padding: 12px;
-    box-sizing: border-box;
-  }
-
-  .popover[hidden] {
-    display: none;
-  }
-
-  .header {
+    filter: var(--shadow);
     display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    height: 28px;
-    margin-bottom: 8px;
+    flex-direction: column;
+    border-radius: 16px;
+    overflow: hidden;
   }
+  .popover[hidden] { display: none !important; }
 
-  .close-btn {
-    width: 24px;
-    height: 24px;
+  /* Textarea area */
+  .ta-wrap {
+    background: var(--bg-textarea);
+    padding: 8px 16px;
+    border-radius: 16px 16px 0 0;
+    display: flex;
+  }
+  .note-input {
+    width: 100%;
+    min-height: 63px;     /* (79 area - 16 vertical padding = 63 textarea) */
+    max-height: 144px;    /* approx 160 area max - 16 vert pad */
+    resize: none;
     background: transparent;
     border: none;
-    border-radius: 50%;
-    color: var(--text-secondary);
-    font-size: 16px;
+    outline: none;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 18px;
+    line-height: 21px;
+    padding: 0;
+    margin: 0;
+    overflow-y: auto;
+  }
+  .note-input::placeholder { color: var(--placeholder); }
+
+  /* Footer bar */
+  .footer {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    width: 300px;
+    height: 40px;
+    background: var(--bg-footer);
+  }
+
+  .footer-btn {
+    background: var(--bg-footer);
+    border: none;
+    color: var(--text);
+    padding: 0;
+    margin: 0;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0;
+    transition: color 120ms ease;
+  }
+  .footer-btn:hover:not(:disabled) { color: var(--accent); }
+  .footer-btn:active:not(:disabled) .icon { transform: scale(0.88); }
+  .footer-btn:active:not(:disabled) .label { transform: scale(0.88); }
+  .footer-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .footer-btn:disabled { opacity: 0.38; cursor: default; }
+
+  .footer-btn .icon {
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    transition: transform 80ms ease;
+  }
+  .footer-btn .icon svg { width: 100%; height: 100%; display: block; }
+  .footer-btn .label {
+    font-size: 20px;
     line-height: 1;
-  }
-  .close-btn:hover {
-    background: rgba(255, 255, 255, 0.12);
-    color: var(--text);
+    color: inherit;
+    transition: transform 80ms ease;
   }
 
-  .note-input {
-    width: 100%;
-    height: 88px;
-    resize: none;
-    background: rgba(255, 255, 255, 0.07);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 6px;
-    padding: 8px 10px;
-    font-size: 13px;
-    color: var(--text);
-    font-family: inherit;
-    box-sizing: border-box;
-    margin-bottom: 8px;
+  /* Cancel — bottom-left corner */
+  .btn-cancel {
+    width: 52px;
+    height: 40px;
+    border-radius: 0 0 0 16px;
   }
-  .note-input::placeholder {
-    color: rgba(255, 255, 255, 0.35);
+  /* Delete — middle (edit mode only), no radius */
+  .btn-delete {
+    width: 52px;
+    height: 40px;
+    border-radius: 0;
   }
-  .note-input:focus {
-    outline: 2px solid var(--accent);
-    outline-offset: 0;
-  }
+  .btn-delete[hidden] { display: none !important; }
 
-  .footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    height: 36px;
+  /* Spacer fills remaining horizontal space */
+  .spacer { flex: 1 1 auto; background: var(--bg-footer); }
+
+  /* Save — bottom-right corner with icon+label */
+  .btn-save {
+    width: 103px;
+    height: 40px;
+    border-radius: 0 0 16px 0;
     gap: 8px;
-  }
-
-  .delete-btn {
-    height: 30px;
-    padding: 0 12px;
-    background: transparent;
-    color: var(--error);
-    border: 1px solid rgba(244, 67, 54, 0.50);
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  .delete-btn:hover {
-    background: rgba(244, 67, 54, 0.15);
-  }
-  .delete-btn[hidden] {
-    display: none;
-  }
-
-  .counter {
-    font-size: 11px;
-    font-weight: 400;
-    color: var(--counter-normal);
-    white-space: nowrap;
-    flex-shrink: 0;
-    flex: 1;
-    text-align: center;
-  }
-  .counter.warning {
-    color: var(--counter-warning);
-  }
-
-  .add-btn {
-    height: 30px;
-    padding: 0 14px;
-    background: var(--accent);
-    color: var(--text);
-    border: none;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  .add-btn:hover:not(:disabled) {
-    background: #CE35DC;
-  }
-  .add-btn:disabled {
-    background: rgba(224, 64, 251, 0.30);
-    color: rgba(255, 255, 255, 0.38);
-    cursor: default;
-    pointer-events: none;
-  }
-
-  .delete-confirm {
-    padding: 8px 0;
-  }
-  .delete-confirm[hidden] {
-    display: none;
-  }
-
-  .delete-confirm p {
-    font-size: 13px;
-    line-height: 1.5;
-    color: var(--text);
-    margin: 0 0 12px 0;
-  }
-
-  .confirm-btns {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-
-  .confirm-delete-btn {
-    height: 30px;
-    padding: 0 12px;
-    background: var(--error);
-    color: var(--text);
-    border: none;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-  }
-  .confirm-delete-btn:hover {
-    background: #d32f2f;
-  }
-
-  .confirm-cancel-btn {
-    height: 30px;
-    padding: 0 12px;
-    background: var(--btn-secondary);
-    color: var(--text);
-    border: none;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-  }
-  .confirm-cancel-btn:hover {
-    background: var(--btn-secondary-hover);
+    flex-direction: row;
   }
 `;
 
@@ -287,112 +230,113 @@ const POPOVER_CSS = `
 function buildPopoverDOM(): void {
   popoverHost = document.createElement('div');
   popoverHost.id = 'annotator-popover-host';
-  popoverShadow = popoverHost.attachShadow({ mode: 'closed' }); // STORE THIS
+  popoverShadow = popoverHost.attachShadow({ mode: 'closed' });
 
-  // CSS
   const styleEl = document.createElement('style');
   styleEl.textContent = POPOVER_CSS;
   popoverShadow.appendChild(styleEl);
 
-  // Container
   popoverEl = document.createElement('div');
   popoverEl.className = 'popover';
   popoverEl.setAttribute('role', 'dialog');
   popoverEl.setAttribute('aria-label', 'Annotation note');
   popoverEl.hidden = true;
 
-  // Header row
-  const header = document.createElement('div');
-  header.className = 'header';
-
-  closeBtn = document.createElement('button');
-  closeBtn.className = 'close-btn';
-  closeBtn.setAttribute('aria-label', 'Close');
-  closeBtn.textContent = '\u2715'; // ✕ close character; textContent only — no innerHTML
-  header.appendChild(closeBtn);
-
-  // Textarea
+  // Textarea area
+  const taWrap = document.createElement('div');
+  taWrap.className = 'ta-wrap';
   noteInput = document.createElement('textarea');
   noteInput.className = 'note-input';
   noteInput.maxLength = 400;
-  noteInput.placeholder = 'Add a note…';
+  noteInput.placeholder = 'type something...';
   noteInput.spellcheck = true;
+  noteInput.rows = 3;
+  taWrap.appendChild(noteInput);
 
-  // Footer row
+  // Footer
   footerEl = document.createElement('div');
   footerEl.className = 'footer';
 
+  cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'footer-btn btn-cancel';
+  cancelBtn.setAttribute('aria-label', 'Cancel');
+  {
+    const ic = document.createElement('span');
+    ic.className = 'icon';
+    ic.innerHTML = ICON_CROSS_SMALL;
+    cancelBtn.appendChild(ic);
+  }
+
   deleteBtn = document.createElement('button');
-  deleteBtn.className = 'delete-btn';
-  deleteBtn.textContent = 'Delete';
+  deleteBtn.type = 'button';
+  deleteBtn.className = 'footer-btn btn-delete';
+  deleteBtn.setAttribute('aria-label', 'Delete annotation');
   deleteBtn.hidden = true;
+  {
+    const ic = document.createElement('span');
+    ic.className = 'icon';
+    ic.innerHTML = ICON_TRASH;
+    deleteBtn.appendChild(ic);
+  }
 
-  counter = document.createElement('span');
-  counter.className = 'counter';
-  counter.textContent = '0 / 400';
+  const spacer = document.createElement('div');
+  spacer.className = 'spacer';
 
-  addBtn = document.createElement('button');
-  addBtn.className = 'add-btn';
-  addBtn.textContent = 'Add';
-  addBtn.disabled = true;
+  saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'footer-btn btn-save';
+  saveBtn.setAttribute('aria-label', 'Save annotation');
+  {
+    const ic = document.createElement('span');
+    ic.className = 'icon';
+    ic.innerHTML = ICON_CHECK;
+    const lbl = document.createElement('span');
+    lbl.className = 'label';
+    lbl.textContent = 'save';
+    saveBtn.appendChild(ic);
+    saveBtn.appendChild(lbl);
+  }
+  saveBtn.disabled = true;
 
+  footerEl.appendChild(cancelBtn);
   footerEl.appendChild(deleteBtn);
-  footerEl.appendChild(counter);
-  footerEl.appendChild(addBtn);
+  footerEl.appendChild(spacer);
+  footerEl.appendChild(saveBtn);
 
-  // Delete confirmation panel
-  deleteConfirmEl = document.createElement('div');
-  deleteConfirmEl.className = 'delete-confirm';
-  deleteConfirmEl.hidden = true;
-
-  const confirmP = document.createElement('p');
-  confirmP.textContent = 'Delete this annotation? This cannot be undone.';
-  deleteConfirmEl.appendChild(confirmP);
-
-  const confirmBtns = document.createElement('div');
-  confirmBtns.className = 'confirm-btns';
-
-  const confirmDeleteBtn = document.createElement('button');
-  confirmDeleteBtn.className = 'confirm-delete-btn';
-  confirmDeleteBtn.textContent = 'Confirm Delete';
-
-  const confirmCancelBtn = document.createElement('button');
-  confirmCancelBtn.className = 'confirm-cancel-btn';
-  confirmCancelBtn.textContent = 'Cancel';
-
-  confirmBtns.appendChild(confirmDeleteBtn);
-  confirmBtns.appendChild(confirmCancelBtn);
-  deleteConfirmEl.appendChild(confirmBtns);
-
-  // Assemble
-  popoverEl.appendChild(header);
-  popoverEl.appendChild(noteInput);
+  popoverEl.appendChild(taWrap);
   popoverEl.appendChild(footerEl);
-  popoverEl.appendChild(deleteConfirmEl);
   popoverShadow.appendChild(popoverEl);
 
   document.body.appendChild(popoverHost);
 
-  // ── Wire up internal events ──────────────────────────────────────────────
-
-  closeBtn.addEventListener('click', () => closePopover());
+  // ── Wire internal events ──
+  cancelBtn.addEventListener('click', () => handleCancel());
 
   noteInput.addEventListener('input', () => {
-    const len = noteInput.value.length;
-    counter.textContent = `${len} / 400`;
-    if (len >= 380) {
-      counter.classList.add('warning');
+    if (currentMode === 'create') {
+      saveBtn.disabled = noteInput.value.trim().length === 0;
     } else {
-      counter.classList.remove('warning');
+      saveBtn.disabled = false;
     }
-    addBtn.disabled = noteInput.value.trim().length === 0;
   });
 
-  addBtn.addEventListener('click', () => {
-    const note = noteInput.value.trim();
-    if (!note) return;
+  noteInput.addEventListener('keydown', (e) => {
+    // Cmd/Ctrl+Enter saves
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      if (!saveBtn.disabled) saveBtn.click();
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      handleCancel();
+    }
+  });
 
+  saveBtn.addEventListener('click', () => {
+    const note = noteInput.value.trim();
     if (currentMode === 'create') {
+      if (!note) return;
       if (currentTargetElement && currentFingerprint && currentOffset) {
         callbacks?.onNewAnnotation({
           targetElement: currentTargetElement,
@@ -402,58 +346,44 @@ function buildPopoverDOM(): void {
         });
       }
     } else {
-      // edit mode
       if (currentPinNumber !== null) {
         callbacks?.onEditAnnotation(currentPinNumber, note);
       }
     }
-
-    closePopover();
+    // Mark closure as "saved" so closePopover skips the cancel callback
+    closePopover({ wasSaved: true });
   });
 
   deleteBtn.addEventListener('click', () => {
-    // Show inline delete confirmation
-    noteInput.hidden = true;
-    footerEl.hidden = true;
-    deleteConfirmEl.hidden = false;
-  });
-
-  confirmDeleteBtn.addEventListener('click', () => {
+    // Immediate delete — no inline confirmation per spec
     if (currentPinNumber !== null) {
       callbacks?.onDeleteAnnotation(currentPinNumber);
     }
-    closePopover();
-  });
-
-  confirmCancelBtn.addEventListener('click', () => {
-    // Restore EDIT state
-    noteInput.hidden = false;
-    footerEl.hidden = false;
-    deleteConfirmEl.hidden = true;
+    closePopover({ wasSaved: true });
   });
 }
 
-// ─── Popover positioning ───────────────────────────────────────────────────────
+// ─── Popover positioning ──────────────────────────────────────────────────────
 
 function positionPopover(pinScreenX: number, pinScreenY: number): void {
   const PIN_SIZE = 24;
   const MARGIN = 8;
-  const pw = 280; // fixed width — matches CSS; do NOT use offsetWidth (0 before layout)
-  const ph = popoverEl.offsetHeight || 160; // dynamic height; fallback for pre-layout
+  const pw = 300;
+  const ph = popoverEl.offsetHeight || 119; // ~79 textarea + 40 footer
   const vw = window.innerWidth;
   const vh = window.innerHeight;
 
   const candidates = [
-    { left: pinScreenX + PIN_SIZE + MARGIN, top: pinScreenY },                    // bottom-right
-    { left: pinScreenX + PIN_SIZE + MARGIN, top: pinScreenY - ph + PIN_SIZE },    // top-right
-    { left: pinScreenX - pw - MARGIN,       top: pinScreenY - ph + PIN_SIZE },    // top-left
-    { left: pinScreenX - pw - MARGIN,       top: pinScreenY },                    // bottom-left
+    { left: pinScreenX + PIN_SIZE + MARGIN, top: pinScreenY },
+    { left: pinScreenX + PIN_SIZE + MARGIN, top: pinScreenY - ph + PIN_SIZE },
+    { left: pinScreenX - pw - MARGIN,       top: pinScreenY - ph + PIN_SIZE },
+    { left: pinScreenX - pw - MARGIN,       top: pinScreenY },
   ];
 
   const pos = candidates.find(c =>
     c.left >= 0 && c.top >= 0 &&
     c.left + pw <= vw && c.top + ph <= vh
-  ) ?? candidates[0]; // fallback to bottom-right if all overflow
+  ) ?? candidates[0];
 
   Object.assign(popoverHost.style, {
     position: 'fixed',
@@ -478,15 +408,9 @@ function openPopoverCreate(
   currentOffset = offset;
   currentFingerprint = fingerprint;
 
-  // Reset UI to CREATE state
   noteInput.value = '';
-  noteInput.hidden = false;
-  footerEl.hidden = false;
-  deleteConfirmEl.hidden = true;
-  deleteBtn.hidden = true; // hidden in CREATE mode
-  counter.textContent = '0 / 400';
-  counter.classList.remove('warning');
-  addBtn.disabled = true;
+  deleteBtn.hidden = true;
+  saveBtn.disabled = true;
 
   popoverEl.hidden = false;
   popoverOpen = true;
@@ -495,19 +419,29 @@ function openPopoverCreate(
   requestAnimationFrame(() => noteInput.focus());
 }
 
-function closePopover(): void {
+interface CloseOpts { wasSaved?: boolean }
+
+function closePopover(opts: CloseOpts = {}): void {
+  if (!popoverOpen) return;
+  const wasCreateUnsaved = currentMode === 'create' && !opts.wasSaved;
+
   popoverEl.hidden = true;
   popoverOpen = false;
 
-  // Reset inline state
-  noteInput.hidden = false;
-  footerEl.hidden = false;
-  deleteConfirmEl.hidden = true;
-
+  // Reset state
   currentPinNumber = null;
   currentTargetElement = null;
   currentFingerprint = null;
   currentOffset = null;
+
+  // Notify caller so it can remove the orphan pin (CREATE cancel only)
+  if (wasCreateUnsaved) {
+    callbacks?.onCancelCreate?.();
+  }
+}
+
+function handleCancel(): void {
+  closePopover();
 }
 
 // ─── Click handler ────────────────────────────────────────────────────────────
@@ -515,7 +449,6 @@ function closePopover(): void {
 function handleAnnotationClick(e: MouseEvent): void {
   const target = e.target as Element;
 
-  // Check if clicking an existing pin
   const pinEl = target.closest('.annotator-pin');
   if (pinEl) {
     const pinId = parseInt(pinEl.getAttribute('data-pin-id') ?? '0');
@@ -523,7 +456,6 @@ function handleAnnotationClick(e: MouseEvent): void {
     return;
   }
 
-  // New annotation — clear hover highlight from clicked element
   if (highlightedEl) {
     highlightedEl.classList.remove('annotator-highlighted');
     highlightedEl = null;
@@ -539,8 +471,6 @@ function handleAnnotationClick(e: MouseEvent): void {
   openPopoverCreate(target, offset, fingerprint, e.clientX, e.clientY);
 }
 
-// ─── isAnnotatorElement ───────────────────────────────────────────────────────
-
 function isAnnotatorElement(el: Element): boolean {
   return (
     el.closest('#annotator-host') !== null ||
@@ -551,10 +481,6 @@ function isAnnotatorElement(el: Element): boolean {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-/**
- * Initialize the annotation mode module. Call once on content script init.
- * Registers all event listeners (they short-circuit via booleans when inactive).
- */
 export function initAnnotationMode(cbs: AnnotationModeCallbacks): void {
   callbacks = cbs;
 
@@ -564,16 +490,14 @@ export function initAnnotationMode(cbs: AnnotationModeCallbacks): void {
   listenerAbortController = new AbortController();
   const { signal } = listenerAbortController;
 
-  // ── Click-outside detection — MUST be registered BEFORE annotation mode listener ──
-  // Uses composedPath() to correctly detect clicks inside Shadow DOM.
+  // Click-outside detection (registered BEFORE the annotation handler).
   document.addEventListener('click', (e) => {
     if (!popoverOpen) return;
     if ((e.composedPath() as EventTarget[]).includes(popoverHost)) return;
     closePopover();
-    // Do NOT stopPropagation — let the annotation mode handler also run if active
   }, { capture: true, signal });
 
-  // ── Annotation mode click interceptor ────────────────────────────────────
+  // Annotation-mode click interceptor.
   document.addEventListener('click', (e) => {
     if (!annotationModeActive) return;
     if (isAnnotatorElement(e.target as Element)) return;
@@ -582,7 +506,7 @@ export function initAnnotationMode(cbs: AnnotationModeCallbacks): void {
     handleAnnotationClick(e as MouseEvent);
   }, { capture: true, signal });
 
-  // ── Hover highlight — mouseover ───────────────────────────────────────────
+  // Hover highlight — mouseover.
   document.addEventListener('mouseover', (e) => {
     if (!annotationModeActive || popoverOpen) return;
     if (isAnnotatorElement(e.target as Element)) return;
@@ -591,7 +515,7 @@ export function initAnnotationMode(cbs: AnnotationModeCallbacks): void {
     highlightedEl.classList.add('annotator-highlighted');
   }, { capture: true, signal });
 
-  // ── Hover highlight — mouseout ────────────────────────────────────────────
+  // Hover highlight — mouseout.
   document.addEventListener('mouseout', (e) => {
     if (!annotationModeActive) return;
     if (highlightedEl && e.target === highlightedEl) {
@@ -601,17 +525,11 @@ export function initAnnotationMode(cbs: AnnotationModeCallbacks): void {
   }, { capture: true, signal });
 }
 
-/**
- * Enable annotation mode: activate hover highlight and click capture.
- */
 export function enableAnnotationMode(): void {
   annotationModeActive = true;
   document.body.classList.add('annotator-active');
 }
 
-/**
- * Disable annotation mode: remove hover highlight, close popover if open.
- */
 export function disableAnnotationMode(): void {
   annotationModeActive = false;
   document.body.classList.remove('annotator-active');
@@ -626,17 +544,10 @@ export function disableAnnotationMode(): void {
   }
 }
 
-/**
- * Check if annotation mode is currently active.
- */
 export function isAnnotationModeActive(): boolean {
   return annotationModeActive;
 }
 
-/**
- * Open the popover pre-filled with an existing annotation.
- * Called by the integration layer after onExistingPinClick fires.
- */
 export function openPopoverForAnnotation(
   annotation: Annotation,
   pinScreenX: number,
@@ -648,61 +559,39 @@ export function openPopoverForAnnotation(
   currentFingerprint = annotation.fingerprint;
   currentOffset = annotation.offset;
 
-  // Populate UI for EDIT state
   noteInput.value = annotation.note;
-  noteInput.hidden = false;
-  footerEl.hidden = false;
-  deleteConfirmEl.hidden = true;
-  deleteBtn.hidden = false; // shown in EDIT mode
-
-  const len = annotation.note.length;
-  counter.textContent = `${len} / 400`;
-  if (len >= 380) {
-    counter.classList.add('warning');
-  } else {
-    counter.classList.remove('warning');
-  }
-  addBtn.disabled = annotation.note.trim().length === 0;
+  deleteBtn.hidden = false;
+  // In edit mode, save is always enabled (allows save without changes — no-op),
+  // but spec says "always enabled in edit", so we honour that here.
+  saveBtn.disabled = false;
 
   popoverEl.hidden = false;
   popoverOpen = true;
 
   positionPopover(pinScreenX, pinScreenY);
 
-  // Focus and place cursor at end
   requestAnimationFrame(() => {
     noteInput.focus();
     noteInput.setSelectionRange(noteInput.value.length, noteInput.value.length);
   });
 }
 
-/**
- * Close the popover if open.
- * Called as the FIRST step in handleUrlChange (SPA navigation).
- */
 export function closePopoverIfOpen(): void {
   if (popoverOpen) {
     closePopover();
   }
 }
 
-/**
- * Clean up all event listeners and DOM elements.
- * Called on beforeunload.
- */
 export function destroyAnnotationMode(): void {
   disableAnnotationMode();
 
-  // Abort all registered listeners
   listenerAbortController?.abort();
   listenerAbortController = null;
 
-  // Remove popover host from DOM
   if (popoverHost?.parentNode) {
     popoverHost.parentNode.removeChild(popoverHost);
   }
 
-  // Remove highlight CSS from page head
   document.getElementById('annotator-highlight-css')?.remove();
 
   callbacks = null;

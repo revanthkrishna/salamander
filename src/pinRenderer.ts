@@ -11,7 +11,6 @@ const activePins = new Map<number, {
 }>();
 
 let stylesInjected = false;
-let annotationModeActive = false;
 
 // -------------------------------------------------------------------
 // Helpers
@@ -44,38 +43,49 @@ function injectStyles(): void {
   }
   const style = document.createElement('style');
   style.id = 'annotator-pin-styles';
+  // Pins are ALWAYS visible (regardless of annotation mode). They are only
+  // interactive (clickable) when body.annotator-active is set — controlled by
+  // showPins/hidePins which toggle pointer-events, not display.
   style.textContent = `
 .annotator-pin {
   position: absolute;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background-color: #E040FB;
-  border: 2px solid white;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 2px;
+  border-radius: 30px;
+  background-color: #FEC800;
+  border: 1px solid #000000;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
   z-index: 2147483640;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.5);
-  pointer-events: auto;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.40);
   box-sizing: border-box;
   user-select: none;
+  pointer-events: none;
+  cursor: default;
+  animation: annotator-pin-pop 150ms ease-out;
 }
 
 .annotator-pin span {
-  color: white;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 11px;
-  font-weight: bold;
+  color: #000000;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+  font-weight: 400;
   line-height: 1;
+  text-align: center;
   pointer-events: none;
 }
 
-/* Hidden when annotation mode is off */
-body:not(.annotator-active) .annotator-pin {
-  display: none !important;
-  pointer-events: none !important;
+@keyframes annotator-pin-pop {
+  from { transform: scale(0.5); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+/* Clickable only when annotation mode is on */
+body.annotator-active .annotator-pin {
+  pointer-events: auto;
+  cursor: pointer;
 }
 `;
   document.head.appendChild(style);
@@ -102,7 +112,7 @@ function updatePinPosition(
 
 function createPinElement(
   annotation: Annotation,
-  targetElement: Element,
+  _targetElement: Element,
   onPinClick: (annotation: Annotation) => void
 ): HTMLDivElement {
   const pinEl = document.createElement('div');
@@ -128,14 +138,14 @@ function createPinElement(
 
 const repositionOnScroll = throttle(() => {
   for (const [pinNumber, pinData] of activePins) {
-    if (pinData.isFixed) continue; // fixed pins don't move with scroll
+    if (pinData.isFixed) continue;
     updatePinPosition(pinNumber, pinData);
   }
-}, 16); // ~60fps
+}, 16);
 
 const repositionAll = throttle(() => {
   for (const [pinNumber, pinData] of activePins) {
-    updatePinPosition(pinNumber, pinData); // resize can move fixed elements too
+    updatePinPosition(pinNumber, pinData);
   }
 }, 16);
 
@@ -143,22 +153,12 @@ const repositionAll = throttle(() => {
 // Public API
 // -------------------------------------------------------------------
 
-/**
- * Initialize the pin renderer (inject styles, set up scroll/resize listeners).
- * Call once on content script init.
- */
 export function initPinRenderer(): void {
   injectStyles();
   window.addEventListener('scroll', repositionOnScroll, { passive: true });
   window.addEventListener('resize', repositionAll, { passive: true });
 }
 
-/**
- * Render pins for the given annotations.
- * Resolves each annotation to a DOM element and places a pin.
- * @param annotations - annotations for the CURRENT PAGE only
- * @param onPinClick - called when a pin is clicked, with the annotation
- */
 export function renderPins(
   annotations: Annotation[],
   onPinClick: (annotation: Annotation) => void
@@ -186,9 +186,6 @@ export function renderPins(
   }
 }
 
-/**
- * Remove all rendered pins from the DOM.
- */
 export function clearPins(): void {
   for (const [, { pinEl }] of activePins) {
     pinEl.remove();
@@ -197,38 +194,27 @@ export function clearPins(): void {
 }
 
 /**
- * Show all pins (annotation mode activated).
- * Adds 'annotator-active' class to document.body.
+ * Enable pin interactivity (annotation mode active).
+ * Pins are always rendered; this just toggles pointer-events via body class.
  */
 export function showPins(): void {
-  annotationModeActive = true;
   document.body.classList.add('annotator-active');
 }
 
 /**
- * Hide all pins (annotation mode deactivated).
- * Removes 'annotator-active' class from document.body.
+ * Disable pin interactivity (annotation mode off).
+ * Pins remain visible — only pointer-events are removed.
  */
 export function hidePins(): void {
-  annotationModeActive = false;
   document.body.classList.remove('annotator-active');
 }
 
-/**
- * Add a single new pin (after user creates an annotation).
- * @param annotation - the newly created annotation
- * @param targetElement - the element that was clicked
- * @param onPinClick - click handler
- */
 export function addPin(
   annotation: Annotation,
   targetElement: Element,
   onPinClick: (annotation: Annotation) => void
 ): void {
-  // Dedup guard: if a pin with this number already exists in the DOM (can
-  // happen due to a race between the chrome.storage.onChanged re-render and
-  // the direct addPin call in handleNewAnnotation), remove it first so we
-  // never end up with two pin elements sharing the same pin number.
+  // Dedup guard
   removePin(annotation.pinNumber);
 
   const fixed = isFixedPosition(targetElement);
@@ -247,9 +233,6 @@ export function addPin(
   updatePinPosition(annotation.pinNumber, pinData);
 }
 
-/**
- * Remove a single pin by pin number.
- */
 export function removePin(pinNumber: number): void {
   const pinData = activePins.get(pinNumber);
   if (pinData) {
@@ -258,31 +241,22 @@ export function removePin(pinNumber: number): void {
   }
 }
 
-/**
- * Update a pin's display (e.g., if pin number changes — not needed for v1).
- * Exposed for completeness.
- */
 export function updatePin(pinNumber: number, annotation: Annotation): void {
   const pinData = activePins.get(pinNumber);
   if (!pinData) return;
 
-  // Update the span text if pin number changed
   const span = pinData.pinEl.querySelector('span');
   if (span) {
     span.textContent = String(annotation.pinNumber);
   }
   pinData.pinEl.setAttribute('data-pin-id', String(annotation.pinNumber));
 
-  // Update stored annotation and offset
   pinData.annotation = annotation;
   pinData.offset = annotation.offset;
 
   updatePinPosition(pinNumber, pinData);
 }
 
-/**
- * Get the annotation for a given pin element (used by click handler to open popover).
- */
 export function getPinAnnotation(pinEl: Element): Annotation | null {
   const pinIdStr = pinEl.getAttribute('data-pin-id');
   if (!pinIdStr) return null;
@@ -291,10 +265,6 @@ export function getPinAnnotation(pinEl: Element): Annotation | null {
   return activePins.get(pinNumber)?.annotation ?? null;
 }
 
-/**
- * Refresh all pin positions (call after SPA navigation or storage update).
- * Clears old pins and re-renders from new annotation set.
- */
 export function refreshPins(
   annotations: Annotation[],
   onPinClick: (annotation: Annotation) => void

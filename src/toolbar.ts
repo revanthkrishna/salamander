@@ -1,508 +1,676 @@
 // src/toolbar.ts
-// Phase 2D — Floating Toolbar UI (Shadow DOM)
-// Implements all toolbar state, buttons, message area, resolution alerts,
-// confirm dialogs, and file upload trigger.
-// Does NOT implement annotation mode logic, pin rendering, import/export, or storage.
+// UI redesign — S button (idle) + horizontal icon toolbar (active).
+// Toolbar widget anchored bottom-right. Shadow DOM isolates all styling.
 
 // ---------------------------------------------------------------------------
 // Public API types
 // ---------------------------------------------------------------------------
 
 export interface ToolbarCallbacks {
-  onStartAnnotating: () => void;
-  onExitAnnotating: () => void;
+  /** S button clicked: open toolbar + start annotation mode. */
+  onSButtonClick: () => void;
+  /** Exit (cross) clicked: collapse to S button + stop annotation mode. */
+  onExit: () => void;
+  /** Export button clicked. */
   onExport: () => void;
+  /** Import: file selected from native picker. */
   onUploadFile: (file: File) => void;
+  /** Delete-all button clicked. */
   onDeleteAll: () => void;
+  /** Filename-bar dismiss button clicked (removes file + all annotations). */
+  onDismissFile?: () => void;
 }
+
+// ---------------------------------------------------------------------------
+// Inline SVG icon strings — fill="currentColor" so CSS hover can recolor them
+// ---------------------------------------------------------------------------
+
+const ICON_DOWNLOAD = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="M9.878,18.122a3,3,0,0,0,4.244,0l3.211-3.211A1,1,0,0,0,15.919,13.5l-2.926,2.927L13,1a1,1,0,0,0-1-1h0a1,1,0,0,0-1,1l-.009,15.408L8.081,13.5a1,1,0,0,0-1.414,1.415Z"/><path d="M23,16h0a1,1,0,0,0-1,1v4a1,1,0,0,1-1,1H3a1,1,0,0,1-1-1V17a1,1,0,0,0-1-1H1a1,1,0,0,0-1,1v4a3,3,0,0,0,3,3H21a3,3,0,0,0,3-3V17A1,1,0,0,0,23,16Z"/></svg>`;
+
+const ICON_UPLOAD = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="M11.007,2.578,11,18.016a1,1,0,0,0,1,1h0a1,1,0,0,0,1-1l.007-15.421,2.912,2.913a1,1,0,0,0,1.414,0h0a1,1,0,0,0,0-1.414L14.122.879a3,3,0,0,0-4.244,0L6.667,4.091a1,1,0,0,0,0,1.414h0a1,1,0,0,0,1.414,0Z"/><path d="M22,17v4a1,1,0,0,1-1,1H3a1,1,0,0,1-1-1V17a1,1,0,0,0-1-1H1a1,1,0,0,0-1,1v4a3,3,0,0,0,3,3H21a3,3,0,0,0,3-3V17a1,1,0,0,0-1-1h0A1,1,0,0,0,22,17Z"/></svg>`;
+
+const ICON_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="M21,4H17.9A5.009,5.009,0,0,0,13,0H11A5.009,5.009,0,0,0,6.1,4H3A1,1,0,0,0,3,6H4V19a5.006,5.006,0,0,0,5,5h6a5.006,5.006,0,0,0,5-5V6h1a1,1,0,0,0,0-2ZM11,2h2a3.006,3.006,0,0,1,2.829,2H8.171A3.006,3.006,0,0,1,11,2Zm7,17a3,3,0,0,1-3,3H9a3,3,0,0,1-3-3V6H18Z"/><path d="M10,18a1,1,0,0,0,1-1V11a1,1,0,0,0-2,0v6A1,1,0,0,0,10,18Z"/><path d="M14,18a1,1,0,0,0,1-1V11a1,1,0,0,0-2,0v6A1,1,0,0,0,14,18Z"/></svg>`;
+
+const ICON_CROSS_SMALL = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><polygon points="18.707 6.707 17.293 5.293 12 10.586 6.707 5.293 5.293 6.707 10.586 12 5.293 17.293 6.707 18.707 12 13.414 17.293 18.707 18.707 17.293 13.414 12 18.707 6.707"/></svg>`;
+
+const ICON_CLIP = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="M22.95,9.6a1,1,0,0,0-1.414,0L10.644,20.539a5,5,0,1,1-7.072-7.071L14.121,2.876a3,3,0,0,1,4.243,4.242L7.815,17.71a1.022,1.022,0,0,1-1.414,0,1,1,0,0,1,0-1.414l9.392-9.435a1,1,0,0,0-1.414-1.414L4.987,14.882a3,3,0,0,0,0,4.243,3.073,3.073,0,0,0,4.243,0L19.778,8.532a5,5,0,0,0-7.071-7.07L2.158,12.054a7,7,0,0,0,9.9,9.9L22.95,11.018A1,1,0,0,0,22.95,9.6Z"/></svg>`;
+
+const ICON_DELETE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="m19 2h-9.044a4.966 4.966 0 0 0 -3.946 1.931l-5.8 7.455a1 1 0 0 0 0 1.228l5.8 7.455a4.966 4.966 0 0 0 3.946 1.931h9.044a5.006 5.006 0 0 0 5-5v-10a5.006 5.006 0 0 0 -5-5zm3 15a3 3 0 0 1 -3 3h-9.044a2.979 2.979 0 0 1 -2.368-1.158l-5.321-6.842 5.321-6.842a2.979 2.979 0 0 1 2.368-1.158h9.044a3 3 0 0 1 3 3zm-4.793-6.793-1.793 1.793 1.793 1.793a1 1 0 1 1 -1.414 1.414l-1.793-1.793-1.793 1.793a1 1 0 0 1 -1.414-1.414l1.793-1.793-1.793-1.793a1 1 0 0 1 1.414-1.414l1.793 1.793 1.793-1.793a1 1 0 0 1 1.414 1.414z"/></svg>`;
+
+const ICON_EXCLAMATION = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><g><path d="M12,1C6.916,1,1.081,2.25,1.081,12s5.835,11,10.919,11,10.919-1.25,10.919-11S17.084,1,12,1Zm0,20c-5.354,0-8.919-1.53-8.919-9S6.646,3,12,3s8.919,1.53,8.919,9-3.565,9-8.919,9Z"/><path d="M12,6.461c-.553,0-1,.447-1,1v5.667c0,.553,.447,1,1,1s1-.447,1-1V7.461c0-.553-.447-1-1-1Z"/></g><path d="M12,15.544c-.552,0-.999,.447-.999,.999s.447,.999,.999,.999,.999-.447,.999-.999-.447-.999-.999-.999Z"/></svg>`;
+
+const ICON_FACE_WOOZY = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="M12,0C5.383,0,0,5.383,0,12s5.383,12,12,12,12-5.383,12-12S18.617,0,12,0Zm0,22c-5.514,0-10-4.486-10-10S6.486,2,12,2s10,4.486,10,10-4.486,10-10,10ZM5.37,9.334l-.742-1.857c1.188-.474,2.268-1.373,3.04-2.531l1.664,1.109c-1.01,1.514-2.38,2.647-3.962,3.279Zm8.63,.666c0-1.657,.672-3,1.5-3s1.5,1.343,1.5,3-.672,3-1.5,3-1.5-1.343-1.5-3Zm-7.447,1.105l4-2,.895,1.789-4,2-.895-1.789Zm10.582,3.394l1.731,1c-.337,.584-2.129,3.5-4.289,3.5-.903,0-1.609-.68-2.232-1.28-.263-.252-.702-.676-.884-.724-.149,.003-.338,.124-.656,.335-.423,.282-1.002,.668-1.805,.668-1.276,0-3.018-1.604-3.707-2.293l1.414-1.415c.85,.849,1.951,1.663,2.311,1.708,.171,0,.359-.121,.678-.333,.423-.282,1.002-.668,1.805-.668,.903,0,1.609,.68,2.232,1.28,.263,.252,.702,.676,.884,.724,.684-.003,1.91-1.456,2.519-2.504Z"/></svg>`;
 
 // ---------------------------------------------------------------------------
 // Module-level state
 // ---------------------------------------------------------------------------
 
 let toolbarHost: HTMLDivElement | null = null;
-// CRITICAL: attachShadow({ mode: 'closed' }) returns the shadow root here;
-// after that, toolbarHost.shadowRoot === null. Always use toolbarShadow.
 let toolbarShadow: ShadowRoot | null = null;
 
-// Cached DOM refs inside the shadow root (populated by initToolbar)
-let elMessageArea: HTMLDivElement | null = null;
-let elFilenameArea: HTMLDivElement | null = null;
+// Cached DOM refs inside the shadow root
+let elSButton: HTMLButtonElement | null = null;
+let elToolbarPanel: HTMLDivElement | null = null;
+let elFilenameBar: HTMLDivElement | null = null;
 let elFilenameText: HTMLSpanElement | null = null;
-let elResolutionAlert: HTMLDivElement | null = null;
-let elBtnStart: HTMLButtonElement | null = null;
-let elBtnExit: HTMLButtonElement | null = null;
+let elFilenameDismissBtn: HTMLButtonElement | null = null;
+let elWarningBar: HTMLDivElement | null = null;
+let elWarningText: HTMLSpanElement | null = null;
+let elErrorBar: HTMLDivElement | null = null;
+let elErrorText: HTMLSpanElement | null = null;
 let elBtnExport: HTMLButtonElement | null = null;
 let elBtnUpload: HTMLButtonElement | null = null;
 let elBtnDeleteAll: HTMLButtonElement | null = null;
+let elBtnExit: HTMLButtonElement | null = null;
 let elFileInput: HTMLInputElement | null = null;
 
-// Notification auto-clear timer — single instance; cancel-before-set
+let callbacksRef: ToolbarCallbacks | null = null;
 let notifTimer: ReturnType<typeof setTimeout> | null = null;
 
+// Track whether toolbar panel is expanded (annotation mode on)
+let isExpanded = false;
+
 // ---------------------------------------------------------------------------
-// CSS (inside Shadow DOM — never leaks to the page)
+// CSS — Figma-exact tokens
 // ---------------------------------------------------------------------------
 
 const TOOLBAR_CSS = `
   :host {
-    /* Design tokens */
-    --annotator-accent:                #E040FB;
-    --annotator-error:                 #F44336;
-    --annotator-warning:               #FFC107;
-    --annotator-neutral-msg:           #9E9E9E;
-    --annotator-bg-toolbar:            rgba(28, 28, 30, 0.96);
-    --annotator-bg-popover:            rgba(36, 36, 38, 0.98);
-    --annotator-text-primary:          #FFFFFF;
-    --annotator-text-secondary:        rgba(255, 255, 255, 0.60);
-    --annotator-text-disabled:         rgba(255, 255, 255, 0.38);
-    --annotator-btn-secondary-bg:      rgba(255, 255, 255, 0.10);
-    --annotator-btn-secondary-hover:   rgba(255, 255, 255, 0.18);
-    --annotator-btn-destructive-bg:    #F44336;
-    --annotator-btn-destructive-text:  #FFFFFF;
-    --annotator-btn-disabled-bg:       rgba(255, 255, 255, 0.08);
-    --annotator-divider:               rgba(255, 255, 255, 0.10);
-    --annotator-overlay:               rgba(0, 0, 0, 0.55);
-    --annotator-radius-toolbar:        12px;
-    --annotator-radius-btn:            6px;
+    --accent:        #FEC800;
+    --error:         #FB645A;
+    --warning:       #D6AE7C;
+    --bg:            #000000;
+    --text:          #FFFFFF;
+    --text-muted:    #B7B7B7;
+    --shadow:        drop-shadow(0px 0px 8px rgba(0,0,0,0.25));
 
     font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    font-size: 13px;
+    color: var(--text);
   }
 
-  *, *::before, *::after {
-    box-sizing: border-box;
-  }
+  *, *::before, *::after { box-sizing: border-box; }
 
-  /* ---- Toolbar container ---- */
-  .annotator-toolbar {
+  /* ─── Anchor wrapper ─────────────────────────────────────────────────── */
+  .anchor {
     position: fixed;
     bottom: 16px;
     right: 16px;
-    width: 220px;
-    max-width: 220px;
-    background: var(--annotator-bg-toolbar);
-    border-radius: var(--annotator-radius-toolbar);
-    box-shadow: 0 4px 24px rgba(0,0,0,0.40), 0 1px 6px rgba(0,0,0,0.30);
-    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    pointer-events: none; /* children re-enable */
+  }
+
+  /* ─── S Button (idle state) ─────────────────────────────────────────── */
+  .s-btn {
+    width: 56px;
+    height: 56px;
+    background: var(--bg);
+    border: none;
+    border-radius: 16px;
+    color: var(--text);
+    font-size: 24px;
     font-family: inherit;
-    font-size: 13px;
-    color: var(--annotator-text-primary);
+    font-weight: 400;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    filter: var(--shadow);
     pointer-events: auto;
+    padding: 0;
+    transition: color 120ms ease;
   }
-
-  /* ---- Message area (Section 1) ---- */
-  .message-area {
-    padding: 10px 12px;
-    font-size: 12px;
-    font-weight: 400;
-    line-height: 1.4;
-    border-bottom: 1px solid var(--annotator-divider);
+  .s-btn:hover { color: var(--accent); }
+  .s-btn:active .s-letter { transform: scale(0.92); }
+  .s-letter {
+    display: inline-block;
+    transition: transform 80ms ease;
   }
-  .message-area[hidden] { display: none !important; }
-  .message-area.error   { color: var(--annotator-error); }
-  .message-area.warning { color: var(--annotator-warning); }
-  .message-area.notice  { color: var(--annotator-neutral-msg); }
+  .s-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .s-btn[hidden] { display: none !important; }
 
-  /* ---- Filename area (Section 2) ---- */
-  .filename-area {
-    padding: 8px 12px;
-    font-size: 11px;
-    font-weight: 400;
-    color: var(--annotator-text-secondary);
-    border-bottom: 1px solid var(--annotator-divider);
+  /* ─── Toolbar panel (expanded state) ─────────────────────────────────── */
+  .panel {
+    width: 224px;
+    display: flex;
+    flex-direction: column;
+    border-radius: 16px;
+    overflow: hidden;
+    filter: var(--shadow);
+    pointer-events: auto;
+    background: transparent;
+  }
+  .panel[hidden] { display: none !important; }
+
+  /* Filename bar */
+  .filename-bar {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    width: 224px;
+    height: 35px;
+    background: var(--bg);
+  }
+  .filename-bar[hidden] { display: none !important; }
+
+  .filename-left {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 8px 0 8px 16px;
+    gap: 4px;
+    color: var(--text-muted);
     overflow: hidden;
   }
-  .filename-area[hidden] { display: none !important; }
-
+  .filename-left .icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    display: inline-flex;
+    color: var(--text-muted);
+  }
   .filename-text {
-    display: block;
+    font-size: 16px;
+    line-height: 1.2;
+    color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  /* ---- Resolution alert (Section 3) ---- */
-  .resolution-alert {
-    padding: 8px 12px;
-    font-size: 12px;
-    font-weight: 400;
-    line-height: 1.4;
-    border-bottom: 1px solid var(--annotator-divider);
-  }
-  .resolution-alert[hidden] { display: none !important; }
-  .resolution-alert.error   { color: var(--annotator-error); }
-  .resolution-alert.warning { color: var(--annotator-warning); }
-
-  /* ---- Button row (Section 4) ---- */
-  .button-row {
-    padding: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .btn {
-    width: 100%;
-    height: 36px;
+  .filename-dismiss {
+    width: 48px;
+    height: 35px;
+    padding: 8px 16px;
+    background: var(--bg);
     border: none;
-    border-radius: var(--annotator-radius-btn);
-    font-size: 13px;
-    font-weight: 500;
-    font-family: inherit;
+    color: var(--text);
     cursor: pointer;
-    color: var(--annotator-text-primary);
-    transition: background 0.1s ease;
-    background: var(--annotator-btn-secondary-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: color 120ms ease;
   }
-  .btn:focus {
-    outline: 2px solid var(--annotator-accent);
-    outline-offset: 1px;
-  }
-  .btn:hover:not(:disabled) {
-    background: var(--annotator-btn-secondary-hover);
-  }
-  .btn:disabled {
-    background: var(--annotator-btn-disabled-bg);
-    color: var(--annotator-text-disabled);
-    cursor: default;
-    pointer-events: none;
-  }
-  .btn[hidden] { display: none !important; }
+  .filename-dismiss .icon { width: 16px; height: 16px; display: inline-flex; }
+  .filename-dismiss:hover { color: var(--accent); }
+  .filename-dismiss:active .icon { transform: scale(0.88); }
+  .filename-dismiss:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
+  /* Warning bar */
+  .warning-bar {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    width: 224px;
+    min-height: 44px;
+    padding: 8px 16px;
+    gap: 4px;
+    background: var(--bg);
+    color: var(--warning);
+  }
+  .warning-bar[hidden] { display: none !important; }
+  .warning-bar .icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    display: inline-flex;
+    color: var(--warning);
+  }
+  .warning-text {
+    font-size: 12px;
+    line-height: 14px;
+    color: var(--warning);
+    flex: 1 1 auto;
+  }
+
+  /* Error bar */
+  .error-bar {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    width: 224px;
+    min-height: 32px;
+    padding: 8px 16px;
+    gap: 4px;
+    background: var(--bg);
+    color: var(--error);
+  }
+  .error-bar[hidden] { display: none !important; }
+  .error-bar .icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    display: inline-flex;
+    color: var(--error);
+  }
+  .error-text {
+    font-size: 12px;
+    line-height: 14px;
+    color: var(--error);
+    flex: 1 1 auto;
+  }
+
+  /* Button row */
+  .button-row {
+    display: flex;
+    flex-direction: row;
+    width: 224px;
+    height: 56px;
+    background: transparent;
+  }
+
+  .icon-btn {
+    width: 56px;
+    height: 56px;
+    padding: 16px;
+    background: var(--bg);
+    border: none;
+    color: var(--text);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 120ms ease;
+  }
+  .icon-btn:hover { color: var(--accent); }
+  .icon-btn:active .icon { transform: scale(0.88); }
+  .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .icon-btn[disabled] {
+    cursor: default;
+    opacity: 0.38;
+  }
+  .icon-btn[disabled]:hover { color: var(--text); }
+
+  .icon-btn .icon {
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    transition: transform 80ms ease;
+  }
+  .icon-btn .icon svg { width: 100%; height: 100%; display: block; }
+
+  /* Section corner rounding — applied selectively so the outer pill shape
+     works whether or not the filename/warning/error bars are present. The
+     panel itself has overflow:hidden + border-radius:16px so this is mostly
+     cosmetic — but explicit per-section radii match the Figma spec. */
+  .icon-btn:first-child { border-radius: 16px 0 0 16px; }
+  .icon-btn:last-child  { border-radius: 0 16px 16px 0; }
 `;
 
 // ---------------------------------------------------------------------------
-// Helper: build toolbar HTML inside the shadow root
+// Build the DOM
 // ---------------------------------------------------------------------------
 
-function buildToolbarDOM(shadow: ShadowRoot): void {
-  // Style element
+function buildDOM(shadow: ShadowRoot): void {
   const style = document.createElement('style');
   style.textContent = TOOLBAR_CSS;
   shadow.appendChild(style);
 
-  // Root toolbar container
-  const toolbar = document.createElement('div');
-  toolbar.className = 'annotator-toolbar';
-  toolbar.setAttribute('role', 'toolbar');
-  toolbar.setAttribute('aria-label', 'Annotator');
+  // Anchor (bottom-right). Holds either the S button OR the panel.
+  const anchor = document.createElement('div');
+  anchor.className = 'anchor';
 
-  // -- Section 1: Message area --
-  elMessageArea = document.createElement('div');
-  elMessageArea.className = 'message-area';
-  elMessageArea.setAttribute('hidden', '');
-  toolbar.appendChild(elMessageArea);
+  // ── S button (idle state)
+  elSButton = document.createElement('button');
+  elSButton.type = 'button';
+  elSButton.className = 's-btn';
+  elSButton.setAttribute('aria-label', 'Open annotator');
+  const sLetter = document.createElement('span');
+  sLetter.className = 's-letter';
+  sLetter.textContent = 'S';
+  elSButton.appendChild(sLetter);
 
-  // -- Section 2: Filename area --
-  elFilenameArea = document.createElement('div');
-  elFilenameArea.className = 'filename-area';
-  elFilenameArea.setAttribute('hidden', '');
+  // ── Panel (expanded state)
+  elToolbarPanel = document.createElement('div');
+  elToolbarPanel.className = 'panel';
+  elToolbarPanel.setAttribute('role', 'toolbar');
+  elToolbarPanel.setAttribute('aria-label', 'Annotator');
+  elToolbarPanel.hidden = true;
+
+  // Filename bar
+  elFilenameBar = document.createElement('div');
+  elFilenameBar.className = 'filename-bar';
+  elFilenameBar.hidden = true;
+  const filenameLeft = document.createElement('div');
+  filenameLeft.className = 'filename-left';
+  const clipIcon = document.createElement('span');
+  clipIcon.className = 'icon';
+  clipIcon.innerHTML = ICON_CLIP;
   elFilenameText = document.createElement('span');
   elFilenameText.className = 'filename-text';
-  elFilenameArea.appendChild(elFilenameText);
-  toolbar.appendChild(elFilenameArea);
+  filenameLeft.appendChild(clipIcon);
+  filenameLeft.appendChild(elFilenameText);
+  elFilenameDismissBtn = document.createElement('button');
+  elFilenameDismissBtn.type = 'button';
+  elFilenameDismissBtn.className = 'filename-dismiss';
+  elFilenameDismissBtn.setAttribute('aria-label', 'Dismiss file');
+  const dismissIcon = document.createElement('span');
+  dismissIcon.className = 'icon';
+  dismissIcon.innerHTML = ICON_DELETE;
+  elFilenameDismissBtn.appendChild(dismissIcon);
+  elFilenameBar.appendChild(filenameLeft);
+  elFilenameBar.appendChild(elFilenameDismissBtn);
 
-  // -- Section 3: Resolution alert --
-  elResolutionAlert = document.createElement('div');
-  elResolutionAlert.className = 'resolution-alert';
-  elResolutionAlert.setAttribute('hidden', '');
-  toolbar.appendChild(elResolutionAlert);
+  // Warning bar
+  elWarningBar = document.createElement('div');
+  elWarningBar.className = 'warning-bar';
+  elWarningBar.setAttribute('role', 'status');
+  elWarningBar.hidden = true;
+  const warnIcon = document.createElement('span');
+  warnIcon.className = 'icon';
+  warnIcon.innerHTML = ICON_EXCLAMATION;
+  elWarningText = document.createElement('span');
+  elWarningText.className = 'warning-text';
+  elWarningBar.appendChild(warnIcon);
+  elWarningBar.appendChild(elWarningText);
 
-  // -- Section 4: Button row --
+  // Error bar
+  elErrorBar = document.createElement('div');
+  elErrorBar.className = 'error-bar';
+  elErrorBar.setAttribute('role', 'alert');
+  elErrorBar.hidden = true;
+  const errIcon = document.createElement('span');
+  errIcon.className = 'icon';
+  errIcon.innerHTML = ICON_FACE_WOOZY;
+  elErrorText = document.createElement('span');
+  elErrorText.className = 'error-text';
+  elErrorBar.appendChild(errIcon);
+  elErrorBar.appendChild(elErrorText);
+
+  // Button row: [export][import][delete-all][exit]
   const buttonRow = document.createElement('div');
   buttonRow.className = 'button-row';
 
-  elBtnStart = document.createElement('button');
-  elBtnStart.className = 'btn btn-start';
-  elBtnStart.id = 'btn-start-annotating';
-  elBtnStart.textContent = 'Start Annotating';
+  elBtnExport = makeIconButton(ICON_DOWNLOAD, 'Export annotations');
+  elBtnUpload = makeIconButton(ICON_UPLOAD, 'Import annotations');
+  elBtnDeleteAll = makeIconButton(ICON_TRASH, 'Delete all annotations');
+  elBtnExit = makeIconButton(ICON_CROSS_SMALL, 'Exit annotation mode');
 
-  elBtnExit = document.createElement('button');
-  elBtnExit.className = 'btn btn-exit';
-  elBtnExit.id = 'btn-exit';
-  elBtnExit.textContent = 'Exit';
-  elBtnExit.setAttribute('hidden', '');
-
-  elBtnExport = document.createElement('button');
-  elBtnExport.className = 'btn btn-export';
-  elBtnExport.id = 'btn-export';
-  elBtnExport.textContent = 'Export';
-  elBtnExport.disabled = true;
-
-  elBtnUpload = document.createElement('button');
-  elBtnUpload.className = 'btn btn-upload';
-  elBtnUpload.id = 'btn-upload';
-  elBtnUpload.textContent = 'Upload';
-
-  elBtnDeleteAll = document.createElement('button');
-  elBtnDeleteAll.className = 'btn btn-delete-all';
-  elBtnDeleteAll.id = 'btn-delete-all';
-  elBtnDeleteAll.textContent = 'Delete All';
-  elBtnDeleteAll.disabled = true;
-
-  buttonRow.appendChild(elBtnStart);
-  buttonRow.appendChild(elBtnExit);
   buttonRow.appendChild(elBtnExport);
   buttonRow.appendChild(elBtnUpload);
   buttonRow.appendChild(elBtnDeleteAll);
-  toolbar.appendChild(buttonRow);
+  buttonRow.appendChild(elBtnExit);
 
-  // -- Hidden file input for import --
+  elToolbarPanel.appendChild(elFilenameBar);
+  elToolbarPanel.appendChild(elWarningBar);
+  elToolbarPanel.appendChild(elErrorBar);
+  elToolbarPanel.appendChild(buttonRow);
+
+  // Hidden file input for import
   elFileInput = document.createElement('input');
   elFileInput.type = 'file';
-  elFileInput.id = 'file-input';
   elFileInput.accept = '.yaml,.yml';
   elFileInput.style.display = 'none';
-  toolbar.appendChild(elFileInput);
 
-  shadow.appendChild(toolbar);
+  anchor.appendChild(elSButton);
+  anchor.appendChild(elToolbarPanel);
+  anchor.appendChild(elFileInput);
+  shadow.appendChild(anchor);
+}
+
+function makeIconButton(svgMarkup: string, ariaLabel: string): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'icon-btn';
+  btn.setAttribute('aria-label', ariaLabel);
+  const span = document.createElement('span');
+  span.className = 'icon';
+  span.innerHTML = svgMarkup;
+  btn.appendChild(span);
+  return btn;
 }
 
 // ---------------------------------------------------------------------------
-// Internal: show a message in the message area
+// Public API
 // ---------------------------------------------------------------------------
 
-function showMessageInternal(msg: string, style: 'error' | 'warning' | 'notice'): void {
-  if (!elMessageArea) return;
-  // Cancel any pending auto-clear before starting a new one
-  if (notifTimer !== null) {
-    clearTimeout(notifTimer);
-    notifTimer = null;
-  }
-  elMessageArea.textContent = msg;
-  elMessageArea.className = `message-area ${style}`;
-  elMessageArea.removeAttribute('hidden');
-  notifTimer = setTimeout(() => clearMessage(), 8000);
-}
-
-// ---------------------------------------------------------------------------
-// Exported API
-// ---------------------------------------------------------------------------
-
-/**
- * Initialize and inject the toolbar into the page.
- * Must be called once. Returns a cleanup function.
- */
 export function initToolbar(callbacks: ToolbarCallbacks): () => void {
   if (toolbarHost) {
-    // Already initialized — idempotent
     return () => destroyToolbar();
   }
+  callbacksRef = callbacks;
 
-  // Create shadow host
   toolbarHost = document.createElement('div');
   toolbarHost.id = 'annotator-host';
-  // z-index on the host ensures it stacks above all page content
+  // Host div is a 0-size element; the anchor positions itself via fixed.
   toolbarHost.style.cssText = 'position: fixed; bottom: 0; right: 0; width: 0; height: 0; z-index: 2147483644; pointer-events: none;';
 
-  // CRITICAL: store the returned shadow root — host.shadowRoot is null after this
   toolbarShadow = toolbarHost.attachShadow({ mode: 'closed' });
   document.body.appendChild(toolbarHost);
 
-  // Build DOM inside shadow root
-  buildToolbarDOM(toolbarShadow);
+  buildDOM(toolbarShadow);
 
-  // --- Wire up button event listeners ---
-
-  elBtnStart!.addEventListener('click', () => {
-    callbacks.onStartAnnotating();
+  // Wire events
+  elSButton!.addEventListener('click', () => {
+    setExpanded(true);
+    callbacksRef?.onSButtonClick();
   });
 
   elBtnExit!.addEventListener('click', () => {
-    callbacks.onExitAnnotating();
+    setExpanded(false);
+    callbacksRef?.onExit();
   });
 
   elBtnExport!.addEventListener('click', () => {
-    callbacks.onExport();
+    callbacksRef?.onExport();
   });
 
-  // Upload: trigger the hidden file input
   elBtnUpload!.addEventListener('click', () => {
     elFileInput!.click();
   });
 
-  // File input change → pass File to callback, then reset input
   elFileInput!.addEventListener('change', () => {
     const file = elFileInput!.files?.[0];
-    if (file) {
-      callbacks.onUploadFile(file);
-    }
-    // Reset so the same file can be re-selected if needed
+    if (file) callbacksRef?.onUploadFile(file);
     elFileInput!.value = '';
   });
 
-  // Delete All: delegate entirely to the content layer which owns the
-  // confirmation dialog (avoids double-confirm when toolbar + content.ts
-  // both showed a dialog independently).
   elBtnDeleteAll!.addEventListener('click', () => {
-    callbacks.onDeleteAll();
+    callbacksRef?.onDeleteAll();
+  });
+
+  elFilenameDismissBtn!.addEventListener('click', () => {
+    callbacksRef?.onDismissFile?.();
   });
 
   return () => destroyToolbar();
 }
 
+/** Switch between idle (S button) and expanded (toolbar panel). */
+function setExpanded(expanded: boolean): void {
+  isExpanded = expanded;
+  if (!elSButton || !elToolbarPanel) return;
+  if (expanded) {
+    elSButton.hidden = true;
+    elToolbarPanel.hidden = false;
+  } else {
+    elSButton.hidden = false;
+    elToolbarPanel.hidden = true;
+    // Also clear any transient message bars so they don't reappear on next open
+    clearWarning();
+    clearError();
+  }
+}
+
 /**
- * Update toolbar to reflect annotation mode state.
- * annotationMode=true: hide "Start Annotating", show "Exit"
- * annotationMode=false: show "Start Annotating", hide "Exit"
+ * Legacy API — for the new design, the S button IS the mode toggle.
+ * When called with `true`, show the toolbar panel. With `false`, show the S button.
+ * Kept for backward compatibility with content.ts.
  */
 export function setAnnotationMode(active: boolean): void {
-  if (!elBtnStart || !elBtnExit) return;
-  if (active) {
-    elBtnStart.setAttribute('hidden', '');
-    elBtnExit.removeAttribute('hidden');
-  } else {
-    elBtnStart.removeAttribute('hidden');
-    elBtnExit.setAttribute('hidden', '');
-  }
+  setExpanded(active);
+}
+
+/** Show the toolbar panel (annotation mode on). */
+export function showToolbar(): void {
+  setExpanded(true);
+}
+
+/** Hide the toolbar panel and show the S button (annotation mode off). */
+export function hideToolbar(): void {
+  setExpanded(false);
+}
+
+/** Returns whether the toolbar panel is currently expanded. */
+export function isToolbarExpanded(): boolean {
+  return isExpanded;
 }
 
 /**
- * Set the active filename (from import).
- * null = no file loaded / modified state (hide filename area)
+ * Set or clear the active filename (from import).
+ * null = no file loaded / modified state (hide filename bar).
  */
 export function setFilename(filename: string | null): void {
-  if (!elFilenameArea || !elFilenameText) return;
-  if (filename === null) {
-    elFilenameArea.setAttribute('hidden', '');
+  if (!elFilenameBar || !elFilenameText) return;
+  if (filename === null || filename === '') {
+    elFilenameBar.hidden = true;
     elFilenameText.textContent = '';
   } else {
-    // Prefix with file emoji — set via textContent only (no innerHTML)
-    elFilenameText.textContent = `📄 ${filename}`;
-    elFilenameArea.removeAttribute('hidden');
+    elFilenameText.textContent = filename;
+    elFilenameBar.hidden = false;
   }
 }
 
-/**
- * Show error message above toolbar (red). Auto-clears after 8 seconds.
- */
+/** Show error bar inside the toolbar. Auto-clears after 8s. */
 export function showError(message: string): void {
-  showMessageInternal(message, 'error');
+  if (!elErrorBar || !elErrorText) return;
+  if (notifTimer !== null) {
+    clearTimeout(notifTimer);
+    notifTimer = null;
+  }
+  elErrorText.textContent = message;
+  elErrorBar.hidden = false;
+  // Ensure panel is visible so the user sees it
+  if (!isExpanded) setExpanded(true);
+  notifTimer = setTimeout(() => {
+    clearError();
+    notifTimer = null;
+  }, 8000);
 }
 
-/**
- * Show warning message above toolbar (yellow). Auto-clears after 8 seconds.
- */
+/** Show warning bar inside the toolbar. Auto-clears after 8s. */
 export function showWarning(message: string): void {
-  showMessageInternal(message, 'warning');
+  if (!elWarningBar || !elWarningText) return;
+  if (notifTimer !== null) {
+    clearTimeout(notifTimer);
+    notifTimer = null;
+  }
+  elWarningText.textContent = message;
+  elWarningBar.hidden = false;
+  if (!isExpanded) setExpanded(true);
+  notifTimer = setTimeout(() => {
+    clearWarning();
+    notifTimer = null;
+  }, 8000);
 }
 
-/**
- * Show neutral notice message. Auto-clears after 8 seconds.
- */
-export function showNotice(message: string): void {
-  showMessageInternal(message, 'notice');
+function clearError(): void {
+  if (!elErrorBar || !elErrorText) return;
+  elErrorBar.hidden = true;
+  elErrorText.textContent = '';
 }
 
-/**
- * Clear any active message immediately.
- */
+function clearWarning(): void {
+  if (!elWarningBar || !elWarningText) return;
+  elWarningBar.hidden = true;
+  elWarningText.textContent = '';
+}
+
 export function clearMessage(): void {
   if (notifTimer !== null) {
     clearTimeout(notifTimer);
     notifTimer = null;
   }
-  if (!elMessageArea) return;
-  elMessageArea.textContent = '';
-  elMessageArea.className = 'message-area';
-  elMessageArea.setAttribute('hidden', '');
+  clearError();
+  clearWarning();
 }
 
 /**
- * Update button states based on current annotation state.
- * @param hasAnnotations - whether any annotations exist (enables Export, Delete All)
- * @param annotationMode - whether annotation mode is active
+ * Update button enabled/disabled states.
+ * - hasAnnotations controls export + delete-all.
+ * - isAnnotating is kept for API back-compat but no longer toggles a Start/Exit
+ *   button (the S button IS the mode toggle). Effectively: when isAnnotating
+ *   is true the panel should be expanded.
  */
-export function updateButtonStates(hasAnnotations: boolean, annotationMode: boolean): void {
-  if (!elBtnStart || !elBtnExit || !elBtnExport || !elBtnDeleteAll) return;
-
-  // Start / Exit toggle
-  if (annotationMode) {
-    elBtnStart.setAttribute('hidden', '');
-    elBtnExit.removeAttribute('hidden');
-  } else {
-    elBtnStart.removeAttribute('hidden');
-    elBtnExit.setAttribute('hidden', '');
+export function updateButtonStates(hasAnnotations: boolean, isAnnotating: boolean): void {
+  if (elBtnExport) {
+    // Export is always enabled — clicking with 0 annotations triggers a
+    // "nothing to export" alert in content.ts. This matches the new design.
+    elBtnExport.disabled = false;
   }
-
-  // Export and Delete All enabled only when annotations exist
-  elBtnExport.disabled = !hasAnnotations;
-  elBtnDeleteAll.disabled = !hasAnnotations;
+  if (elBtnDeleteAll) {
+    // Delete-all is always enabled visually — content.ts no-ops when count=0.
+    elBtnDeleteAll.disabled = false;
+  }
+  // Silence unused-arg lint in environments that flag it
+  void hasAnnotations;
+  void isAnnotating;
 }
 
 /**
- * Show/update the per-page resolution alert below the filename.
- * unresolvedCount=0, total=0: hide alert
- * unresolvedCount=total (>0): all failed → red
- * unresolvedCount>0, <total: some failed → yellow
- * unresolvedCount=0, total>0: all resolved → hide alert
+ * Resolution alert — re-implemented on top of the warning/error bars.
+ * unresolvedCount === total (>0) → error
+ * 0 < unresolvedCount < total    → warning
+ * otherwise                      → clear both
  */
 export function showResolutionAlert(unresolvedCount: number, total: number): void {
-  if (!elResolutionAlert) return;
-
   if (unresolvedCount === 0 || total === 0) {
-    // No alert needed
-    elResolutionAlert.setAttribute('hidden', '');
-    elResolutionAlert.textContent = '';
-    elResolutionAlert.className = 'resolution-alert';
+    clearError();
+    clearWarning();
     return;
   }
-
   if (unresolvedCount === total) {
-    // All failed — red
-    elResolutionAlert.textContent = 'None of the annotations could be placed on this page.';
-    elResolutionAlert.className = 'resolution-alert error';
-    elResolutionAlert.removeAttribute('hidden');
+    if (!elErrorBar || !elErrorText) return;
+    elErrorText.textContent = 'none of the annotations could be placed on this page.';
+    elErrorBar.hidden = false;
+    if (elWarningBar) elWarningBar.hidden = true;
   } else {
-    // Some failed — yellow
-    elResolutionAlert.textContent = `${unresolvedCount} of ${total} annotations couldn't be placed on this page.`;
-    elResolutionAlert.className = 'resolution-alert warning';
-    elResolutionAlert.removeAttribute('hidden');
+    if (!elWarningBar || !elWarningText) return;
+    elWarningText.textContent = `${unresolvedCount} of ${total} annotations couldn't be placed on this page.`;
+    elWarningBar.hidden = false;
+    if (elErrorBar) elErrorBar.hidden = true;
   }
 }
 
-/**
- * No-op: kept for API compatibility.
- */
-export function setAnnotationCount(_count: number): void {
-  // No longer needed — confirm dialogs use native window.confirm()
-}
-
-/**
- * Show a native browser confirmation dialog.
- * Returns true if user confirmed, false if cancelled.
- */
+/** Native browser confirm — kept lowercase per spec. */
 export function showConfirmDialog(message: string): Promise<boolean> {
   return Promise.resolve(window.confirm(message));
 }
 
-/**
- * Remove the toolbar from the DOM. Call on beforeunload.
- */
+/** Back-compat no-op. */
+export function setAnnotationCount(_count: number): void {
+  // intentionally empty
+}
+
 export function destroyToolbar(): void {
-  // Cancel any pending notification timer
   if (notifTimer !== null) {
     clearTimeout(notifTimer);
     notifTimer = null;
   }
-
-  // Remove host from DOM
   if (toolbarHost && toolbarHost.parentNode) {
     toolbarHost.parentNode.removeChild(toolbarHost);
   }
-
-  // Clear all refs
   toolbarHost = null;
   toolbarShadow = null;
-  elMessageArea = null;
-  elFilenameArea = null;
+  elSButton = null;
+  elToolbarPanel = null;
+  elFilenameBar = null;
   elFilenameText = null;
-  elResolutionAlert = null;
-  elBtnStart = null;
-  elBtnExit = null;
+  elFilenameDismissBtn = null;
+  elWarningBar = null;
+  elWarningText = null;
+  elErrorBar = null;
+  elErrorText = null;
   elBtnExport = null;
   elBtnUpload = null;
   elBtnDeleteAll = null;
+  elBtnExit = null;
   elFileInput = null;
+  callbacksRef = null;
+  isExpanded = false;
 }

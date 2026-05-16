@@ -1,12 +1,10 @@
 // src/content.ts
-// Content script main entry — wires all modules together
+// Content script main entry — wires all modules together.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CRITICAL: Idempotency guard (MUST be first — prevents double-injection)
-// Two content scripts on the same page = two toolbars, doubled storage events
 // ─────────────────────────────────────────────────────────────────────────────
 if ((window as any).__annotatorActive) {
-  // Already running on this page — exit immediately
   throw new Error('Annotator: already active, skipping re-injection');
 }
 (window as any).__annotatorActive = true;
@@ -40,7 +38,6 @@ import {
 } from './pinRenderer';
 import {
   initToolbar,
-  setAnnotationMode,
   setFilename,
   showError,
   showWarning,
@@ -49,6 +46,8 @@ import {
   showConfirmDialog,
   destroyToolbar,
   setAnnotationCount,
+  showToolbar,
+  hideToolbar,
 } from './toolbar';
 import {
   initAnnotationMode,
@@ -70,7 +69,7 @@ let myTabId: number = -1;
 let lastKnownUrl = location.href;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Message listener (must be registered immediately — before init)
+// Message listener
 // ─────────────────────────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -83,60 +82,52 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return;
   }
   if (message.type === 'ICON_CLICKED') {
-    // Toolbar already active — no-op (per requirements §6 edge case 18)
     return;
   }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// init — called once when ACTIVATE message received
+// init
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function init(tabId: number): Promise<void> {
   myTabId = tabId;
 
-  // 1. Mark this tab as active in storage
   await setTabActive(tabId);
 
-  // 2. Get current domain and URL
   const domain = normaliseDomain(location.hostname);
   const pageUrl = normaliseUrl(location.href);
 
-  // 3. Initialize pin renderer (injects styles, sets up scroll/resize listeners)
   initPinRenderer();
 
-  // 4. Initialize toolbar with callbacks
   initToolbar({
-    onStartAnnotating: handleStartAnnotating,
-    onExitAnnotating: handleExitAnnotating,
+    onSButtonClick: handleSButtonClick,
+    onExit: handleExit,
     onExport: handleExport,
     onUploadFile: handleUploadFile,
     onDeleteAll: handleDeleteAll,
+    onDismissFile: handleDismissFile,
   });
 
-  // 5. Initialize annotation mode with callbacks
   initAnnotationMode({
     onNewAnnotation: handleNewAnnotation,
     onEditAnnotation: handleEditAnnotation,
     onDeleteAnnotation: handleDeleteAnnotationByPin,
     onExistingPinClick: handleExistingPinClick,
+    onCancelCreate: handleCancelCreate,
   });
 
-  // 6. Load and render annotations for current page
   await refreshPageAnnotations(domain, pageUrl);
 
-  // 7. Set up storage change listener (cross-tab sync)
   chrome.storage.onChanged.addListener(handleStorageChanged);
 
-  // 8. Set up SPA navigation detection
   setupNavigationDetection();
 
-  // 9. Set up cleanup on unload
   window.addEventListener('beforeunload', handleBeforeUnload);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// refreshPageAnnotations — load + render for a given page
+// refreshPageAnnotations
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function refreshPageAnnotations(domain: string, pageUrl: string): Promise<void> {
@@ -144,24 +135,22 @@ async function refreshPageAnnotations(domain: string, pageUrl: string): Promise<
   const annotations = domainData?.pages[pageUrl] ?? [];
   const totalForDomain = await getAnnotationCount(domain);
 
-  // Render pins for current page
   renderPins(annotations, handlePinClick);
 
-  // Update toolbar button states
   updateButtonStates(totalForDomain > 0, isAnnotationModeActive());
 
-  // Update resolution alert
   const { unresolvedCount } = resolvePageAnnotations(annotations);
   showResolutionAlert(unresolvedCount, annotations.length);
 
-  // Update filename
   if (domainData?.meta.importedFilename) {
     setFilename(domainData.meta.importedFilename);
+  } else {
+    setFilename(null);
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Cross-tab sync (per TECH_DESIGN.md §7)
+// Cross-tab sync
 // ─────────────────────────────────────────────────────────────────────────────
 
 function handleStorageChanged(
@@ -177,7 +166,6 @@ function handleStorageChanged(
   const newData = changes[domainKey].newValue as DomainData | undefined;
   if (!newData) return;
 
-  // Refresh pins from updated storage (idempotent — no visible effect if unchanged)
   const pageUrl = normaliseUrl(location.href);
   const annotations = newData.pages[pageUrl] ?? [];
   const totalCount = Object.values(newData.pages).flat().length;
@@ -185,42 +173,34 @@ function handleStorageChanged(
   refreshPins(annotations, handlePinClick);
   updateButtonStates(totalCount > 0, isAnnotationModeActive());
 
-  // Update filename state
   setFilename(newData.meta.importedFilename);
 
-  // Update annotation count for confirm dialogs
   setAnnotationCount(totalCount);
 
-  // Update resolution alert
   const { unresolvedCount } = resolvePageAnnotations(annotations);
   showResolutionAlert(unresolvedCount, annotations.length);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SPA Navigation Detection (per TECH_DESIGN.md §6.4)
+// SPA navigation detection
 // ─────────────────────────────────────────────────────────────────────────────
 
 function setupNavigationDetection(): void {
   const debouncedHandleUrlChange = debounce(handleUrlChange, 50);
 
-  // Patch pushState
   const origPush = history.pushState.bind(history);
   history.pushState = function (...args: Parameters<typeof history.pushState>) {
     origPush(...args);
     debouncedHandleUrlChange();
   };
 
-  // Patch replaceState (REQUIRED — used by React Router, Vue Router redirects)
   const origReplace = history.replaceState.bind(history);
   history.replaceState = function (...args: Parameters<typeof history.replaceState>) {
     origReplace(...args);
     debouncedHandleUrlChange();
   };
 
-  // popstate (back/forward)
   window.addEventListener('popstate', debouncedHandleUrlChange);
-
-  // hashchange
   window.addEventListener('hashchange', debouncedHandleUrlChange);
 }
 
@@ -229,19 +209,15 @@ async function handleUrlChange(): Promise<void> {
   if (newUrl === normaliseUrl(lastKnownUrl)) return;
   lastKnownUrl = location.href;
 
-  // 1. Close popover if open (FIRST — per Senior Engineer critique)
   closePopoverIfOpen();
 
-  // 2. Turn off annotation mode
   if (isAnnotationModeActive()) {
     disableAnnotationMode();
-    setAnnotationMode(false); // update toolbar
+    hideToolbar();
   }
 
-  // 3. Clear rendered pins
   clearPins();
 
-  // 4. Load and render pins for new page
   const domain = normaliseDomain(location.hostname);
   await refreshPageAnnotations(domain, newUrl);
 }
@@ -250,20 +226,28 @@ async function handleUrlChange(): Promise<void> {
 // Action handlers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function handleStartAnnotating(): void {
+/** S button click → start annotation mode + expand toolbar. */
+function handleSButtonClick(): void {
   enableAnnotationMode();
-  setAnnotationMode(true);
-  showPins();
+  showPins(); // pins are always visible; this just enables pointer-events
+  showToolbar();
 }
 
-function handleExitAnnotating(): void {
+/** Exit (cross) click → stop annotation mode. Pins remain visible. */
+function handleExit(): void {
   disableAnnotationMode();
-  setAnnotationMode(false);
-  hidePins();
+  hidePins(); // pointer-events off, but pins stay rendered
+  hideToolbar();
 }
 
 async function handleExport(): Promise<void> {
   const domain = normaliseDomain(location.hostname);
+  const count = await getAnnotationCount(domain);
+  if (count === 0) {
+    // Spec: show alert when nothing to export — do not silently no-op.
+    window.alert('nothing to export');
+    return;
+  }
   await exportAnnotations(domain);
 }
 
@@ -271,19 +255,18 @@ async function handleUploadFile(file: File): Promise<void> {
   const domain = normaliseDomain(location.hostname);
 
   await importFile(file, {
-    showConfirm: (message) => showConfirmDialog(message),
+    showConfirm: (message) => showConfirmDialog(message.toLowerCase()),
     getAnnotationCount: () => getAnnotationCount(domain),
     getCurrentDomain: () => domain,
     onImportSuccess: async (filename) => {
       setFilename(filename);
-      // Refresh pins with imported data
       const pageUrl = normaliseUrl(location.href);
       await refreshPageAnnotations(domain, pageUrl);
       // Auto-enter annotation mode (per requirements §1.4)
-      handleStartAnnotating();
+      handleSButtonClick();
     },
-    showError: (msg) => showError(msg),
-    showWarning: (msg) => showWarning(msg),
+    showError: (msg) => showError(msg.toLowerCase()),
+    showWarning: (msg) => showWarning(msg.toLowerCase()),
   });
 }
 
@@ -291,11 +274,33 @@ async function handleDeleteAll(): Promise<void> {
   const domain = normaliseDomain(location.hostname);
   const count = await getAnnotationCount(domain);
 
+  // Spec: if no annotations, do nothing (no confirm).
+  if (count === 0) return;
+
   const confirmed = await showConfirmDialog(
-    `Delete all ${count} annotation${count === 1 ? '' : 's'}? This cannot be undone.`
+    `delete all ${count} annotation${count === 1 ? '' : 's'}? this cannot be undone.`
   );
   if (!confirmed) return;
 
+  await clearDomainData(domain);
+  clearPins();
+  setFilename(null);
+  updateButtonStates(false, isAnnotationModeActive());
+  showResolutionAlert(0, 0);
+}
+
+/**
+ * Filename-bar dismiss button → removes the file AND all annotations.
+ * This is treated as a "delete all" without confirmation (since the user
+ * just explicitly clicked the dismiss icon on the filename bar).
+ */
+async function handleDismissFile(): Promise<void> {
+  const domain = normaliseDomain(location.hostname);
+  const count = await getAnnotationCount(domain);
+  if (count === 0) {
+    setFilename(null);
+    return;
+  }
   await clearDomainData(domain);
   clearPins();
   setFilename(null);
@@ -323,15 +328,12 @@ async function handleNewAnnotation(params: {
 
   await addAnnotation(domain, pageUrl, annotation);
 
-  // Add pin to page
   addPin(annotation, params.targetElement, handlePinClick);
 
-  // Update toolbar
   const count = await getAnnotationCount(domain);
   updateButtonStates(count > 0, true);
   setAnnotationCount(count);
 
-  // Clear filename if modified after import
   const domainData = await getDomainData(domain);
   if (domainData?.meta.wasImported && !domainData.meta.importedFilename) {
     setFilename(null);
@@ -342,7 +344,6 @@ async function handleEditAnnotation(pinNumber: number, note: string): Promise<vo
   const domain = normaliseDomain(location.hostname);
   const pageUrl = normaliseUrl(location.href);
   await updateAnnotation(domain, pageUrl, pinNumber, note);
-  // Update filename indicator (modified after import)
   const domainData = await getDomainData(domain);
   if (domainData?.meta.wasImported && !domainData.meta.importedFilename) {
     setFilename(null);
@@ -359,8 +360,16 @@ async function handleDeleteAnnotationByPin(pinNumber: number): Promise<void> {
   setAnnotationCount(count);
 }
 
+/**
+ * CREATE cancel → no pin was ever rendered (we only call addPin after save),
+ * so nothing to clean up. Hook is kept so future flows that pre-place a pin
+ * can use it cleanly.
+ */
+function handleCancelCreate(): void {
+  // intentionally empty
+}
+
 function handlePinClick(annotation: Annotation): void {
-  // Find pin position on screen
   const pinEl = document.querySelector(`.annotator-pin[data-pin-id="${annotation.pinNumber}"]`);
   if (!pinEl) return;
   const rect = pinEl.getBoundingClientRect();
@@ -368,7 +377,6 @@ function handlePinClick(annotation: Annotation): void {
 }
 
 function handleExistingPinClick(pinNumber: number): void {
-  // Look up annotation from storage and open popover
   const domain = normaliseDomain(location.hostname);
   const pageUrl = normaliseUrl(location.href);
   getPageAnnotations(domain, pageUrl).then((annotations) => {
@@ -382,20 +390,14 @@ function handleExistingPinClick(pinNumber: number): void {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Beforeunload cleanup (per TECH_DESIGN.md §6.3)
+// Beforeunload cleanup
 // ─────────────────────────────────────────────────────────────────────────────
 
 function handleBeforeUnload(): void {
-  // IMPORTANT: Do NOT remove activeTab key from storage!
-  // Removing it here breaks reload persistence.
-  // The key persists until: tab close (onRemoved) or browser restart (startup sweep)
-
-  // DOM-only cleanup
   destroyToolbar();
   destroyAnnotationMode();
   clearPins();
 
-  // Remove storage listener
   chrome.storage.onChanged.removeListener(handleStorageChanged);
 }
 
