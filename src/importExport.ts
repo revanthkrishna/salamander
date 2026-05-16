@@ -107,7 +107,7 @@ export async function importFile(file: File, callbacks: ImportCallbacks): Promis
   const normalisedCurrentDomain = normaliseDomain(currentDomain);
   if (fileDomain !== normalisedCurrentDomain) {
     callbacks.showError(
-      `This file contains annotations for \`${fileDomain}\`, but you're currently on \`${normalisedCurrentDomain}\`.`
+      `This file contains annotations for '${fileDomain}', but you're currently on '${normalisedCurrentDomain}'.`
     );
     return;
   }

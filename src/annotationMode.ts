@@ -81,6 +81,7 @@ let footerEl: HTMLDivElement;
 let cancelBtn: HTMLButtonElement;
 let deleteBtn: HTMLButtonElement;
 let saveBtn: HTMLButtonElement;
+let charCounter: HTMLSpanElement;
 
 let listenerAbortController: AbortController | null = null;
 
@@ -138,6 +139,22 @@ const POPOVER_CSS = `
     padding: 8px 16px;
     border-radius: 16px 16px 0 0;
     display: flex;
+    flex-direction: column;
+  }
+  .counter-row {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0 0 4px 0;
+  }
+  .char-counter {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.50);
+    text-align: right;
+    font-family: inherit;
+    line-height: 1;
+  }
+  .counter-warn {
+    color: #FB645A;
   }
   .note-input {
     width: 100%;
@@ -269,6 +286,15 @@ function buildPopoverDOM(): void {
   noteInput.rows = 3;
   taWrap.appendChild(noteInput);
 
+  // Character counter (always visible per §3.2 of REQUIREMENTS)
+  const counterRow = document.createElement('div');
+  counterRow.className = 'counter-row';
+  charCounter = document.createElement('span');
+  charCounter.className = 'char-counter';
+  charCounter.textContent = '0 / 400';
+  counterRow.appendChild(charCounter);
+  taWrap.appendChild(counterRow);
+
   // Footer
   footerEl = document.createElement('div');
   footerEl.className = 'footer';
@@ -337,6 +363,7 @@ function buildPopoverDOM(): void {
     } else {
       saveBtn.disabled = false;
     }
+    updateCharCounter();
   });
 
   noteInput.addEventListener('keydown', (e) => {
@@ -431,6 +458,7 @@ function openPopoverCreate(
   noteInput.value = '';
   deleteBtn.hidden = true;
   saveBtn.disabled = true;
+  updateCharCounter();
 
   popoverEl.hidden = false;
   popoverOpen = true;
@@ -462,6 +490,12 @@ function closePopover(opts: CloseOpts = {}): void {
 
 function handleCancel(): void {
   closePopover();
+}
+
+function updateCharCounter(): void {
+  const len = noteInput.value.length;
+  charCounter.textContent = `${len} / 400`;
+  charCounter.classList.toggle('counter-warn', len >= 380);
 }
 
 function wigglePopover(): void {
@@ -569,7 +603,10 @@ export function initAnnotationMode(cbs: AnnotationModeCallbacks): void {
     setTimeout(() => { (window as any).__annotatorToolbarPointerDown = false; }, 0);
   }, { capture: true, signal });
 
-  // Annotation-mode click interceptor (bubble phase).
+  // Annotation-mode click interceptor (CAPTURE phase).
+  // Capture phase fires before any page handlers (React onClick, jQuery, etc.),
+  // so calling stopPropagation()/stopImmediatePropagation() here fully suppresses
+  // the click from reaching the target or bubble-phase listeners.
   document.addEventListener('click', (e) => {
     if (!annotationModeActive) return;
     // Programmatic clicks (e.g. a.click() for file download) have isTrusted=false.
@@ -594,7 +631,7 @@ export function initAnnotationMode(cbs: AnnotationModeCallbacks): void {
     e.preventDefault();
     e.stopImmediatePropagation();
     handleAnnotationClick(e as MouseEvent);
-  }, { capture: false, signal });
+  }, { capture: true, signal });
 
   // Hover highlight — mouseover.
   document.addEventListener('mouseover', (e) => {
@@ -638,6 +675,18 @@ export function isAnnotationModeActive(): boolean {
   return annotationModeActive;
 }
 
+/**
+ * Clear any active hover-highlight without disabling annotation mode.
+ * Used on SPA navigation so stale highlights from the previous page DOM
+ * don't linger when pins re-render for the new page.
+ */
+export function clearHoverHighlight(): void {
+  if (highlightedEl) {
+    highlightedEl.classList.remove('annotator-highlighted');
+    highlightedEl = null;
+  }
+}
+
 export function openPopoverForAnnotation(
   annotation: Annotation,
   pinScreenX: number,
@@ -654,6 +703,7 @@ export function openPopoverForAnnotation(
   // In edit mode, save is always enabled (allows save without changes — no-op),
   // but spec says "always enabled in edit", so we honour that here.
   saveBtn.disabled = false;
+  updateCharCounter();
 
   popoverEl.hidden = false;
   popoverOpen = true;

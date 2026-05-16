@@ -57,6 +57,7 @@ import {
   openPopoverForAnnotation,
   closePopoverIfOpen,
   destroyAnnotationMode,
+  clearHoverHighlight,
 } from './annotationMode';
 import { importFile, exportAnnotations } from './importExport';
 import type { Annotation, DomainData, Fingerprint } from './types';
@@ -209,13 +210,11 @@ async function handleUrlChange(): Promise<void> {
   if (newUrl === normaliseUrl(lastKnownUrl)) return;
   lastKnownUrl = location.href;
 
+  // On SPA navigation we keep annotation mode active and the toolbar visible.
+  // Just close any open popover, clear stale hover state, and re-render pins
+  // for the new page.
   closePopoverIfOpen();
-
-  if (isAnnotationModeActive()) {
-    disableAnnotationMode();
-    hideToolbar();
-  }
-
+  clearHoverHighlight();
   clearPins();
 
   const domain = normaliseDomain(location.hostname);
