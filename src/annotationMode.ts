@@ -524,14 +524,16 @@ export function initAnnotationMode(cbs: AnnotationModeCallbacks): void {
   }, { capture: true, signal });
 
   // Annotation-mode click interceptor (bubble phase, NOT capture).
-  // Toolbar buttons call e.stopPropagation() in their own handlers, so their
-  // clicks never bubble up here. This is simpler and more reliable than trying
-  // to detect shadow DOM elements in a capture-phase composedPath check.
   document.addEventListener('click', (e) => {
     if (!annotationModeActive) return;
-    // Pins have their own handlers — skip them here
+    // Primary guard: coordinate hit-test against toolbar bounding rects.
+    // Chrome omits the shadow host from composedPath() when the host has
+    // pointer-events:none + 0x0 size, so stopPropagation() inside the shadow
+    // does NOT reliably prevent the event from escaping. The coordinate check
+    // is the only reliable way to detect toolbar clicks.
+    if (e instanceof MouseEvent && isPointOnToolbar(e.clientX, e.clientY)) return;
+    // Pins and popover
     if ((e.target as Element)?.closest?.('.annotator-pin')) return;
-    // Popover clicks are stopped inside the shadow; belt-and-suspenders check
     if (e.composedPath().includes(popoverHost)) return;
     e.preventDefault();
     e.stopImmediatePropagation();
