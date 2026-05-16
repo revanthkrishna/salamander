@@ -493,7 +493,10 @@ A small pin badge (same style as annotation pins, §5) is shown anchored to the 
 | Position | Element | Details |
 |----------|---------|---------|
 | Left | ✕ cancel button | Icon or text `✕` |
+| After left buttons | character counter | Hidden when count < 350. Shows `"[n] / 400"` at ≥350, turns `#FB645A` at ≥380 |
 | Right | ✓ save button | Enabled only when textarea has ≥ 1 non-whitespace character |
+
+**Character counter:** lives in the footer bar between the left-side buttons (cancel/delete) and the spacer. `display: none` when count < 350; visible at 350+. Color `rgba(255,255,255,0.60)` at 350–379, `#FB645A` at 380+.
 
 **Delete button:** hidden (not rendered)
 
@@ -730,13 +733,23 @@ Plural: `delete all 3 annotations? this cannot be undone.`
 4. Confirmed → all annotations deleted, pins removed, toolbar transitions to TOOLBAR_EMPTY.
 5. Cancelled → no changes.
 
-### 9.7 Click-Outside-to-Dismiss
+### 9.7 Click-Outside Behavior
 
-When popover is open:
-- Clicking outside the popover (not on a pin or toolbar) → popover closes without saving.
-- If CREATE state: pin is removed.
-- If EDIT state: no changes saved.
-- Hover highlighting resumes.
+When popover is open and user clicks outside (not on a pin or toolbar):
+
+**CREATE mode, textarea is empty:**
+- Popover closes
+- The annotation listener immediately fires (the event is not suppressed) and opens a new popover at the newly clicked element—effectively “moving” the annotation target
+
+**CREATE mode, textarea has content:**
+- Popover does NOT close
+- Popover wiggles (380ms shake animation) to indicate the user must save or cancel first
+- Click is fully suppressed (`stopImmediatePropagation` + `preventDefault`)
+
+**EDIT mode (any content):**
+- Popover does NOT close
+- Popover wiggles
+- Click is fully suppressed
 
 ---
 

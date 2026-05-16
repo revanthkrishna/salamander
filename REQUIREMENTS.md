@@ -5,7 +5,9 @@
 ---
 
 ## Definition: "Active"
-The extension is considered **active** on a page when the floating toolbar is visible. The extension is inactive when the toolbar is not shown (e.g. on a new tab before the user clicks the extension icon).
+The extension is considered **active** on a page when the floating S button or toolbar panel is visible. The extension is inactive when neither is shown (e.g. on a new tab before the user clicks the extension icon).
+
+**Annotation mode** is the state where the user can click elements to create annotations. It is entered by clicking the S button, and exited by clicking the Exit (✕) button in the toolbar.
 
 ---
 
@@ -48,7 +50,7 @@ On import, the extension attempts to locate each element in order:
 
 ### 1.3 Exporting
 - [ ] User can export all annotations across all pages of the current domain as a single file
-- [ ] Export is only enabled when at least one annotation exists
+- [ ] Export button is always enabled. If clicked with no annotations, shows `alert("nothing to export")` and does nothing
 - [ ] Export file format: YAML
 - [ ] Default filename: `annotations-{domain}.yaml` where domain dots are replaced with underscores (e.g. `annotations-figma_com.yaml`)
 - [ ] Export file includes all data described in §1.3.1 below
@@ -85,12 +87,13 @@ The exported YAML file must contain the following. Exact schema and field names 
 
 ### 1.5 Managing Annotations
 - [ ] User can edit an individual annotation
-- [ ] User can delete an individual annotation
+- [ ] User can delete an individual annotation — **immediately, no confirmation dialog required**
 - [ ] User can delete all annotations at once via a **Delete All** button in the toolbar
-  - Requires a confirmation dialog before proceeding
+  - If no annotations exist: silent no-op (no alert, no confirm)
+  - If annotations exist: requires a browser `confirm()` dialog before proceeding
   - Deletes all annotations across all pages of the current domain
-  - If a file was imported, the in-extension annotations are cleared — but the original file on the user's device is untouched
-  - After deletion: toolbar returns to its default empty state (filename indicator gone, Export disabled)
+  - If a file was imported, the in-extension annotations are cleared — but the original file on the user’s device is untouched
+  - After deletion: toolbar returns to its default empty state (filename indicator gone)
 - [ ] All annotation changes (add, edit, delete, delete all) are **auto-saved immediately** — there is no manual save step
 
 ---
@@ -130,7 +133,7 @@ The exported YAML file must contain the following. Exact schema and field names 
 - The toolbar does not appear automatically on any website, even if the user has previously annotated that domain
 - **New tab:** requires clicking the extension icon to activate the toolbar
 - **Full page reload (same tab):** toolbar re-activates automatically — no need to click the extension icon again
-- **SPA navigation (same tab, no reload):** toolbar remains visible, annotation mode is off, pins update to reflect the new page's annotations
+- **SPA navigation (same tab, no reload):** toolbar remains visible **and annotation mode stays active**, any open popover closes, hover highlight clears, pins update to reflect the new page’s annotations
 
 ### Storage
 - Annotations must persist across browser close and reopen — they survive indefinitely until the user deletes them or uninstalls the extension
@@ -144,45 +147,66 @@ The exported YAML file must contain the following. Exact schema and field names 
 ## 3. UX / UI Requirements
 
 ### 3.1 Annotation Mode
-- [ ] Entering annotation mode: all native element click behaviors are suppressed — the page cannot be interacted with via clicks
+- [ ] Annotation mode is **entered by clicking the S button** (the idle-state button). Annotation mode is **exited by clicking the Exit (✕) icon** in the toolbar.
+- [ ] In annotation mode: all native element click behaviors are suppressed — the page cannot be interacted with via clicks. This applies to all pages including complex MFEs (Gmail, SPAs, etc.) — the suppression happens at the `window` capture phase, before any page handler fires.
 - [ ] Scrolling continues to work normally in annotation mode
-- [ ] To navigate to another page, the user must first exit annotation mode, then click links normally
-- [ ] Hovering over an element highlights it with a visible outline to indicate it is selectable
-- [ ] Clicking a non-annotated element opens a comment popover anchored near the click point (Figma-style)
-- [ ] Clicking an existing pin opens the same popover pre-filled with the annotation's current text
+- [ ] To navigate to another page in annotation mode, the user can click links normally only after exiting (via the Exit button). While in annotation mode, clicking links does not navigate
+- [ ] Hovering over an element highlights it with a yellow (#FEC800) outline to indicate it is selectable
+- [ ] Clicking a non-annotated element opens a comment popover anchored near the click point
+- [ ] Clicking an existing pin opens the same popover pre-filled with the annotation’s current text
 - [ ] **Import triggers annotation mode:** when a file is successfully imported, annotation mode is automatically entered on the current page (consistent with §1.4)
 
 ### 3.2 Annotation Popover
-- [ ] Popover layout:
-  - Top right: **Close (✕)** button — closes popover without saving, annotation unchanged
-  - Bottom left: **Delete** button — deletes the annotation after confirmation
-  - Bottom right: **Add** button — saves the annotation (same label for both create and edit)
-- [ ] The **Add** button is disabled when the text input is empty
+- [ ] Popover has two sections: a dark grey textarea area (top, rounded 16px top corners) and a black footer bar (bottom, rounded 16px bottom corners).
+- [ ] Popover footer layout:
+  - **Create mode (new annotation):** [Cancel (✕) — bottom-left] [spacer] [Save — bottom-right]
+  - **Edit mode (existing annotation):** [Cancel (✕) — bottom-left] [Delete (🗑) — next to cancel] [spacer] [Save — bottom-right]
+- [ ] The **Save** button is disabled when the text input is empty in create mode; always enabled in edit mode
+- [ ] All button labels and placeholder text are **lowercase**: "save", "type something..."
 - [ ] Text input has a max of 400 characters
-- [ ] A character counter is always visible (e.g. "240 / 400") — shown during both creation and editing
-- [ ] Closing the popover via ✕ or clicking outside discards any unsaved changes
-- [ ] Popover default position: bottom-right of the pin
-- [ ] Overflow handling priority: if bottom-right overflows the viewport, try top-right → top-left → bottom-left
+- [ ] **Character counter:** visible in the footer bar (between the left buttons and spacer) **only when the character count reaches 350 or more**. Shows current count e.g. `"350 / 400"`. Turns red (#FB645A) at 380+ chars.
+- [ ] **Delete is immediate** — no confirmation dialog for single-annotation delete
+- [ ] **Click-outside behavior:**
+  - **Create mode, empty textarea:** popover closes; the annotation listener immediately opens a new popover at the clicked element (effectively “moves” the annotation target)
+  - **Create mode, textarea has content:** popover wiggles (short shake animation) to indicate the user must save or cancel first. Click is fully suppressed.
+  - **Edit mode:** popover wiggles. Click is fully suppressed.
+- [ ] Popover default position: right of the pin at the same vertical level
+- [ ] Overflow handling: try right → top-right → top-left → left (whichever fits in the viewport)
 
 ### 3.3 Annotation Display
 - [ ] Pins are **only visible in annotation mode** — when annotation mode is off, pins are hidden and the page behaves normally
-- [ ] Annotations are shown as round magenta/pink pins
-- [ ] Each pin displays its annotation number
+- [ ] Annotations are shown as **yellow (#FEC800) pill-shaped pins** with a black border (`1px solid #000`)
+  - Single-digit numbers: circular (min-width = height)
+  - Multi-digit numbers: pill widens to fit the text
+- [ ] Each pin displays its annotation number in black, bold text
 - [ ] **Pin placement:** the pin appears at the exact point where the user clicked on the element. The position is stored as an (x, y) offset relative to the element's top-left corner. When the element moves (scroll, reflow, resize), the pin recalculates its screen position as: element's current top-left + stored offset. The pin always stays at the same visual point on the element.
 - [ ] Pin overlap is possible; no automatic collision avoidance in v1
 
 ### 3.4 Floating Toolbar
-- [ ] A floating toolbar appears in the bottom-right corner of the page when the extension is active
-- [ ] Toolbar buttons: **Start Annotating** | **Export** | **Upload** | **Delete All**
-- [ ] When in annotation mode: toolbar shows **Exit** button instead of Start Annotating; Export button remains
-- [ ] Export button is disabled (greyed out) when there are no annotations; enabled when at least one exists
-- [ ] Delete All button is disabled when there are no annotations; enabled when at least one exists
-- [ ] Clicking Delete All shows a confirmation dialog: "Delete all X annotations? This cannot be undone." Confirm/Cancel
-- [ ] When a file is loaded via import: toolbar displays the filename above the buttons
+
+#### Idle State (annotation mode OFF)
+- [ ] A floating **S button** (56×56px, black, rounded) appears in the bottom-right corner when the extension is active but annotation mode is off
+- [ ] Clicking the S button enters annotation mode and replaces itself with the expanded toolbar panel
+
+#### Annotation Mode (toolbar panel visible)
+- [ ] The toolbar panel replaces the S button. It contains (left to right): **[Export icon] [Import icon] [Delete All icon] [Exit icon]** — icon-only buttons, no text labels
+- [ ] All 4 buttons are always enabled (never greyed out)
+- [ ] **Export:** if no annotations exist, shows `alert("nothing to export")`. Otherwise triggers file download.
+- [ ] **Import:** opens native file picker
+- [ ] **Delete All:** if no annotations, silent no-op. If annotations exist, shows `confirm("delete all N annotation(s)? this cannot be undone.")` (all lowercase). On confirm: deletes all annotations, clears pins.
+- [ ] **Exit:** collapses toolbar back to S button. Annotation mode ends. Pins hide. Annotations are preserved.
+- [ ] When a file is loaded via import: a filename bar appears **above** the button row, showing the filename and a dismiss (✕) button. Dismissing removes the file reference **and all imported annotations**.
 - [ ] When annotations are modified after import: filename indicator disappears
-- [ ] Errors appear in **red** above the toolbar
-- [ ] Warnings appear in **yellow** above the toolbar
-- [ ] Messages/notices appear in a neutral style above the toolbar
+- [ ] Warnings appear **below the filename bar** (or below the button row if no filename) in amber (#D6AE7C)
+- [ ] Errors appear below the filename bar in red (#FB645A)
+
+#### Text Case
+- [ ] **All visible text in the UI is lowercase** — button labels, error messages, warning messages, confirm/alert dialog text, placeholder text, tooltips. No exceptions.
+
+#### Stacking order (top to bottom inside toolbar panel)
+1. Filename bar (conditional)
+2. Warning/error bar (conditional)
+3. Icon button row (always visible in annotation mode)
 
 #### Import Resolution Alerts (below filename, page-level)
 After a file is successfully imported, the toolbar shows a page-level alert **directly below the filename** indicating how many annotations could be placed on the current page. This alert updates automatically whenever the user navigates to a new page.
@@ -205,40 +229,35 @@ After a file is successfully imported, the toolbar shows a page-level alert **di
 ### Journey 1 — Creating and Exporting Annotations
 
 1. User opens any website in Chrome
-2. User clicks the Extensions icon (puzzle piece, top right) and opens **Annotator**
-3. On first ever use: Chrome shows a one-time permission prompt — "Allow Annotator on all websites?" — user approves
-4. After permission is granted (first time or already granted): the floating toolbar appears in the bottom-right corner with four buttons: **Start Annotating**, **Export** (disabled), **Upload**, **Delete All** (disabled)
-5. User clicks **Start Annotating** — annotation mode activates
-   - Toolbar updates: **Start Annotating** becomes **Exit**; Export remains disabled
-   - Hovering over page elements highlights them with an outline
-   - Native click behavior on all elements is suppressed
-6. User clicks an element → a comment popover appears near the click point
-7. User types their note (up to 400 chars) and clicks **Add**
-   - A round magenta pin numbered **1** appears anchored to that element
-   - Export button becomes enabled
-8. User continues annotating more elements → pins are numbered sequentially (2, 3, 4…)
-9. User clicks **Exit** — leaves annotation mode. Pins disappear; page returns to normal behavior. Annotations are auto-saved.
-10. User clicks a link and navigates to another page on the same domain
-    - If it's an SPA navigation: toolbar remains, annotation mode is off, no pins visible
-    - If it's a full page reload: toolbar disappears; user clicks the extension icon again to reactivate
-12. User clicks **Start Annotating** — pin numbering continues from where it left off (e.g. starts at 5)
-13. User annotates more elements on this page
-14. User clicks **Export** → browser downloads `annotations-{domain}.yaml` containing all annotations across all pages visited
-11. User annotates more elements on this page
-12. User clicks **Export** → browser downloads `annotations-{domain}.yaml` containing all annotations across all pages visited
+2. User clicks the Extensions icon (puzzle piece, top right) and selects **Annotator**
+3. On first ever use: Chrome shows a one-time permission prompt — user approves
+4. A floating **S button** appears in the bottom-right corner
+5. User clicks the **S button** — annotation mode activates, S button is replaced by the toolbar panel
+   - Hovering over page elements highlights them with a yellow outline
+   - All native click behavior on page elements is suppressed
+6. User clicks an element → a popover appears near the click point with a textarea
+7. User types their note and clicks **save**
+   - A yellow pill pin numbered **1** appears anchored to that element
+8. User continues annotating more elements → pins numbered sequentially (2, 3, 4…)
+9. User clicks the **Exit (✕)** button — leaves annotation mode. Pins hide. Page returns to normal. Annotations are auto-saved.
+10. User navigates to another page on the same domain:
+    - **SPA navigation:** toolbar panel stays visible, annotation mode stays active, pins update for new page
+    - **Full page reload:** toolbar disappears; user clicks extension icon again to reactivate
+11. User annotates more elements on this page (pin numbering continues from highest stored)
+12. User clicks **Export** icon → browser downloads `annotations-{domain}.yaml` containing all annotations across all pages
 
 ### Journey 2 — Viewing Shared Annotations
 
 1. User opens the same website in Chrome
 2. User opens **Annotator** from the Extensions menu
 3. Permission is requested if not already granted (first use only)
-4. Floating toolbar appears with **Start Annotating**, **Export** (disabled), **Upload**, **Delete All** (disabled)
-5. User clicks **Upload** → native file picker opens
+4. A floating **S button** appears in the bottom-right corner
+5. User clicks **Import** icon (visible after clicking S button to enter annotation mode) → native file picker opens
 6. User selects the `.yaml` annotation file received from the first user
 7. Extension validates and loads the file:
-   - Toolbar displays the filename (e.g. `annotations-figma_com.yaml`) above the buttons
+   - Toolbar displays the filename above the button row with a dismiss (✕) button
    - Extension enters annotation mode automatically
-   - Magenta pins appear on all resolved elements for the current page
+   - Yellow pins appear on all resolved elements for the current page
    - Annotations for other pages in the domain are stored and will appear when the user visits those pages
 8. User can browse the site — entering annotation mode on each page reveals the imported pins
 9. User can add, edit, or delete annotations
@@ -249,7 +268,9 @@ After a file is successfully imported, the toolbar shows a page-level alert **di
 
 ## 5. Import Error Handling
 
-Errors appear in **red above the toolbar**. Warnings in **yellow above the toolbar**. Never silent failures, never crashes.
+Errors appear **in red in the toolbar** (below filename bar if present). Warnings in amber. Never silent failures, never crashes.
+
+**All error/warning/confirm text must be lowercase** (per the global text case rule in §3.4).
 
 **Two distinct patterns are used:**
 - **Error/Warning messages** — passive inline text shown above the toolbar. Used when the file is rejected or something went wrong.
@@ -261,7 +282,7 @@ Errors appear in **red above the toolbar**. Warnings in **yellow above the toolb
 | 2 | File is empty | 🔴 Error | "This file is empty. Nothing to import." |
 | 3 | File is not valid YAML (corrupted or malformed) | 🔴 Error | "Could not read this file — it appears to be corrupted or incorrectly formatted." |
 | 4 | Valid YAML but wrong schema (missing required fields) | 🔴 Error | "This file doesn't look like an Annotator file. Please check you're uploading the right file." |
-| 5 | Domain mismatch — file is from a different website | 🔴 Error | "This file contains annotations for `{other-domain}`, but you're currently on `{current-domain}`." Shown as a red alert above the toolbar. File rejected — no proceed option. |
+| 5 | Domain mismatch — file is from a different website | 🔴 Error | "this file contains annotations for '{other-domain}', but you're currently on '{current-domain}'." File rejected — no proceed option. |
 | 6 | File version mismatch (future-proofing) | 🟡 Warning | "This file was created with a newer version of Annotator. Some annotations may not display correctly." Import proceeds. |
 | 7 | Domain matches but no annotations in the file target the current page | ℹ️ Silent | Import succeeds. Toolbar shows filename. No pins appear on this page (expected). No alert shown. Pins appear when user navigates to pages that have annotations. |
 | 8 | File has annotations for this page but **zero** elements could be resolved | 🔴 Alert (toolbar, below filename) | "None of the annotations could be placed on this page." Shown in red below filename. Updates per-page on navigation. |
