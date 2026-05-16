@@ -363,6 +363,10 @@ function triggerDownload(content: string, filename: string): void {
   a.download = filename;
   a.style.display = 'none';
   document.body.appendChild(a);
+  // Stop the synthetic click from bubbling — without this it reaches the
+  // annotation-mode click listener (clientX/Y = 0,0 so toolbar guards miss it)
+  // and creates a spurious annotation.
+  a.addEventListener('click', (e) => e.stopPropagation(), { once: true });
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);

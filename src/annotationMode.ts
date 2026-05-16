@@ -533,6 +533,9 @@ export function initAnnotationMode(cbs: AnnotationModeCallbacks): void {
   // Annotation-mode click interceptor (bubble phase).
   document.addEventListener('click', (e) => {
     if (!annotationModeActive) return;
+    // Programmatic clicks (e.g. a.click() for file download) have isTrusted=false.
+    // Never treat them as annotation clicks.
+    if (!e.isTrusted) return;
 
     // Primary guard: toolbarHost.pointerdown bubbles to the host even with
     // pointer-events:none (per spec). Flag is set before any click fires.
