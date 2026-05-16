@@ -137,10 +137,10 @@ const TOOLBAR_CSS = `
     display: flex;
     flex-direction: column;
     border-radius: 16px;
-    overflow: hidden;
+    overflow: hidden;          /* clips all children to the rounded corners */
     filter: var(--shadow);
     pointer-events: auto;
-    background: transparent;
+    background: var(--bg);     /* solid fill so page background never bleeds through */
   }
   .panel[hidden] { display: none !important; }
 
@@ -294,12 +294,9 @@ const TOOLBAR_CSS = `
   }
   .icon-btn .icon svg { width: 100%; height: 100%; display: block; }
 
-  /* Section corner rounding — applied selectively so the outer pill shape
-     works whether or not the filename/warning/error bars are present. The
-     panel itself has overflow:hidden + border-radius:16px so this is mostly
-     cosmetic — but explicit per-section radii match the Figma spec. */
-  .icon-btn:first-child { border-radius: 16px 0 0 16px; }
-  .icon-btn:last-child  { border-radius: 0 16px 16px 0; }
+  /* No per-button border-radius needed — .panel has overflow:hidden + border-radius:16px
+     which correctly clips all corners. Individual button radii would create rendering
+     artifacts (visible gaps / mismatched curves) when bars are stacked above. */
 `;
 
 // ---------------------------------------------------------------------------

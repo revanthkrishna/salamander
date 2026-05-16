@@ -471,12 +471,23 @@ function handleAnnotationClick(e: MouseEvent): void {
   openPopoverCreate(target, offset, fingerprint, e.clientX, e.clientY);
 }
 
-function isAnnotatorElement(el: Element): boolean {
-  return (
-    el.closest('#annotator-host') !== null ||
-    el.closest('#annotator-popover-host') !== null ||
-    el.closest('.annotator-pin') !== null
-  );
+/**
+ * Returns true if the click event originated inside any annotator-owned element.
+ * Uses composedPath() for reliable Shadow DOM (closed root) detection — e.target
+ * alone is not reliable because closed shadow roots may retarget it to the host
+ * or to whatever element is behind the host's 0×0 bounding box.
+ */
+function isAnnotatorClick(e: Event): boolean {
+  const path = e.composedPath() as EventTarget[];
+  return path.some((node) => {
+    if (!(node instanceof Element)) return false;
+    const id = (node as Element).id;
+    return (
+      id === 'annotator-host' ||
+      id === 'annotator-popover-host' ||
+      (node as Element).classList.contains('annotator-pin')
+    );
+  });
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -500,7 +511,7 @@ export function initAnnotationMode(cbs: AnnotationModeCallbacks): void {
   // Annotation-mode click interceptor.
   document.addEventListener('click', (e) => {
     if (!annotationModeActive) return;
-    if (isAnnotatorElement(e.target as Element)) return;
+    if (isAnnotatorClick(e)) return;  // click on toolbar, popover, or pin — do not intercept
     e.preventDefault();
     e.stopImmediatePropagation();
     handleAnnotationClick(e as MouseEvent);
@@ -509,7 +520,7 @@ export function initAnnotationMode(cbs: AnnotationModeCallbacks): void {
   // Hover highlight — mouseover.
   document.addEventListener('mouseover', (e) => {
     if (!annotationModeActive || popoverOpen) return;
-    if (isAnnotatorElement(e.target as Element)) return;
+    if (isAnnotatorClick(e)) return;
     if (highlightedEl) highlightedEl.classList.remove('annotator-highlighted');
     highlightedEl = e.target as Element;
     highlightedEl.classList.add('annotator-highlighted');
