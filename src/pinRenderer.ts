@@ -43,23 +43,22 @@ function injectStyles(): void {
   }
   const style = document.createElement('style');
   style.id = 'annotator-pin-styles';
-  // Pins are ALWAYS visible (regardless of annotation mode). They are only
-  // interactive (clickable) when body.annotator-active is set — controlled by
-  // showPins/hidePins which toggle pointer-events, not display.
+  // Pins are hidden outside annotation mode. showPins/hidePins toggle
+  // body.annotator-active which controls both visibility and interactivity.
   style.textContent = `
 .annotator-pin {
   position: absolute;
-  min-width: 14px;
-  height: 14px;
-  padding: 0 2px;
-  border-radius: 30px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 5px;
+  border-radius: 12px;
   background-color: #FEC800;
   border: 1px solid #000000;
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   z-index: 2147483640;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.40);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.40), 0 1px 2px rgba(0,0,0,0.20);
   box-sizing: border-box;
   user-select: none;
   pointer-events: none;
@@ -71,10 +70,11 @@ function injectStyles(): void {
   color: #000000;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 12px;
-  font-weight: 400;
+  font-weight: 700;
   line-height: 1;
   text-align: center;
   pointer-events: none;
+  white-space: nowrap;
 }
 
 @keyframes annotator-pin-pop {
@@ -82,8 +82,9 @@ function injectStyles(): void {
   to   { transform: scale(1);   opacity: 1; }
 }
 
-/* Clickable only when annotation mode is on */
+/* Visible and clickable only in annotation mode */
 body.annotator-active .annotator-pin {
+  display: flex;
   pointer-events: auto;
   cursor: pointer;
 }

@@ -112,7 +112,7 @@ const POPOVER_CSS = `
     --bg-textarea: #3E3E3E;
     --bg-footer: #000000;
     --text: #FFFFFF;
-    --placeholder: #D1D1D1;
+    --placeholder: rgba(255, 255, 255, 0.35);
     --shadow: drop-shadow(0px 0px 8px rgba(0,0,0,0.25));
     font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
@@ -155,7 +155,10 @@ const POPOVER_CSS = `
     margin: 0;
     overflow-y: auto;
   }
-  .note-input::placeholder { color: var(--placeholder); }
+  .note-input::placeholder {
+    color: var(--placeholder);
+    opacity: 1; /* Firefox reduces opacity on ::placeholder by default */
+  }
 
   /* Footer bar */
   .footer {
@@ -215,6 +218,18 @@ const POPOVER_CSS = `
 
   /* Spacer fills remaining horizontal space */
   .spacer { flex: 1 1 auto; background: var(--bg-footer); }
+
+  /* Wiggle animation — triggered by adding .annotator-wiggle to .popover */
+  @keyframes annotator-wiggle {
+    0%, 100% { transform: translateX(0); }
+    15%       { transform: translateX(-8px); }
+    35%       { transform: translateX(8px); }
+    55%       { transform: translateX(-5px); }
+    75%       { transform: translateX(4px); }
+  }
+  .annotator-wiggle {
+    animation: annotator-wiggle 380ms ease-in-out;
+  }
 
   /* Save — bottom-right corner with icon+label */
   .btn-save {
@@ -449,6 +464,17 @@ function handleCancel(): void {
   closePopover();
 }
 
+function wigglePopover(): void {
+  // Remove and re-add the class so the animation replays if triggered again.
+  popoverEl.classList.remove('annotator-wiggle');
+  // Force reflow so the browser registers the removal before re-adding.
+  void popoverEl.offsetWidth;
+  popoverEl.classList.add('annotator-wiggle');
+  popoverEl.addEventListener('animationend', () => {
+    popoverEl.classList.remove('annotator-wiggle');
+  }, { once: true });
+}
+
 // ─── Click handler ────────────────────────────────────────────────────────────
 
 function handleAnnotationClick(e: MouseEvent): void {
@@ -520,6 +546,19 @@ export function initAnnotationMode(cbs: AnnotationModeCallbacks): void {
   document.addEventListener('click', (e) => {
     if (!popoverOpen) return;
     if ((e.composedPath() as EventTarget[]).includes(popoverHost)) return;
+
+    const hasText = noteInput.value.trim().length > 0;
+
+    if (currentMode === 'edit' || (currentMode === 'create' && hasText)) {
+      // User has content or is in edit mode — don’t close, wiggle instead.
+      e.stopPropagation();
+      e.preventDefault();
+      wigglePopover();
+      return;
+    }
+
+    // CREATE + empty: close and let annotation handler (bubble phase)
+    // reopen the popover at the newly clicked element.
     closePopover();
   }, { capture: true, signal });
 
