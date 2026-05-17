@@ -1,6 +1,6 @@
 # 🦎 Salamander
 
-> *Like a salamander clinging to any surface — your annotations stick to any webpage.*
+> *It leaves yellow spots on websites. Just like a salamander.*
 
 A Chrome extension for inline web annotations. Click the **S** button, annotate any element on any page, export as YAML, and share with anyone. They import it and see exactly what you saw.
 
