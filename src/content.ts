@@ -4,13 +4,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // CRITICAL: Idempotency guard (MUST be first — prevents double-injection)
 // ─────────────────────────────────────────────────────────────────────────────
-if ((window as any).__annotatorActive) {
-  throw new Error('Annotator: already active, skipping re-injection');
-}
-(window as any).__annotatorActive = true;
-
 // ─────────────────────────────────────────────────────────────────────────────
-// Imports
+// Imports (must be at module top level — before the IIFE guard below)
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { normaliseDomain, normaliseUrl } from './urlNorm';
@@ -62,6 +57,17 @@ import {
 } from './annotationMode';
 import { importFile, exportAnnotations } from './importExport';
 import type { Annotation, DomainData, Fingerprint } from './types';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Idempotency guard + runtime init (wrapped in IIFE so we can `return` instead
+// of throwing — a throw here shows as a console error even though it’s intentional).
+// ─────────────────────────────────────────────────────────────────────────────
+void (function annotatorMain() {
+
+if ((window as any).__annotatorActive) {
+  return; // Already running on this page — silent exit, no console error.
+}
+(window as any).__annotatorActive = true;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Module-level state
@@ -468,4 +474,5 @@ function debounce<T extends (...args: unknown[]) => void>(fn: T, delay: number):
   } as T;
 }
 
+})(); // end annotatorMain IIFE
 export {};
