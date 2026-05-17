@@ -1,110 +1,89 @@
-# Annotator
+# 🦎 Salamander
 
-A Chrome extension for inline web annotations. Annotate any webpage, export as a YAML file, and share with others who can import and view the same annotations.
+> *Like a salamander clinging to any surface — your annotations stick to any webpage.*
 
-## Features
+A Chrome extension for inline web annotations. Click the **S** button, annotate any element on any page, export as YAML, and share with anyone. They import it and see exactly what you saw.
 
-- Annotate any element on any webpage
-- Magenta pin markers with sequential numbering
-- Export all annotations as a YAML file
-- Import and view annotations from others
-- Annotations persist across browser sessions and page reloads
-- Works across all pages of a domain
+---
 
-## Development Setup
+## What it does
 
-### Prerequisites
+- **Annotate anything** — click any element on any webpage and leave a note
+- **Golden pins** — numbered yellow markers that stick to elements across scrolls, resizes, and page reloads
+- **Export** — all annotations for a domain exported as a single readable YAML file
+- **Import** — open someone else's annotation file and their pins appear on your screen
+- **Persistent** — annotations survive browser restarts and page reloads
+- **Cross-domain aware** — annotations are scoped per domain, covering all pages under it
 
-- Node.js 18+
-- npm
+---
 
-### Install & Build
+## How to use
+
+1. Navigate to any website
+2. Click the **Salamander** icon in your Chrome toolbar
+3. An **S button** appears in the bottom-right corner — click it to enter annotation mode
+4. Hover over elements — they highlight in yellow
+5. Click any element to drop a note
+6. Type your annotation (up to 400 characters) and hit **save**
+7. A numbered yellow 🦎 pin appears on the element
+8. Use the toolbar to **export**, **import**, or **delete all**
+9. Click **✕** to exit annotation mode (pins hide, annotations stay saved)
+
+---
+
+## Install for development
 
 ```bash
 npm install
 npm run build
 ```
 
-This produces `dist/background.js` and `dist/content.js`.
+Then load it in Chrome:
 
-### Run Tests
+1. Go to `chrome://extensions`
+2. Enable **Developer mode** (top-right toggle)
+3. Click **Load unpacked** → select this folder (the one with `manifest.json`)
+4. Pin the Salamander icon from the 🧩 extensions menu
+
+---
+
+## Run tests
 
 ```bash
 npm test
 ```
 
-101 tests across 4 suites — all should pass.
-
----
-
-## Loading in Chrome
-
-1. Open Chrome and navigate to `chrome://extensions`
-2. Enable **Developer mode** (toggle in the top-right corner)
-3. Click **Load unpacked**
-4. Select the `annotator` directory — the folder containing `manifest.json` (this folder)
-5. The Annotator extension appears in your extension list
-
-To make the icon visible in the toolbar: click the puzzle piece icon (🧩) in the Chrome toolbar and pin **Annotator**.
-
----
-
-## Using the Extension
-
-1. Navigate to any website
-2. Click the **Annotator** icon in the Chrome toolbar
-3. The floating toolbar appears in the bottom-right corner of the page
-4. Click **Start Annotating** to enter annotation mode
-5. Hover over any element — it highlights in magenta
-6. Click to open the note popover; type your annotation (up to 400 characters) and click **Add**
-7. A numbered magenta pin appears on the element
-8. Click **Exit Annotating** to leave annotation mode (pins become invisible but are saved)
-9. Click **Export** to download all annotations as a YAML file
-10. Click **Upload** to import annotations from a YAML file shared by someone else
-
-### Notes
-
-- Annotations are stored per domain (e.g. all pages under `example.com` share one annotation set)
-- Pins are numbered sequentially; numbers are never reused after deletion
-- After importing a file, the filename is shown in the toolbar — it disappears as soon as you make any change
-
 ---
 
 ## Architecture
 
-See `TECH_DESIGN.md` for the full technical design.
-
-### Quick overview
-
 | File | Role |
 |---|---|
-| `src/content.ts` | Main content script: toolbar, pins, popover, annotation mode, SPA detection |
-| `src/background.ts` | Background service worker: tab lifecycle, content script injection |
-| `src/storage.ts` | `chrome.storage.local` helpers for domain annotation data |
-| `src/importExport.ts` | YAML export and 14-case import validation pipeline |
-| `src/fingerprint.ts` | CSS selector / XPath / text-snippet generation and resolution |
-| `src/urlNorm.ts` | URL normalisation (domain extraction, per-page keys) |
-| `src/toolbar.ts` | Toolbar Shadow DOM component |
-| `src/annotationMode.ts` | Hover highlight + popover Shadow DOM component |
-| `src/pinRenderer.ts` | Pin element creation, positioning, scroll repositioning |
+| `src/content.ts` | Main content script — wires everything together |
+| `src/background.ts` | Service worker — tab lifecycle, script injection |
+| `src/fingerprint.ts` | Multi-signal element fingerprinting (CSS selector + XPath + text match) |
+| `src/pinRenderer.ts` | Pin creation, positioning, MutationObserver retry for async DOM |
+| `src/toolbar.ts` | S button + toolbar panel (Shadow DOM) |
+| `src/annotationMode.ts` | Hover highlight + annotation popover (Shadow DOM) |
+| `src/importExport.ts` | YAML export + 14-case import validation pipeline |
+| `src/storage.ts` | `chrome.storage.local` helpers |
+| `src/urlNorm.ts` | URL and domain normalisation |
 | `src/types.ts` | Shared TypeScript types |
 
----
-
-## Security
-
-This extension makes **zero network requests**. All annotation data stays on your machine in `chrome.storage.local`. The manifest CSP enforces `connect-src 'none'`. See `TECH_DESIGN.md §10` for the full security model.
+Full technical details in [`TECH_DESIGN.md`](./TECH_DESIGN.md).
 
 ---
 
-## Permissions
+## Privacy & Security
+
+Zero network requests. Ever. All annotation data lives in `chrome.storage.local` on your machine. The manifest CSP enforces `connect-src 'none'`. Nothing leaves your device unless you explicitly export a file.
 
 | Permission | Why |
 |---|---|
-| `storage` | Annotation persistence across sessions |
-| `scripting` | On-demand content script injection when icon is clicked |
-| `tabs` | Tab lifecycle management for reload persistence |
-| `<all_urls>` | The extension works on any website |
+| `storage` | Saving annotations across sessions |
+| `scripting` | Injecting the extension into pages on demand |
+| `tabs` | Tab lifecycle for reload persistence |
+| `<all_urls>` | Works on any website |
 
 ---
 
