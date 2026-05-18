@@ -1,12 +1,8 @@
 # 🦎 salamander
 
-annotate directly on webpage elements. share exactly what you see.
+> *leaves yellow spots on websites and makes them look like salamanders.*
 
----
-
-> *it leaves yellow spots on websites. just like a salamander.*
-
-salamander is a Chrome extension for inline web annotations. click the salamander button, pin notes on any element of any page, export as a YAML file, and share it with anyone — they import it and see exactly what you saw, pins and all.
+salamander is a Chrome extension for annotating websites directly on page elements. pin notes on any element, export as a YAML file, and share it with anyone — they import it and see exactly what you saw, pins and all.
 
 ---
 
@@ -14,24 +10,20 @@ salamander is a Chrome extension for inline web annotations. click the salamande
 
 - **annotate anything** — click any element on any webpage and leave a note
 - **numbered pins** — yellow markers that stick to elements across scrolls, resizes, and page reloads
-- **export** — all annotations for a domain exported as a single readable YAML file
+- **export** — all annotations for a website exported as a single readable YAML file
 - **import** — open someone else's annotation file and their pins appear on your screen
-- **persistent** — annotations survive browser restarts and page reloads
-- **cross-domain aware** — annotations are scoped per domain, covering all pages under it
 
 ---
 
 ## how to use
 
-1. navigate to any website
+1. open any website
 2. click the salamander icon in your Chrome toolbar
 3. the salamander button appears in the bottom-right corner — click it to enter annotation mode
-4. hover over elements — they highlight in yellow
-5. click any element to drop a note
-6. type your annotation (up to 400 characters) and hit save
-7. a numbered yellow pin appears on the element
-8. use the toolbar to export, import, or delete all
-9. click ✕ to exit annotation mode (pins hide, annotations stay saved)
+4. click any element to drop a note
+5. a numbered yellow pin appears on the element
+6. use the toolbar to export, import, or delete all
+7. click ✕ to exit annotation mode (pins hide, annotations stay saved)
 
 ---
 
