@@ -1,4 +1,4 @@
-# 🦎 salamander
+# salamander
 
 > *leaves yellow spots on websites and makes them look like salamanders.*
 
