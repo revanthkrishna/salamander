@@ -1,18 +1,33 @@
 {
   "manifest_version": 3,
-  "name": "Annotator",
+  "name": "Salamander",
   "version": "1.0.0",
-  "description": "Annotate any webpage, export as YAML, share with others.",
+  "description": "Annotate directly on webpage elements. Share exactly what you see.",
   "permissions": ["storage", "scripting", "tabs"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "dist/background.js"
   },
   "action": {
-    "default_title": "Annotator"
+    "default_title": "Salamander",
+    "default_icon": {
+      "16": "icons/Logo 16x16.svg",
+      "48": "icons/Logo 48x48.svg",
+      "128": "icons/Logo 128x128.svg"
+    }
   },
+  "icons": {
+    "16": "icons/Logo 16x16.svg",
+    "48": "icons/Logo 48x48.svg",
+    "128": "icons/Logo 128x128.svg"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/logo for use in floating button.svg"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "content_security_policy": {
     "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; frame-src 'none'"
-  },
-  "icons": {}
+  }
 }

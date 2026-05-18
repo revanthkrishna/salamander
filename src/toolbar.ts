@@ -123,11 +123,7 @@ const TOOLBAR_CSS = `
     transition: color 120ms ease;
   }
   .s-btn:hover { color: var(--accent); }
-  .s-btn:active .s-letter { transform: scale(0.92); }
-  .s-letter {
-    display: inline-block;
-    transition: transform 80ms ease;
-  }
+  .s-btn:active img { transform: scale(0.92); }
   .s-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .s-btn[hidden] { display: none !important; }
 
@@ -317,10 +313,11 @@ function buildDOM(shadow: ShadowRoot): void {
   elSButton.type = 'button';
   elSButton.className = 's-btn';
   elSButton.setAttribute('aria-label', 'Open annotator');
-  const sLetter = document.createElement('span');
-  sLetter.className = 's-letter';
-  sLetter.textContent = 'S';
-  elSButton.appendChild(sLetter);
+  const logoImg = document.createElement('img');
+  logoImg.src = chrome.runtime.getURL('icons/logo for use in floating button.svg');
+  logoImg.alt = '';
+  logoImg.setAttribute('aria-hidden', 'true');
+  elSButton.appendChild(logoImg);
 
   // ── Panel (expanded state)
   elToolbarPanel = document.createElement('div');
