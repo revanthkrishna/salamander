@@ -314,7 +314,7 @@ function buildDOM(shadow: ShadowRoot): void {
   elSButton.className = 's-btn';
   elSButton.setAttribute('aria-label', 'Open annotator');
   const logoImg = document.createElement('img');
-  logoImg.src = chrome.runtime.getURL('icons/logo for use in floating button.svg');
+  logoImg.src = chrome.runtime.getURL('icons/logo-button.svg');
   logoImg.alt = '';
   logoImg.setAttribute('aria-hidden', 'true');
   elSButton.appendChild(logoImg);

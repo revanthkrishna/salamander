@@ -11,19 +11,19 @@
   "action": {
     "default_title": "Salamander",
     "default_icon": {
-      "16": "icons/Logo 16x16.svg",
-      "48": "icons/Logo 48x48.svg",
-      "128": "icons/Logo 128x128.svg"
+      "16": "icons/logo-16x16.svg",
+      "48": "icons/logo-48x48.svg",
+      "128": "icons/logo-128x128.svg"
     }
   },
   "icons": {
-    "16": "icons/Logo 16x16.svg",
-    "48": "icons/Logo 48x48.svg",
-    "128": "icons/Logo 128x128.svg"
+    "16": "icons/logo-16x16.svg",
+    "48": "icons/logo-48x48.svg",
+    "128": "icons/logo-128x128.svg"
   },
   "web_accessible_resources": [
     {
-      "resources": ["icons/logo for use in floating button.svg"],
+      "resources": ["icons/logo-button.svg"],
       "matches": ["<all_urls>"]
     }
   ],
