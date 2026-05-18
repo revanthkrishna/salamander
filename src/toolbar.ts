@@ -312,7 +312,7 @@ function buildDOM(shadow: ShadowRoot): void {
   elSButton = document.createElement('button');
   elSButton.type = 'button';
   elSButton.className = 's-btn';
-  elSButton.setAttribute('aria-label', 'Open annotator');
+  elSButton.setAttribute('aria-label', 'open annotator');
   const logoImg = document.createElement('img');
   logoImg.src = chrome.runtime.getURL('icons/logo-button.svg');
   logoImg.alt = '';
@@ -323,7 +323,7 @@ function buildDOM(shadow: ShadowRoot): void {
   elToolbarPanel = document.createElement('div');
   elToolbarPanel.className = 'panel';
   elToolbarPanel.setAttribute('role', 'toolbar');
-  elToolbarPanel.setAttribute('aria-label', 'Annotator');
+  elToolbarPanel.setAttribute('aria-label', 'annotator');
   elToolbarPanel.hidden = true;
 
   // Filename bar
@@ -342,7 +342,7 @@ function buildDOM(shadow: ShadowRoot): void {
   elFilenameDismissBtn = document.createElement('button');
   elFilenameDismissBtn.type = 'button';
   elFilenameDismissBtn.className = 'filename-dismiss';
-  elFilenameDismissBtn.setAttribute('aria-label', 'Dismiss file');
+  elFilenameDismissBtn.setAttribute('aria-label', 'dismiss file');
   const dismissIcon = document.createElement('span');
   dismissIcon.className = 'icon';
   dismissIcon.innerHTML = ICON_DELETE;

@@ -269,7 +269,7 @@ function buildPopoverDOM(): void {
   popoverEl = document.createElement('div');
   popoverEl.className = 'popover';
   popoverEl.setAttribute('role', 'dialog');
-  popoverEl.setAttribute('aria-label', 'Annotation note');
+  popoverEl.setAttribute('aria-label', 'annotation note');
   popoverEl.hidden = true;
 
   // Textarea area
@@ -292,7 +292,7 @@ function buildPopoverDOM(): void {
   cancelBtn = document.createElement('button');
   cancelBtn.type = 'button';
   cancelBtn.className = 'footer-btn btn-cancel';
-  cancelBtn.setAttribute('aria-label', 'Cancel');
+  cancelBtn.setAttribute('aria-label', 'cancel');
   {
     const ic = document.createElement('span');
     ic.className = 'icon';
@@ -303,7 +303,7 @@ function buildPopoverDOM(): void {
   deleteBtn = document.createElement('button');
   deleteBtn.type = 'button';
   deleteBtn.className = 'footer-btn btn-delete';
-  deleteBtn.setAttribute('aria-label', 'Delete annotation');
+  deleteBtn.setAttribute('aria-label', 'delete annotation');
   deleteBtn.hidden = true;
   {
     const ic = document.createElement('span');
@@ -324,7 +324,7 @@ function buildPopoverDOM(): void {
   saveBtn = document.createElement('button');
   saveBtn.type = 'button';
   saveBtn.className = 'footer-btn btn-save';
-  saveBtn.setAttribute('aria-label', 'Save annotation');
+  saveBtn.setAttribute('aria-label', 'save annotation');
   {
     const ic = document.createElement('span');
     ic.className = 'icon';

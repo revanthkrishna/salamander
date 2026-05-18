@@ -1,15 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "Salamander",
+  "name": "salamander",
   "version": "1.0.0",
-  "description": "Annotate directly on webpage elements. Share exactly what you see.",
+  "description": "annotate directly on webpage elements. share exactly what you see.",
   "permissions": ["storage", "scripting", "tabs"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "dist/background.js"
   },
   "action": {
-    "default_title": "Salamander",
+    "default_title": "salamander",
     "default_icon": {
       "16": "icons/logo-16x16.svg",
       "48": "icons/logo-48x48.svg",
