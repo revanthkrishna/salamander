@@ -499,6 +499,13 @@ function setExpanded(expanded: boolean): void {
   if (expanded) {
     elSButton.hidden = true;
     elToolbarPanel.hidden = false;
+    // Briefly disable pointer events so the exit button doesn't appear
+    // yellow immediately after the panel opens (cursor is still over the
+    // S-button position, which is exactly where the exit button appears).
+    elToolbarPanel.style.pointerEvents = 'none';
+    setTimeout(() => {
+      if (elToolbarPanel) elToolbarPanel.style.pointerEvents = '';
+    }, 300);
   } else {
     elSButton.hidden = false;
     elToolbarPanel.hidden = true;
