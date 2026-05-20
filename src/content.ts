@@ -103,7 +103,7 @@ async function init(tabId: number): Promise<void> {
 
   await setTabActive(tabId);
 
-  const domain = normaliseDomain(location.hostname);
+  const domain = normaliseDomain(location.host);
   const pageUrl = normaliseUrl(location.href);
 
   initPinRenderer();
@@ -178,7 +178,7 @@ function handleStorageChanged(
 ): void {
   if (area !== 'local') return;
 
-  const domain = normaliseDomain(location.hostname);
+  const domain = normaliseDomain(location.host);
   const domainKey = `annotations:${domain}`;
   const writerKey = `lastWriter:${domain}`;
 
@@ -253,7 +253,7 @@ async function handleUrlChange(): Promise<void> {
   clearHoverHighlight();
   clearPins();
 
-  const domain = normaliseDomain(location.hostname);
+  const domain = normaliseDomain(location.host);
   await refreshPageAnnotations(domain, newUrl);
 }
 
@@ -276,7 +276,7 @@ function handleExit(): void {
 }
 
 async function handleExport(): Promise<void> {
-  const domain = normaliseDomain(location.hostname);
+  const domain = normaliseDomain(location.host);
   const count = await getAnnotationCount(domain);
   if (count === 0) {
     // Spec: show alert when nothing to export — do not silently no-op.
@@ -287,7 +287,7 @@ async function handleExport(): Promise<void> {
 }
 
 async function handleUploadFile(file: File): Promise<void> {
-  const domain = normaliseDomain(location.hostname);
+  const domain = normaliseDomain(location.host);
 
   await importFile(file, {
     showConfirm: (message) => showConfirmDialog(message.toLowerCase()),
@@ -306,7 +306,7 @@ async function handleUploadFile(file: File): Promise<void> {
 }
 
 async function handleDeleteAll(): Promise<void> {
-  const domain = normaliseDomain(location.hostname);
+  const domain = normaliseDomain(location.host);
   const count = await getAnnotationCount(domain);
 
   // Spec: if no annotations, do nothing (no confirm).
@@ -331,7 +331,7 @@ async function handleDeleteAll(): Promise<void> {
  * just explicitly clicked the dismiss icon on the filename bar).
  */
 async function handleDismissFile(): Promise<void> {
-  const domain = normaliseDomain(location.hostname);
+  const domain = normaliseDomain(location.host);
   const count = await getAnnotationCount(domain);
   if (count === 0) {
     setFilename(null);
@@ -351,7 +351,7 @@ async function handleNewAnnotation(params: {
   offset: { x: number; y: number };
   note: string;
 }): Promise<void> {
-  const domain = normaliseDomain(location.hostname);
+  const domain = normaliseDomain(location.host);
   const pageUrl = normaliseUrl(location.href);
 
   const pinNumber = await getNextPinNumber(domain);
@@ -379,7 +379,7 @@ async function handleNewAnnotation(params: {
 }
 
 async function handleEditAnnotation(pinNumber: number, note: string): Promise<void> {
-  const domain = normaliseDomain(location.hostname);
+  const domain = normaliseDomain(location.host);
   const pageUrl = normaliseUrl(location.href);
   await markTabAsWriter(domain);
   await updateAnnotation(domain, pageUrl, pinNumber, note);
@@ -390,7 +390,7 @@ async function handleEditAnnotation(pinNumber: number, note: string): Promise<vo
 }
 
 async function handleDeleteAnnotationByPin(pinNumber: number): Promise<void> {
-  const domain = normaliseDomain(location.hostname);
+  const domain = normaliseDomain(location.host);
   await markTabAsWriter(domain);
   await deleteAnnotation(domain, pinNumber);
   removePin(pinNumber);
@@ -417,7 +417,7 @@ function handlePinClick(annotation: Annotation): void {
 }
 
 function handleExistingPinClick(pinNumber: number): void {
-  const domain = normaliseDomain(location.hostname);
+  const domain = normaliseDomain(location.host);
   const pageUrl = normaliseUrl(location.href);
   getPageAnnotations(domain, pageUrl).then((annotations) => {
     const annotation = annotations.find((a) => a.pinNumber === pinNumber);
