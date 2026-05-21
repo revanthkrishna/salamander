@@ -235,22 +235,16 @@ function scoreCandidate(
     return -1000;
   }
 
-  // ── Context signal bonuses ────────────────────────────────────────────────
-  if (fingerprint.closestLabel !== undefined && fingerprint.closestLabel !== '') {
-    if (getClosestLabel(el) === fingerprint.closestLabel) score += 20;
-  }
-
-  if (fingerprint.pageHeading !== undefined && fingerprint.pageHeading !== '') {
-    if (getPageHeading(el) === fingerprint.pageHeading) score += 15;
-  }
-
-  if (fingerprint.sectionContext !== undefined && fingerprint.sectionContext !== '') {
-    if (getSectionContext(el) === fingerprint.sectionContext) score += 15;
-  }
-
-  if (fingerprint.siblingText !== undefined && fingerprint.siblingText !== '') {
-    if (getSiblingText(el) === fingerprint.siblingText) score += 10;
-  }
+  // ── Context signal bonuses and mismatch penalties ────────────────────────
+  // Rules:
+  //   stored non-empty + current matches  → +bonus  (confidence boost)
+  //   stored non-empty + current differs  → -penalty (wrong context)
+  //   stored empty                        → 0       (not captured; no opinion)
+  //   stored non-empty + current empty    → 0       (element not yet rendered; don't penalise)
+  score += scoreContext(fingerprint.closestLabel,  getClosestLabel(el),  20, 15);
+  score += scoreContext(fingerprint.pageHeading,   getPageHeading(el),   15, 25);
+  score += scoreContext(fingerprint.sectionContext, getSectionContext(el), 15, 25);
+  score += scoreContext(fingerprint.siblingText,   getSiblingText(el),   10, 10);
 
   if (fingerprint.domIndex !== undefined) {
     const textSnippet = el.textContent?.trim().slice(0, 50) ?? '';
@@ -258,6 +252,22 @@ function scoreCandidate(
   }
 
   return score;
+}
+
+/**
+ * Score a single context signal: +bonus on match, -penalty on clear mismatch.
+ * No opinion when either side is empty.
+ */
+function scoreContext(
+  stored: string | undefined,
+  current: string,
+  bonus: number,
+  penalty: number
+): number {
+  if (!stored) return 0;          // signal not stored → no opinion
+  if (current === stored) return bonus;   // match → confidence boost
+  if (current !== '') return -penalty;    // both non-empty and different → wrong context
+  return 0;                       // stored non-empty, current empty → defer
 }
 
 /**
@@ -344,41 +354,31 @@ function getClosestLabel(el: Element): string {
 }
 
 /**
- * Return the text of the nearest visible heading (h1/h2/h3/role="heading")
- * that is an ancestor of, or precedes in DOM order, the element.
+ * Return the text of the nearest heading (h1–h4 or role="heading") that
+ * precedes the element in document order.
  *
- * Walk-up strategy:
- *   1. Check ancestors for a heading element (stop at <body>).
- *   2. For each ancestor level, also scan preceding siblings for a heading.
+ * Walks ALL headings on the page and returns the last one that comes before
+ * the element. This handles wizard/tab patterns where the step heading and
+ * the annotated element are in sibling containers rather than ancestor/
+ * descendant containers (the old ancestor-walk approach missed those).
+ *
  * Returns trimmed text (max 80 chars) or '' if none found.
  */
 function getPageHeading(el: Element): string {
-  const HEADING_TAGS = new Set(['H1', 'H2', 'H3']);
+  const headings = Array.from(
+    document.querySelectorAll('h1, h2, h3, h4, [role="heading"]')
+  );
 
-  function isHeading(node: Element): boolean {
-    return HEADING_TAGS.has(node.tagName) || node.getAttribute('role') === 'heading';
-  }
-
-  // Walk up the ancestor chain
-  let node: Element | null = el.parentElement;
-  while (node && node !== document.body) {
-    // The ancestor itself might be a heading
-    if (isHeading(node)) {
-      const text = node.textContent?.trim() ?? '';
+  // Iterate in reverse document order — first heading we find that precedes el
+  // is the nearest one.
+  for (let i = headings.length - 1; i >= 0; i--) {
+    const h = headings[i];
+    if (h === el || h.contains(el)) continue;
+    // DOCUMENT_POSITION_FOLLOWING means el comes after h → h precedes el
+    if (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) {
+      const text = h.textContent?.trim() ?? '';
       if (text) return text.slice(0, 80);
     }
-
-    // Scan preceding siblings of this ancestor for a heading
-    let sibling = node.previousElementSibling;
-    while (sibling) {
-      if (isHeading(sibling)) {
-        const text = sibling.textContent?.trim() ?? '';
-        if (text) return text.slice(0, 80);
-      }
-      sibling = sibling.previousElementSibling;
-    }
-
-    node = node.parentElement;
   }
 
   return '';
