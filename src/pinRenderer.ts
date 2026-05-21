@@ -8,6 +8,7 @@ const activePins = new Map<number, {
   annotation: Annotation;
   offset: { x: number; y: number };
   isFixed: boolean;
+  onPinClick: (a: Annotation) => void;
 }>();
 
 // Annotations whose target elements weren't in the DOM at render time.
@@ -50,11 +51,24 @@ function isElementVisible(el: Element): boolean {
 }
 
 function checkPinVisibility(): void {
-  for (const [, pinData] of activePins) {
-    const { pinEl, targetElement } = pinData;
-    if (isElementVisible(targetElement)) {
+  for (const [pinNumber, pinData] of activePins) {
+    const { pinEl, targetElement, annotation, onPinClick } = pinData;
+
+    if (!targetElement.isConnected) {
+      // Target was detached from the DOM (e.g. React re-rendered the wizard
+      // step). Remove the pin and re-queue so the retry observer can
+      // re-resolve it to the fresh element when it re-appears.
+      pinEl.remove();
+      activePins.delete(pinNumber);
+      if (!pendingResolutions.has(pinNumber)) {
+        pendingResolutions.set(pinNumber, { annotation, onPinClick });
+      }
+      startRetry();
+    } else if (isElementVisible(targetElement)) {
       pinEl.style.display = '';
     } else {
+      // Element is in the DOM but CSS-hidden (e.g. parent has display:none).
+      // Just hide the pin; it will un-hide when the parent becomes visible.
       pinEl.style.display = 'none';
     }
   }
@@ -220,6 +234,7 @@ function tryRenderOne(
     annotation,
     offset: annotation.offset,
     isFixed: fixed,
+    onPinClick,
   };
   activePins.set(annotation.pinNumber, pinData);
   everResolvedPins.add(annotation.pinNumber);
@@ -447,6 +462,7 @@ export function addPin(
     annotation,
     offset: annotation.offset,
     isFixed: fixed,
+    onPinClick,
   };
 
   activePins.set(annotation.pinNumber, pinData);
