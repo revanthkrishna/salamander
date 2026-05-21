@@ -29,8 +29,6 @@ import {
   addPin,
   removePin,
   refreshPins,
-  setStatsListener,
-  type PinRenderStats,
 } from './pinRenderer';
 import {
   initToolbar,
@@ -38,7 +36,6 @@ import {
   showError,
   showWarning,
   updateButtonStates,
-  showResolutionAlert,
   showConfirmDialog,
   destroyToolbar,
   setAnnotationCount,
@@ -108,10 +105,6 @@ async function init(tabId: number): Promise<void> {
 
   initPinRenderer();
 
-  // Keep the toolbar resolution alert in sync as the MutationObserver retry
-  // queue inside pinRenderer resolves async-mounted elements.
-  setStatsListener(handlePinStats);
-
   initToolbar({
     onSButtonClick: handleSButtonClick,
     onExit: handleExit,
@@ -140,10 +133,6 @@ async function init(tabId: number): Promise<void> {
   window.addEventListener('beforeunload', handleBeforeUnload);
 }
 
-function handlePinStats(stats: PinRenderStats): void {
-  showResolutionAlert(stats.unresolved, stats.total);
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // refreshPageAnnotations
 // ─────────────────────────────────────────────────────────────────────────────
@@ -153,8 +142,6 @@ async function refreshPageAnnotations(domain: string, pageUrl: string): Promise<
   const annotations = domainData?.pages[pageUrl] ?? [];
   const totalForDomain = await getAnnotationCount(domain);
 
-  // renderPins fires the statsListener (handlePinStats) synchronously via
-  // emitStats(), which calls showResolutionAlert. No need to call it again here.
   renderPins(annotations, handlePinClick);
 
   updateButtonStates(totalForDomain > 0, isAnnotationModeActive());
@@ -206,7 +193,6 @@ function handleStorageChanged(
     setFilename(null);
     updateButtonStates(false, isAnnotationModeActive());
     setAnnotationCount(0);
-    showResolutionAlert(0, 0);
     return;
   }
 
@@ -214,13 +200,12 @@ function handleStorageChanged(
   const annotations = newData.pages[pageUrl] ?? [];
   const totalCount = Object.values(newData.pages).flat().length;
 
-  const stats = refreshPins(annotations, handlePinClick);
+  refreshPins(annotations, handlePinClick);
   updateButtonStates(totalCount > 0, isAnnotationModeActive());
 
   setFilename(newData.meta.importedFilename);
 
   setAnnotationCount(totalCount);
-  showResolutionAlert(stats.unresolved, stats.total);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -327,7 +312,6 @@ async function handleDeleteAll(): Promise<void> {
   clearPins();
   setFilename(null);
   updateButtonStates(false, isAnnotationModeActive());
-  showResolutionAlert(0, 0);
 }
 
 /**
@@ -347,7 +331,6 @@ async function handleDismissFile(): Promise<void> {
   clearPins();
   setFilename(null);
   updateButtonStates(false, isAnnotationModeActive());
-  showResolutionAlert(0, 0);
 }
 
 async function handleNewAnnotation(params: {

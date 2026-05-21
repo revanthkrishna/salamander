@@ -12,30 +12,15 @@ const activePins = new Map<number, {
 }>();
 
 // Annotations whose target elements weren't in the DOM at render time.
-// Held in a MutationObserver-driven retry queue.
 type Pending = { annotation: Annotation; onPinClick: (a: Annotation) => void };
 const pendingResolutions = new Map<number, Pending>();
-let retryObserver: MutationObserver | null = null;
-let retryCutoffTimer: ReturnType<typeof setTimeout> | null = null;
-let visibilityObserver: MutationObserver | null = null;
-let lastRenderTotal = 0;
-let statsListener: ((stats: PinRenderStats) => void) | null = null;
-
-// Tracks pin numbers that have been successfully placed at least once in this
-// page session. Used to distinguish "contextually hidden" pins (temporarily
-// absent from the DOM, e.g. a previous wizard step) from truly unresolvable
-// ones. Reset on full clearPins() (page navigation).
-const everResolvedPins = new Set<number>();
-
-const RETRY_CUTOFF_MS = 5000;
 
 let stylesInjected = false;
 
-export interface PinRenderStats {
-  resolved: number;
-  unresolved: number;
-  total: number;
-}
+// RAF retry loop — active only while annotation mode is on (showPins).
+let rafId: number | null = null;
+let lastRetryTime = 0;
+const RETRY_INTERVAL_MS = 100;
 
 // -------------------------------------------------------------------
 // Helpers
@@ -48,51 +33,6 @@ function isElementVisible(el: Element): boolean {
   if (style.display === 'none') return false;
   if (style.visibility === 'hidden') return false;
   return true;
-}
-
-function checkPinVisibility(): void {
-  for (const [pinNumber, pinData] of activePins) {
-    const { pinEl, targetElement, annotation, onPinClick } = pinData;
-
-    if (!targetElement.isConnected) {
-      // Target was detached from the DOM (e.g. React re-rendered the wizard
-      // step). Remove the pin and re-queue so the retry observer can
-      // re-resolve it to the fresh element when it re-appears.
-      pinEl.remove();
-      activePins.delete(pinNumber);
-      if (!pendingResolutions.has(pinNumber)) {
-        pendingResolutions.set(pinNumber, { annotation, onPinClick });
-      }
-      startRetry();
-    } else if (isElementVisible(targetElement)) {
-      pinEl.style.display = '';
-    } else {
-      // Element is in the DOM but CSS-hidden (e.g. parent has display:none).
-      // Just hide the pin; it will un-hide when the parent becomes visible.
-      pinEl.style.display = 'none';
-    }
-  }
-}
-
-function startVisibilityObserver(): void {
-  if (visibilityObserver) return;
-  const throttledCheck = throttle(checkPinVisibility, 100);
-  visibilityObserver = new MutationObserver(() => {
-    throttledCheck();
-  });
-  visibilityObserver.observe(document.body, {
-    attributes: true,
-    attributeFilter: ['class', 'style', 'hidden'],
-    childList: true,
-    subtree: true,
-  });
-}
-
-function stopVisibilityObserver(): void {
-  if (visibilityObserver) {
-    visibilityObserver.disconnect();
-    visibilityObserver = null;
-  }
 }
 
 function isFixedPosition(el: Element): boolean {
@@ -220,7 +160,6 @@ function tryRenderOne(
   annotation: Annotation,
   onPinClick: (annotation: Annotation) => void
 ): boolean {
-  // Skip if already rendered (defensive — caller filters too)
   if (activePins.has(annotation.pinNumber)) return true;
 
   const targetElement = resolveElement(annotation.fingerprint);
@@ -237,68 +176,67 @@ function tryRenderOne(
     onPinClick,
   };
   activePins.set(annotation.pinNumber, pinData);
-  everResolvedPins.add(annotation.pinNumber);
   document.body.appendChild(pinEl);
   updatePinPosition(annotation.pinNumber, pinData);
   return true;
 }
 
-function startRetry(): void {
-  // Already running — nothing to do
-  if (retryObserver) return;
+// -------------------------------------------------------------------
+// RAF retry loop — re-resolves pending pins and re-queues disconnected
+// ones on every browser paint (throttled to RETRY_INTERVAL_MS).
+// Runs only while annotation mode is active.
+// -------------------------------------------------------------------
+
+function retryPendingAndRequeue(): void {
+  // Re-queue pins whose target element was detached (e.g. React wizard step transition).
+  for (const [pinNumber, pinData] of Array.from(activePins)) {
+    if (!pinData.targetElement.isConnected) {
+      pinData.pinEl.remove();
+      activePins.delete(pinNumber);
+      if (!pendingResolutions.has(pinNumber)) {
+        pendingResolutions.set(pinNumber, { annotation: pinData.annotation, onPinClick: pinData.onPinClick });
+      }
+    } else if (isElementVisible(pinData.targetElement)) {
+      // Un-hide pins whose parent became visible again
+      if (pinData.pinEl.style.display === 'none') pinData.pinEl.style.display = '';
+    } else {
+      // CSS-hidden parent: suppress pin without removing it from activePins
+      pinData.pinEl.style.display = 'none';
+    }
+  }
+
   if (pendingResolutions.size === 0) return;
 
-  retryObserver = new MutationObserver(() => {
-    if (pendingResolutions.size === 0) {
-      stopRetry();
-      return;
+  for (const [pinNumber, { annotation, onPinClick }] of Array.from(pendingResolutions)) {
+    if (activePins.has(pinNumber)) {
+      pendingResolutions.delete(pinNumber);
+      continue;
     }
-    for (const [pinNumber, { annotation, onPinClick }] of Array.from(pendingResolutions)) {
-      if (activePins.has(pinNumber)) {
-        pendingResolutions.delete(pinNumber);
-        continue;
-      }
-      if (tryRenderOne(annotation, onPinClick)) {
-        pendingResolutions.delete(pinNumber);
-      }
+    if (tryRenderOne(annotation, onPinClick)) {
+      pendingResolutions.delete(pinNumber);
     }
-
-    emitStats();
-
-    if (pendingResolutions.size === 0) stopRetry();
-  });
-
-  retryObserver.observe(document.body, { childList: true, subtree: true });
-
-  retryCutoffTimer = setTimeout(() => {
-    // Hard cutoff: stop retrying and finalize stats.
-    stopRetry();
-    emitStats();
-  }, RETRY_CUTOFF_MS);
-}
-
-function stopRetry(): void {
-  if (retryObserver) {
-    retryObserver.disconnect();
-    retryObserver = null;
-  }
-  if (retryCutoffTimer !== null) {
-    clearTimeout(retryCutoffTimer);
-    retryCutoffTimer = null;
   }
 }
 
-function emitStats(): void {
-  if (!statsListener) return;
-  // Exclude pins that are only temporarily absent (contextually hidden):
-  // they resolved at least once this session so they are not truly broken.
-  let contextuallyHidden = 0;
-  for (const [pinNumber] of pendingResolutions) {
-    if (everResolvedPins.has(pinNumber)) contextuallyHidden++;
+function rafRetryLoop(timestamp: number): void {
+  if (timestamp - lastRetryTime >= RETRY_INTERVAL_MS) {
+    lastRetryTime = timestamp;
+    retryPendingAndRequeue();
   }
-  const unresolved = pendingResolutions.size - contextuallyHidden;
-  const resolved = Math.max(0, lastRenderTotal - pendingResolutions.size);
-  statsListener({ resolved, unresolved, total: lastRenderTotal });
+  rafId = requestAnimationFrame(rafRetryLoop);
+}
+
+function startRAFLoop(): void {
+  if (rafId !== null) return;
+  lastRetryTime = 0;
+  rafId = requestAnimationFrame(rafRetryLoop);
+}
+
+function stopRAFLoop(): void {
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId);
+    rafId = null;
+  }
 }
 
 // -------------------------------------------------------------------
@@ -326,31 +264,19 @@ export function initPinRenderer(): void {
   injectStyles();
   window.addEventListener('scroll', repositionOnScroll, { passive: true });
   window.addEventListener('resize', repositionAll, { passive: true });
-  startVisibilityObserver();
-}
-
-/**
- * Register a listener that is fired whenever resolution stats change (initial
- * render and each MutationObserver retry tick). Useful to keep a toolbar
- * "X couldn't be placed" alert in sync with async re-resolves.
- */
-export function setStatsListener(cb: ((stats: PinRenderStats) => void) | null): void {
-  statsListener = cb;
 }
 
 /**
  * Render all pins from scratch.
  *
- * Annotations that can't be resolved right now are queued and retried via a
- * MutationObserver until either they all resolve or a 5-second cutoff fires.
- * Returns the *initial* stats (synchronous). Use {@link setStatsListener} to
- * receive subsequent updates as retries land.
+ * Annotations that can't be resolved right now are queued and retried via the
+ * RAF loop whenever annotation mode is active.
  */
 export function renderPins(
   annotations: Annotation[],
   onPinClick: (annotation: Annotation) => void
-): PinRenderStats {
-  stopRetry();
+): void {
+  stopRAFLoop();
   pendingResolutions.clear();
   clearPinElementsOnly();
 
@@ -370,13 +296,10 @@ export function renderPins(
     }
   }
 
-  // Build the deduplicated list: winners from resolved + all unresolvable.
   const deduped: Annotation[] = [
     ...Array.from(elementToAnnotation.values()),
     ...unresolvable,
   ];
-
-  lastRenderTotal = deduped.length;
 
   for (const annotation of deduped) {
     if (!tryRenderOne(annotation, onPinClick)) {
@@ -384,28 +307,15 @@ export function renderPins(
     }
   }
 
-  const initialStats: PinRenderStats = {
-    resolved: deduped.length - pendingResolutions.size,
-    unresolved: pendingResolutions.size,
-    total: deduped.length,
-  };
-
-  if (pendingResolutions.size > 0) {
-    startRetry();
+  // Restart loop if annotation mode is active (e.g. SPA navigation while annotating).
+  if (document.body.classList.contains('annotator-active')) {
+    startRAFLoop();
   }
-
-  // Ensure visibility observer is running for the newly rendered pins.
-  startVisibilityObserver();
-
-  // Always emit so listeners see the initial state too.
-  emitStats();
-
-  return initialStats;
 }
 
 /**
  * Remove pin DOM elements only — leaves the pending-retry queue intact.
- * Use {@link clearPins} for a full reset (including stopping retries).
+ * Use {@link clearPins} for a full reset.
  */
 function clearPinElementsOnly(): void {
   for (const [, { pinEl }] of activePins) {
@@ -415,34 +325,27 @@ function clearPinElementsOnly(): void {
 }
 
 export function clearPins(): void {
-  stopRetry();
-  stopVisibilityObserver();
+  stopRAFLoop();
   pendingResolutions.clear();
   clearPinElementsOnly();
-  lastRenderTotal = 0;
-  everResolvedPins.clear();
 }
 
 /**
  * Show pins and enable interactivity (annotation mode active).
- *
- * Adds `body.annotator-active` which switches `.annotator-pin` from
- * `display:none` to `display:flex` (via the cascade) and enables
- * pointer-events. Pins remain in the DOM regardless of this state.
+ * Starts the RAF retry loop so pending pins are resolved as the DOM changes.
  */
 export function showPins(): void {
   document.body.classList.add('annotator-active');
+  startRAFLoop();
 }
 
 /**
  * Hide pins and disable interactivity (annotation mode off).
- *
- * Removes `body.annotator-active`; pins become `display:none` and stop
- * receiving pointer events. Pins stay in the DOM — call {@link clearPins}
- * to remove them entirely.
+ * Stops the RAF retry loop.
  */
 export function hidePins(): void {
   document.body.classList.remove('annotator-active');
+  stopRAFLoop();
 }
 
 export function addPin(
@@ -507,6 +410,6 @@ export function getPinAnnotation(pinEl: Element): Annotation | null {
 export function refreshPins(
   annotations: Annotation[],
   onPinClick: (annotation: Annotation) => void
-): PinRenderStats {
-  return renderPins(annotations, onPinClick);
+): void {
+  renderPins(annotations, onPinClick);
 }
