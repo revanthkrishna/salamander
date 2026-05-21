@@ -18,20 +18,26 @@ type FingerprintWithRect = Fingerprint & { rect?: FingerprintRect };
  * Capture a fingerprint for the given element.
  * Called synchronously when user clicks an element in annotation mode.
  *
- * The fingerprint combines four signals so that the element can be re-located
- * later (same page reload, SPA navigation, or cross-machine import):
- *   1. A body-anchored, per-segment-unique CSS selector
- *   2. An absolute, always-indexed XPath
- *   3. A trimmed text snippet (with uniqueness gate at resolve time)
- *   4. The element's bounding rect (document coords) for a sanity check
+ * The fingerprint combines structural signals (CSS selector, XPath, text,
+ * tagName) with semantic context signals (closestLabel, pageHeading,
+ * sectionContext, siblingText, domIndex) so that structurally-identical
+ * elements appearing in different wizard steps / modal dialogs / data rows
+ * can be distinguished at resolution time.
  */
 export function captureFingerprint(element: Element): Fingerprint {
   const rect = element.getBoundingClientRect();
+  const textSnippet = element.textContent?.trim().slice(0, 50) ?? '';
   const fp: FingerprintWithRect = {
     cssSelector: buildCSSSelector(element),
     xpath: buildXPath(element),
-    textSnippet: element.textContent?.trim().slice(0, 50) ?? '',
+    textSnippet,
     tagName: element.tagName.toLowerCase(),
+    // Semantic context signals
+    closestLabel: getClosestLabel(element),
+    pageHeading: getPageHeading(element),
+    sectionContext: getSectionContext(element),
+    siblingText: getSiblingText(element),
+    domIndex: getDomIndex(element, textSnippet),
     rect: {
       left: rect.left + window.scrollX,
       top: rect.top + window.scrollY,
@@ -46,65 +52,212 @@ export function captureFingerprint(element: Element): Fingerprint {
  * Attempt to locate an element from its fingerprint.
  * Returns null if the element cannot be found.
  *
- * Resolution order: CSS selector → XPath → unique-text match → null.
- * Every candidate must pass a rect sanity check (if rect was captured).
+ * Resolution strategy: collect all candidates from CSS selector, XPath, and
+ * text+tagName matching, then score each candidate against the stored context
+ * signals. Return the highest-scoring visible candidate above the minimum
+ * threshold, or null if none qualifies.
  */
 export function resolveElement(fingerprintInput: Fingerprint): Element | null {
   const fingerprint = fingerprintInput as FingerprintWithRect;
-  // 1. CSS Selector — must be unique AND pass rect sanity check
+
+  // ── Collect candidates ────────────────────────────────────────────────────
+  // Use a Set to avoid scoring the same element twice when multiple strategies
+  // find the same node.
+  const candidateSet = new Set<Element>();
+
+  // Strategy 1: CSS selector
   try {
     if (fingerprint.cssSelector) {
       const els = document.querySelectorAll(fingerprint.cssSelector);
-      if (els.length === 1) {
-        const el = els[0];
-        if (passesRectSanityCheck(el, fingerprint)) return el;
-      }
+      for (const el of Array.from(els)) candidateSet.add(el);
     }
   } catch {
-    // Invalid selector — fall through
+    // Invalid selector — skip
   }
 
-  // 2. XPath — must pass rect sanity check
+  // Strategy 2: XPath
   try {
     if (fingerprint.xpath) {
       const result = document.evaluate(
         fingerprint.xpath,
         document,
         null,
-        XPathResult.FIRST_ORDERED_NODE_TYPE,
+        XPathResult.ORDERED_NODE_ITERATOR_TYPE,
         null
       );
-      const el = result.singleNodeValue as Element | null;
-      if (el !== null && passesRectSanityCheck(el, fingerprint)) {
-        return el;
+      let node = result.iterateNext() as Element | null;
+      while (node) {
+        candidateSet.add(node);
+        node = result.iterateNext() as Element | null;
       }
     }
   } catch {
-    // Invalid XPath — fall through
+    // Invalid XPath — skip
   }
 
-  // 3. Text content match — must be UNIQUELY matched AND pass rect check
+  // Strategy 3: tagName + text content match
   if (fingerprint.textSnippet && fingerprint.textSnippet.length > 0) {
     try {
-      const candidates = document.querySelectorAll(fingerprint.tagName);
-      const matches: Element[] = [];
-      for (const el of Array.from(candidates)) {
+      const els = document.querySelectorAll(fingerprint.tagName);
+      for (const el of Array.from(els)) {
         const snippet = el.textContent?.trim().slice(0, 50) ?? '';
-        if (snippet === fingerprint.textSnippet) {
-          matches.push(el);
-          if (matches.length > 1) break; // short-circuit: not unique
-        }
-      }
-      if (matches.length === 1 && passesRectSanityCheck(matches[0], fingerprint)) {
-        return matches[0];
+        if (snippet === fingerprint.textSnippet) candidateSet.add(el);
       }
     } catch {
       // fall through
     }
   }
 
-  // 4. All strategies failed
+  if (candidateSet.size === 0) return null;
+
+  // ── Score each candidate ──────────────────────────────────────────────────
+  const cssSelectorUnique = (() => {
+    try {
+      return fingerprint.cssSelector
+        ? document.querySelectorAll(fingerprint.cssSelector).length === 1
+        : false;
+    } catch {
+      return false;
+    }
+  })();
+
+  let bestEl: Element | null = null;
+  let bestScore = -Infinity;
+
+  for (const el of candidateSet) {
+    const score = scoreCandidate(el, fingerprint, cssSelectorUnique);
+    if (score > bestScore) {
+      bestScore = score;
+      bestEl = el;
+    }
+  }
+
+  const MINIMUM_SCORE = 40;
+  if (bestEl !== null && bestScore >= MINIMUM_SCORE) {
+    return bestEl;
+  }
   return null;
+}
+
+/**
+ * Score a single candidate element against the stored fingerprint.
+ *
+ * Base points from structural match type:
+ *   CSS selector exact match (unique):  60 pts
+ *   XPath match:                        50 pts
+ *   text+tag match (unique):            40 pts  (when only 1 tag+text match)
+ *   text+tag match (non-unique):        20 pts
+ *
+ * Context bonus (added regardless of structural match type):
+ *   closestLabel match:    +20
+ *   pageHeading match:     +15
+ *   sectionContext match:  +15
+ *   siblingText match:     +10
+ *   domIndex match:        +10
+ *
+ * Visibility penalty: -1000 (effectively disqualifies non-visible elements)
+ */
+function scoreCandidate(
+  el: Element,
+  fingerprint: FingerprintWithRect,
+  cssSelectorUnique: boolean
+): number {
+  // Visibility gate
+  if (!isVisible(el)) return -1000;
+
+  let score = 0;
+
+  // ── Structural base score ─────────────────────────────────────────────────
+  let matchedViaCSS = false;
+  let matchedViaXPath = false;
+  let matchedViaText = false;
+
+  // CSS selector match?
+  if (fingerprint.cssSelector) {
+    try {
+      const matches = document.querySelectorAll(fingerprint.cssSelector);
+      if (Array.from(matches).includes(el)) {
+        matchedViaCSS = true;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // XPath match?
+  if (fingerprint.xpath) {
+    try {
+      const result = document.evaluate(
+        fingerprint.xpath,
+        document,
+        null,
+        XPathResult.ORDERED_NODE_ITERATOR_TYPE,
+        null
+      );
+      let node = result.iterateNext() as Element | null;
+      while (node) {
+        if (node === el) { matchedViaXPath = true; break; }
+        node = result.iterateNext() as Element | null;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // Text+tag match?
+  if (fingerprint.textSnippet && fingerprint.textSnippet.length > 0) {
+    const snippet = el.textContent?.trim().slice(0, 50) ?? '';
+    if (
+      snippet === fingerprint.textSnippet &&
+      el.tagName.toLowerCase() === fingerprint.tagName
+    ) {
+      matchedViaText = true;
+    }
+  }
+
+  // Assign base score from best structural match
+  if (matchedViaCSS && cssSelectorUnique) {
+    score += 60;
+  } else if (matchedViaXPath) {
+    score += 50;
+  } else if (matchedViaText) {
+    // Is this the only text+tag match in the document?
+    const allTextMatches = Array.from(document.querySelectorAll(fingerprint.tagName)).filter(
+      (e) => (e.textContent?.trim().slice(0, 50) ?? '') === fingerprint.textSnippet
+    );
+    score += allTextMatches.length === 1 ? 40 : 20;
+  } else if (matchedViaCSS) {
+    // Non-unique CSS selector match
+    score += 30;
+  } else {
+    // Not matched by any strategy — shouldn't happen since we only score
+    // candidates collected above, but handle gracefully.
+    return -1000;
+  }
+
+  // ── Context signal bonuses ────────────────────────────────────────────────
+  if (fingerprint.closestLabel !== undefined && fingerprint.closestLabel !== '') {
+    if (getClosestLabel(el) === fingerprint.closestLabel) score += 20;
+  }
+
+  if (fingerprint.pageHeading !== undefined && fingerprint.pageHeading !== '') {
+    if (getPageHeading(el) === fingerprint.pageHeading) score += 15;
+  }
+
+  if (fingerprint.sectionContext !== undefined && fingerprint.sectionContext !== '') {
+    if (getSectionContext(el) === fingerprint.sectionContext) score += 15;
+  }
+
+  if (fingerprint.siblingText !== undefined && fingerprint.siblingText !== '') {
+    if (getSiblingText(el) === fingerprint.siblingText) score += 10;
+  }
+
+  if (fingerprint.domIndex !== undefined) {
+    const textSnippet = el.textContent?.trim().slice(0, 50) ?? '';
+    if (getDomIndex(el, textSnippet) === fingerprint.domIndex) score += 10;
+  }
+
+  return score;
 }
 
 /**
@@ -129,7 +282,205 @@ export function resolvePageAnnotations(
   return { resolved, unresolvedCount };
 }
 
-// ─── Internal helpers ────────────────────────────────────────────────────────
+// ─── Context signal helpers ──────────────────────────────────────────────────
+
+/**
+ * Return the semantic label text closest to the element:
+ *   1. element's own aria-label
+ *   2. aria-labelledby → referenced element's textContent
+ *   3. aria-describedby → referenced element's textContent
+ *   4. Walk up ancestors to find nearest <label> or role="label"
+ *   5. Input's associated <label> via matching `for` attribute
+ * Returns trimmed text (max 80 chars) or '' if none found.
+ */
+function getClosestLabel(el: Element): string {
+  // 1. Own aria-label
+  const ariaLabel = el.getAttribute('aria-label');
+  if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim().slice(0, 80);
+
+  // 2. aria-labelledby
+  const labelledBy = el.getAttribute('aria-labelledby');
+  if (labelledBy) {
+    const text = labelledBy
+      .split(/\s+/)
+      .map((id) => document.getElementById(id)?.textContent?.trim() ?? '')
+      .filter(Boolean)
+      .join(' ');
+    if (text) return text.slice(0, 80);
+  }
+
+  // 3. aria-describedby
+  const describedBy = el.getAttribute('aria-describedby');
+  if (describedBy) {
+    const text = describedBy
+      .split(/\s+/)
+      .map((id) => document.getElementById(id)?.textContent?.trim() ?? '')
+      .filter(Boolean)
+      .join(' ');
+    if (text) return text.slice(0, 80);
+  }
+
+  // 4. Walk up to find nearest <label> ancestor or role="label"
+  let node: Element | null = el.parentElement;
+  while (node && node !== document.body) {
+    if (node.tagName === 'LABEL' || node.getAttribute('role') === 'label') {
+      const text = node.textContent?.trim() ?? '';
+      if (text) return text.slice(0, 80);
+    }
+    node = node.parentElement;
+  }
+
+  // 5. Input associated via <label for="id">
+  const elId = el.id;
+  if (elId) {
+    const label = document.querySelector(`label[for="${CSS.escape(elId)}"]`);
+    if (label) {
+      const text = label.textContent?.trim() ?? '';
+      if (text) return text.slice(0, 80);
+    }
+  }
+
+  return '';
+}
+
+/**
+ * Return the text of the nearest visible heading (h1/h2/h3/role="heading")
+ * that is an ancestor of, or precedes in DOM order, the element.
+ *
+ * Walk-up strategy:
+ *   1. Check ancestors for a heading element (stop at <body>).
+ *   2. For each ancestor level, also scan preceding siblings for a heading.
+ * Returns trimmed text (max 80 chars) or '' if none found.
+ */
+function getPageHeading(el: Element): string {
+  const HEADING_TAGS = new Set(['H1', 'H2', 'H3']);
+
+  function isHeading(node: Element): boolean {
+    return HEADING_TAGS.has(node.tagName) || node.getAttribute('role') === 'heading';
+  }
+
+  // Walk up the ancestor chain
+  let node: Element | null = el.parentElement;
+  while (node && node !== document.body) {
+    // The ancestor itself might be a heading
+    if (isHeading(node)) {
+      const text = node.textContent?.trim() ?? '';
+      if (text) return text.slice(0, 80);
+    }
+
+    // Scan preceding siblings of this ancestor for a heading
+    let sibling = node.previousElementSibling;
+    while (sibling) {
+      if (isHeading(sibling)) {
+        const text = sibling.textContent?.trim() ?? '';
+        if (text) return text.slice(0, 80);
+      }
+      sibling = sibling.previousElementSibling;
+    }
+
+    node = node.parentElement;
+  }
+
+  return '';
+}
+
+/**
+ * Return the "container identity" of the nearest ancestor that has:
+ *   - data-step, data-page, data-section, or data-id attribute
+ *   - role="region", "dialog", "form", "tabpanel", or "tab"
+ *   - aria-label on a section/div/form ancestor
+ *
+ * Preference order: data-step > data-page > data-section > aria-label on
+ * sectioning element > role attribute text.
+ * Returns trimmed text (max 80 chars) or '' if none found.
+ */
+function getSectionContext(el: Element): string {
+  const DATA_ATTRS = ['data-step', 'data-page', 'data-section', 'data-id'];
+  const SECTION_ROLES = new Set(['region', 'dialog', 'form', 'tabpanel', 'tab']);
+  const SECTION_TAGS = new Set(['SECTION', 'ARTICLE', 'ASIDE', 'FORM', 'DIALOG', 'MAIN', 'NAV', 'HEADER', 'FOOTER', 'DIV']);
+
+  let node: Element | null = el.parentElement;
+  while (node && node !== document.body) {
+    // Prefer explicit data-* step/page/section attributes
+    for (const attr of DATA_ATTRS) {
+      const val = node.getAttribute(attr);
+      if (val && val.trim()) return val.trim().slice(0, 80);
+    }
+
+    // aria-label on a sectioning element
+    const ariaLabel = node.getAttribute('aria-label');
+    if (ariaLabel && ariaLabel.trim() && SECTION_TAGS.has(node.tagName)) {
+      return ariaLabel.trim().slice(0, 80);
+    }
+
+    // role attribute on a sectioning role
+    const role = node.getAttribute('role');
+    if (role && SECTION_ROLES.has(role)) {
+      // Prefer the element's aria-label or its text if short enough
+      const label = node.getAttribute('aria-label');
+      if (label && label.trim()) return label.trim().slice(0, 80);
+      return role.slice(0, 80);
+    }
+
+    node = node.parentElement;
+  }
+
+  return '';
+}
+
+/**
+ * Return the concatenated trimmed text of the element's direct prev/next
+ * siblings, separated by ' | ', capped at 60 chars total.
+ * Returns '' if neither sibling has non-empty text.
+ */
+function getSiblingText(el: Element): string {
+  const parts: string[] = [];
+
+  const prev = el.previousElementSibling;
+  if (prev) {
+    const t = prev.textContent?.trim() ?? '';
+    if (t) parts.push(t);
+  }
+
+  const next = el.nextElementSibling;
+  if (next) {
+    const t = next.textContent?.trim() ?? '';
+    if (t) parts.push(t);
+  }
+
+  const result = parts.join(' | ');
+  return result.slice(0, 60);
+}
+
+/**
+ * Return the 0-based index of the element among all elements in the document
+ * that share the same tagName and whose textContent snippet starts with (or
+ * equals) `textSnippet`. Returns 0 when the element is the only match or
+ * textSnippet is empty.
+ */
+function getDomIndex(el: Element, textSnippet: string): number {
+  if (!textSnippet) return 0;
+  const matches = Array.from(document.querySelectorAll(el.tagName)).filter(
+    (e) => (e.textContent?.trim().slice(0, 50) ?? '') === textSnippet
+  );
+  const idx = matches.indexOf(el);
+  return idx < 0 ? 0 : idx;
+}
+
+/**
+ * Returns true when the element is currently visible in the page.
+ * Checks offsetWidth/Height, computed display/visibility/opacity.
+ * Non-HTMLElement nodes (SVG etc.) are assumed visible.
+ */
+function isVisible(el: Element): boolean {
+  if (!(el instanceof HTMLElement)) return true;
+  if (el.offsetWidth === 0 && el.offsetHeight === 0) return false;
+  const style = window.getComputedStyle(el);
+  if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+  return true;
+}
+
+// ─── Structural fingerprint helpers ─────────────────────────────────────────
 
 /**
  * Build a stable CSS selector for the element.
@@ -367,6 +718,10 @@ function buildXPath(element: Element): string {
  *
  * Tolerance: width and height each within 50% (i.e. between 0.5× and 2× of
  * the saved values). Skipped when no rect was captured (legacy/imported data).
+ *
+ * NOTE: This function is retained for any future direct use but is no longer
+ * called from resolveElement; visibility is now handled by isVisible() and
+ * the scoring system handles context-mismatch cases.
  */
 function passesRectSanityCheck(el: Element, fingerprint: FingerprintWithRect): boolean {
   if (!fingerprint.rect) return true; // legacy / imported — nothing to check

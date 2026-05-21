@@ -5,6 +5,13 @@ export interface Fingerprint {
   xpath: string;
   textSnippet: string;   // first ~50 chars of element text; may be empty string
   tagName: string;       // lowercase
+  // Semantic context signals — all optional for backward compat with existing
+  // stored annotations and imported YAML. Used by resolveElement() for scoring.
+  closestLabel?: string;    // aria-label, aria-labelledby, or nearest <label> text
+  pageHeading?: string;     // nearest h1/h2/h3/role=heading text (max 80 chars)
+  sectionContext?: string;  // nearest ancestor with role/data-step context (max 80 chars)
+  siblingText?: string;     // prev+next sibling text (max 60 chars)
+  domIndex?: number;        // 0-based index among all tagName+text matches in doc
 }
 
 export interface Annotation {

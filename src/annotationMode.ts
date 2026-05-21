@@ -364,6 +364,7 @@ function buildPopoverDOM(): void {
   });
 
   noteInput.addEventListener('keydown', (e) => {
+    e.stopPropagation(); // prevent host page bubble-phase handlers from stealing keystrokes
     // Cmd/Ctrl+Enter saves
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
       e.preventDefault();
@@ -374,6 +375,8 @@ function buildPopoverDOM(): void {
       handleCancel();
     }
   });
+  noteInput.addEventListener('keyup',    (e) => { e.stopPropagation(); });
+  noteInput.addEventListener('keypress', (e) => { e.stopPropagation(); });
 
   saveBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -633,25 +636,7 @@ export function initAnnotationMode(cbs: AnnotationModeCallbacks): void {
     handleAnnotationClick(e as MouseEvent);
   }, { capture: true, signal });
 
-  // 5. Keyboard capture guard — when the popover is open and focus is inside it,
-  //    stop all keyboard events from reaching the host page's global handlers.
-  //    This prevents localhost dev-server shortcuts (Next.js 'x', Vite 'p', etc.)
-  //    from swallowing keystrokes typed into the noteInput textarea.
-  //    We use stopImmediatePropagation (not stopPropagation) so that no other
-  //    window-level capture handler at the same level can see the event either.
-  //    Character insertion is unaffected — the browser commits the character
-  //    before user handlers run; only preventDefault() would suppress it.
-  const keyboardCaptureGuard = (e: KeyboardEvent) => {
-    if (!popoverOpen) return;
-    if ((e.composedPath() as EventTarget[]).includes(popoverHost)) {
-      e.stopImmediatePropagation();
-    }
-  };
-  window.addEventListener('keydown',  keyboardCaptureGuard, { capture: true, signal });
-  window.addEventListener('keyup',    keyboardCaptureGuard, { capture: true, signal });
-  window.addEventListener('keypress', keyboardCaptureGuard, { capture: true, signal });
-
-  // 6. Hover highlight — window level so highlight works on MFEs too.
+  // 5. Hover highlight — window level so highlight works on MFEs too.
   window.addEventListener('mouseover', (e) => {
     if (!annotationModeActive || popoverOpen) return;
     if (isAnnotatorClick(e)) return;

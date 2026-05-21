@@ -16,6 +16,7 @@ type Pending = { annotation: Annotation; onPinClick: (a: Annotation) => void };
 const pendingResolutions = new Map<number, Pending>();
 let retryObserver: MutationObserver | null = null;
 let retryCutoffTimer: ReturnType<typeof setTimeout> | null = null;
+let visibilityObserver: MutationObserver | null = null;
 let lastRenderTotal = 0;
 let statsListener: ((stats: PinRenderStats) => void) | null = null;
 
@@ -32,6 +33,47 @@ export interface PinRenderStats {
 // -------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------
+
+function isElementVisible(el: Element): boolean {
+  const htmlEl = el as HTMLElement;
+  if (htmlEl.offsetWidth === 0 && htmlEl.offsetHeight === 0) return false;
+  const style = window.getComputedStyle(el);
+  if (style.display === 'none') return false;
+  if (style.visibility === 'hidden') return false;
+  return true;
+}
+
+function checkPinVisibility(): void {
+  for (const [, pinData] of activePins) {
+    const { pinEl, targetElement } = pinData;
+    if (isElementVisible(targetElement)) {
+      pinEl.style.display = '';
+    } else {
+      pinEl.style.display = 'none';
+    }
+  }
+}
+
+function startVisibilityObserver(): void {
+  if (visibilityObserver) return;
+  const throttledCheck = throttle(checkPinVisibility, 100);
+  visibilityObserver = new MutationObserver(() => {
+    throttledCheck();
+  });
+  visibilityObserver.observe(document.body, {
+    attributes: true,
+    attributeFilter: ['class', 'style', 'hidden'],
+    childList: true,
+    subtree: true,
+  });
+}
+
+function stopVisibilityObserver(): void {
+  if (visibilityObserver) {
+    visibilityObserver.disconnect();
+    visibilityObserver = null;
+  }
+}
 
 function isFixedPosition(el: Element): boolean {
   let node: Element | null = el;
@@ -115,6 +157,7 @@ function updatePinPosition(
   pinData: { pinEl: HTMLDivElement; targetElement: Element; offset: { x: number; y: number }; isFixed: boolean }
 ): void {
   const { pinEl, targetElement, offset, isFixed } = pinData;
+  if (!isElementVisible(targetElement)) return;
   const rect = targetElement.getBoundingClientRect();
 
   if (isFixed) {
@@ -255,6 +298,7 @@ export function initPinRenderer(): void {
   injectStyles();
   window.addEventListener('scroll', repositionOnScroll, { passive: true });
   window.addEventListener('resize', repositionAll, { passive: true });
+  startVisibilityObserver();
 }
 
 /**
@@ -300,6 +344,9 @@ export function renderPins(
     startRetry();
   }
 
+  // Ensure visibility observer is running for the newly rendered pins.
+  startVisibilityObserver();
+
   // Always emit so listeners see the initial state too.
   emitStats();
 
@@ -319,6 +366,7 @@ function clearPinElementsOnly(): void {
 
 export function clearPins(): void {
   stopRetry();
+  stopVisibilityObserver();
   pendingResolutions.clear();
   clearPinElementsOnly();
   lastRenderTotal = 0;
