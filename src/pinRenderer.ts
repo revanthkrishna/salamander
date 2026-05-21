@@ -20,6 +20,12 @@ let visibilityObserver: MutationObserver | null = null;
 let lastRenderTotal = 0;
 let statsListener: ((stats: PinRenderStats) => void) | null = null;
 
+// Tracks pin numbers that have been successfully placed at least once in this
+// page session. Used to distinguish "contextually hidden" pins (temporarily
+// absent from the DOM, e.g. a previous wizard step) from truly unresolvable
+// ones. Reset on full clearPins() (page navigation).
+const everResolvedPins = new Set<number>();
+
 const RETRY_CUTOFF_MS = 5000;
 
 let stylesInjected = false;
@@ -216,6 +222,7 @@ function tryRenderOne(
     isFixed: fixed,
   };
   activePins.set(annotation.pinNumber, pinData);
+  everResolvedPins.add(annotation.pinNumber);
   document.body.appendChild(pinEl);
   updatePinPosition(annotation.pinNumber, pinData);
   return true;
@@ -268,8 +275,14 @@ function stopRetry(): void {
 
 function emitStats(): void {
   if (!statsListener) return;
-  const unresolved = pendingResolutions.size;
-  const resolved = Math.max(0, lastRenderTotal - unresolved);
+  // Exclude pins that are only temporarily absent (contextually hidden):
+  // they resolved at least once this session so they are not truly broken.
+  let contextuallyHidden = 0;
+  for (const [pinNumber] of pendingResolutions) {
+    if (everResolvedPins.has(pinNumber)) contextuallyHidden++;
+  }
+  const unresolved = pendingResolutions.size - contextuallyHidden;
+  const resolved = Math.max(0, lastRenderTotal - pendingResolutions.size);
   statsListener({ resolved, unresolved, total: lastRenderTotal });
 }
 
@@ -326,18 +339,40 @@ export function renderPins(
   pendingResolutions.clear();
   clearPinElementsOnly();
 
-  lastRenderTotal = annotations.length;
-
+  // De-duplicate: when multiple annotations resolve to the same DOM element,
+  // keep only the one with the highest pin number (most recently annotated).
+  const elementToAnnotation = new Map<Element, Annotation>();
+  const unresolvable: Annotation[] = [];
   for (const annotation of annotations) {
+    const el = resolveElement(annotation.fingerprint);
+    if (!el) {
+      unresolvable.push(annotation);
+      continue;
+    }
+    const existing = elementToAnnotation.get(el);
+    if (!existing || annotation.pinNumber > existing.pinNumber) {
+      elementToAnnotation.set(el, annotation);
+    }
+  }
+
+  // Build the deduplicated list: winners from resolved + all unresolvable.
+  const deduped: Annotation[] = [
+    ...Array.from(elementToAnnotation.values()),
+    ...unresolvable,
+  ];
+
+  lastRenderTotal = deduped.length;
+
+  for (const annotation of deduped) {
     if (!tryRenderOne(annotation, onPinClick)) {
       pendingResolutions.set(annotation.pinNumber, { annotation, onPinClick });
     }
   }
 
   const initialStats: PinRenderStats = {
-    resolved: annotations.length - pendingResolutions.size,
+    resolved: deduped.length - pendingResolutions.size,
     unresolved: pendingResolutions.size,
-    total: annotations.length,
+    total: deduped.length,
   };
 
   if (pendingResolutions.size > 0) {
@@ -370,6 +405,7 @@ export function clearPins(): void {
   pendingResolutions.clear();
   clearPinElementsOnly();
   lastRenderTotal = 0;
+  everResolvedPins.clear();
 }
 
 /**

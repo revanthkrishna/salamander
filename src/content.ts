@@ -153,13 +153,11 @@ async function refreshPageAnnotations(domain: string, pageUrl: string): Promise<
   const annotations = domainData?.pages[pageUrl] ?? [];
   const totalForDomain = await getAnnotationCount(domain);
 
-  // renderPins now returns the initial resolution stats. The stats listener
-  // registered in init() also fires — here and on each subsequent retry tick
-  // — so we don't need a second `resolvePageAnnotations` pass.
-  const stats = renderPins(annotations, handlePinClick);
+  // renderPins fires the statsListener (handlePinStats) synchronously via
+  // emitStats(), which calls showResolutionAlert. No need to call it again here.
+  renderPins(annotations, handlePinClick);
 
   updateButtonStates(totalForDomain > 0, isAnnotationModeActive());
-  showResolutionAlert(stats.unresolved, stats.total);
 
   if (domainData?.meta.importedFilename) {
     setFilename(domainData.meta.importedFilename);
@@ -190,6 +188,13 @@ function handleStorageChanged(
       changes[writerKey].newValue === myTabId) {
     return;
   }
+
+  // Short-circuit: if no annotation key changed, nothing needs re-rendering.
+  // This handles the race where markTabAsWriter and addAnnotation land in
+  // separate storage batches — the first batch (lastWriter:* only) is safely
+  // ignored here so the guard above can fire on the second batch.
+  const hasAnnotationChange = Object.keys(changes).some((k) => k.startsWith('annotations:'));
+  if (!hasAnnotationChange) return;
 
   if (!changes[domainKey]) return;
 
