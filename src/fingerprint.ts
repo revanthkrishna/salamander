@@ -36,6 +36,7 @@ export function captureFingerprint(element: Element): Fingerprint {
     // Semantic context signals
     closestLabel: getClosestLabel(element),
     pageHeading: getPageHeading(element),
+    pageSubHeading: getPageSubHeading(element),
     sectionContext: getSectionContext(element),
     siblingText: getSiblingText(element),
     domIndex: getDomIndex(element, textSnippet),
@@ -242,9 +243,10 @@ function scoreCandidate(
   //   stored non-empty + current differs  → -penalty (wrong context)
   //   stored empty                        → 0       (not captured; no opinion)
   //   stored non-empty + current empty    → 0       (element not yet rendered; don't penalise)
-  score += scoreContext(fingerprint.closestLabel,  getClosestLabel(el),  20, 15);
-  score += scoreContext(fingerprint.pageHeading,   getPageHeading(el),   15, 80);
-  score += scoreContext(fingerprint.sectionContext, getSectionContext(el), 15, 25);
+  score += scoreContext(fingerprint.closestLabel,    getClosestLabel(el),    20, 15);
+  score += scoreContext(fingerprint.pageHeading,     getPageHeading(el),     15, 80);
+  score += scoreContext(fingerprint.pageSubHeading,  getPageSubHeading(el),  15, 60);
+  score += scoreContext(fingerprint.sectionContext,  getSectionContext(el),   15, 25);
   score += scoreContext(fingerprint.siblingText,   getSiblingText(el),   10, 10);
 
   if (fingerprint.domIndex !== undefined) {
@@ -319,7 +321,11 @@ const GENERIC_ACTION_WORDS = new Set([
  * Returns trimmed text (max 80 chars) or '' if none found.
  */
 function getClosestLabel(el: Element): string {
-  // 1. Nearest preceding heading — highest-quality context signal
+  // 1. Nearest preceding sub-heading — most specific local context
+  const subHeadingText = getPageSubHeading(el);
+  if (subHeadingText) return subHeadingText;
+
+  // 2. Nearest preceding heading — broader section context
   const headingText = getPageHeading(el);
   if (headingText) return headingText;
 
@@ -402,6 +408,75 @@ function getPageHeading(el: Element): string {
       const text = h.textContent?.trim() ?? '';
       if (text) return text.slice(0, 80);
     }
+  }
+
+  return '';
+}
+
+/**
+ * Return the numeric heading level for an element: 1–4 for h1–h4,
+ * or 3 as a default for elements with role="heading".
+ */
+function getHeadingLevel(el: Element): number {
+  const tag = el.tagName.toLowerCase();
+  if (tag === 'h1') return 1;
+  if (tag === 'h2') return 2;
+  if (tag === 'h3') return 3;
+  if (tag === 'h4') return 4;
+  // role="heading" default
+  return 3;
+}
+
+/**
+ * Return the text of the nearest sub-heading that sits between the nearest
+ * preceding heading (pageHeading) and the element in document order, at a
+ * lower heading level (higher number) than the page heading.
+ *
+ * For example, if the pageHeading is an h2, this returns the nearest h3 or h4
+ * appearing after that h2 and before `el`.
+ *
+ * Returns trimmed text (max 80 chars) or '' if none found.
+ */
+function getPageSubHeading(el: Element): string {
+  const headings = Array.from(
+    document.querySelectorAll('h1, h2, h3, h4, [role="heading"]')
+  );
+
+  // Find the nearest preceding heading element and its level (same scan as getPageHeading)
+  let pageHeadingEl: Element | null = null;
+  let pageHeadingLevel = 0;
+  for (let i = headings.length - 1; i >= 0; i--) {
+    const h = headings[i];
+    if (h === el || h.contains(el)) continue;
+    if (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) {
+      const text = h.textContent?.trim() ?? '';
+      if (text) {
+        pageHeadingEl = h;
+        pageHeadingLevel = getHeadingLevel(h);
+        break;
+      }
+    }
+  }
+
+  // If no page heading found, or the page heading is already the deepest level (h4), bail out
+  if (!pageHeadingEl || pageHeadingLevel >= 4) return '';
+
+  // Find the nearest heading that:
+  //   (a) has a higher level number (lower rank) than the page heading
+  //   (b) appears after the page heading element in document order
+  //   (c) precedes `el` in document order
+  // Iterate in reverse document order to find the nearest one.
+  for (let i = headings.length - 1; i >= 0; i--) {
+    const h = headings[i];
+    if (h === el || h.contains(el)) continue;
+    // (c) must precede el
+    if (!(h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+    // (b) must come after the page heading
+    if (!(pageHeadingEl.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+    // (a) must be at a deeper level than the page heading
+    if (getHeadingLevel(h) <= pageHeadingLevel) continue;
+    const text = h.textContent?.trim() ?? '';
+    if (text) return text.slice(0, 80);
   }
 
   return '';
@@ -778,37 +853,25 @@ function buildXPath(element: Element): string {
 }
 
 /**
- * Attempt to build a heading-anchored XPath. Finds the nearest preceding
- * heading, verifies the XPath resolves back to exactly the target element,
- * and returns it — or null if no valid heading-anchored path can be built.
+ * Attempt to build a heading-anchored XPath. Prefers the sub-heading (more
+ * specific) over the main page heading as the anchor. Verifies the XPath
+ * resolves back to exactly the target element, and returns it — or null if no
+ * valid heading-anchored path can be built.
  */
 function buildHeadingAnchoredXPath(
   element: Element,
   tag: string,
   elementText: string
 ): string | null {
-  const headings = Array.from(
-    document.querySelectorAll('h1, h2, h3, h4, [role="heading"]')
-  );
+  // Prefer the sub-heading as the anchor — it is more specific and produces a
+  // tighter match. Fall back to the main page heading if no sub-heading exists.
+  const subHeadingText = getPageSubHeading(element);
+  const anchorText = subHeadingText || getPageHeading(element);
 
-  // Find nearest preceding heading (same logic as getPageHeading)
-  let headingText = '';
-  for (let i = headings.length - 1; i >= 0; i--) {
-    const h = headings[i];
-    if (h === element || h.contains(element)) continue;
-    if (h.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING) {
-      const text = h.textContent?.trim() ?? '';
-      if (text) {
-        headingText = text;
-        break;
-      }
-    }
-  }
-
-  if (!headingText) return null;
+  if (!anchorText) return null;
 
   // Build the heading-anchored XPath
-  const escapedHeading = headingText.replace(/"/g, '&quot;');
+  const escapedHeading = anchorText.replace(/"/g, '&quot;');
   const escapedText = elementText.replace(/"/g, '&quot;');
   const xpath =
     `//*[self::h1 or self::h2 or self::h3 or self::h4]` +
@@ -827,6 +890,30 @@ function buildHeadingAnchoredXPath(
     if (result.singleNodeValue === element) return xpath;
   } catch {
     // Invalid XPath or evaluation error — fall through
+  }
+
+  // If sub-heading anchor didn't verify, try the main heading as a fallback
+  if (subHeadingText) {
+    const mainHeadingText = getPageHeading(element);
+    if (mainHeadingText) {
+      const escapedMain = mainHeadingText.replace(/"/g, '&quot;');
+      const xpathFallback =
+        `//*[self::h1 or self::h2 or self::h3 or self::h4]` +
+        `[normalize-space()="${escapedMain}"]` +
+        `/following::${tag}[normalize-space()="${escapedText}"][1]`;
+      try {
+        const result = document.evaluate(
+          xpathFallback,
+          document,
+          null,
+          XPathResult.FIRST_ORDERED_NODE_TYPE,
+          null
+        );
+        if (result.singleNodeValue === element) return xpathFallback;
+      } catch {
+        // fall through
+      }
+    }
   }
 
   return null;
