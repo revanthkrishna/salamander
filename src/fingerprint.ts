@@ -1,4 +1,5 @@
 import type { Fingerprint, Annotation } from './types';
+import { WORD_LIST } from './wordlist';
 
 // Locally-extended fingerprint with the bounding-box captured at annotation
 // time. The `rect` field is *not* declared on the public `Fingerprint` type
@@ -242,7 +243,7 @@ function scoreCandidate(
   //   stored empty                        → 0       (not captured; no opinion)
   //   stored non-empty + current empty    → 0       (element not yet rendered; don't penalise)
   score += scoreContext(fingerprint.closestLabel,  getClosestLabel(el),  20, 15);
-  score += scoreContext(fingerprint.pageHeading,   getPageHeading(el),   15, 25);
+  score += scoreContext(fingerprint.pageHeading,   getPageHeading(el),   15, 80);
   score += scoreContext(fingerprint.sectionContext, getSectionContext(el), 15, 25);
   score += scoreContext(fingerprint.siblingText,   getSiblingText(el),   10, 10);
 
@@ -295,20 +296,42 @@ export function resolvePageAnnotations(
 // ─── Context signal helpers ──────────────────────────────────────────────────
 
 /**
+ * Generic action words that are too ambiguous to use as a closestLabel.
+ * When aria-label matches one of these (case-insensitive), we skip it in
+ * favour of a more contextual signal.
+ */
+const GENERIC_ACTION_WORDS = new Set([
+  'next', 'previous', 'prev', 'back', 'forward', 'cancel', 'close', 'save',
+  'submit', 'ok', 'yes', 'no', 'delete', 'remove', 'edit', 'add', 'create',
+  'update', 'confirm', 'done', 'apply', 'reset', 'clear', 'search', 'filter',
+  'continue',
+]);
+
+/**
  * Return the semantic label text closest to the element:
- *   1. element's own aria-label
- *   2. aria-labelledby → referenced element's textContent
- *   3. aria-describedby → referenced element's textContent
- *   4. Walk up ancestors to find nearest <label> or role="label"
- *   5. Input's associated <label> via matching `for` attribute
+ *   1. Nearest preceding heading (h1–h4 or role="heading") text — most
+ *      contextual signal, distinguishes elements in different wizard steps.
+ *   2. element's own aria-label — skipped if the value is a generic action word.
+ *   3. aria-labelledby → referenced element's textContent
+ *   4. aria-describedby → referenced element's textContent
+ *   5. Walk up ancestors to find nearest <label> or role="label"
+ *   6. Input's associated <label> via matching `for` attribute
  * Returns trimmed text (max 80 chars) or '' if none found.
  */
 function getClosestLabel(el: Element): string {
-  // 1. Own aria-label
-  const ariaLabel = el.getAttribute('aria-label');
-  if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim().slice(0, 80);
+  // 1. Nearest preceding heading — highest-quality context signal
+  const headingText = getPageHeading(el);
+  if (headingText) return headingText;
 
-  // 2. aria-labelledby
+  // 2. Own aria-label — but skip generic action words
+  const ariaLabel = el.getAttribute('aria-label');
+  if (ariaLabel && ariaLabel.trim()) {
+    if (!GENERIC_ACTION_WORDS.has(ariaLabel.trim().toLowerCase())) {
+      return ariaLabel.trim().slice(0, 80);
+    }
+  }
+
+  // 3. aria-labelledby
   const labelledBy = el.getAttribute('aria-labelledby');
   if (labelledBy) {
     const text = labelledBy
@@ -319,7 +342,7 @@ function getClosestLabel(el: Element): string {
     if (text) return text.slice(0, 80);
   }
 
-  // 3. aria-describedby
+  // 4. aria-describedby
   const describedBy = el.getAttribute('aria-describedby');
   if (describedBy) {
     const text = describedBy
@@ -330,7 +353,7 @@ function getClosestLabel(el: Element): string {
     if (text) return text.slice(0, 80);
   }
 
-  // 4. Walk up to find nearest <label> ancestor or role="label"
+  // 5. Walk up to find nearest <label> ancestor or role="label"
   let node: Element | null = el.parentElement;
   while (node && node !== document.body) {
     if (node.tagName === 'LABEL' || node.getAttribute('role') === 'label') {
@@ -340,7 +363,7 @@ function getClosestLabel(el: Element): string {
     node = node.parentElement;
   }
 
-  // 5. Input associated via <label for="id">
+  // 6. Input associated via <label for="id">
   const elId = el.id;
   if (elId) {
     const label = document.querySelector(`label[for="${CSS.escape(elId)}"]`);
@@ -485,11 +508,12 @@ function isVisible(el: Element): boolean {
 /**
  * Build a stable CSS selector for the element.
  *
- * Strategy:
- *   - If the element has a usable (non-framework-generated) #id, prefer it.
- *   - Otherwise walk up to <body>, building the *shortest* path that uniquely
- *     identifies the element. At each ancestor, try in order:
- *       a. tag[stable-attr="val"]   (data-testid, aria-label, name, role, href)
+ * Priority order:
+ *   1. Any data-* attribute with a non-empty stable value → tag[data-*="val"]
+ *   2. Element's own ID if it contains dictionary-like words → #id
+ *   3. Walk up to <body> building the shortest uniquely-identifying path, at
+ *      each node trying:
+ *       a. tag[stable-attr="val"]   (data-* first, then name, role, href)
  *       b. tag.classname            (CSS-module hashes stripped; unique among siblings)
  *       c. tag:nth-of-type(n)       (always-emitted index, even for n=1)
  *   - Prepend "body > " so the resulting selector is rooted to <body>.
@@ -498,7 +522,25 @@ function isVisible(el: Element): boolean {
  *     avoids the relative-selector false-positive class.
  */
 function buildCSSSelector(element: Element): string {
-  // Short-circuit on a usable ID — globally unique and self-anchoring.
+  // Priority 1: any data-* attribute on the element itself
+  const dataAttrSeg = getDataAttrSegment(element);
+  if (dataAttrSeg) {
+    const tag = element.tagName.toLowerCase();
+    const sel = `${tag}[${dataAttrSeg}]`;
+    if (isUnique(sel)) return sel;
+    // Even if not globally unique, use it as a rooted selector
+    const rooted = 'body > ' + sel;
+    if (isUnique(rooted)) return rooted;
+  }
+
+  // Priority 2: own ID with dictionary-like word
+  if (hasUsableId(element) && idHasDictionaryWord(element.id)) {
+    const sel = `#${CSS.escape(element.id)}`;
+    if (isUnique(sel)) return sel;
+  }
+
+  // Priority 3: fall back to the original walk — but also try the plain
+  // usable ID (without the dictionary check) since the original code did.
   if (hasUsableId(element)) {
     const sel = `#${CSS.escape(element.id)}`;
     if (isUnique(sel)) return sel;
@@ -563,6 +605,19 @@ function segmentFor(node: Element): string {
 }
 
 /**
+ * Returns true if the given ID string contains at least one segment that is a
+ * dictionary word. Segments are produced by splitting on "-" and "_", and only
+ * segments of 3+ characters are considered.
+ */
+function idHasDictionaryWord(id: string): boolean {
+  const segments = id.split(/[-_]/);
+  for (const seg of segments) {
+    if (seg.length >= 3 && WORD_LIST.has(seg.toLowerCase())) return true;
+  }
+  return false;
+}
+
+/**
  * Returns true if the element has an ID worth using as an anchor.
  * Rejects framework-generated IDs that look auto-generated (Radix, Headless UI,
  * MUI, Chakra, Aria, purely numeric, UUID, react-aria `:r17:` style).
@@ -584,25 +639,30 @@ function hasUsableId(el: Element): boolean {
 }
 
 /**
- * Stable attribute extraction. Returns the inner attribute part of a CSS
- * selector (e.g. `data-testid="x"`) or null when no stable attribute is found.
- * Order reflects reliability: explicit test ids > semantic ARIA > form name >
- * role > anchor href.
+ * Returns the inner CSS selector attribute part for any data-* attribute on the
+ * element (e.g. `data-testid="wizard-next"`), or null if none found.
+ * Checks any data-* attribute (not just a hard-coded list).
  */
-function getStableAttrSegment(el: Element): string | null {
-  // Preferred test-id attributes
-  for (const attr of ['data-testid', 'data-test', 'data-id', 'data-cy', 'data-qa']) {
-    const value = el.getAttribute(attr);
-    if (value !== null && isStableAttrValue(value)) {
-      return `${attr}="${CSS.escape(value)}"`;
+function getDataAttrSegment(el: Element): string | null {
+  for (let i = 0; i < el.attributes.length; i++) {
+    const attr = el.attributes[i];
+    if (attr.name.startsWith('data-') && isStableAttrValue(attr.value)) {
+      return `${attr.name}="${CSS.escape(attr.value)}"`;
     }
   }
+  return null;
+}
 
-  // aria-label — stable on icon buttons / landmark regions
-  const ariaLabel = el.getAttribute('aria-label');
-  if (ariaLabel && ariaLabel.length > 0 && ariaLabel.length <= 80) {
-    return `aria-label="${CSS.escape(ariaLabel)}"`;
-  }
+/**
+ * Stable attribute extraction. Returns the inner attribute part of a CSS
+ * selector (e.g. `data-testid="x"`) or null when no stable attribute is found.
+ * Order reflects reliability: data-* attributes > form name > role > anchor href.
+ * aria-label is intentionally excluded here — it stays in getClosestLabel only.
+ */
+function getStableAttrSegment(el: Element): string | null {
+  // data-* attributes — any data-* with a stable value
+  const dataAttr = getDataAttrSegment(el);
+  if (dataAttr) return dataAttr;
 
   // name — form controls
   const name = el.getAttribute('name');
@@ -682,11 +742,102 @@ function isUnique(selector: string): boolean {
 }
 
 /**
- * Build an absolute XPath for the element. Walks from the target up to <html>.
+ * Build an absolute XPath for the element.
+ *
+ * Priority order:
+ *   1. data-* attribute → //tag[@data-attr="value"]
+ *   2. Heading-anchored XPath using the nearest preceding heading (h1–h4 or
+ *      role="heading"), but only when the element itself has non-empty
+ *      textContent so the following:: predicate is meaningful.
+ *   3. Element's own dictionary-word ID → //*[@id="the-id"]
+ *   4. Positional path fallback (walk up to <html>, emit tag[n] at each level)
+ */
+function buildXPath(element: Element): string {
+  const tag = element.tagName.toLowerCase();
+
+  // Priority 1: any data-* attribute
+  const dataAttr = getDataAttrSegment(element);
+  if (dataAttr) {
+    return `//${tag}[@${dataAttr}]`;
+  }
+
+  // Priority 2: heading-anchored XPath
+  const elementText = element.textContent?.trim().slice(0, 50) ?? '';
+  if (elementText) {
+    const headingXPath = buildHeadingAnchoredXPath(element, tag, elementText);
+    if (headingXPath) return headingXPath;
+  }
+
+  // Priority 3: dictionary-word ID on the element itself
+  if (element.id && hasUsableId(element) && idHasDictionaryWord(element.id)) {
+    return `//*[@id="${element.id}"]`;
+  }
+
+  // Priority 4: positional path fallback
+  return buildPositionalXPath(element);
+}
+
+/**
+ * Attempt to build a heading-anchored XPath. Finds the nearest preceding
+ * heading, verifies the XPath resolves back to exactly the target element,
+ * and returns it — or null if no valid heading-anchored path can be built.
+ */
+function buildHeadingAnchoredXPath(
+  element: Element,
+  tag: string,
+  elementText: string
+): string | null {
+  const headings = Array.from(
+    document.querySelectorAll('h1, h2, h3, h4, [role="heading"]')
+  );
+
+  // Find nearest preceding heading (same logic as getPageHeading)
+  let headingText = '';
+  for (let i = headings.length - 1; i >= 0; i--) {
+    const h = headings[i];
+    if (h === element || h.contains(element)) continue;
+    if (h.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING) {
+      const text = h.textContent?.trim() ?? '';
+      if (text) {
+        headingText = text;
+        break;
+      }
+    }
+  }
+
+  if (!headingText) return null;
+
+  // Build the heading-anchored XPath
+  const escapedHeading = headingText.replace(/"/g, '&quot;');
+  const escapedText = elementText.replace(/"/g, '&quot;');
+  const xpath =
+    `//*[self::h1 or self::h2 or self::h3 or self::h4]` +
+    `[normalize-space()="${escapedHeading}"]` +
+    `/following::${tag}[normalize-space()="${escapedText}"][1]`;
+
+  // Verify this XPath actually resolves to the target element
+  try {
+    const result = document.evaluate(
+      xpath,
+      document,
+      null,
+      XPathResult.FIRST_ORDERED_NODE_TYPE,
+      null
+    );
+    if (result.singleNodeValue === element) return xpath;
+  } catch {
+    // Invalid XPath or evaluation error — fall through
+  }
+
+  return null;
+}
+
+/**
+ * Build a positional XPath by walking from the element up to <html>.
  * Always emits a positional index `[n]`, even for single siblings, so the path
  * is deterministic even when same-tag siblings are added later.
  */
-function buildXPath(element: Element): string {
+function buildPositionalXPath(element: Element): string {
   const parts: string[] = [];
   let node: Element | null = element;
 
