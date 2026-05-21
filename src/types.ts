@@ -46,6 +46,12 @@ export interface YamlAnnotation {
     xpath: string;
     text_snippet: string;
     tag_name: string;
+    // Context signals — optional so old YAML files remain valid
+    closest_label?: string;
+    page_heading?: string;
+    section_context?: string;
+    sibling_text?: string;
+    dom_index?: number;
   };
   offset: { x: number; y: number };
   created_at: string;
