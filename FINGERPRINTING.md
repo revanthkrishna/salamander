@@ -93,16 +93,27 @@ stored non-empty + current empty    →   0     (element not yet rendered, defer
 stored non-empty + current differs  →  −penalty (wrong context)
 ```
 
-| Signal | +bonus | −penalty |
-|---|---|---|
-| `closestLabel` | 20 | 15 |
-| `pageHeading` | 15 | **80** |
-| `pageSubHeading` | 15 | 60 |
-| `sectionContext` | 15 | 25 |
-| `siblingText` | 10 | 10 |
-| `domIndex` (match only) | 10 | 0 |
+| Signal | +bonus | −penalty | bonus scaled by `headingPath` agreement? |
+|---|---|---|---|
+| `closestLabel` | 20 | 15 | **yes** |
+| `pageHeading` | 15 | **80** | **yes** |
+| `pageSubHeading` | 15 | 60 | **yes** |
+| `sectionContext` | 15 | 25 | no |
+| `siblingText` | 10 | 10 | no |
+| `domIndex` (match only) | 10 | 0 | no |
 
-`headingPath` is scored separately by `scoreHeadingPath` (set-based, not single-value) and stacks additively with the row-by-row signals above:
+The heading-text signals (`closestLabel`, `pageHeading`, `pageSubHeading`) are *match-only* text comparisons — they can coincidentally agree when the same heading text appears in a different context (e.g. a wizard's "Review and submit" page that lists prior steps' section headings as part of its summary). To prevent those coincidental matches from earning full credit:
+
+- Compute **Jaccard similarity** between stored and current `headingPath`: `|stored ∩ current| / |stored ∪ current|`, range `[0, 1]`.
+- Multiply each text-match bonus by that ratio. Strong broader-context agreement → full bonus. Weak agreement → reduced bonus, even when the narrow text matches.
+- **Penalties on mismatch stay at full magnitude.** A text disagreement is an independent signal; we don't dampen it.
+- When no `headingPath` was captured (legacy fingerprints) or the page hasn't rendered headings yet, agreement defaults to `1.0` — fall back to full bonus rather than punish.
+
+Worked example — the wizard Cancel-button case:
+- Stored heading set (10 items) and current heading set (10 items) overlap by 3 → Jaccard ≈ 0.18.
+- `closestLabel` and `pageHeading` text-match by coincidence → bonuses scale to `20 × 0.18 = 4` and `15 × 0.18 = 3` rather than the unscaled `+20` and `+15`.
+
+`headingPath` is also scored *directly* by `scoreHeadingPath` (set-based, in addition to the agreement scaling described above):
 
 | `headingPath` outcome | Contribution |
 |---|---|

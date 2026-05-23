@@ -313,24 +313,54 @@ function scoreCandidate(
   //   stored non-empty + current differs  → -penalty (wrong context)
   //   stored empty                        → 0       (not captured; no opinion)
   //   stored non-empty + current empty    → 0       (element not yet rendered; don't penalise)
-  const addContext = (label: string, stored: string | undefined, current: string, bonus: number, penalty: number) => {
-    const delta = scoreContext(stored, current, bonus, penalty);
+  // Compute heading-path agreement first — used to SCALE match bonuses on
+  // the narrower heading-text signals below. A text-match on closestLabel /
+  // pageHeading / pageSubHeading earns less credit when the broader heading
+  // context disagrees, which catches the wizard-summary case where a step
+  // heading text re-appears in a different section.
+  const currentHeadingPath = getHeadingPath(el);
+  const agreement = headingPathAgreement(fingerprint.headingPath, currentHeadingPath);
+
+  // Signals with `scale` use agreement-scaled match bonuses (mismatches stay
+  // at full penalty — text disagreement is its own independent signal).
+  // Signals without `scale` use unscaled bonuses (don't depend on heading context).
+  const addContext = (
+    label: string,
+    stored: string | undefined,
+    current: string,
+    bonus: number,
+    penalty: number,
+    scale: number = 1.0,
+  ) => {
+    let delta = 0;
+    if (!stored) {
+      // no opinion — signal not stored
+    } else if (current === stored) {
+      delta = Math.round(bonus * scale);
+    } else if (current !== '') {
+      delta = -penalty;
+    }
+    // else: stored non-empty, current empty → defer
+
     score += delta;
     if (debug && delta !== 0) {
-      const verdict = delta > 0 ? 'match' : 'MISMATCH';
-      trace.push(`${label} ${verdict}: stored="${stored}" current="${current}" ${delta > 0 ? '+' : ''}${delta}`);
+      if (delta > 0) {
+        const scaleNote = scale < 0.999 ? ` (scaled ×${scale.toFixed(2)} from headingPath agreement)` : '';
+        trace.push(`${label} match: stored="${stored}" current="${current}" +${delta}${scaleNote}`);
+      } else {
+        trace.push(`${label} MISMATCH: stored="${stored}" current="${current}" ${delta}`);
+      }
     }
   };
 
-  addContext('closestLabel',   fingerprint.closestLabel,   getClosestLabel(el),    20, 15);
-  addContext('pageHeading',    fingerprint.pageHeading,    getPageHeading(el),     15, 80);
-  addContext('pageSubHeading', fingerprint.pageSubHeading, getPageSubHeading(el),  15, 60);
+  addContext('closestLabel',   fingerprint.closestLabel,   getClosestLabel(el),    20, 15, agreement);
+  addContext('pageHeading',    fingerprint.pageHeading,    getPageHeading(el),     15, 80, agreement);
+  addContext('pageSubHeading', fingerprint.pageSubHeading, getPageSubHeading(el),  15, 60, agreement);
 
-  const currentHeadingPath = getHeadingPath(el);
   const hpDelta = scoreHeadingPath(fingerprint.headingPath, currentHeadingPath);
   score += hpDelta;
   if (debug && hpDelta !== 0) {
-    trace.push(`headingPath ${hpDelta > 0 ? '+' : ''}${hpDelta} (stored=[${fingerprint.headingPath?.join('|') ?? ''}] current=[${currentHeadingPath.join('|')}])`);
+    trace.push(`headingPath ${hpDelta > 0 ? '+' : ''}${hpDelta} (agreement=${agreement.toFixed(2)}, stored=[${fingerprint.headingPath?.join('|') ?? ''}] current=[${currentHeadingPath.join('|')}])`);
   }
 
   addContext('sectionContext', fingerprint.sectionContext, getSectionContext(el), 15, 25);
@@ -416,6 +446,35 @@ function scoreHeadingPath(
   const extraPenalty = Math.min(extra * 7, 40);
 
   return commonBonus - missingPenalty - extraPenalty;
+}
+
+/**
+ * Jaccard similarity between stored and current heading paths — used to
+ * SCALE the text-match bonuses on `closestLabel`, `pageHeading`, and
+ * `pageSubHeading`. When the broader heading context disagrees, a
+ * coincidental text match on those narrower signals earns proportionally
+ * less credit.
+ *
+ * Returns 1.0 when no headingPath was stored (legacy fingerprint) or when
+ * the current page has no headings yet (deferred rendering) — i.e. fall
+ * back to full credit when we have no broader-context signal to scale by.
+ */
+function headingPathAgreement(
+  stored: string[] | undefined,
+  current: string[]
+): number {
+  if (!stored || stored.length === 0) return 1.0;
+  if (current.length === 0) return 1.0;
+
+  const storedSet = new Set(stored);
+  const currentSet = new Set(current);
+  let common = 0;
+  for (const s of storedSet) {
+    if (currentSet.has(s)) common++;
+  }
+  const union = storedSet.size + currentSet.size - common;
+  if (union === 0) return 1.0;
+  return common / union;
 }
 
 /**
