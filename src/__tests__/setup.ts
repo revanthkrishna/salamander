@@ -1,5 +1,25 @@
 // Mock chrome.storage.local and related APIs for Jest tests
 
+// jsdom doesn't implement layout, so HTMLElement.offsetWidth/offsetHeight
+// always return 0 — which makes fingerprint.ts's isVisible() treat every
+// element in the document as invisible and disqualify it from resolution.
+// Override the prototype getters to report non-zero dimensions for any
+// element connected to the document.
+if (typeof HTMLElement !== 'undefined') {
+  Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+    get(this: HTMLElement) {
+      return this.ownerDocument?.contains(this) ? 100 : 0;
+    },
+    configurable: true,
+  });
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+    get(this: HTMLElement) {
+      return this.ownerDocument?.contains(this) ? 100 : 0;
+    },
+    configurable: true,
+  });
+}
+
 // CSS.escape polyfill — jsdom does not implement this browser API
 if (typeof (global as any).CSS === 'undefined') {
   (global as any).CSS = {

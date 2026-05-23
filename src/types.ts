@@ -10,6 +10,7 @@ export interface Fingerprint {
   closestLabel?: string;    // aria-label, aria-labelledby, or nearest <label> text
   pageHeading?: string;     // nearest h1/h2/h3/role=heading text (max 80 chars)
   pageSubHeading?: string;  // nearest heading between pageHeading and element, at a lower heading level (max 80 chars)
+  headingPath?: string[];   // all h1-h4 / role=heading preceding the element in document order (max 10 most-recent entries, each trimmed to 80 chars)
   sectionContext?: string;  // nearest ancestor with role/data-step context (max 80 chars)
   siblingText?: string;     // prev+next sibling text (max 60 chars)
   domIndex?: number;        // 0-based index among all tagName+text matches in doc
@@ -51,6 +52,7 @@ export interface YamlAnnotation {
     closest_label?: string;
     page_heading?: string;
     page_sub_heading?: string;
+    heading_path?: string[];
     section_context?: string;
     sibling_text?: string;
     dom_index?: number;

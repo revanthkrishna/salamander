@@ -15,6 +15,44 @@ type FingerprintRect = {
 };
 type FingerprintWithRect = Fingerprint & { rect?: FingerprintRect };
 
+// ─── Debug ──────────────────────────────────────────────────────────────────
+//
+// Console-gated tracing of resolution scoring. Enable in DevTools console
+// (page context — no need to switch to the content-script world):
+//
+//   localStorage.__annotatorDebug = '1'
+//
+// Then trigger a re-resolve (navigate, reload, or toggle annotation mode).
+// Disable with: `localStorage.removeItem('__annotatorDebug')`.
+//
+// Why localStorage rather than `window.__annotatorDebug`: Chrome content
+// scripts run in an isolated JS world — `window` globals set in the page
+// console aren't visible to the extension. localStorage is shared.
+
+function isDebug(): boolean {
+  if ((globalThis as Record<string, unknown>).__annotatorDebug === true) return true;
+  try {
+    return localStorage.getItem('__annotatorDebug') === '1';
+  } catch {
+    return false;
+  }
+}
+
+function dbg(...args: unknown[]): void {
+  if (isDebug()) console.log('[Annotator]', ...args);
+}
+
+/** Short, human-readable description of a DOM element for debug logs. */
+function describeEl(el: Element): string {
+  const id = el.id ? `#${el.id}` : '';
+  const cn = typeof el.className === 'string'
+    ? el.className.trim().split(/\s+/).filter(Boolean).slice(0, 1)
+    : [];
+  const cls = cn.length ? `.${cn[0]}` : '';
+  const text = el.textContent?.trim().slice(0, 30).replace(/\s+/g, ' ') ?? '';
+  return `<${el.tagName.toLowerCase()}${id}${cls}>${text ? ` "${text}"` : ''}`;
+}
+
 /**
  * Capture a fingerprint for the given element.
  * Called synchronously when user clicks an element in annotation mode.
@@ -37,6 +75,7 @@ export function captureFingerprint(element: Element): Fingerprint {
     closestLabel: getClosestLabel(element),
     pageHeading: getPageHeading(element),
     pageSubHeading: getPageSubHeading(element),
+    headingPath: getHeadingPath(element),
     sectionContext: getSectionContext(element),
     siblingText: getSiblingText(element),
     domIndex: getDomIndex(element, textSnippet),
@@ -110,7 +149,28 @@ export function resolveElement(fingerprintInput: Fingerprint): Element | null {
     }
   }
 
-  if (candidateSet.size === 0) return null;
+  if (isDebug()) {
+    dbg('────────── resolveElement ──────────');
+    dbg('fingerprint:', {
+      textSnippet: fingerprint.textSnippet,
+      tagName: fingerprint.tagName,
+      closestLabel: fingerprint.closestLabel,
+      pageHeading: fingerprint.pageHeading,
+      pageSubHeading: fingerprint.pageSubHeading,
+      headingPath: fingerprint.headingPath,
+      sectionContext: fingerprint.sectionContext,
+      siblingText: fingerprint.siblingText,
+      domIndex: fingerprint.domIndex,
+      cssSelector: fingerprint.cssSelector,
+      xpath: fingerprint.xpath,
+    });
+    dbg(`${candidateSet.size} candidate(s) collected`);
+  }
+
+  if (candidateSet.size === 0) {
+    dbg('→ no candidates, returning null');
+    return null;
+  }
 
   // ── Score each candidate ──────────────────────────────────────────────────
   const cssSelectorUnique = (() => {
@@ -136,8 +196,10 @@ export function resolveElement(fingerprintInput: Fingerprint): Element | null {
 
   const MINIMUM_SCORE = 40;
   if (bestEl !== null && bestScore >= MINIMUM_SCORE) {
+    dbg(`→ WINNER: ${describeEl(bestEl)} score=${bestScore} (threshold ${MINIMUM_SCORE})`);
     return bestEl;
   }
+  dbg(`→ best score ${bestScore} below threshold ${MINIMUM_SCORE} — returning null`);
   return null;
 }
 
@@ -164,8 +226,14 @@ function scoreCandidate(
   fingerprint: FingerprintWithRect,
   cssSelectorUnique: boolean
 ): number {
+  const debug = isDebug();
+  const trace: string[] = [];
+
   // Visibility gate
-  if (!isVisible(el)) return -1000;
+  if (!isVisible(el)) {
+    if (debug) dbg(`  ✗ ${describeEl(el)} INVISIBLE → -1000`);
+    return -1000;
+  }
 
   let score = 0;
 
@@ -220,20 +288,22 @@ function scoreCandidate(
   // Assign base score from best structural match
   if (matchedViaCSS && cssSelectorUnique) {
     score += 60;
+    trace.push('CSS-unique +60');
   } else if (matchedViaXPath) {
     score += 50;
+    trace.push('XPath +50');
   } else if (matchedViaText) {
-    // Is this the only text+tag match in the document?
     const allTextMatches = Array.from(document.querySelectorAll(fingerprint.tagName)).filter(
       (e) => (e.textContent?.trim().slice(0, 50) ?? '') === fingerprint.textSnippet
     );
-    score += allTextMatches.length === 1 ? 40 : 20;
+    const base = allTextMatches.length === 1 ? 40 : 20;
+    score += base;
+    trace.push(`text+tag ${allTextMatches.length === 1 ? 'unique' : 'non-unique'} +${base}`);
   } else if (matchedViaCSS) {
-    // Non-unique CSS selector match
     score += 30;
+    trace.push('CSS-non-unique +30');
   } else {
-    // Not matched by any strategy — shouldn't happen since we only score
-    // candidates collected above, but handle gracefully.
+    if (debug) dbg(`  ✗ ${describeEl(el)} no structural match → -1000`);
     return -1000;
   }
 
@@ -243,17 +313,44 @@ function scoreCandidate(
   //   stored non-empty + current differs  → -penalty (wrong context)
   //   stored empty                        → 0       (not captured; no opinion)
   //   stored non-empty + current empty    → 0       (element not yet rendered; don't penalise)
-  score += scoreContext(fingerprint.closestLabel,    getClosestLabel(el),    20, 15);
-  score += scoreContext(fingerprint.pageHeading,     getPageHeading(el),     15, 80);
-  score += scoreContext(fingerprint.pageSubHeading,  getPageSubHeading(el),  15, 60);
-  score += scoreContext(fingerprint.sectionContext,  getSectionContext(el),   15, 25);
-  score += scoreContext(fingerprint.siblingText,   getSiblingText(el),   10, 10);
+  const addContext = (label: string, stored: string | undefined, current: string, bonus: number, penalty: number) => {
+    const delta = scoreContext(stored, current, bonus, penalty);
+    score += delta;
+    if (debug && delta !== 0) {
+      const verdict = delta > 0 ? 'match' : 'MISMATCH';
+      trace.push(`${label} ${verdict}: stored="${stored}" current="${current}" ${delta > 0 ? '+' : ''}${delta}`);
+    }
+  };
+
+  addContext('closestLabel',   fingerprint.closestLabel,   getClosestLabel(el),    20, 15);
+  addContext('pageHeading',    fingerprint.pageHeading,    getPageHeading(el),     15, 80);
+  addContext('pageSubHeading', fingerprint.pageSubHeading, getPageSubHeading(el),  15, 60);
+
+  const currentHeadingPath = getHeadingPath(el);
+  const hpDelta = scoreHeadingPath(fingerprint.headingPath, currentHeadingPath);
+  score += hpDelta;
+  if (debug && hpDelta !== 0) {
+    trace.push(`headingPath ${hpDelta > 0 ? '+' : ''}${hpDelta} (stored=[${fingerprint.headingPath?.join('|') ?? ''}] current=[${currentHeadingPath.join('|')}])`);
+  }
+
+  addContext('sectionContext', fingerprint.sectionContext, getSectionContext(el), 15, 25);
+  addContext('siblingText',    fingerprint.siblingText,    getSiblingText(el),    10, 10);
 
   if (fingerprint.domIndex !== undefined) {
     const textSnippet = el.textContent?.trim().slice(0, 50) ?? '';
-    if (getDomIndex(el, textSnippet) === fingerprint.domIndex) score += 10;
+    const currentDomIdx = getDomIndex(el, textSnippet);
+    if (currentDomIdx === fingerprint.domIndex) {
+      score += 10;
+      if (debug) trace.push(`domIndex match (${currentDomIdx}) +10`);
+    } else if (debug) {
+      trace.push(`domIndex mismatch: stored=${fingerprint.domIndex} current=${currentDomIdx} +0`);
+    }
   }
 
+  if (debug) {
+    dbg(`  • ${describeEl(el)} → ${score}`);
+    for (const line of trace) dbg(`      ${line}`);
+  }
   return score;
 }
 
@@ -271,6 +368,54 @@ function scoreContext(
   if (current === stored) return bonus;   // match → confidence boost
   if (current !== '') return -penalty;    // both non-empty and different → wrong context
   return 0;                       // stored non-empty, current empty → defer
+}
+
+/**
+ * Score the headingPath signal: a set-based comparison between the captured
+ * list of preceding headings and the candidate's current list.
+ *
+ *   common (stored ∩ current)       → +5 each, capped at +25 (5 headings)
+ *   stored-but-missing-from-current → -7 each, capped at -50
+ *   current-but-not-in-stored       → -5 each, capped at -30
+ *
+ * Asymmetry rationale: a stored heading we can't find on the candidate is the
+ * stronger mismatch signal (likely wrong section); an unexpected extra heading
+ * is weaker evidence (could legitimately reflect page evolution since capture).
+ *
+ * Penalty caps are large because the text-level signals (closestLabel and
+ * pageHeading) can collide when a heading-text re-appears in a different
+ * context (e.g. summary section listing prior wizard steps). headingPath is
+ * the broader-context arbiter and needs enough weight to override coincidental
+ * text matches on the narrow signals.
+ *
+ * Returns 0 when no headingPath was stored (backward compat with legacy /
+ * imported fingerprints that predate this signal).
+ */
+function scoreHeadingPath(
+  stored: string[] | undefined,
+  current: string[]
+): number {
+  if (!stored || stored.length === 0) return 0;
+
+  const storedSet = new Set(stored);
+  const currentSet = new Set(current);
+
+  let common = 0;
+  let missing = 0;
+  let extra = 0;
+  for (const s of storedSet) {
+    if (currentSet.has(s)) common++;
+    else missing++;
+  }
+  for (const c of currentSet) {
+    if (!storedSet.has(c)) extra++;
+  }
+
+  const commonBonus = Math.min(common * 5, 25);
+  const missingPenalty = Math.min(missing * 7, 50);
+  const extraPenalty = Math.min(extra * 5, 30);
+
+  return commonBonus - missingPenalty - extraPenalty;
 }
 
 /**
@@ -480,6 +625,40 @@ function getPageSubHeading(el: Element): string {
   }
 
   return '';
+}
+
+/**
+ * Return the full list of h1–h4 / role="heading" elements that precede the
+ * element in document order, mapped to their trimmed text content.
+ *
+ * Where `getPageHeading` returns only the single nearest preceding heading,
+ * this returns all of them — which gives the scorer the signal it needs to
+ * distinguish elements that share the same nearest heading but live in
+ * different sections / wizard steps. E.g. a "Previous" button in step 4 and
+ * one in the "Review and submit" step often share their nearest heading
+ * (because of a stepper sidebar above both), but the step's own pane heading
+ * appears in only one button's preceding-headings list.
+ *
+ * Cap at the 10 most-recent (deepest-in-document-order) entries; those are
+ * the most local context. Each text entry trimmed to 80 chars. Skips the
+ * element itself and any heading that contains it.
+ */
+function getHeadingPath(el: Element): string[] {
+  const headings = Array.from(
+    document.querySelectorAll('h1, h2, h3, h4, [role="heading"]')
+  );
+
+  const result: string[] = [];
+  for (const h of headings) {
+    if (h === el || h.contains(el)) continue;
+    if (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) {
+      const text = h.textContent?.trim() ?? '';
+      if (text) result.push(text.slice(0, 80));
+    }
+  }
+
+  // Keep the most-recent (deepest in document order) — those are most local.
+  return result.length > 10 ? result.slice(-10) : result;
 }
 
 /**
@@ -772,6 +951,11 @@ function isStableAttrValue(value: string): boolean {
   if (/^\d+$/.test(value)) return false;
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) return false;
   if (/^[0-9a-f]{16,}$/i.test(value)) return false;
+  // React 18+ useId pattern (`:rXX:` where XX is base-36) — regenerates on
+  // every render, so a data-* value carrying it is unstable. Matches both the
+  // raw form (`:r9r:`) and prefixed forms used by component libraries
+  // (e.g. Cloudscape's `button:r9r:` for data-analytics-funnel-value).
+  if (/:r[0-9a-z]{1,6}:/i.test(value)) return false;
   return true;
 }
 
