@@ -107,8 +107,8 @@ stored non-empty + current differs  →  −penalty (wrong context)
 | `headingPath` outcome | Contribution |
 |---|---|
 | stored ∩ current (common headings) | **+5 each, capped at +25** |
-| stored-but-missing-from-current | **−7 each, capped at −50** |
-| current-but-not-in-stored (extras) | **−5 each, capped at −30** |
+| stored-but-missing-from-current | **−10 each, capped at −60** |
+| current-but-not-in-stored (extras) | **−7 each, capped at −40** |
 
 Stored empty → returns 0 (no opinion), preserving the same backward-compat convention used everywhere else. The asymmetry between missing (−5) and extra (−3) is intentional: a stored heading we can't find on the candidate is the stronger mismatch signal (likely wrong section); an unexpected extra heading is weaker evidence (could just reflect page evolution since capture).
 

@@ -375,8 +375,8 @@ function scoreContext(
  * list of preceding headings and the candidate's current list.
  *
  *   common (stored ∩ current)       → +5 each, capped at +25 (5 headings)
- *   stored-but-missing-from-current → -7 each, capped at -50
- *   current-but-not-in-stored       → -5 each, capped at -30
+ *   stored-but-missing-from-current → -10 each, capped at -60
+ *   current-but-not-in-stored       → -7 each, capped at -40
  *
  * Asymmetry rationale: a stored heading we can't find on the candidate is the
  * stronger mismatch signal (likely wrong section); an unexpected extra heading
@@ -412,8 +412,8 @@ function scoreHeadingPath(
   }
 
   const commonBonus = Math.min(common * 5, 25);
-  const missingPenalty = Math.min(missing * 7, 50);
-  const extraPenalty = Math.min(extra * 5, 30);
+  const missingPenalty = Math.min(missing * 10, 60);
+  const extraPenalty = Math.min(extra * 7, 40);
 
   return commonBonus - missingPenalty - extraPenalty;
 }
