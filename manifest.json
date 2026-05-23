@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "salamander",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "annotate directly on webpage elements. share exactly what you see.",
   "permissions": ["storage", "scripting", "tabs"],
   "host_permissions": ["<all_urls>"],
