@@ -164,10 +164,23 @@ interface Annotation {
 }
 
 interface Fingerprint {
+  // Structural signals — how to find the element
   cssSelector: string;
   xpath: string;
   textSnippet: string;           // first ~50 chars of element text
   tagName: string;               // lowercase
+
+  // Semantic context signals — which element if several are structurally similar.
+  // All optional for backward-compat with older fingerprints / imported YAML.
+  // See FINGERPRINTING.md for the full capture rules and scoring weights.
+  closestLabel?: string;         // aria-label / nearest <label> / nearest heading text
+  pageHeading?: string;          // nearest h1–h4 / role="heading" preceding the element
+  pageSubHeading?: string;       // deeper heading between pageHeading and the element
+  headingPath?: string[];        // full ordered list of preceding headings (cap 10)
+  sectionContext?: string;       // data-step / data-page / aria-label on a sectioning ancestor
+  siblingText?: string;          // prev + next sibling textContent
+  domIndex?: number;             // index among elements sharing the same tag + textSnippet
+
   // NOTE: boundingBox is intentionally NOT stored. It goes stale on any reflow.
   // Pin position is always recalculated live via getBoundingClientRect() at render time.
 }
@@ -283,6 +296,18 @@ annotations:
       xpath: "/html/body/main/div[2]/article/h2[2]"
       text_snippet: "Performance at Scale"
       tag_name: "h2"
+      # Optional semantic-context signals (any of these can be absent).
+      # See §4 / FINGERPRINTING.md for what they capture and when they fire.
+      closest_label: "Performance at Scale"
+      page_heading: "Performance at Scale"
+      page_sub_heading: "Render Pipeline"
+      heading_path:
+        - "How we built Figma"
+        - "Architecture"
+        - "Performance at Scale"
+      section_context: "main-article"
+      sibling_text: "Designing for the worst case | The next 10x"
+      dom_index: 0
     offset:
       x: 0
       y: 0
@@ -300,12 +325,21 @@ annotations:
 | `annotations[].pin_number` | integer | ✅ | Must be unique within the file. |
 | `annotations[].page_url` | string | ✅ | Normalised URL. No query params or fragments. |
 | `annotations[].note` | string | ✅ | Max 400 chars. |
-| `annotations[].fingerprint` | object | ✅ | All sub-fields required. |
+| `annotations[].fingerprint` | object | ✅ | Required structural sub-fields below; semantic-context sub-fields are optional. |
 | `annotations[].fingerprint.css_selector` | string | ✅ | Full CSS path to element. |
 | `annotations[].fingerprint.xpath` | string | ✅ | Absolute XPath from document root. |
 | `annotations[].fingerprint.text_snippet` | string | ✅ | May be empty string if element has no text. |
 | `annotations[].fingerprint.tag_name` | string | ✅ | Lowercase tag. Used in text-match fallback. |
+| `annotations[].fingerprint.closest_label` | string | optional | aria-label / `<label>` / nearest heading text. Trimmed to 80 chars. |
+| `annotations[].fingerprint.page_heading` | string | optional | Nearest h1–h4 / role="heading" preceding the element. Trimmed to 80 chars. |
+| `annotations[].fingerprint.page_sub_heading` | string | optional | Deeper heading between `page_heading` and the element. Trimmed to 80 chars. |
+| `annotations[].fingerprint.heading_path` | string[] | optional | Full ordered list of preceding headings, capped at the 10 most-recent. Each entry trimmed to 80 chars. |
+| `annotations[].fingerprint.section_context` | string | optional | data-step / data-page / aria-label of nearest sectioning ancestor. Trimmed to 80 chars. |
+| `annotations[].fingerprint.sibling_text` | string | optional | prev + next sibling textContent (` \| ` separated). Trimmed to 60 chars. |
+| `annotations[].fingerprint.dom_index` | integer | optional | 0-based index among elements sharing the same `tag_name` + `text_snippet`. |
 | `annotations[].offset` | object | ✅ | Click position relative to element top-left. |
+
+> **Backward-compatible additions.** All seven `fingerprint.*` semantic fields above were added incrementally and are written by current builds, but old YAML files lack them. Import handles the absence by leaving the field undefined; the resolver treats a missing/empty stored signal as "no opinion" rather than a mismatch (§4).
 
 > **Note on `boundingBox`:** The internal `Fingerprint` storage interface includes a `boundingBox` field (§2.2). This field is **intentionally excluded from the YAML export** — it is a rendering hint used only at runtime and is not needed for annotation resolution or round-trip fidelity. Do not include it in the export serializer.
 | `annotations[].offset.x` | number | ✅ | Pixels. |
@@ -342,109 +376,45 @@ const CURRENT_EXPORT_VERSION = 1; // increment on breaking schema changes
 
 ## 4. Element Fingerprinting
 
-### 4.1 Capture Algorithm
+> **Source of truth:** `src/fingerprint.ts` plus the deep-dive in [FINGERPRINTING.md](FINGERPRINTING.md). This section summarises the approach at the level needed to understand the storage shape (§2.2), the YAML schema (§3), and the failure-mode table below. Read FINGERPRINTING.md for the actual priority ladders, scoring weights, and worked examples.
 
-When the user clicks an element, the following is captured synchronously (before any storage write):
+### 4.1 Capture
 
-```
-function captureFingerprint(element):
-  return {
-    cssSelector: buildCSSSelector(element),
-    xpath: buildXPath(element),
-    textSnippet: element.textContent.trim().slice(0, 50),
-    tagName: element.tagName.toLowerCase()
-    // boundingBox intentionally excluded: stale on any reflow; recalculated live at render time
-  }
-```
+When the user clicks an element in annotation mode, `captureFingerprint()` synchronously snapshots both **structural** signals (how to find the element) and **semantic-context** signals (which element, if several are structurally similar). Storage shape: see the `Fingerprint` interface in §2.2.
 
-#### 4.2 CSS Selector Generation (`buildCSSSelector`)
+- `cssSelector` is built by walking from the element up to `<body>`, preferring stable `data-*` attributes → dictionary-word IDs → meaningful classes → `:nth-of-type(n)`. The walk stops as soon as the path is globally unique. Framework-generated identifiers (React `useId` patterns like `:rXX:`, UUIDs, long hex strings, pure-numeric IDs, Radix/MUI/Headless/Chakra prefixes) are rejected so they don't get baked into the selector.
+- `xpath` prefers `data-*` → **heading-anchored** (`//h2[normalize-space()="…"]/following::button[normalize-space()="…"][1]`) → dictionary-word IDs → fully positional path. Heading-anchored XPaths are verified to round-trip to the target element before being accepted.
+- The **semantic-context** signals (`closestLabel`, `pageHeading`, `pageSubHeading`, `headingPath`, `sectionContext`, `siblingText`, `domIndex`) disambiguate elements that share the same structural fingerprint — e.g. the "Previous" button on different wizard steps, or the same row in a re-sorted list. All are optional; legacy fingerprints without them still resolve.
 
-The generator walks up the DOM from the target element to `<body>`, building the shortest stable selector it can.
+### 4.2 Resolution
 
-**Priority order (first match wins at each level):**
+`resolveElement()` is **wide-net + score**, not first-strategy-wins:
 
-1. **Element has a non-empty `id`:** use `#id`. Stop walking up — IDs are globally unique. Return immediately.
-2. **Element has a stable `data-*` attribute:** use `[data-testid="value"]` or `[data-id="value"]`. Prefer `data-testid`, `data-id`, `data-cy`, `data-qa` in that order. Only use `data-*` attributes whose values look like hand-authored strings (not UUIDs or numeric IDs auto-generated at runtime).
-3. **Fallback:** use `tagName:nth-of-type(n)` where `n` is the element's position among siblings of the same tag.
+1. Collect candidates from three independent strategies (CSS selector / XPath / text+tag), de-duplicated by element identity.
+2. Score each candidate via `scoreCandidate()`:
+   - **Visibility gate**: invisible candidates (`isVisible()` checks `offsetWidth`/`offsetHeight`, computed `display` / `visibility` / `opacity`) get `−1000` and are disqualified.
+   - **Structural base score**: unique CSS = +60, XPath match = +50, unique text+tag = +40, non-unique text+tag = +20, non-unique CSS = +30.
+   - **Context bonuses / mismatch penalties**: each captured semantic signal contributes a bonus on match and a penalty on mismatch. The heaviest penalty is `pageHeading` mismatch at −80, because the same button label repeats across wizard steps and the heading is the strongest disambiguator.
+   - **Agreement scaling**: the heading-text signals (`closestLabel`, `pageHeading`, `pageSubHeading`) are *match-only* text comparisons that can coincidentally agree across contexts. Their match bonuses are scaled by Jaccard similarity of stored vs. current `headingPath` — strong broader-context agreement gives full bonus, weak agreement scales it down toward zero. Penalties on mismatch stay at full magnitude.
+3. Return the highest-scoring candidate if its score clears `MINIMUM_SCORE = 40`; otherwise return `null` (unresolved).
 
-**Why classes are excluded from the selector algorithm:** Detecting whether a class name is "stable" vs. "generated" via regex is not reliable. Tailwind utilities (`flex-1`, `bg-blue-500`, `text-sm`) look similar to CSS Modules hashes. A regex that catches one will misfire on the other. More importantly, class names are not unique — many elements share the same class, so a class-based selector requires an additional disambiguation signal anyway. Using `nth-of-type` directly is simpler, more predictable, and avoids the false-positive/false-negative detection problem entirely.
+`resolvePageAnnotations()` runs `resolveElement()` for every annotation on the page and returns `{ resolved, unresolvedCount }` for the toolbar alert (§4.4).
 
-The selector is built as a full path: each ancestor contributes one segment, joined with ` > `.
-
-**Example output:** `#main-content > article > p:nth-of-type(3)`
-
-**No length cap.** There is no browser limit on CSS selector length. Truncating from the top (dropping ancestor segments) destroys specificity — `div > p:nth-of-type(3)` matches any 3rd `<p>` in any `<div>` on the page, not the specific element intended. If the DOM is deep enough to generate a 500-char selector, every segment is needed for uniqueness. Accept the full path; the `isUnique()` check in the resolution algorithm validates it and falls through to XPath if not unique.
-
-#### 4.3 XPath Generation (`buildXPath`)
-
-Walk up from the target element to `<html>`, building an absolute XPath:
-
-```
-function buildXPath(element):
-  parts = []
-  node = element
-  while node.nodeType == ELEMENT_NODE:
-    tag = node.tagName.toLowerCase()
-    siblings = node.parentNode.children with same tag
-    if siblings.length > 1:
-      index = 1-based position of node among siblings
-      parts.unshift(tag + "[" + index + "]")
-    else:
-      parts.unshift(tag)
-    node = node.parentNode
-  return "/" + parts.join("/")
-```
-
-**Example output:** `/html/body/main/div[2]/article/p[3]`
-
-### 4.4 Resolution Algorithm (on Import)
-
-For each annotation in the imported file, when the content script runs on that page:
-
-```
-function resolveElement(fingerprint):
-  // 1. CSS selector
-  try:
-    el = document.querySelector(fingerprint.css_selector)
-    if el != null and isUnique(fingerprint.css_selector):
-      return el
-  catch: pass
-
-  // 2. XPath
-  try:
-    result = document.evaluate(fingerprint.xpath, document, ...)
-    el = result.iterateNext()
-    if el != null:
-      return el
-  catch: pass
-
-  // 3. Text content match
-  candidates = document.querySelectorAll(fingerprint.tag_name)
-  for el in candidates:
-    snippet = el.textContent.trim().slice(0, 50)
-    if snippet == fingerprint.text_snippet and snippet.length > 0:
-      return el
-
-  // 4. All strategies failed — annotation is unresolved
-  return null
-```
-
-`isUnique(selector)` → `document.querySelectorAll(selector).length === 1`
-
-If a CSS selector matches but is not unique (matches multiple elements), the XPath fallback is tried next. This prevents selecting the wrong element on pages with non-unique generated selectors.
-
-### 4.5 Failure Modes
+### 4.3 Failure Modes
 
 | Failure | Cause | Handling |
 |---|---|---|
-| CSS selector invalid | Malformed or contains chars illegal in CSS selectors | Caught with try/catch; fall through to XPath |
-| CSS selector not unique | Auto-generated classes with same structure on different elements | Fall through to XPath |
-| XPath invalid | Very rare; generated paths should always be valid | Caught; fall through to text match |
-| Text snippet is empty | Element had no text at capture time | Text match skipped; annotation is unresolved if CSS+XPath both fail |
-| Element removed from DOM | Dynamic content not present on page load | All three strategies return null; annotation is silently skipped, counted in page-level alert |
-| SPA with auto-generated IDs | IDs like `ember123` change between renders | CSS selector fails (ID not found); XPath + text match attempted; often resolves via text |
+| CSS selector invalid | Malformed or contains chars illegal in CSS selectors | Caught with try/catch; candidate not added from CSS strategy |
+| CSS selector matches the wrong element | Page restructured, auto-generated classes / IDs changed | Other strategies' candidates still scored; context signals discriminate. If the wrong element is the only candidate, context mismatches drive the score below the threshold and resolution returns null |
+| CSS selector matches multiple elements | Generic data-attr value (e.g. `action="navigate"` across all wizard nav buttons) | All matching elements scored; context signals pick the best |
+| XPath invalid | Very rare; generated paths should always be valid | Caught with try/catch |
+| Text snippet is empty | Element had no text at capture time | Text-strategy collects no candidates; CSS / XPath strategies still attempted |
+| Element removed from DOM | Dynamic content not present on page load | All three strategies return zero candidates → return null; counted in page-level alert |
+| SPA with auto-generated IDs | IDs / data-attrs like `:r9r:` (React useId), `ember123`, `radix-…` change per render | `hasUsableId` / `isStableAttrValue` reject them at capture; resolution falls back to heading-anchored XPath / text+tag / positional path |
+| Same button repeats across wizard steps | Component re-rendered with different surrounding content (e.g. shared Cancel button) | `headingPath` set-comparison + agreement-scaled text-match bonuses push the wrong-step candidate below the threshold |
+| Element is `aria-hidden`/`inert` but layout-visible | Some component libraries hide panes without `display:none` | Not currently caught by `isVisible()` — known gap. The wrong-context penalties usually still push the score below threshold; if not, this is the failure to investigate first |
 
-### 4.6 Unresolved Annotation Counting
+### 4.4 Unresolved Annotation Counting
 
 After attempting resolution for all annotations targeting the current page URL, the content script computes:
 
