@@ -15,6 +15,8 @@ export interface ToolbarCallbacks {
   onExport: () => void;
   /** Import: file selected from native picker. */
   onUploadFile: (file: File) => void;
+  /** Copy-to-clipboard button clicked. */
+  onCopy: () => void;
   /** Delete-all button clicked. */
   onDeleteAll: () => void;
   /** Filename-bar dismiss button clicked (removes file + all annotations). */
@@ -41,6 +43,10 @@ const ICON_EXCLAMATION = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2
 
 const ICON_FACE_WOOZY = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="M12,0C5.383,0,0,5.383,0,12s5.383,12,12,12,12-5.383,12-12S18.617,0,12,0Zm0,22c-5.514,0-10-4.486-10-10S6.486,2,12,2s10,4.486,10,10-4.486,10-10,10ZM5.37,9.334l-.742-1.857c1.188-.474,2.268-1.373,3.04-2.531l1.664,1.109c-1.01,1.514-2.38,2.647-3.962,3.279Zm8.63,.666c0-1.657,.672-3,1.5-3s1.5,1.343,1.5,3-.672,3-1.5,3-1.5-1.343-1.5-3Zm-7.447,1.105l4-2,.895,1.789-4,2-.895-1.789Zm10.582,3.394l1.731,1c-.337,.584-2.129,3.5-4.289,3.5-.903,0-1.609-.68-2.232-1.28-.263-.252-.702-.676-.884-.724-.149,.003-.338,.124-.656,.335-.423,.282-1.002,.668-1.805,.668-1.276,0-3.018-1.604-3.707-2.293l1.414-1.415c.85,.849,1.951,1.663,2.311,1.708,.171,0,.359-.121,.678-.333,.423-.282,1.002-.668,1.805-.668,.903,0,1.609,.68,2.232,1.28,.263,.252,.702,.676,.884,.724,.684-.003,1.91-1.456,2.519-2.504Z"/></svg>`;
 
+const ICON_COPY = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="m15 20h-10a5.006 5.006 0 0 1 -5-5v-10a5.006 5.006 0 0 1 5-5h10a5.006 5.006 0 0 1 5 5v10a5.006 5.006 0 0 1 -5 5zm-10-18a3 3 0 0 0 -3 3v10a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-10a3 3 0 0 0 -3-3zm19 17v-13a1 1 0 0 0 -2 0v13a3 3 0 0 1 -3 3h-13a1 1 0 0 0 0 2h13a5.006 5.006 0 0 0 5-5z"/></svg>`;
+
+const ICON_CHECK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 507.506 507.506" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="M163.865,436.934c-14.406,0.006-28.222-5.72-38.4-15.915L9.369,304.966c-12.492-12.496-12.492-32.752,0-45.248c12.496-12.492,32.752-12.492,45.248,0l109.248,109.248L452.889,79.942c12.496-12.492,32.752-12.492,45.248,0c12.492,12.496,12.492,32.752,0,45.248L202.265,421.019C192.087,431.214,178.271,436.94,163.865,436.934z"/></svg>`;
+
 // ---------------------------------------------------------------------------
 // Module-level state
 // ---------------------------------------------------------------------------
@@ -60,12 +66,15 @@ let elErrorBar: HTMLDivElement | null = null;
 let elErrorText: HTMLSpanElement | null = null;
 let elBtnExport: HTMLButtonElement | null = null;
 let elBtnUpload: HTMLButtonElement | null = null;
+let elBtnCopy: HTMLButtonElement | null = null;
+let elBtnCopyIcon: HTMLSpanElement | null = null;
 let elBtnDeleteAll: HTMLButtonElement | null = null;
 let elBtnExit: HTMLButtonElement | null = null;
 let elFileInput: HTMLInputElement | null = null;
 
 let callbacksRef: ToolbarCallbacks | null = null;
 let notifTimer: ReturnType<typeof setTimeout> | null = null;
+let copyFlashTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Track whether toolbar panel is expanded (annotation mode on)
 let isExpanded = false;
@@ -79,6 +88,7 @@ const TOOLBAR_CSS = `
     --accent:        #FEC800;
     --error:         #FB645A;
     --warning:       #D6AE7C;
+    --success:       #6AA187;
     --bg:            #000000;
     --text:          #FFFFFF;
     --text-muted:    #B7B7B7;
@@ -129,7 +139,7 @@ const TOOLBAR_CSS = `
 
   /* ─── Toolbar panel (expanded state) ─────────────────────────────────── */
   .panel {
-    width: 224px;
+    width: 280px;
     display: flex;
     flex-direction: column;
     border-radius: 16px;
@@ -145,7 +155,7 @@ const TOOLBAR_CSS = `
     display: flex;
     flex-direction: row;
     align-items: center;
-    width: 224px;
+    width: 280px;
     height: 35px;
     background: var(--bg);
   }
@@ -202,7 +212,7 @@ const TOOLBAR_CSS = `
     display: flex;
     flex-direction: row;
     align-items: center;
-    width: 224px;
+    width: 280px;
     min-height: 44px;
     padding: 8px 16px;
     gap: 4px;
@@ -229,7 +239,7 @@ const TOOLBAR_CSS = `
     display: flex;
     flex-direction: row;
     align-items: center;
-    width: 224px;
+    width: 280px;
     min-height: 32px;
     padding: 8px 16px;
     gap: 4px;
@@ -255,7 +265,7 @@ const TOOLBAR_CSS = `
   .button-row {
     display: flex;
     flex-direction: row;
-    width: 224px;
+    width: 280px;
     height: 56px;
     background: transparent;
   }
@@ -281,6 +291,11 @@ const TOOLBAR_CSS = `
     opacity: 0.38;
   }
   .icon-btn[disabled]:hover { color: var(--text); }
+  /* Transient success state — locks color to green and makes the icon
+     read-only: no click, no hover, no :active press effect. */
+  .icon-btn.success,
+  .icon-btn.success:hover { color: var(--success); }
+  .icon-btn.success { pointer-events: none; }
 
   .icon-btn .icon {
     width: 24px;
@@ -382,11 +397,14 @@ function buildDOM(shadow: ShadowRoot): void {
 
   elBtnExport = makeIconButton(ICON_DOWNLOAD, 'Export annotations');
   elBtnUpload = makeIconButton(ICON_UPLOAD, 'Import annotations');
+  elBtnCopy = makeIconButton(ICON_COPY, 'Copy annotations to clipboard');
+  elBtnCopyIcon = elBtnCopy.querySelector('.icon') as HTMLSpanElement;
   elBtnDeleteAll = makeIconButton(ICON_TRASH, 'Delete all annotations');
   elBtnExit = makeIconButton(ICON_CROSS_SMALL, 'Exit annotation mode');
 
   buttonRow.appendChild(elBtnExport);
   buttonRow.appendChild(elBtnUpload);
+  buttonRow.appendChild(elBtnCopy);
   buttonRow.appendChild(elBtnDeleteAll);
   buttonRow.appendChild(elBtnExit);
 
@@ -471,6 +489,11 @@ export function initToolbar(callbacks: ToolbarCallbacks): () => void {
   elBtnUpload!.addEventListener('click', (e) => {
     e.stopPropagation();
     elFileInput!.click();
+  });
+
+  elBtnCopy!.addEventListener('click', (e) => {
+    e.stopPropagation();
+    callbacksRef?.onCopy();
   });
 
   elFileInput!.addEventListener('change', () => {
@@ -655,6 +678,25 @@ export function showResolutionAlert(unresolvedCount: number, total: number): voi
   }
 }
 
+/**
+ * Briefly swap the copy button's icon to a green check to confirm a successful
+ * clipboard write, then revert. Re-clicking during the flash restarts the timer.
+ */
+export function flashCopySuccess(durationMs = 1500): void {
+  if (!elBtnCopy || !elBtnCopyIcon) return;
+  if (copyFlashTimer !== null) {
+    clearTimeout(copyFlashTimer);
+    copyFlashTimer = null;
+  }
+  elBtnCopyIcon.innerHTML = ICON_CHECK;
+  elBtnCopy.classList.add('success');
+  copyFlashTimer = setTimeout(() => {
+    if (elBtnCopyIcon) elBtnCopyIcon.innerHTML = ICON_COPY;
+    if (elBtnCopy) elBtnCopy.classList.remove('success');
+    copyFlashTimer = null;
+  }, durationMs);
+}
+
 /** Native browser confirm — kept lowercase per spec. */
 export function showConfirmDialog(message: string): Promise<boolean> {
   return Promise.resolve(window.confirm(message));
@@ -691,6 +733,10 @@ export function destroyToolbar(): void {
     clearTimeout(notifTimer);
     notifTimer = null;
   }
+  if (copyFlashTimer !== null) {
+    clearTimeout(copyFlashTimer);
+    copyFlashTimer = null;
+  }
   if (toolbarHost && toolbarHost.parentNode) {
     toolbarHost.parentNode.removeChild(toolbarHost);
   }
@@ -707,6 +753,8 @@ export function destroyToolbar(): void {
   elErrorText = null;
   elBtnExport = null;
   elBtnUpload = null;
+  elBtnCopy = null;
+  elBtnCopyIcon = null;
   elBtnDeleteAll = null;
   elBtnExit = null;
   elFileInput = null;

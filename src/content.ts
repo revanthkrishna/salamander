@@ -41,6 +41,7 @@ import {
   setAnnotationCount,
   showToolbar,
   hideToolbar,
+  flashCopySuccess,
 } from './toolbar';
 import {
   initAnnotationMode,
@@ -52,7 +53,7 @@ import {
   destroyAnnotationMode,
   clearHoverHighlight,
 } from './annotationMode';
-import { importFile, exportAnnotations } from './importExport';
+import { importFile, exportAnnotations, buildExportYaml } from './importExport';
 import type { Annotation, DomainData, Fingerprint } from './types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -110,6 +111,7 @@ async function init(tabId: number): Promise<void> {
     onExit: handleExit,
     onExport: handleExport,
     onUploadFile: handleUploadFile,
+    onCopy: handleCopy,
     onDeleteAll: handleDeleteAll,
     onDismissFile: handleDismissFile,
   });
@@ -274,6 +276,20 @@ async function handleExport(): Promise<void> {
     return;
   }
   await exportAnnotations(domain);
+}
+
+async function handleCopy(): Promise<void> {
+  const domain = normaliseDomain(location.host);
+  const yamlString = await buildExportYaml(domain);
+  // Silent no-op when there's nothing to copy (per UX decision: only the
+  // export button surfaces the "nothing to export" alert).
+  if (yamlString === null) return;
+  try {
+    await navigator.clipboard.writeText(yamlString);
+    flashCopySuccess();
+  } catch {
+    showError("couldn't copy to clipboard. try export instead.");
+  }
 }
 
 async function handleUploadFile(file: File): Promise<void> {

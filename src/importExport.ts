@@ -182,11 +182,12 @@ export async function importFile(file: File, callbacks: ImportCallbacks): Promis
 // ---------------------------------------------------------------------------
 
 /**
- * Export all annotations for a domain as a YAML file download.
+ * Build the YAML export string for a domain. Returns null if the domain has
+ * no stored data or no annotations. Shared by file-download and copy-to-clipboard.
  */
-export async function exportAnnotations(domain: string): Promise<void> {
+export async function buildExportYaml(domain: string): Promise<string | null> {
   const domainData = await getDomainData(domain);
-  if (!domainData) return;
+  if (!domainData) return null;
 
   // Flatten all annotations across all pages, sorted by pin number
   const allAnnotations: Array<{ ann: Annotation; pageUrl: string }> = [];
@@ -195,6 +196,7 @@ export async function exportAnnotations(domain: string): Promise<void> {
       allAnnotations.push({ ann, pageUrl });
     }
   }
+  if (allAnnotations.length === 0) return null;
   allAnnotations.sort((a, b) => a.ann.pinNumber - b.ann.pinNumber);
 
   // Build YAML document object (field order matches TECH_DESIGN.md §3.1)
@@ -226,9 +228,16 @@ export async function exportAnnotations(domain: string): Promise<void> {
     annotations: yamlAnnotations,
   };
 
-  const yamlString = serialiseToYAML(yamlDoc);
-  const filename = exportFilename(normaliseDomain(domain));
+  return serialiseToYAML(yamlDoc);
+}
 
+/**
+ * Export all annotations for a domain as a YAML file download.
+ */
+export async function exportAnnotations(domain: string): Promise<void> {
+  const yamlString = await buildExportYaml(domain);
+  if (yamlString === null) return;
+  const filename = exportFilename(normaliseDomain(domain));
   triggerDownload(yamlString, filename);
 }
 
