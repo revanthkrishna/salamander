@@ -17,6 +17,26 @@ function makeFile(content: string, name = 'test.yaml', type = 'text/yaml'): File
 }
 
 const validYaml = `
+salamander_version: "1.1.0"
+exported_at: "2026-05-14T00:00:00.000Z"
+domain: "example.com"
+annotations:
+  - pin_number: 1
+    page_url: "https://example.com/page"
+    fingerprint:
+      css_selector: "#main > p"
+      xpath: "/html/body/p"
+      text_snippet: "test"
+      tag_name: "p"
+    offset:
+      x: 10
+      y: 20
+    created_at: "2026-05-14T00:00:00.000Z"
+    FEEDBACK: "test note"
+`;
+
+// Legacy v1 format — kept for back-compat tests below.
+const legacyYaml = `
 version: 1
 exported_at: "2026-05-14T00:00:00.000Z"
 domain: "example.com"
@@ -97,7 +117,7 @@ describe('importFile - error handling', () => {
 
   test('rejects empty annotations array', async () => {
     const cb = makeCallbacks();
-    const yaml = 'version: 1\ndomain: "example.com"\nannotations: []\nexported_at: "2026-05-14T00:00:00Z"';
+    const yaml = 'salamander_version: "1.1.0"\ndomain: "example.com"\nannotations: []\nexported_at: "2026-05-14T00:00:00Z"';
     await importFile(makeFile(yaml, 'test.yaml'), cb);
     expect(cb.showError).toHaveBeenCalledWith(
       expect.stringContaining('no annotations')
@@ -116,13 +136,12 @@ describe('importFile - error handling', () => {
   test('rejects duplicate pin numbers', async () => {
     const cb = makeCallbacks();
     const yaml = `
-version: 1
+salamander_version: "1.1.0"
 exported_at: "2026-05-14T00:00:00Z"
 domain: "example.com"
 annotations:
   - pin_number: 1
     page_url: "https://example.com/"
-    note: "first"
     fingerprint:
       css_selector: "p"
       xpath: "/html/body/p"
@@ -130,9 +149,9 @@ annotations:
       tag_name: "p"
     offset: {x: 0, y: 0}
     created_at: "2026-05-14T00:00:00Z"
+    FEEDBACK: "first"
   - pin_number: 1
     page_url: "https://example.com/"
-    note: "duplicate!"
     fingerprint:
       css_selector: "p"
       xpath: "/html/body/p"
@@ -140,6 +159,7 @@ annotations:
       tag_name: "p"
     offset: {x: 0, y: 0}
     created_at: "2026-05-14T00:00:00Z"
+    FEEDBACK: "duplicate!"
 `;
     await importFile(makeFile(yaml, 'test.yaml'), cb);
     expect(cb.showError).toHaveBeenCalledWith(
@@ -148,14 +168,33 @@ annotations:
     expect(cb.onImportSuccess).not.toHaveBeenCalled();
   });
 
-  test('shows warning for version mismatch but calls onImportSuccess', async () => {
+  test('shows warning for newer-major version mismatch but calls onImportSuccess', async () => {
     const cb = makeCallbacks();
-    const yaml = validYaml.replace('version: 1', 'version: 99');
+    // Bump major from 1.x to 99.x — should trigger the "newer version" warning.
+    const yaml = validYaml.replace('salamander_version: "1.1.0"', 'salamander_version: "99.0.0"');
     await importFile(makeFile(yaml, 'annotations-example_com.yaml'), cb);
     expect(cb.showWarning).toHaveBeenCalledWith(
       expect.stringContaining('newer version')
     );
     expect(cb.onImportSuccess).toHaveBeenCalled();
+  });
+
+  test('does NOT warn when only minor/patch version differs', async () => {
+    const cb = makeCallbacks();
+    // 1.99.99 has same major as 1.1.0 → no warning.
+    const yaml = validYaml.replace('salamander_version: "1.1.0"', 'salamander_version: "1.99.99"');
+    await importFile(makeFile(yaml, 'annotations-example_com.yaml'), cb);
+    expect(cb.showWarning).not.toHaveBeenCalled();
+    expect(cb.onImportSuccess).toHaveBeenCalled();
+  });
+
+  // Back-compat: legacy v1 YAML (uses `version: 1` and `note:`) must keep importing.
+  test('accepts legacy v1 schema (version + note field names)', async () => {
+    const cb = makeCallbacks();
+    await importFile(makeFile(legacyYaml, 'annotations-example_com.yaml'), cb);
+    expect(cb.showError).not.toHaveBeenCalled();
+    expect(cb.showWarning).not.toHaveBeenCalled();
+    expect(cb.onImportSuccess).toHaveBeenCalledWith('annotations-example_com.yaml');
   });
 
   test('shows confirmation when annotations exist (count > 0)', async () => {
@@ -219,15 +258,15 @@ annotations:
   test('rejects annotation with missing fingerprint', async () => {
     const cb = makeCallbacks();
     const yaml = `
-version: 1
+salamander_version: "1.1.0"
 exported_at: "2026-05-14T00:00:00Z"
 domain: "example.com"
 annotations:
   - pin_number: 1
     page_url: "https://example.com/"
-    note: "test"
     offset: {x: 0, y: 0}
     created_at: "2026-05-14T00:00:00Z"
+    FEEDBACK: "test"
 `;
     await importFile(makeFile(yaml, 'test.yaml'), cb);
     expect(cb.showError).toHaveBeenCalledWith(
@@ -238,13 +277,12 @@ annotations:
   test('rejects annotation with invalid pin_number (zero)', async () => {
     const cb = makeCallbacks();
     const yaml = `
-version: 1
+salamander_version: "1.1.0"
 exported_at: "2026-05-14T00:00:00Z"
 domain: "example.com"
 annotations:
   - pin_number: 0
     page_url: "https://example.com/"
-    note: "bad pin number"
     fingerprint:
       css_selector: "p"
       xpath: "/html/body/p"
@@ -252,6 +290,7 @@ annotations:
       tag_name: "p"
     offset: {x: 0, y: 0}
     created_at: "2026-05-14T00:00:00Z"
+    FEEDBACK: "bad pin number"
 `;
     await importFile(makeFile(yaml, 'test.yaml'), cb);
     expect(cb.showError).toHaveBeenCalledWith(

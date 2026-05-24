@@ -1,5 +1,14 @@
 // Mock chrome.storage.local and related APIs for Jest tests
 
+// Read manifest version live so the chrome.runtime.getManifest() mock matches
+// whatever version manifest.json currently declares. Keeps the YAML
+// salamander_version field tested against the real running version.
+import * as fs from 'fs';
+import * as path from 'path';
+const manifestJson = JSON.parse(
+  fs.readFileSync(path.join(__dirname, '../../manifest.json'), 'utf-8'),
+);
+
 // jsdom doesn't implement layout, so HTMLElement.offsetWidth/offsetHeight
 // always return 0 — which makes fingerprint.ts's isVisible() treat every
 // element in the document as invisible and disqualify it from resolution.
@@ -80,6 +89,7 @@ const storageData: Record<string, unknown> = {};
   },
   runtime: {
     lastError: null,
+    getManifest: jest.fn(() => manifestJson),
   },
 };
 

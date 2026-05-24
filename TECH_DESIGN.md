@@ -287,10 +287,10 @@ annotations:
       x: 120                               # pixels from element left edge
       y: 20                                # pixels from element top edge
     created_at: "2026-05-14T04:30:00.000Z" # ISO 8601 UTC
+    FEEDBACK: "This is the key architectural insight."      # string, max 400 chars; placed last for human readability
 
   - pin_number: 2
     page_url: "https://figma.com/blog/how-we-built-figma"
-    note: "Worth citing in the architecture doc."
     fingerprint:
       css_selector: "h2#performance"
       xpath: "/html/body/main/div[2]/article/h2[2]"
@@ -312,19 +312,20 @@ annotations:
       x: 0
       y: 0
     created_at: "2026-05-14T04:31:00.000Z"
+    FEEDBACK: "Worth citing in the architecture doc."
 ```
 
 ### 3.2 Field Reference
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `version` | integer | ✅ | Currently `1`. Increment on breaking schema changes. |
+| `salamander_version` | string | ✅ | Extension version that produced this file (semver, e.g. `"1.1.0"`). Auto-read from `manifest.json` at export time. Legacy files with `version: <int>` are still accepted on import. |
 | `exported_at` | string (ISO 8601) | ✅ | UTC timestamp of export. Human reference only. |
 | `domain` | string | ✅ | Normalised domain without `www.`. Validated on import. |
 | `annotations` | array | ✅ | May not be empty (rejected on import if empty). |
 | `annotations[].pin_number` | integer | ✅ | Must be unique within the file. |
 | `annotations[].page_url` | string | ✅ | Normalised URL. No query params or fragments. |
-| `annotations[].note` | string | ✅ | Max 400 chars. |
+| `annotations[].FEEDBACK` | string | ✅ | Max 400 chars. ALL-CAPS key name and placement at the end of each annotation block are intentional — makes the prose easy to spot when reading raw YAML. Legacy files with lowercase `note:` are still accepted on import. |
 | `annotations[].fingerprint` | object | ✅ | Required structural sub-fields below; semantic-context sub-fields are optional. |
 | `annotations[].fingerprint.css_selector` | string | ✅ | Full CSS path to element. |
 | `annotations[].fingerprint.xpath` | string | ✅ | Absolute XPath from document root. |
@@ -353,24 +354,24 @@ On import, all of the following must pass or the file is rejected:
 1. File extension is `.yaml` or `.yml`
 2. File is non-empty
 3. File parses as valid YAML
-4. Top-level object has `version`, `domain`, `annotations` keys
+4. Top-level object has `domain`, `annotations`, and one of `salamander_version` (current) or `version` (legacy)
 5. `annotations` is a non-empty array
 6. All `annotations[].pin_number` values are unique
 7. `domain` matches the normalised domain of the current tab
-8. `version` ≤ current supported version (warn if version > supported)
+8. `salamander_version` major version ≤ current major (warn if file major > current major)
 9. File size ≤ 8MB
-10. Each annotation has all required fields
+10. Each annotation has all required fields (per-annotation prose field accepted under either `FEEDBACK` or legacy `note`)
 
 ### 3.4 Versioning Strategy
 
-```javascript
-const CURRENT_EXPORT_VERSION = 1; // increment on breaking schema changes
-```
+The exported `salamander_version` is read live from `manifest.json` via
+`chrome.runtime.getManifest().version` — bumping the extension version in the
+manifest automatically flows into every subsequent export. No constant to
+maintain in `importExport.ts`.
 
-- `version: 1` is the current format.
-- On a **breaking change** (field renamed, removed, or semantics changed): increment to `2`. Import code checks: if `file.version > CURRENT_VERSION`, show yellow warning and proceed; if schema fails validation, reject with red error.
-- On a **backward-compatible addition** (new optional field): same version. Old importers ignore unknown fields.
-- The version is an integer, not semver. No minor versions.
+- On a **breaking schema change**, bump the manifest's major version. The import "newer-version" warning compares major segments only.
+- On a **backward-compatible addition** (new optional field), no special action: old importers ignore unknown fields, exporters write the new field.
+- Files exported by previous Salamander versions (which used `version: 1` and per-annotation `note:`) continue to import without manual conversion — the validator accepts both field names and a normalisation step collapses them into the current shape.
 
 ---
 

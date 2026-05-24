@@ -7,8 +7,27 @@ import { normaliseDomain, normaliseUrl, exportFilename } from './urlNorm';
 // Constants
 // ---------------------------------------------------------------------------
 
-const CURRENT_EXPORT_VERSION = 1;
 const MAX_FILE_SIZE = 8 * 1024 * 1024; // 8MB
+
+/**
+ * Current extension version, read live from the manifest so YAML exports
+ * always reflect the running build. No manual bump needed when manifest.json
+ * is updated. Falls back to '0.0.0' in non-extension environments (jsdom tests).
+ */
+function currentSalamanderVersion(): string {
+  try {
+    return chrome.runtime.getManifest().version;
+  } catch {
+    return '0.0.0';
+  }
+}
+
+/** Compare two semver-ish strings by major version. Returns true if a > b. */
+function majorGreater(a: string, b: string): boolean {
+  const am = parseInt(String(a).split('.')[0] || '0', 10);
+  const bm = parseInt(String(b).split('.')[0] || '0', 10);
+  return Number.isFinite(am) && Number.isFinite(bm) && am > bm;
+}
 
 // ---------------------------------------------------------------------------
 // Public interface for import callbacks
@@ -93,10 +112,14 @@ export async function importFile(file: File, callbacks: ImportCallbacks): Promis
     return;
   }
 
-  const yamlDoc = doc as YamlDocument;
+  // Normalise legacy field names (`version`, `note`) into the current shape
+  // (`salamander_version`, `FEEDBACK`) so downstream code only sees one format.
+  const yamlDoc = normaliseYamlDoc(doc as Record<string, unknown>);
 
-  // Step 7: Version check (warning only — continue regardless)
-  if (yamlDoc.version > CURRENT_EXPORT_VERSION) {
+  // Step 7: Version check (warning only — continue regardless).
+  // Only meaningful for new-format files; legacy `version: 1` always reports
+  // major 1, which equals the current major today and gracefully won't warn.
+  if (majorGreater(yamlDoc.salamander_version, currentSalamanderVersion())) {
     callbacks.showWarning(
       'This file was created with a newer version of Annotator. Some annotations may not display correctly.'
     );
@@ -138,7 +161,7 @@ export async function importFile(file: File, callbacks: ImportCallbacks): Promis
     if (!pages[pageUrl]) pages[pageUrl] = [];
     pages[pageUrl].push({
       pinNumber: ann.pin_number,
-      note: ann.note,
+      note: ann.FEEDBACK,
       fingerprint: {
         cssSelector: ann.fingerprint.css_selector,
         xpath: ann.fingerprint.xpath,
@@ -199,11 +222,12 @@ export async function buildExportYaml(domain: string): Promise<string | null> {
   if (allAnnotations.length === 0) return null;
   allAnnotations.sort((a, b) => a.ann.pinNumber - b.ann.pinNumber);
 
-  // Build YAML document object (field order matches TECH_DESIGN.md §3.1)
+  // Build YAML document object. Field insertion order = emit order under
+  // sortKeys:false. `FEEDBACK` is intentionally last so the prose content sits
+  // at the bottom of each annotation block, where a human reader expects it.
   const yamlAnnotations: YamlAnnotation[] = allAnnotations.map(({ ann, pageUrl }) => ({
     pin_number: ann.pinNumber,
     page_url: pageUrl,
-    note: ann.note,
     fingerprint: {
       css_selector: ann.fingerprint.cssSelector,
       xpath: ann.fingerprint.xpath,
@@ -219,10 +243,11 @@ export async function buildExportYaml(domain: string): Promise<string | null> {
     },
     offset: { x: ann.offset.x, y: ann.offset.y },
     created_at: ann.createdAt,
+    FEEDBACK: ann.note,
   }));
 
   const yamlDoc: YamlDocument = {
-    version: CURRENT_EXPORT_VERSION,
+    salamander_version: currentSalamanderVersion(),
     exported_at: new Date().toISOString(),
     domain: normaliseDomain(domain),
     annotations: yamlAnnotations,
@@ -253,8 +278,37 @@ function parseYAML(text: string): unknown {
 }
 
 /**
+ * Collapse legacy field names into the current YAML shape so downstream
+ * import code only handles one format. Legacy `version` (integer) is
+ * stringified; legacy per-annotation `note` becomes `FEEDBACK`. Assumes
+ * validateSchema() has already passed.
+ */
+function normaliseYamlDoc(raw: Record<string, unknown>): YamlDocument {
+  const rawVersion = raw.salamander_version ?? raw.version ?? '0.0.0';
+  const rawAnnotations = raw.annotations as Array<Record<string, unknown>>;
+  const annotations: YamlAnnotation[] = rawAnnotations.map((a) => ({
+    pin_number: a.pin_number as number,
+    page_url: a.page_url as string,
+    fingerprint: a.fingerprint as YamlAnnotation['fingerprint'],
+    offset: a.offset as YamlAnnotation['offset'],
+    created_at: a.created_at as string,
+    FEEDBACK: (a.FEEDBACK ?? a.note) as string,
+  }));
+  return {
+    salamander_version: String(rawVersion),
+    exported_at: raw.exported_at as string,
+    domain: raw.domain as string,
+    annotations,
+  };
+}
+
+/**
  * Validate the parsed YAML document against the expected schema.
  * Throws ImportError with the appropriate code on any validation failure.
+ *
+ * Accepts both the current schema (`salamander_version`, per-annotation
+ * `FEEDBACK`) and the legacy v1 schema (`version`, `note`). The
+ * normalisation step downstream collapses both into the current shape.
  */
 function validateSchema(doc: unknown): void {
   if (!doc || typeof doc !== 'object') {
@@ -263,7 +317,8 @@ function validateSchema(doc: unknown): void {
 
   const d = doc as Record<string, unknown>;
 
-  if (!('version' in d) || !('domain' in d) || !Array.isArray(d.annotations)) {
+  const hasVersion = 'salamander_version' in d || 'version' in d;
+  if (!hasVersion || !('domain' in d) || !Array.isArray(d.annotations)) {
     throw new ImportError('WRONG_SCHEMA');
   }
 
@@ -284,8 +339,9 @@ function validateSchema(doc: unknown): void {
     if (typeof a.page_url !== 'string' || !a.page_url) {
       throw new ImportError('WRONG_SCHEMA');
     }
-    if (typeof a.note !== 'string') {
-      // empty string is allowed
+    // Accept FEEDBACK (current) or note (legacy). Empty string is allowed.
+    const feedback = a.FEEDBACK ?? a.note;
+    if (typeof feedback !== 'string') {
       throw new ImportError('WRONG_SCHEMA');
     }
 
