@@ -228,14 +228,17 @@ The `www.` prefix is stripped before forming the key, so `www.figma.com` and `fi
 Page URLs stored as keys within `pages`:
 - Scheme is lowercased; hostname is lowercased
 - `www.` prefix stripped
-- Port ignored
+- **Port preserved when non-standard; stripped when it's the protocol default (80 for `http`, 443 for `https`).** Preserving non-standard ports is required so localhost dev servers (`localhost:3000`, `localhost:5173`) are addressable as distinct annotation targets.
 - Path preserved as-is (case-sensitive)
 - Trailing slash stripped
 - Query params stripped
 - Fragment stripped
 - `http://` normalised to `https://`
 
-Example: `http://www.figma.com/blog/How-We-Built-Figma?ref=twitter#intro` → `https://figma.com/blog/How-We-Built-Figma`
+Examples:
+- `http://www.figma.com/blog/How-We-Built-Figma?ref=twitter#intro` → `https://figma.com/blog/How-We-Built-Figma`
+- `http://localhost:3000/dashboard` → `https://localhost:3000/dashboard` (port preserved)
+- `https://example.com:443/page` → `https://example.com/page` (standard port stripped)
 
 ### 2.5 Pin Number Management
 
@@ -270,14 +273,13 @@ The background service worker checks `chrome.storage.local.get('activeTab:' + ta
 ### 3.1 Full Schema
 
 ```yaml
-version: 1                                  # integer — Annotator export format version
+salamander_version: "1.1.0"                 # string — Salamander extension version (manifest.version)
 exported_at: "2026-05-14T04:30:00.000Z"    # ISO 8601 UTC timestamp
 domain: "figma.com"                         # normalised domain (www. stripped)
 
 annotations:
   - pin_number: 1                           # integer, globally unique
     page_url: "https://figma.com/blog/how-we-built-figma"  # normalised URL, no params/fragments
-    note: "This is the key architectural insight."          # string, max 400 chars
     fingerprint:
       css_selector: "#main-content > article > p:nth-of-type(3)"
       xpath: "/html/body/main/div[2]/article/p[3]"
