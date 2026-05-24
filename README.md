@@ -62,3 +62,9 @@ zero network requests. ever. all annotation data lives in `chrome.storage.local`
 ## license
 
 MIT
+
+---
+
+## credits
+
+Uicons by [Flaticon](https://www.flaticon.com/uicons)
