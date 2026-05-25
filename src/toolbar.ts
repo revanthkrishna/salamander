@@ -60,6 +60,7 @@ let elToolbarPanel: HTMLDivElement | null = null;
 let elFilenameBar: HTMLDivElement | null = null;
 let elFilenameText: HTMLSpanElement | null = null;
 let elFilenameDismissBtn: HTMLButtonElement | null = null;
+let elCountdownBar: HTMLDivElement | null = null;
 let elWarningBar: HTMLDivElement | null = null;
 let elWarningText: HTMLSpanElement | null = null;
 let elErrorBar: HTMLDivElement | null = null;
@@ -233,6 +234,19 @@ const TOOLBAR_CSS = `
     color: var(--warning);
     flex: 1 1 auto;
   }
+
+  /* Countdown bar — shown at the very top of the panel above warning/error.
+     Width-scales from 100% → 0% over the message duration as a visual timer.
+     Color is set per-message via the .warning / .error modifier class. */
+  .countdown-bar {
+    width: 100%;
+    height: 3px;
+    background: var(--error);
+    transform-origin: left center;
+    transform: scaleX(1);
+  }
+  .countdown-bar[hidden] { display: none !important; }
+  .countdown-bar.warning { background: var(--warning); }
 
   /* Error bar */
   .error-bar {
@@ -408,6 +422,15 @@ function buildDOM(shadow: ShadowRoot): void {
   buttonRow.appendChild(elBtnDeleteAll);
   buttonRow.appendChild(elBtnExit);
 
+  // Countdown bar — must be first child of panel so it sits at the very top
+  // (above filename / warning / error rows). Hidden by default; shown only
+  // while a temporary message is active.
+  elCountdownBar = document.createElement('div');
+  elCountdownBar.className = 'countdown-bar';
+  elCountdownBar.setAttribute('aria-hidden', 'true');
+  elCountdownBar.hidden = true;
+
+  elToolbarPanel.appendChild(elCountdownBar);
   elToolbarPanel.appendChild(elFilenameBar);
   elToolbarPanel.appendChild(elWarningBar);
   elToolbarPanel.appendChild(elErrorBar);
@@ -577,6 +600,36 @@ export function setFilename(filename: string | null): void {
   }
 }
 
+const NOTIF_DURATION_MS = 8000;
+
+/**
+ * Animate the countdown bar from full width to zero over the notification
+ * duration, as a visual timer for the temporary message. `kind` selects the
+ * color (red for error, tan for warning) to match the bar below it.
+ */
+function startCountdownAnim(kind: 'error' | 'warning'): void {
+  if (!elCountdownBar) return;
+  elCountdownBar.classList.toggle('warning', kind === 'warning');
+  elCountdownBar.hidden = false;
+  // Snap to full width with no transition...
+  elCountdownBar.style.transition = 'none';
+  elCountdownBar.style.transform = 'scaleX(1)';
+  // ...then force a reflow so the reset actually takes effect before the
+  // next transition is applied. Without this the browser collapses both
+  // style changes into one frame and the animation never runs.
+  void elCountdownBar.offsetWidth;
+  elCountdownBar.style.transition = `transform ${NOTIF_DURATION_MS}ms linear`;
+  elCountdownBar.style.transform = 'scaleX(0)';
+}
+
+function stopCountdownAnim(): void {
+  if (!elCountdownBar) return;
+  elCountdownBar.hidden = true;
+  elCountdownBar.style.transition = 'none';
+  elCountdownBar.style.transform = 'scaleX(1)';
+  elCountdownBar.classList.remove('warning');
+}
+
 /** Show error bar inside the toolbar. Auto-clears after 8s. */
 export function showError(message: string): void {
   if (!elErrorBar || !elErrorText) return;
@@ -588,10 +641,11 @@ export function showError(message: string): void {
   elErrorBar.hidden = false;
   // Ensure panel is visible so the user sees it
   if (!isExpanded) setExpanded(true);
+  startCountdownAnim('error');
   notifTimer = setTimeout(() => {
     clearError();
     notifTimer = null;
-  }, 8000);
+  }, NOTIF_DURATION_MS);
 }
 
 /** Show warning bar inside the toolbar. Auto-clears after 8s. */
@@ -604,22 +658,25 @@ export function showWarning(message: string): void {
   elWarningText.textContent = message;
   elWarningBar.hidden = false;
   if (!isExpanded) setExpanded(true);
+  startCountdownAnim('warning');
   notifTimer = setTimeout(() => {
     clearWarning();
     notifTimer = null;
-  }, 8000);
+  }, NOTIF_DURATION_MS);
 }
 
 function clearError(): void {
   if (!elErrorBar || !elErrorText) return;
   elErrorBar.hidden = true;
   elErrorText.textContent = '';
+  stopCountdownAnim();
 }
 
 function clearWarning(): void {
   if (!elWarningBar || !elWarningText) return;
   elWarningBar.hidden = true;
   elWarningText.textContent = '';
+  stopCountdownAnim();
 }
 
 export function clearMessage(): void {
@@ -747,6 +804,7 @@ export function destroyToolbar(): void {
   elFilenameBar = null;
   elFilenameText = null;
   elFilenameDismissBtn = null;
+  elCountdownBar = null;
   elWarningBar = null;
   elWarningText = null;
   elErrorBar = null;
