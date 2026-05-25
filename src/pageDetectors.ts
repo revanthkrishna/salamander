@@ -101,9 +101,17 @@ function detectIframes(cfg: DetectorConfig): DetectedIssue | null {
   return { type: 'iframe', message: MSG_IFRAME, count };
 }
 
-function detectCanvases(_cfg: DetectorConfig): DetectedIssue | null {
-  // Stub — implemented in a follow-up commit.
-  return null;
+function detectCanvases(cfg: DetectorConfig): DetectedIssue | null {
+  const minW = cfg.sizeThresholdPx.width;
+  const minH = cfg.sizeThresholdPx.height;
+
+  const all = document.querySelectorAll('canvas');
+  let count = 0;
+  for (const el of Array.from(all)) {
+    if (isVisibleAndLargeEnough(el, minW, minH)) count++;
+  }
+  if (count === 0) return null;
+  return { type: 'canvas', message: MSG_CANVAS, count };
 }
 
 function detectClosedShadowRoots(_cfg: DetectorConfig): DetectedIssue | null {

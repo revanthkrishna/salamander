@@ -160,6 +160,84 @@ describe('detectIframes', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// detectCanvases (via detectPageLimitations with only canvas enabled)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('detectCanvases', () => {
+  let restoreRect: () => void;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    restoreRect = mockBoundingRectFromDataAttrs();
+  });
+
+  afterEach(() => {
+    restoreRect();
+  });
+
+  test('empty page → no issue', () => {
+    expect(detectPageLimitations(DEFAULT_DETECTOR_CONFIG)).toEqual([]);
+  });
+
+  test('one large canvas → canvas issue with count=1', () => {
+    document.body.innerHTML = '<canvas data-w="500" data-h="500"></canvas>';
+    const issues = detectPageLimitations(DEFAULT_DETECTOR_CONFIG);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].type).toBe('canvas');
+    expect(issues[0].count).toBe(1);
+  });
+
+  test('two large canvases → single canvas issue with count=2', () => {
+    document.body.innerHTML =
+      '<canvas data-w="400" data-h="400"></canvas>' +
+      '<canvas data-w="600" data-h="600"></canvas>';
+    const issues = detectPageLimitations(DEFAULT_DETECTOR_CONFIG);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].type).toBe('canvas');
+    expect(issues[0].count).toBe(2);
+  });
+
+  test('canvas below 200x200 threshold → no issue', () => {
+    document.body.innerHTML = '<canvas data-w="50" data-h="50"></canvas>';
+    expect(detectPageLimitations(DEFAULT_DETECTOR_CONFIG)).toEqual([]);
+  });
+
+  test('canvas with display:none → no issue', () => {
+    document.body.innerHTML =
+      '<canvas data-w="500" data-h="500" style="display:none"></canvas>';
+    expect(detectPageLimitations(DEFAULT_DETECTOR_CONFIG)).toEqual([]);
+  });
+
+  test('canvas 199x199 (off-by-one under) → no issue', () => {
+    document.body.innerHTML = '<canvas data-w="199" data-h="199"></canvas>';
+    expect(detectPageLimitations(DEFAULT_DETECTOR_CONFIG)).toEqual([]);
+  });
+
+  test('canvas 200x200 (boundary) → issue fires', () => {
+    document.body.innerHTML = '<canvas data-w="200" data-h="200"></canvas>';
+    const issues = detectPageLimitations(DEFAULT_DETECTOR_CONFIG);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].type).toBe('canvas');
+  });
+
+  test('canvas 201x201 (off-by-one over) → issue fires', () => {
+    document.body.innerHTML = '<canvas data-w="201" data-h="201"></canvas>';
+    const issues = detectPageLimitations(DEFAULT_DETECTOR_CONFIG);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].type).toBe('canvas');
+  });
+
+  test('canvas disabled in config → not reported', () => {
+    document.body.innerHTML = '<canvas data-w="500" data-h="500"></canvas>';
+    const issues = detectPageLimitations({
+      ...DEFAULT_DETECTOR_CONFIG,
+      canvas: false,
+    });
+    expect(issues).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // detectPageLimitations — config + ordering
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -185,13 +263,22 @@ describe('detectPageLimitations — config + ordering', () => {
     expect(issues).toEqual([]);
   });
 
-  test('stable order: iframe always first when present', () => {
-    // canvas/closedShadow/spa are stubs in this commit, so iframe alone is the
-    // only ordering signal we can lock in here. Subsequent commits extend the
-    // assertion.
+  test('stable order: iframe before canvas regardless of DOM order', () => {
     document.body.innerHTML =
+      '<canvas data-w="500" data-h="500"></canvas>' +
       '<iframe data-w="500" data-h="500" src="about:blank"></iframe>';
     const issues = detectPageLimitations(DEFAULT_DETECTOR_CONFIG);
-    expect(issues.map((i) => i.type)).toEqual(['iframe']);
+    expect(issues.map((i) => i.type)).toEqual(['iframe', 'canvas']);
+  });
+
+  test('multiple issues: combined message uses 2-issue form', () => {
+    document.body.innerHTML =
+      '<iframe data-w="500" data-h="500" src="about:blank"></iframe>' +
+      '<canvas data-w="500" data-h="500"></canvas>';
+    const issues = detectPageLimitations(DEFAULT_DETECTOR_CONFIG);
+    expect(issues).toHaveLength(2);
+    const combined = combineIssueMessages(issues);
+    expect(combined).toMatch(/^heads up — /);
+    expect(combined).toContain(' also, ');
   });
 });
