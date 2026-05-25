@@ -40,11 +40,11 @@ export const DEFAULT_DETECTOR_CONFIG: DetectorConfig = {
 const MSG_IFRAME =
   "some parts of this page are embedded from another source — you can't pin anything inside those embedded areas.";
 const MSG_CANVAS =
-  'this page contains drawn images. you can pin the whole image but not specific spots inside it.';
+  'this page contains drawn images or canvases. pinning may not work in those areas.';
 const MSG_CLOSED_SHADOW =
   'some parts of this page are built with components that may not be pinnable individually.';
 const MSG_SPA =
-  'this page may reload parts of itself as you navigate. pins might not always stay attached when that happens.';
+  'pins may not work properly. this page contains dynamic content.';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Visibility / size predicate
@@ -205,16 +205,15 @@ export function detectPageLimitations(
  * Compose one toolbar-ready string from the detected issues.
  *   - 0 issues  → empty string (caller should guard before calling)
  *   - 1 issue   → that issue's message verbatim
- *   - 2 issues  → "heads up — {a} also, {b}"
- *   - 3+ issues → "heads up — this page has several things that can limit
- *                  pinning: {a} {b} {c} ..."
+ *   - 2+ issues → generic catch-all (matches the SPA single-issue copy)
+ *
+ * The 2+ case intentionally collapses to one short sentence regardless of
+ * which specific detectors fired — listing each one was deemed too noisy.
  */
+export const MSG_MULTIPLE = 'pins may not work properly. this page contains dynamic content.';
+
 export function combineIssueMessages(issues: DetectedIssue[]): string {
   if (issues.length === 0) return '';
   if (issues.length === 1) return issues[0].message;
-  if (issues.length === 2) {
-    return `heads up — ${issues[0].message} also, ${issues[1].message}`;
-  }
-  const joined = issues.map((i) => i.message).join(' ');
-  return `heads up — this page has several things that can limit pinning: ${joined}`;
+  return MSG_MULTIPLE;
 }

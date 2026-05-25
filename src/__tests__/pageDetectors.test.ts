@@ -43,6 +43,8 @@ function mockBoundingRectFromDataAttrs(): () => void {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('combineIssueMessages', () => {
+  const MULTIPLE = 'pins may not work properly. this page contains dynamic content.';
+
   test('0 issues → empty string', () => {
     expect(combineIssueMessages([])).toBe('');
   });
@@ -52,35 +54,31 @@ describe('combineIssueMessages', () => {
     expect(combineIssueMessages(issues)).toBe('m1');
   });
 
-  test('2 issues → "heads up — {a} also, {b}"', () => {
+  test('2 issues → generic catch-all (individual messages collapsed)', () => {
     const issues: DetectedIssue[] = [
       { type: 'iframe', message: 'a-msg' },
       { type: 'canvas', message: 'b-msg' },
     ];
-    expect(combineIssueMessages(issues)).toBe('heads up — a-msg also, b-msg');
+    expect(combineIssueMessages(issues)).toBe(MULTIPLE);
   });
 
-  test('3 issues → multi-issue preamble + space-joined messages', () => {
+  test('3 issues → same generic catch-all', () => {
     const issues: DetectedIssue[] = [
       { type: 'iframe', message: 'a' },
       { type: 'canvas', message: 'b' },
       { type: 'closedShadow', message: 'c' },
     ];
-    expect(combineIssueMessages(issues)).toBe(
-      'heads up — this page has several things that can limit pinning: a b c'
-    );
+    expect(combineIssueMessages(issues)).toBe(MULTIPLE);
   });
 
-  test('4 issues → same preamble, still space-joined', () => {
+  test('4 issues → still the same generic catch-all', () => {
     const issues: DetectedIssue[] = [
       { type: 'iframe', message: 'a' },
       { type: 'canvas', message: 'b' },
       { type: 'closedShadow', message: 'c' },
       { type: 'spa', message: 'd' },
     ];
-    expect(combineIssueMessages(issues)).toBe(
-      'heads up — this page has several things that can limit pinning: a b c d'
-    );
+    expect(combineIssueMessages(issues)).toBe(MULTIPLE);
   });
 });
 
@@ -464,15 +462,15 @@ describe('detectPageLimitations — config + ordering', () => {
     expect(issues.map((i) => i.type)).toEqual(['iframe', 'canvas']);
   });
 
-  test('multiple issues: combined message uses 2-issue form', () => {
+  test('multiple issues: combined message is the generic catch-all', () => {
     document.body.innerHTML =
       '<iframe data-w="500" data-h="500" src="about:blank"></iframe>' +
       '<canvas data-w="500" data-h="500"></canvas>';
     const issues = detectPageLimitations(DEFAULT_DETECTOR_CONFIG);
     expect(issues).toHaveLength(2);
-    const combined = combineIssueMessages(issues);
-    expect(combined).toMatch(/^heads up — /);
-    expect(combined).toContain(' also, ');
+    expect(combineIssueMessages(issues)).toBe(
+      'pins may not work properly. this page contains dynamic content.'
+    );
   });
 
   test('all four detectors firing → stable order iframe, canvas, closedShadow, spa', () => {
@@ -489,7 +487,8 @@ describe('detectPageLimitations — config + ordering', () => {
       'closedShadow',
       'spa',
     ]);
-    const combined = combineIssueMessages(issues);
-    expect(combined).toMatch(/^heads up — this page has several things/);
+    expect(combineIssueMessages(issues)).toBe(
+      'pins may not work properly. this page contains dynamic content.'
+    );
   });
 });

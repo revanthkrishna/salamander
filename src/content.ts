@@ -42,6 +42,7 @@ import {
   showToolbar,
   hideToolbar,
   flashCopySuccess,
+  ICON_LIMITATIONS,
 } from './toolbar';
 import {
   initAnnotationMode,
@@ -293,7 +294,11 @@ function runPageLimitationsCheck(): void {
   const fresh = issues.filter((i) => !shownThisPageLoad.has(i.type));
   if (fresh.length === 0) return;
   for (const i of fresh) shownThisPageLoad.add(i.type);
-  showError(combineIssueMessages(fresh));
+  // Tan warning bar with the face-smile-upside-down icon — these are "may
+  // not work" heads-ups, not hard errors. The custom icon distinguishes
+  // them from other warnings (partial-import, version-mismatch) which keep
+  // the default exclamation icon.
+  showWarning(combineIssueMessages(fresh), ICON_LIMITATIONS);
 }
 
 /** Exit (cross) click → stop annotation mode. Pins remain visible. */

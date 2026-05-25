@@ -47,6 +47,13 @@ const ICON_COPY = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" w
 
 const ICON_CHECK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 507.506 507.506" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="M163.865,436.934c-14.406,0.006-28.222-5.72-38.4-15.915L9.369,304.966c-12.492-12.496-12.492-32.752,0-45.248c12.496-12.492,32.752-12.492,45.248,0l109.248,109.248L452.889,79.942c12.496-12.492,32.752-12.492,45.248,0c12.492,12.496,12.492,32.752,0,45.248L202.265,421.019C192.087,431.214,178.271,436.94,163.865,436.934z"/></svg>`;
 
+/**
+ * Face-smile-upside-down icon — exported so callers (currently the page-
+ * limitations alert in content.ts) can pass it to showWarning() as a custom
+ * icon for the warning bar. Default warning icon remains ICON_EXCLAMATION.
+ */
+export const ICON_LIMITATIONS = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="M12,0C5.383,0,0,5.383,0,12s5.383,12,12,12,12-5.383,12-12S18.617,0,12,0Zm0,22c-5.514,0-10-4.486-10-10S6.486,2,12,2s10,4.486,10,10-4.486,10-10,10Zm5.666-13.746c.412,.368,.448,1,.08,1.412-.197,.221-.471,.334-.746,.334-.237,0-.475-.084-.666-.254-.018-.016-2.003-1.746-4.334-1.746s-4.316,1.73-4.336,1.748c-.413,.366-1.044,.328-1.411-.084-.366-.412-.331-1.042,.081-1.409,.103-.092,2.559-2.254,5.666-2.254s5.563,2.162,5.666,2.254Zm-.666,6.246c0,.828-.672,1.5-1.5,1.5s-1.5-.672-1.5-1.5,.672-1.5,1.5-1.5,1.5,.672,1.5,1.5Zm-7,0c0,.828-.672,1.5-1.5,1.5s-1.5-.672-1.5-1.5,.672-1.5,1.5-1.5,1.5,.672,1.5,1.5Z"/></svg>`;
+
 // ---------------------------------------------------------------------------
 // Module-level state
 // ---------------------------------------------------------------------------
@@ -62,6 +69,7 @@ let elFilenameText: HTMLSpanElement | null = null;
 let elFilenameDismissBtn: HTMLButtonElement | null = null;
 let elCountdownBar: HTMLDivElement | null = null;
 let elWarningBar: HTMLDivElement | null = null;
+let elWarningIcon: HTMLSpanElement | null = null;
 let elWarningText: HTMLSpanElement | null = null;
 let elErrorBar: HTMLDivElement | null = null;
 let elErrorText: HTMLSpanElement | null = null;
@@ -384,12 +392,12 @@ function buildDOM(shadow: ShadowRoot): void {
   elWarningBar.className = 'warning-bar';
   elWarningBar.setAttribute('role', 'status');
   elWarningBar.hidden = true;
-  const warnIcon = document.createElement('span');
-  warnIcon.className = 'icon';
-  warnIcon.innerHTML = ICON_EXCLAMATION;
+  elWarningIcon = document.createElement('span');
+  elWarningIcon.className = 'icon';
+  elWarningIcon.innerHTML = ICON_EXCLAMATION;
   elWarningText = document.createElement('span');
   elWarningText.className = 'warning-text';
-  elWarningBar.appendChild(warnIcon);
+  elWarningBar.appendChild(elWarningIcon);
   elWarningBar.appendChild(elWarningText);
 
   // Error bar
@@ -648,12 +656,19 @@ export function showError(message: string): void {
   }, NOTIF_DURATION_MS);
 }
 
-/** Show warning bar inside the toolbar. Auto-clears after 8s. */
-export function showWarning(message: string): void {
+/**
+ * Show warning bar inside the toolbar. Auto-clears after 8s.
+ * Pass `customIcon` (e.g. `ICON_LIMITATIONS`) to swap the default exclamation
+ * icon for this one message. The icon resets to default when the warning clears.
+ */
+export function showWarning(message: string, customIcon?: string): void {
   if (!elWarningBar || !elWarningText) return;
   if (notifTimer !== null) {
     clearTimeout(notifTimer);
     notifTimer = null;
+  }
+  if (elWarningIcon) {
+    elWarningIcon.innerHTML = customIcon ?? ICON_EXCLAMATION;
   }
   elWarningText.textContent = message;
   elWarningBar.hidden = false;
@@ -676,6 +691,7 @@ function clearWarning(): void {
   if (!elWarningBar || !elWarningText) return;
   elWarningBar.hidden = true;
   elWarningText.textContent = '';
+  if (elWarningIcon) elWarningIcon.innerHTML = ICON_EXCLAMATION;
   stopCountdownAnim();
 }
 
@@ -806,6 +822,7 @@ export function destroyToolbar(): void {
   elFilenameDismissBtn = null;
   elCountdownBar = null;
   elWarningBar = null;
+  elWarningIcon = null;
   elWarningText = null;
   elErrorBar = null;
   elErrorText = null;
