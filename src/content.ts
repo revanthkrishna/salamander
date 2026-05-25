@@ -54,6 +54,11 @@ import {
   clearHoverHighlight,
 } from './annotationMode';
 import { importFile, exportAnnotations, buildExportYaml } from './importExport';
+import {
+  detectPageLimitations,
+  combineIssueMessages,
+  type DetectedType,
+} from './pageDetectors';
 import type { Annotation, DomainData, Fingerprint } from './types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,6 +78,13 @@ if ((window as any).__annotatorActive) {
 
 let myTabId: number = -1;
 let lastKnownUrl = location.href;
+
+/**
+ * Page-limitations detectors fire once per detection type per page load. SPA
+ * navigations clear the set (see handleUrlChange) so users get a fresh alert
+ * on the new page if it has its own issues.
+ */
+const shownThisPageLoad: Set<DetectedType> = new Set();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Message listener
@@ -245,8 +257,14 @@ async function handleUrlChange(): Promise<void> {
   clearHoverHighlight();
   clearPins();
 
+  // New URL counts as a new page-load for the limitations detector — clear the
+  // suppression set so any issues on the new page can re-fire.
+  shownThisPageLoad.clear();
+
   const domain = normaliseDomain(location.host);
   await refreshPageAnnotations(domain, newUrl);
+
+  if (isAnnotationModeActive()) runPageLimitationsCheck();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -258,6 +276,24 @@ function handleSButtonClick(): void {
   enableAnnotationMode();
   showPins(); // pins are always visible; this just enables pointer-events
   showToolbar();
+  runPageLimitationsCheck();
+}
+
+/**
+ * Scan the page for things that will cause pins to fail silently and surface
+ * any new issues in the toolbar error bar. Suppresses per-detection-type
+ * repeats within a single page-load (see `shownThisPageLoad`).
+ *
+ * Guarded: no-op if annotation mode is not active. Belt-and-braces — every
+ * caller already checks, but a wrong call site shouldn't spam the user.
+ */
+function runPageLimitationsCheck(): void {
+  if (!isAnnotationModeActive()) return;
+  const issues = detectPageLimitations();
+  const fresh = issues.filter((i) => !shownThisPageLoad.has(i.type));
+  if (fresh.length === 0) return;
+  for (const i of fresh) shownThisPageLoad.add(i.type);
+  showError(combineIssueMessages(fresh));
 }
 
 /** Exit (cross) click → stop annotation mode. Pins remain visible. */
