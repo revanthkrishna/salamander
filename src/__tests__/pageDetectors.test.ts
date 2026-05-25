@@ -283,6 +283,154 @@ describe('detectClosedShadowRoots', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// detectSpa (framework sniff — init only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('detectSpa', () => {
+  // Track every window global we touch so we can scrub it in afterEach. Test
+  // isolation matters here — these are real globals on the jsdom window and
+  // they will absolutely bleed across tests if we forget (see pitfall E).
+  const windowKeysToScrub: string[] = [];
+
+  function setWindowFlag(key: string, value: unknown): void {
+    (window as unknown as Record<string, unknown>)[key] = value;
+    windowKeysToScrub.push(key);
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    while (windowKeysToScrub.length) {
+      const k = windowKeysToScrub.pop()!;
+      delete (window as unknown as Record<string, unknown>)[k];
+    }
+  });
+
+  test('plain page → no SPA issue', () => {
+    expect(detectPageLimitations(DEFAULT_DETECTOR_CONFIG)).toEqual([]);
+  });
+
+  test('window.React present → flagged', () => {
+    setWindowFlag('React', {});
+    const issues = detectPageLimitations(DEFAULT_DETECTOR_CONFIG);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].type).toBe('spa');
+  });
+
+  test('window.__REACT_DEVTOOLS_GLOBAL_HOOK__ present → flagged', () => {
+    setWindowFlag('__REACT_DEVTOOLS_GLOBAL_HOOK__', {});
+    const issues = detectPageLimitations(DEFAULT_DETECTOR_CONFIG);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].type).toBe('spa');
+  });
+
+  test('[data-reactroot] in DOM → flagged', () => {
+    document.body.innerHTML = '<div data-reactroot></div>';
+    const issues = detectPageLimitations(DEFAULT_DETECTOR_CONFIG);
+    expect(issues.some((i) => i.type === 'spa')).toBe(true);
+  });
+
+  test('#__next (Next.js) in DOM → flagged', () => {
+    document.body.innerHTML = '<div id="__next"></div>';
+    const issues = detectPageLimitations(DEFAULT_DETECTOR_CONFIG);
+    expect(issues.some((i) => i.type === 'spa')).toBe(true);
+  });
+
+  test('[data-react-helmet] in DOM → flagged', () => {
+    document.head.innerHTML = '<meta data-react-helmet="true">';
+    const issues = detectPageLimitations(DEFAULT_DETECTOR_CONFIG);
+    expect(issues.some((i) => i.type === 'spa')).toBe(true);
+    // tidy up document.head ourselves — afterEach only clears body.
+    document.head.innerHTML = '';
+  });
+
+  test('window.Vue present → flagged', () => {
+    setWindowFlag('Vue', {});
+    const issues = detectPageLimitations(DEFAULT_DETECTOR_CONFIG);
+    expect(issues.some((i) => i.type === 'spa')).toBe(true);
+  });
+
+  test('window.__VUE__ present → flagged', () => {
+    setWindowFlag('__VUE__', {});
+    const issues = detectPageLimitations(DEFAULT_DETECTOR_CONFIG);
+    expect(issues.some((i) => i.type === 'spa')).toBe(true);
+  });
+
+  test('[data-v-app] (Vue 3) in DOM → flagged', () => {
+    document.body.innerHTML = '<div data-v-app></div>';
+    expect(
+      detectPageLimitations(DEFAULT_DETECTOR_CONFIG).some((i) => i.type === 'spa')
+    ).toBe(true);
+  });
+
+  test('#__nuxt in DOM → flagged', () => {
+    document.body.innerHTML = '<div id="__nuxt"></div>';
+    expect(
+      detectPageLimitations(DEFAULT_DETECTOR_CONFIG).some((i) => i.type === 'spa')
+    ).toBe(true);
+  });
+
+  test('[data-server-rendered] in DOM → flagged', () => {
+    document.body.innerHTML = '<div data-server-rendered="true"></div>';
+    expect(
+      detectPageLimitations(DEFAULT_DETECTOR_CONFIG).some((i) => i.type === 'spa')
+    ).toBe(true);
+  });
+
+  test('window.ng (Angular) present → flagged', () => {
+    setWindowFlag('ng', {});
+    const issues = detectPageLimitations(DEFAULT_DETECTOR_CONFIG);
+    expect(issues.some((i) => i.type === 'spa')).toBe(true);
+  });
+
+  test('[ng-version] in DOM → flagged', () => {
+    document.body.innerHTML = '<div ng-version="17.0.0"></div>';
+    expect(
+      detectPageLimitations(DEFAULT_DETECTOR_CONFIG).some((i) => i.type === 'spa')
+    ).toBe(true);
+  });
+
+  test('[ng-app] in DOM → flagged', () => {
+    document.body.innerHTML = '<div ng-app></div>';
+    expect(
+      detectPageLimitations(DEFAULT_DETECTOR_CONFIG).some((i) => i.type === 'spa')
+    ).toBe(true);
+  });
+
+  test('[data-sveltekit-preload-data] in DOM → flagged', () => {
+    document.body.innerHTML = '<a data-sveltekit-preload-data="hover">x</a>';
+    expect(
+      detectPageLimitations(DEFAULT_DETECTOR_CONFIG).some((i) => i.type === 'spa')
+    ).toBe(true);
+  });
+
+  test('window.Ember present → flagged', () => {
+    setWindowFlag('Ember', {});
+    const issues = detectPageLimitations(DEFAULT_DETECTOR_CONFIG);
+    expect(issues.some((i) => i.type === 'spa')).toBe(true);
+  });
+
+  test('spa disabled in config → not reported even when signals present', () => {
+    setWindowFlag('React', {});
+    const issues = detectPageLimitations({
+      ...DEFAULT_DETECTOR_CONFIG,
+      spa: false,
+    });
+    expect(issues).toEqual([]);
+  });
+
+  test('test isolation: previous test\'s window.React does not leak', () => {
+    // If our afterEach scrubbing is wrong, the React flag from earlier tests
+    // would survive and this assertion would fail.
+    expect(
+      detectPageLimitations(DEFAULT_DETECTOR_CONFIG).some((i) => i.type === 'spa')
+    ).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // detectPageLimitations — config + ordering
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -325,5 +473,23 @@ describe('detectPageLimitations — config + ordering', () => {
     const combined = combineIssueMessages(issues);
     expect(combined).toMatch(/^heads up — /);
     expect(combined).toContain(' also, ');
+  });
+
+  test('all four detectors firing → stable order iframe, canvas, closedShadow, spa', () => {
+    document.body.innerHTML =
+      // intentionally not in detector order
+      '<closed-widget></closed-widget>' +
+      '<canvas data-w="500" data-h="500"></canvas>' +
+      '<iframe data-w="500" data-h="500" src="about:blank"></iframe>' +
+      '<div data-reactroot></div>';
+    const issues = detectPageLimitations(DEFAULT_DETECTOR_CONFIG);
+    expect(issues.map((i) => i.type)).toEqual([
+      'iframe',
+      'canvas',
+      'closedShadow',
+      'spa',
+    ]);
+    const combined = combineIssueMessages(issues);
+    expect(combined).toMatch(/^heads up — this page has several things/);
   });
 });

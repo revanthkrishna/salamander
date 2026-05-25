@@ -142,9 +142,32 @@ function detectClosedShadowRoots(_cfg: DetectorConfig): DetectedIssue | null {
   return { type: 'closedShadow', message: MSG_CLOSED_SHADOW, count };
 }
 
+/**
+ * Strategy A: framework sniff at init time only. We do NOT observe pushState
+ * or URL changes — that's handled separately by the navigation suppression
+ * reset in content.ts.
+ *
+ * NOTE: this framework list is a snapshot taken in 2026 and is expected to
+ * need maintenance as the ecosystem moves. The check is order-sensitive only
+ * by performance — any single match flips the flag.
+ *
+ * Known false positive: any site that uses React (or Vue, etc.) for just a
+ * single widget will match. The user-facing copy hedges accordingly
+ * ("may reload parts of itself").
+ */
 function detectSpa(_cfg: DetectorConfig): DetectedIssue | null {
-  // Stub — implemented in a follow-up commit.
-  return null;
+  const w = window as unknown as Record<string, unknown>;
+  const matched = Boolean(
+    w.React || w.__REACT_DEVTOOLS_GLOBAL_HOOK__ ||
+    document.querySelector('[data-reactroot], #__next, [data-react-helmet]') ||
+    w.Vue || w.__VUE__ ||
+    document.querySelector('[data-v-app], #__nuxt, [data-server-rendered]') ||
+    w.ng || document.querySelector('[ng-version], [ng-app]') ||
+    document.querySelector('[data-sveltekit-preload-data]') ||
+    w.Ember
+  );
+  if (!matched) return null;
+  return { type: 'spa', message: MSG_SPA };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
