@@ -238,6 +238,51 @@ describe('detectCanvases', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// detectClosedShadowRoots (heuristic)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('detectClosedShadowRoots', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  test('regular div → ignored', () => {
+    document.body.innerHTML = '<div>hello</div>';
+    expect(detectPageLimitations(DEFAULT_DETECTOR_CONFIG)).toEqual([]);
+  });
+
+  test('custom element with OPEN shadow root + rendered content → ignored', () => {
+    document.body.innerHTML = '<my-widget></my-widget>';
+    const el = document.querySelector('my-widget')!;
+    const sr = el.attachShadow({ mode: 'open' });
+    sr.innerHTML = '<span>visible</span>';
+    expect(detectPageLimitations(DEFAULT_DETECTOR_CONFIG)).toEqual([]);
+  });
+
+  test('custom element with light-DOM children → ignored', () => {
+    document.body.innerHTML = '<my-thing><span>child</span></my-thing>';
+    expect(detectPageLimitations(DEFAULT_DETECTOR_CONFIG)).toEqual([]);
+  });
+
+  test('empty custom element with non-zero size → flagged', () => {
+    document.body.innerHTML = '<closed-widget></closed-widget>';
+    const issues = detectPageLimitations(DEFAULT_DETECTOR_CONFIG);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].type).toBe('closedShadow');
+    expect(issues[0].count).toBe(1);
+  });
+
+  test('closedShadow disabled in config → not reported', () => {
+    document.body.innerHTML = '<closed-widget></closed-widget>';
+    const issues = detectPageLimitations({
+      ...DEFAULT_DETECTOR_CONFIG,
+      closedShadow: false,
+    });
+    expect(issues).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // detectPageLimitations — config + ordering
 // ─────────────────────────────────────────────────────────────────────────────
 

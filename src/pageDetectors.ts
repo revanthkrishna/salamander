@@ -114,9 +114,32 @@ function detectCanvases(cfg: DetectorConfig): DetectedIssue | null {
   return { type: 'canvas', message: MSG_CANVAS, count };
 }
 
+/**
+ * Heuristic. Closed shadow roots are invisible to scripts (el.shadowRoot is
+ * null even when one exists), so we can't ask the element directly. Instead
+ * we look for the *fingerprint* of one: a custom element (tag name contains a
+ * hyphen) with no light-DOM children but a non-zero layout box. Something is
+ * being rendered inside it that we can't reach, which is almost always a
+ * closed shadow root.
+ *
+ * Known false positives: custom elements styled purely with CSS and no
+ * internal DOM (rare but not impossible). The user-facing copy hedges
+ * accordingly ("may not be pinnable").
+ */
 function detectClosedShadowRoots(_cfg: DetectorConfig): DetectedIssue | null {
-  // Stub — implemented in a follow-up commit.
-  return null;
+  const all = document.querySelectorAll('*');
+  let count = 0;
+  for (const el of Array.from(all)) {
+    const tag = el.tagName.toLowerCase();
+    if (!tag.includes('-')) continue;          // not a custom element
+    if ((el as Element).shadowRoot) continue;  // open shadow root — reachable
+    if (el.children.length > 0) continue;      // has light DOM content
+    if (!(el instanceof HTMLElement)) continue;
+    if (el.offsetWidth === 0 || el.offsetHeight === 0) continue;
+    count++;
+  }
+  if (count === 0) return null;
+  return { type: 'closedShadow', message: MSG_CLOSED_SHADOW, count };
 }
 
 function detectSpa(_cfg: DetectorConfig): DetectedIssue | null {
