@@ -46,7 +46,19 @@ This is the case the `headingPath` signal was built to handle. Use it to verify 
 4. **Expected:** the pin disappears (unresolved) — Maintenance's button is no longer in the DOM, and Review's Previous button has a different surrounding heading set, so resolution should refuse to attach.
 5. Click **Previous** to go back. **Expected:** the pin reappears on the Maintenance step's Previous button.
 
-**Failure mode:** the pin attaches to the Review step's Previous button. This used to happen because Review's summary contains an `<h…>Maintenance and monitoring</h…>` section heading, so `closestLabel` and `pageHeading` text-collide with the captured fingerprint. The `headingPath` set comparison (missing −7 each, capped −50) is what overrides that collision.
+**Failure mode:** the pin attaches to the Review step's Previous button. This used to happen because Review's summary contains an `<h…>Maintenance and monitoring</h…>` section heading, so `closestLabel` and `pageHeading` text-collide with the captured fingerprint. Two layered defenses now catch this: (1) the `headingPath` set comparison adds a direct penalty (missing −10 each capped −60, extra −7 each capped −40), and (2) the `closestLabel` / `pageHeading` / `pageSubHeading` *match bonuses* are scaled by Jaccard similarity of stored vs. current `headingPath`, so a coincidental text match earns proportionally less credit when the broader context disagrees.
+
+### Variant: the Cancel button (shared across all steps)
+
+Cloudscape's Cancel button is a single DOM element in the wizard footer — same element across every step. This variant exists because the CSS selector keeps matching uniquely across step changes (the button never leaves the DOM), so the previous-button defenses (XPath fallback, candidate-set diversity) don't kick in.
+
+**Steps:**
+1. Pin the **Cancel** button on, say, the **Review and submit** step.
+2. Click **Previous** to navigate back to an earlier step (e.g. "Maintenance and monitoring").
+3. **Expected:** the pin disappears. The button's identity hasn't changed, but its surrounding heading context has — the `headingPath` agreement is low (~0.18 for this example), which scales the `closestLabel` / `pageHeading` match bonuses down to a few points each, and the `scoreHeadingPath` direct penalty pushes the candidate well below threshold.
+4. Click **Next** back to Review and submit. **Expected:** the pin reappears on the Cancel button.
+
+**Why this case was the test:** the previous-button case alone could be fixed with weight bumps on `scoreHeadingPath`. The Cancel button case requires the *agreement-scaling* layer — text-match bonuses need to depend on broader-context confidence, not just contribute additively.
 
 ## Debug tracer
 
@@ -66,25 +78,26 @@ localStorage.removeItem('__annotatorDebug')
 
 **Trigger a re-resolve** by navigating, reloading the page, or toggling annotation mode off/on. The RAF loop in `pinRenderer` re-resolves on DOM changes.
 
-**Sample output** (for the wizard case above, on the Review step where the pin should *not* resolve):
+**Sample output** (Cancel button case, on the wrong step — should *not* resolve):
 
 ```
 [Annotator] ────────── resolveElement ──────────
-[Annotator] fingerprint: { textSnippet: "Previous", pageHeading: "Maintenance and monitoring", headingPath: [...], … }
-[Annotator] 1 candidate(s) collected
-[Annotator]   • <button.awsui_previous-button_…> "Previous" → 21
-[Annotator]       text+tag unique +40
-[Annotator]       closestLabel match: stored="Maintenance and monitoring" current="Maintenance and monitoring" +20
-[Annotator]       pageHeading match: stored="Maintenance and monitoring" current="Maintenance and monitoring" +15
-[Annotator]       headingPath -64 (stored=[...10 entries...] current=[...different 10 entries...])
-[Annotator]       domIndex match (0) +10
-[Annotator] → best score 21 below threshold 40 — returning null
+[Annotator] fingerprint: { textSnippet: "Cancel", pageHeading: "Maintenance and monitoring", headingPath: [...], … }
+[Annotator] 2 candidate(s) collected
+[Annotator]   • <button.awsui_cancel-button_…> "Cancel" → -8
+[Annotator]       CSS-unique +60
+[Annotator]       closestLabel match: stored="Maintenance and monitoring" current="Maintenance and monitoring" +4 (scaled ×0.18 from headingPath agreement)
+[Annotator]       pageHeading match: stored="Maintenance and monitoring" current="Maintenance and monitoring" +3 (scaled ×0.18 from headingPath agreement)
+[Annotator]       headingPath -85 (agreement=0.18, stored=[...10 entries...] current=[...different 10 entries...])
+[Annotator]       domIndex match (1) +10
+[Annotator]   ✗ <button.awsccc-u-btn> "Cancel" INVISIBLE → -1000
+[Annotator] → best score -8 below threshold 40 — returning null
 ```
 
 What the lines tell you:
 - The candidate set size — if 0, no element matched any of CSS / XPath / text+tag. Stored selector or XPath is probably broken (e.g. unstable ID).
 - The base score — `CSS-unique +60` is best; `XPath +50`, `text+tag unique +40`, `text+tag non-unique +20`, `CSS-non-unique +30`. Falling back to `text+tag` means the stored CSS selector and XPath aren't matching anymore.
-- Per-signal deltas, with the actual stored vs. current values for each context signal. `MISMATCH` is the line to watch — that's where the resolver is pushing back against a wrong candidate.
+- Per-signal deltas, with the actual stored vs. current values for each context signal. The `(scaled ×0.XX from headingPath agreement)` suffix on a *match* line means the bonus was discounted because the broader heading context disagrees — the bug-catching signal. `MISMATCH` is the other line to watch.
 - The final winner and whether it cleared the 40-point threshold.
 
 If the trace shows `INVISIBLE → -1000` for the candidate you expected to match, the page is hiding it via a mechanism `isVisible()` doesn't catch (e.g. `aria-hidden`, `inert`, `clip-path`). That's an `isVisible()` bug, not a fingerprint bug.

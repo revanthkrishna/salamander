@@ -41,6 +41,8 @@ import {
   setAnnotationCount,
   showToolbar,
   hideToolbar,
+  flashCopySuccess,
+  ICON_LIMITATIONS,
 } from './toolbar';
 import {
   initAnnotationMode,
@@ -52,7 +54,12 @@ import {
   destroyAnnotationMode,
   clearHoverHighlight,
 } from './annotationMode';
-import { importFile, exportAnnotations } from './importExport';
+import { importFile, exportAnnotations, buildExportYaml } from './importExport';
+import {
+  detectPageLimitations,
+  combineIssueMessages,
+  type DetectedType,
+} from './pageDetectors';
 import type { Annotation, DomainData, Fingerprint } from './types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -72,6 +79,13 @@ if ((window as any).__annotatorActive) {
 
 let myTabId: number = -1;
 let lastKnownUrl = location.href;
+
+/**
+ * Page-limitations detectors fire once per detection type per page load. SPA
+ * navigations clear the set (see handleUrlChange) so users get a fresh alert
+ * on the new page if it has its own issues.
+ */
+const shownThisPageLoad: Set<DetectedType> = new Set();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Message listener
@@ -110,6 +124,7 @@ async function init(tabId: number): Promise<void> {
     onExit: handleExit,
     onExport: handleExport,
     onUploadFile: handleUploadFile,
+    onCopy: handleCopy,
     onDeleteAll: handleDeleteAll,
     onDismissFile: handleDismissFile,
   });
@@ -243,8 +258,14 @@ async function handleUrlChange(): Promise<void> {
   clearHoverHighlight();
   clearPins();
 
+  // New URL counts as a new page-load for the limitations detector — clear the
+  // suppression set so any issues on the new page can re-fire.
+  shownThisPageLoad.clear();
+
   const domain = normaliseDomain(location.host);
   await refreshPageAnnotations(domain, newUrl);
+
+  if (isAnnotationModeActive()) runPageLimitationsCheck();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -256,6 +277,28 @@ function handleSButtonClick(): void {
   enableAnnotationMode();
   showPins(); // pins are always visible; this just enables pointer-events
   showToolbar();
+  runPageLimitationsCheck();
+}
+
+/**
+ * Scan the page for things that will cause pins to fail silently and surface
+ * any new issues in the toolbar error bar. Suppresses per-detection-type
+ * repeats within a single page-load (see `shownThisPageLoad`).
+ *
+ * Guarded: no-op if annotation mode is not active. Belt-and-braces — every
+ * caller already checks, but a wrong call site shouldn't spam the user.
+ */
+function runPageLimitationsCheck(): void {
+  if (!isAnnotationModeActive()) return;
+  const issues = detectPageLimitations();
+  const fresh = issues.filter((i) => !shownThisPageLoad.has(i.type));
+  if (fresh.length === 0) return;
+  for (const i of fresh) shownThisPageLoad.add(i.type);
+  // Tan warning bar with the face-smile-upside-down icon — these are "may
+  // not work" heads-ups, not hard errors. The custom icon distinguishes
+  // them from other warnings (partial-import, version-mismatch) which keep
+  // the default exclamation icon.
+  showWarning(combineIssueMessages(fresh), ICON_LIMITATIONS);
 }
 
 /** Exit (cross) click → stop annotation mode. Pins remain visible. */
@@ -274,6 +317,20 @@ async function handleExport(): Promise<void> {
     return;
   }
   await exportAnnotations(domain);
+}
+
+async function handleCopy(): Promise<void> {
+  const domain = normaliseDomain(location.host);
+  const yamlString = await buildExportYaml(domain);
+  // Silent no-op when there's nothing to copy (per UX decision: only the
+  // export button surfaces the "nothing to export" alert).
+  if (yamlString === null) return;
+  try {
+    await navigator.clipboard.writeText(yamlString);
+    flashCopySuccess();
+  } catch {
+    showError("couldn't copy to clipboard. try export instead.");
+  }
 }
 
 async function handleUploadFile(file: File): Promise<void> {

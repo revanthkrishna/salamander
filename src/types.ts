@@ -38,11 +38,13 @@ export interface DomainData {
   pages: Record<string, Annotation[]>;  // keyed by normalised page URL
 }
 
-// For YAML import/export (snake_case field names per TECH_DESIGN.md §3)
+// For YAML import/export (snake_case field names per TECH_DESIGN.md §3).
+// Field order in these interfaces is the emit order under sortKeys:false —
+// `FEEDBACK` is last so it appears at the bottom of each annotation block
+// where a human reader expects the prose content.
 export interface YamlAnnotation {
   pin_number: number;
   page_url: string;
-  note: string;
   fingerprint: {
     css_selector: string;
     xpath: string;
@@ -59,10 +61,11 @@ export interface YamlAnnotation {
   };
   offset: { x: number; y: number };
   created_at: string;
+  FEEDBACK: string;
 }
 
 export interface YamlDocument {
-  version: number;
+  salamander_version: string;  // extension version from manifest, e.g. "1.1.0"
   exported_at: string;
   domain: string;
   annotations: YamlAnnotation[];

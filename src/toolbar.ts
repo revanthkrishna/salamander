@@ -15,6 +15,8 @@ export interface ToolbarCallbacks {
   onExport: () => void;
   /** Import: file selected from native picker. */
   onUploadFile: (file: File) => void;
+  /** Copy-to-clipboard button clicked. */
+  onCopy: () => void;
   /** Delete-all button clicked. */
   onDeleteAll: () => void;
   /** Filename-bar dismiss button clicked (removes file + all annotations). */
@@ -41,6 +43,17 @@ const ICON_EXCLAMATION = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2
 
 const ICON_FACE_WOOZY = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="M12,0C5.383,0,0,5.383,0,12s5.383,12,12,12,12-5.383,12-12S18.617,0,12,0Zm0,22c-5.514,0-10-4.486-10-10S6.486,2,12,2s10,4.486,10,10-4.486,10-10,10ZM5.37,9.334l-.742-1.857c1.188-.474,2.268-1.373,3.04-2.531l1.664,1.109c-1.01,1.514-2.38,2.647-3.962,3.279Zm8.63,.666c0-1.657,.672-3,1.5-3s1.5,1.343,1.5,3-.672,3-1.5,3-1.5-1.343-1.5-3Zm-7.447,1.105l4-2,.895,1.789-4,2-.895-1.789Zm10.582,3.394l1.731,1c-.337,.584-2.129,3.5-4.289,3.5-.903,0-1.609-.68-2.232-1.28-.263-.252-.702-.676-.884-.724-.149,.003-.338,.124-.656,.335-.423,.282-1.002,.668-1.805,.668-1.276,0-3.018-1.604-3.707-2.293l1.414-1.415c.85,.849,1.951,1.663,2.311,1.708,.171,0,.359-.121,.678-.333,.423-.282,1.002-.668,1.805-.668,.903,0,1.609,.68,2.232,1.28,.263,.252,.702,.676,.884,.724,.684-.003,1.91-1.456,2.519-2.504Z"/></svg>`;
 
+const ICON_COPY = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="m15 20h-10a5.006 5.006 0 0 1 -5-5v-10a5.006 5.006 0 0 1 5-5h10a5.006 5.006 0 0 1 5 5v10a5.006 5.006 0 0 1 -5 5zm-10-18a3 3 0 0 0 -3 3v10a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-10a3 3 0 0 0 -3-3zm19 17v-13a1 1 0 0 0 -2 0v13a3 3 0 0 1 -3 3h-13a1 1 0 0 0 0 2h13a5.006 5.006 0 0 0 5-5z"/></svg>`;
+
+const ICON_CHECK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 507.506 507.506" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="M163.865,436.934c-14.406,0.006-28.222-5.72-38.4-15.915L9.369,304.966c-12.492-12.496-12.492-32.752,0-45.248c12.496-12.492,32.752-12.492,45.248,0l109.248,109.248L452.889,79.942c12.496-12.492,32.752-12.492,45.248,0c12.492,12.496,12.492,32.752,0,45.248L202.265,421.019C192.087,431.214,178.271,436.94,163.865,436.934z"/></svg>`;
+
+/**
+ * Face-smile-upside-down icon — exported so callers (currently the page-
+ * limitations alert in content.ts) can pass it to showWarning() as a custom
+ * icon for the warning bar. Default warning icon remains ICON_EXCLAMATION.
+ */
+export const ICON_LIMITATIONS = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="M12,0C5.383,0,0,5.383,0,12s5.383,12,12,12,12-5.383,12-12S18.617,0,12,0Zm0,22c-5.514,0-10-4.486-10-10S6.486,2,12,2s10,4.486,10,10-4.486,10-10,10Zm5.666-13.746c.412,.368,.448,1,.08,1.412-.197,.221-.471,.334-.746,.334-.237,0-.475-.084-.666-.254-.018-.016-2.003-1.746-4.334-1.746s-4.316,1.73-4.336,1.748c-.413,.366-1.044,.328-1.411-.084-.366-.412-.331-1.042,.081-1.409,.103-.092,2.559-2.254,5.666-2.254s5.563,2.162,5.666,2.254Zm-.666,6.246c0,.828-.672,1.5-1.5,1.5s-1.5-.672-1.5-1.5,.672-1.5,1.5-1.5,1.5,.672,1.5,1.5Zm-7,0c0,.828-.672,1.5-1.5,1.5s-1.5-.672-1.5-1.5,.672-1.5,1.5-1.5,1.5,.672,1.5,1.5Z"/></svg>`;
+
 // ---------------------------------------------------------------------------
 // Module-level state
 // ---------------------------------------------------------------------------
@@ -54,18 +67,23 @@ let elToolbarPanel: HTMLDivElement | null = null;
 let elFilenameBar: HTMLDivElement | null = null;
 let elFilenameText: HTMLSpanElement | null = null;
 let elFilenameDismissBtn: HTMLButtonElement | null = null;
+let elCountdownBar: HTMLDivElement | null = null;
 let elWarningBar: HTMLDivElement | null = null;
+let elWarningIcon: HTMLSpanElement | null = null;
 let elWarningText: HTMLSpanElement | null = null;
 let elErrorBar: HTMLDivElement | null = null;
 let elErrorText: HTMLSpanElement | null = null;
 let elBtnExport: HTMLButtonElement | null = null;
 let elBtnUpload: HTMLButtonElement | null = null;
+let elBtnCopy: HTMLButtonElement | null = null;
+let elBtnCopyIcon: HTMLSpanElement | null = null;
 let elBtnDeleteAll: HTMLButtonElement | null = null;
 let elBtnExit: HTMLButtonElement | null = null;
 let elFileInput: HTMLInputElement | null = null;
 
 let callbacksRef: ToolbarCallbacks | null = null;
 let notifTimer: ReturnType<typeof setTimeout> | null = null;
+let copyFlashTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Track whether toolbar panel is expanded (annotation mode on)
 let isExpanded = false;
@@ -79,6 +97,7 @@ const TOOLBAR_CSS = `
     --accent:        #FEC800;
     --error:         #FB645A;
     --warning:       #D6AE7C;
+    --success:       #6AA187;
     --bg:            #000000;
     --text:          #FFFFFF;
     --text-muted:    #B7B7B7;
@@ -129,7 +148,7 @@ const TOOLBAR_CSS = `
 
   /* ─── Toolbar panel (expanded state) ─────────────────────────────────── */
   .panel {
-    width: 224px;
+    width: 280px;
     display: flex;
     flex-direction: column;
     border-radius: 16px;
@@ -145,7 +164,7 @@ const TOOLBAR_CSS = `
     display: flex;
     flex-direction: row;
     align-items: center;
-    width: 224px;
+    width: 280px;
     height: 35px;
     background: var(--bg);
   }
@@ -202,7 +221,7 @@ const TOOLBAR_CSS = `
     display: flex;
     flex-direction: row;
     align-items: center;
-    width: 224px;
+    width: 280px;
     min-height: 44px;
     padding: 8px 16px;
     gap: 4px;
@@ -224,12 +243,25 @@ const TOOLBAR_CSS = `
     flex: 1 1 auto;
   }
 
+  /* Countdown bar — shown at the very top of the panel above warning/error.
+     Width-scales from 100% → 0% over the message duration as a visual timer.
+     Color is set per-message via the .warning / .error modifier class. */
+  .countdown-bar {
+    width: 100%;
+    height: 3px;
+    background: var(--error);
+    transform-origin: left center;
+    transform: scaleX(1);
+  }
+  .countdown-bar[hidden] { display: none !important; }
+  .countdown-bar.warning { background: var(--warning); }
+
   /* Error bar */
   .error-bar {
     display: flex;
     flex-direction: row;
     align-items: center;
-    width: 224px;
+    width: 280px;
     min-height: 32px;
     padding: 8px 16px;
     gap: 4px;
@@ -255,7 +287,7 @@ const TOOLBAR_CSS = `
   .button-row {
     display: flex;
     flex-direction: row;
-    width: 224px;
+    width: 280px;
     height: 56px;
     background: transparent;
   }
@@ -281,6 +313,11 @@ const TOOLBAR_CSS = `
     opacity: 0.38;
   }
   .icon-btn[disabled]:hover { color: var(--text); }
+  /* Transient success state — locks color to green and makes the icon
+     read-only: no click, no hover, no :active press effect. */
+  .icon-btn.success,
+  .icon-btn.success:hover { color: var(--success); }
+  .icon-btn.success { pointer-events: none; }
 
   .icon-btn .icon {
     width: 24px;
@@ -355,12 +392,12 @@ function buildDOM(shadow: ShadowRoot): void {
   elWarningBar.className = 'warning-bar';
   elWarningBar.setAttribute('role', 'status');
   elWarningBar.hidden = true;
-  const warnIcon = document.createElement('span');
-  warnIcon.className = 'icon';
-  warnIcon.innerHTML = ICON_EXCLAMATION;
+  elWarningIcon = document.createElement('span');
+  elWarningIcon.className = 'icon';
+  elWarningIcon.innerHTML = ICON_EXCLAMATION;
   elWarningText = document.createElement('span');
   elWarningText.className = 'warning-text';
-  elWarningBar.appendChild(warnIcon);
+  elWarningBar.appendChild(elWarningIcon);
   elWarningBar.appendChild(elWarningText);
 
   // Error bar
@@ -382,14 +419,26 @@ function buildDOM(shadow: ShadowRoot): void {
 
   elBtnExport = makeIconButton(ICON_DOWNLOAD, 'Export annotations');
   elBtnUpload = makeIconButton(ICON_UPLOAD, 'Import annotations');
+  elBtnCopy = makeIconButton(ICON_COPY, 'Copy annotations to clipboard');
+  elBtnCopyIcon = elBtnCopy.querySelector('.icon') as HTMLSpanElement;
   elBtnDeleteAll = makeIconButton(ICON_TRASH, 'Delete all annotations');
   elBtnExit = makeIconButton(ICON_CROSS_SMALL, 'Exit annotation mode');
 
   buttonRow.appendChild(elBtnExport);
   buttonRow.appendChild(elBtnUpload);
+  buttonRow.appendChild(elBtnCopy);
   buttonRow.appendChild(elBtnDeleteAll);
   buttonRow.appendChild(elBtnExit);
 
+  // Countdown bar — must be first child of panel so it sits at the very top
+  // (above filename / warning / error rows). Hidden by default; shown only
+  // while a temporary message is active.
+  elCountdownBar = document.createElement('div');
+  elCountdownBar.className = 'countdown-bar';
+  elCountdownBar.setAttribute('aria-hidden', 'true');
+  elCountdownBar.hidden = true;
+
+  elToolbarPanel.appendChild(elCountdownBar);
   elToolbarPanel.appendChild(elFilenameBar);
   elToolbarPanel.appendChild(elWarningBar);
   elToolbarPanel.appendChild(elErrorBar);
@@ -473,6 +522,11 @@ export function initToolbar(callbacks: ToolbarCallbacks): () => void {
     elFileInput!.click();
   });
 
+  elBtnCopy!.addEventListener('click', (e) => {
+    e.stopPropagation();
+    callbacksRef?.onCopy();
+  });
+
   elFileInput!.addEventListener('change', () => {
     const file = elFileInput!.files?.[0];
     if (file) callbacksRef?.onUploadFile(file);
@@ -554,6 +608,36 @@ export function setFilename(filename: string | null): void {
   }
 }
 
+const NOTIF_DURATION_MS = 8000;
+
+/**
+ * Animate the countdown bar from full width to zero over the notification
+ * duration, as a visual timer for the temporary message. `kind` selects the
+ * color (red for error, tan for warning) to match the bar below it.
+ */
+function startCountdownAnim(kind: 'error' | 'warning'): void {
+  if (!elCountdownBar) return;
+  elCountdownBar.classList.toggle('warning', kind === 'warning');
+  elCountdownBar.hidden = false;
+  // Snap to full width with no transition...
+  elCountdownBar.style.transition = 'none';
+  elCountdownBar.style.transform = 'scaleX(1)';
+  // ...then force a reflow so the reset actually takes effect before the
+  // next transition is applied. Without this the browser collapses both
+  // style changes into one frame and the animation never runs.
+  void elCountdownBar.offsetWidth;
+  elCountdownBar.style.transition = `transform ${NOTIF_DURATION_MS}ms linear`;
+  elCountdownBar.style.transform = 'scaleX(0)';
+}
+
+function stopCountdownAnim(): void {
+  if (!elCountdownBar) return;
+  elCountdownBar.hidden = true;
+  elCountdownBar.style.transition = 'none';
+  elCountdownBar.style.transform = 'scaleX(1)';
+  elCountdownBar.classList.remove('warning');
+}
+
 /** Show error bar inside the toolbar. Auto-clears after 8s. */
 export function showError(message: string): void {
   if (!elErrorBar || !elErrorText) return;
@@ -565,38 +649,50 @@ export function showError(message: string): void {
   elErrorBar.hidden = false;
   // Ensure panel is visible so the user sees it
   if (!isExpanded) setExpanded(true);
+  startCountdownAnim('error');
   notifTimer = setTimeout(() => {
     clearError();
     notifTimer = null;
-  }, 8000);
+  }, NOTIF_DURATION_MS);
 }
 
-/** Show warning bar inside the toolbar. Auto-clears after 8s. */
-export function showWarning(message: string): void {
+/**
+ * Show warning bar inside the toolbar. Auto-clears after 8s.
+ * Pass `customIcon` (e.g. `ICON_LIMITATIONS`) to swap the default exclamation
+ * icon for this one message. The icon resets to default when the warning clears.
+ */
+export function showWarning(message: string, customIcon?: string): void {
   if (!elWarningBar || !elWarningText) return;
   if (notifTimer !== null) {
     clearTimeout(notifTimer);
     notifTimer = null;
   }
+  if (elWarningIcon) {
+    elWarningIcon.innerHTML = customIcon ?? ICON_EXCLAMATION;
+  }
   elWarningText.textContent = message;
   elWarningBar.hidden = false;
   if (!isExpanded) setExpanded(true);
+  startCountdownAnim('warning');
   notifTimer = setTimeout(() => {
     clearWarning();
     notifTimer = null;
-  }, 8000);
+  }, NOTIF_DURATION_MS);
 }
 
 function clearError(): void {
   if (!elErrorBar || !elErrorText) return;
   elErrorBar.hidden = true;
   elErrorText.textContent = '';
+  stopCountdownAnim();
 }
 
 function clearWarning(): void {
   if (!elWarningBar || !elWarningText) return;
   elWarningBar.hidden = true;
   elWarningText.textContent = '';
+  if (elWarningIcon) elWarningIcon.innerHTML = ICON_EXCLAMATION;
+  stopCountdownAnim();
 }
 
 export function clearMessage(): void {
@@ -655,6 +751,25 @@ export function showResolutionAlert(unresolvedCount: number, total: number): voi
   }
 }
 
+/**
+ * Briefly swap the copy button's icon to a green check to confirm a successful
+ * clipboard write, then revert. Re-clicking during the flash restarts the timer.
+ */
+export function flashCopySuccess(durationMs = 1500): void {
+  if (!elBtnCopy || !elBtnCopyIcon) return;
+  if (copyFlashTimer !== null) {
+    clearTimeout(copyFlashTimer);
+    copyFlashTimer = null;
+  }
+  elBtnCopyIcon.innerHTML = ICON_CHECK;
+  elBtnCopy.classList.add('success');
+  copyFlashTimer = setTimeout(() => {
+    if (elBtnCopyIcon) elBtnCopyIcon.innerHTML = ICON_COPY;
+    if (elBtnCopy) elBtnCopy.classList.remove('success');
+    copyFlashTimer = null;
+  }, durationMs);
+}
+
 /** Native browser confirm — kept lowercase per spec. */
 export function showConfirmDialog(message: string): Promise<boolean> {
   return Promise.resolve(window.confirm(message));
@@ -691,6 +806,10 @@ export function destroyToolbar(): void {
     clearTimeout(notifTimer);
     notifTimer = null;
   }
+  if (copyFlashTimer !== null) {
+    clearTimeout(copyFlashTimer);
+    copyFlashTimer = null;
+  }
   if (toolbarHost && toolbarHost.parentNode) {
     toolbarHost.parentNode.removeChild(toolbarHost);
   }
@@ -701,12 +820,16 @@ export function destroyToolbar(): void {
   elFilenameBar = null;
   elFilenameText = null;
   elFilenameDismissBtn = null;
+  elCountdownBar = null;
   elWarningBar = null;
+  elWarningIcon = null;
   elWarningText = null;
   elErrorBar = null;
   elErrorText = null;
   elBtnExport = null;
   elBtnUpload = null;
+  elBtnCopy = null;
+  elBtnCopyIcon = null;
   elBtnDeleteAll = null;
   elBtnExit = null;
   elFileInput = null;

@@ -59,10 +59,27 @@ describe('normaliseUrl', () => {
       .toBe('https://example.com/page');
   });
 
-  // §6 Edge Case #17: port numbers
-  test('ignores port numbers', () => {
+  // Non-standard ports are preserved (required for localhost dev servers).
+  test('preserves non-standard port', () => {
     expect(normaliseUrl('https://example.com:8080/page'))
+      .toBe('https://example.com:8080/page');
+  });
+
+  // Standard ports (80 on http, 443 on https) are redundant and stripped.
+  test('strips standard port 443', () => {
+    expect(normaliseUrl('https://example.com:443/page'))
       .toBe('https://example.com/page');
+  });
+
+  test('strips standard port 80 (and upgrades http→https)', () => {
+    expect(normaliseUrl('http://example.com:80/page'))
+      .toBe('https://example.com/page');
+  });
+
+  // The whole point of preserving ports: localhost dev workflows.
+  test('preserves localhost dev-server port', () => {
+    expect(normaliseUrl('http://localhost:3000/dashboard'))
+      .toBe('https://localhost:3000/dashboard');
   });
 
   test('strips both query and fragment', () => {
@@ -75,9 +92,9 @@ describe('normaliseUrl', () => {
       .toBe('https://example.com/a/b/c/d');
   });
 
-  test('www with port and query', () => {
+  test('www with port and query — port preserved, query stripped', () => {
     expect(normaliseUrl('http://www.example.com:3000/path?x=1'))
-      .toBe('https://example.com/path');
+      .toBe('https://example.com:3000/path');
   });
 });
 
@@ -94,12 +111,21 @@ describe('normaliseDomain', () => {
     expect(normaliseDomain('EXAMPLE.COM')).toBe('example.com');
   });
 
-  test('strips port', () => {
-    expect(normaliseDomain('example.com:3000')).toBe('example.com');
+  test('preserves non-standard port', () => {
+    expect(normaliseDomain('example.com:3000')).toBe('example.com:3000');
   });
 
-  test('strips port 8080', () => {
-    expect(normaliseDomain('example.com:8080')).toBe('example.com');
+  test('preserves port 8080', () => {
+    expect(normaliseDomain('example.com:8080')).toBe('example.com:8080');
+  });
+
+  test('strips standard ports 80 and 443', () => {
+    expect(normaliseDomain('example.com:80')).toBe('example.com');
+    expect(normaliseDomain('example.com:443')).toBe('example.com');
+  });
+
+  test('preserves localhost with dev-server port', () => {
+    expect(normaliseDomain('localhost:3000')).toBe('localhost:3000');
   });
 
   test('handles plain domain already normalised', () => {
