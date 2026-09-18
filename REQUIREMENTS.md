@@ -63,9 +63,9 @@ For each feedback item, at the moment of capture:
 **A. Primary target** — the smallest DOM element that fully contains the selection rectangle (deepest common ancestor of everything visually inside the box):
 - CSS selector path (reusing/extending v1's selector-building logic: prefer `id` / `data-*` attributes, fall back to tag + class + positional index; already hardened against framework-generated hash classes per the existing `pageDetectors` work)
 - XPath (fallback identifier)
-- Truncated `outerHTML` snippet (🟡 proposed cap: ~1KB, with `<script>`/`<style>` contents and base64 data-URIs stripped, and a `"...[truncated]"` marker if cut)
+- Truncated `outerHTML` snippet. **Decision:** 1KB cap (with `<script>`/`<style>` contents and base64 data-URIs stripped, and a `"...[truncated]"` marker if cut). **Rationale:** 1KB provides sufficient context for humans and AI agents to locate and understand the element structure without bloating the export; truncation is applied first when total size governance (§1.4E) is exceeded. *(decided by: api-designer subagent)*
 
-**B. Contained elements** — a lightweight list (not full HTML) of descendant elements whose bounding box intersects the selection rectangle, capped at 🟡 ~15 elements, prioritized toward elements with distinguishing attributes or visible text over bare layout `div`s:
+**B. Contained elements** — a lightweight list (not full HTML) of descendant elements whose bounding box intersects the selection rectangle. **Decision:** Cap at 15 elements, prioritized toward elements with distinguishing attributes or visible text over bare layout `div`s. **Rationale:** 15 elements provides meaningful detail without overwhelming context; combined with the 2KB total cap (§1.4E), this prevents both structural overgrowth and size bloat. Elements are trimmed in order of relevance (attribute-rich or text-bearing first) if the total budget is exceeded. *(decided by: api-designer subagent)*
 - tag, `id`, classes (flagged semantic vs. likely-auto-generated), key attributes (`data-*`, `aria-*`, `role`, `href`, `alt`, `name`, `type`, `placeholder`)
 - direct visible text only (not full subtree text, to avoid duplication) — trimmed, capped at ~100 chars each
 
@@ -78,7 +78,7 @@ For each feedback item, at the moment of capture:
 - Selection rectangle (x, y, width, height) in page coordinates
 - Capture timestamp (ISO 8601)
 
-**E. Size governance** — cap total captured context per item at 🟡 proposed ~2KB (lowered from an earlier ~4KB draft — with `headingPath` dropped and the sub-caps in A/B trimmed above, 2KB keeps each item's context skimmable rather than a wall of markup). If exceeded, truncate in this order: outerHTML snippet first, then the contained-elements list — always with a visible truncation marker, never a silent cut.
+**E. Size governance** — **Decision:** Cap total captured context per item at 2KB (A + B + C + D combined). **Rationale:** 2KB keeps each item's context skimmable in a markdown viewer or IDE, balancing detail against file size (outerHTML + 15 elements + area text + metadata fit within this budget; the 1KB outerHTML cap and 15-element cap in A/B are guidance, not strict independent limits—both truncate first if total budget is approached). If exceeded, truncate in this order: outerHTML snippet first, then the contained-elements list — always with a visible truncation marker, never a silent cut. *(decided by: api-designer subagent)*
 
 Decision: no computed styles (e.g. `position`, `display`, `background-color`) in v1 — keeping context capture lean and structural/textual only. Revisit if visual-bug feedback (not just "add this here") turns out to need it.
 
@@ -102,14 +102,14 @@ Decision: no computed styles (e.g. `position`, `display`, `background-color`) in
   - Within a URL section, items in chronological (capture) order
   - Each item shows: item number, inline image reference (`![](screenshots/{id}.png)`) so the screenshot renders alongside the note in any standard markdown viewer, and the note text as plain prose
   - The captured context from §1.4 (selector, xpath, contained elements, area text, page metadata) is embedded per item as a fenced ` ```yaml ` block directly under the note. This keeps everything in one file while staying reliably re-importable: a human/agent reading the file sees clean structured data in a code block, and the extension's importer just extracts and parses that fence back into an object — no need to parse loose prose.
-- [ ] Default filename: 🟡 proposed `feedback-{domain}-{date}.zip`, domain dots replaced with underscores (mirrors v1's `annotations-{domain}.yaml` convention)
+- [ ] **Decision:** Default filename is `feedback-{domain}-{date}.zip`, where domain dots are replaced with underscores and {date} is YYYY-MM-DD. **Rationale:** Mirrors v1's naming convention for familiarity; ISO date format is unambiguous and sorts chronologically; domain normalization (dots→underscores) ensures valid filenames across OSes. Example: `feedback-example_com-2026-09-18.zip`. *(decided by: api-designer subagent)*
 
 ### 1.7 Importing
 - [ ] User clicks **import** → native file picker (accepts `.zip` only)
 - [ ] Import behavior is unified — no distinction between "resuming your own export" and "loading someone else's bundle"; both go through the same flow
 - [ ] Extension reads `feedback.md` from the zip, extracts each item's fenced `yaml` metadata block, and loads all feedback items + screenshots into storage
 - [ ] If domain in the bundle doesn't match the current site: reject with an error (mirrors v1's domain-mismatch handling)
-- [ ] If existing feedback already exists for this domain: confirmation dialog before replacing (mirrors v1's "uploading this file will replace..." pattern). 🟡 Import **replaces** rather than **merges** in v1 — confirm this is acceptable, or whether merge-by-ID is needed later (see §7)
+- [ ] If existing feedback already exists for this domain: confirmation dialog before replacing (mirrors v1's "uploading this file will replace..." pattern). **Decision:** Import **replaces** existing domain feedback entirely; no merge-by-ID in v1. **Rationale:** Replace-only is simpler to implement and reason about for a solo-project v1; merge logic adds complexity without a clear v1 use case. Merging is explicitly deferred to §7 / v2 as out-of-scope. Users can export before importing if they need to preserve old feedback. *(decided by: api-designer subagent)*
 - [ ] After successful import, sidebar opens (if not already) showing thumbnails for the current URL, if any are included in the bundle
 
 ---
