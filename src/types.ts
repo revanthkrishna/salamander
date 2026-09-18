@@ -109,6 +109,15 @@ export interface FeedbackItem {
    *  full-resolution PNG lives. Not the image data itself — chrome.runtime
    *  messages can't carry Blob/ArrayBuffer (see cross-cutting gotcha #2). */
   screenshotKey: string;
+  /** Phase 1 design call: a small (~thumbnail-sized) data-URL cached inline
+   *  in chrome.storage.local metadata, alongside the full-resolution PNG in
+   *  IndexedDB (screenshotKey). This lets the sidebar's thumbnail list render
+   *  every item from a single storage.local read — no per-item IndexedDB
+   *  round trip just to paint the list. The modal and export still go
+   *  through imageStore.getImage(screenshotKey) for the full-resolution
+   *  image. Populated by whichever phase performs the capture (Phase 2/5);
+   *  storage.ts itself is agnostic to how the thumbnail was produced. */
+  thumbnailDataUrl: string;
   context: CapturedContext;
 }
 

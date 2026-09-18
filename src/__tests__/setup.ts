@@ -1,4 +1,19 @@
-// Mock chrome.storage.local and related APIs for Jest tests
+// Mock chrome.storage.local/session and related APIs for Jest tests
+
+// Phase 1: real IndexedDB implementation for storage.ts/imageStore.ts tests.
+// Chrome extension service workers get a real IndexedDB; jsdom does not, so
+// fake-indexeddb/auto installs one on the global object (indexedDB,
+// IDBKeyRange, etc.) that behaves like the real thing.
+import 'fake-indexeddb/auto';
+
+// jsdom's test environment doesn't provide the global structuredClone that
+// fake-indexeddb's put()/get() rely on internally (Node has it, but not
+// every jsdom/Jest combination exposes it on the jsdom global). A JSON
+// round-trip is a sufficient stand-in here: every value this extension ever
+// stores in IndexedDB is a plain data-URL string.
+if (typeof (global as any).structuredClone === 'undefined') {
+  (global as any).structuredClone = (value: unknown) => JSON.parse(JSON.stringify(value));
+}
 
 // Read manifest version live so the chrome.runtime.getManifest() mock matches
 // whatever version manifest.json currently declares. Keeps the YAML
@@ -45,9 +60,46 @@ if (typeof (global as any).CSS === 'undefined') {
 }
 
 const storageData: Record<string, unknown> = {};
+const sessionStorageData: Record<string, unknown> = {};
+
+function makeStorageAreaMock(data: Record<string, unknown>) {
+  return {
+    get: jest.fn((keys: string | string[] | null, callback?: (result: Record<string, unknown>) => void) => {
+      if (callback) {
+        if (keys === null) {
+          callback({ ...data });
+          return;
+        }
+        const result: Record<string, unknown> = {};
+        const keyArr = typeof keys === 'string' ? [keys] : Array.isArray(keys) ? keys : Object.keys(keys as object);
+        for (const k of keyArr) {
+          if (k in data) result[k] = data[k];
+        }
+        callback(result);
+      }
+      return Promise.resolve(data);
+    }),
+    set: jest.fn((items: Record<string, unknown>, callback?: () => void) => {
+      Object.assign(data, items);
+      if (callback) callback();
+      return Promise.resolve();
+    }),
+    remove: jest.fn((keys: string | string[], callback?: () => void) => {
+      const keyArr = typeof keys === 'string' ? [keys] : keys;
+      for (const k of keyArr) delete data[k];
+      if (callback) callback();
+      return Promise.resolve();
+    }),
+    onChanged: {
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+    },
+  };
+}
 
 (global as any).chrome = {
   storage: {
+    session: makeStorageAreaMock(sessionStorageData),
     local: {
       get: jest.fn((keys: string | string[] | null, callback?: (result: Record<string, unknown>) => void) => {
         if (callback) {
@@ -96,6 +148,7 @@ const storageData: Record<string, unknown> = {};
 // Reset storage between tests
 beforeEach(() => {
   Object.keys(storageData).forEach(k => delete storageData[k]);
+  Object.keys(sessionStorageData).forEach(k => delete sessionStorageData[k]);
   jest.clearAllMocks();
 
   // Re-wire mock implementations after clearAllMocks (which resets them)
