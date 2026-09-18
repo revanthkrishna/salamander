@@ -27,6 +27,7 @@
 
 import { normaliseUrl } from './urlNorm';
 import * as sidebar from './sidebar';
+import * as addMode from './addMode';
 import { SidebarOpenedMessage, SidebarClosedMessage } from './messages';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -98,7 +99,21 @@ function ensureStarted(): void {
 
   sidebar.initSidebar({
     onAdd: () => {
-      // Phase 4 wires real add-mode entry here.
+      if (addMode.isAddModeActive()) return;
+      addMode.startAddMode({
+        onOk: (_result) => {
+          // Phase 5 wires the real capture pipeline here: hideOverlayUI(),
+          // message the service worker with the selection rect (converted to
+          // page-absolute device pixels), crop, persist, then either
+          // exitAddMode() on success or showOverlayUI() on failure so the
+          // user can retry or cancel. No capture pipeline exists yet, so for
+          // now we just leave add mode — no feedback item is created.
+          addMode.exitAddMode();
+        },
+        onCancel: () => {
+          // Add mode has already torn itself down — nothing left to do.
+        },
+      });
     },
     onExport: () => {
       // Phase 8 wires the real zip export here.
