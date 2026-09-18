@@ -1,20 +1,33 @@
 // src/content.ts
 // Content script main entry.
 //
-// Phase 0 stub: all pin-era wiring (toolbar, annotation mode, pin renderer,
-// page-limitation detectors, YAML import/export) has been stripped out along
-// with the modules that implemented it (see DEVELOPMENT_PLAN.md's inventory
-// table). What survives untouched, per the Phase 0 brief, is exactly the
-// three things every later phase needs already in place:
+// Phase 3 rebuilds the sidebar shell (src/sidebar.ts) on top of the Phase 0
+// stub and wires it up to real UI: ACTIVATE / ICON_CLICKED open and toggle
+// it, SPA navigation refreshes its (currently empty) thumbnail list, and its
+// own close button restores the page and tells the service worker so a
+// later reload doesn't bring the sidebar back uninvited (§1.1).
+//
+// What survives from Phase 0/2 untouched, per the inventory table:
 //   1. The double-injection idempotency guard.
 //   2. The chrome.runtime message listener shape (PING / ACTIVATE / ICON_CLICKED).
 //   3. SPA navigation detection (history.pushState/replaceState patching +
 //      popstate/hashchange + debounce).
-// Phase 3 rebuilds the sidebar shell on top of this and wires ICON_CLICKED /
-// handleUrlChange up to real UI.
+//   4. Teardown on beforeunload.
+//
+// What Phase 3 removes: the legacy `setTabActive` call. That was a Phase 0
+// placeholder standing in for real sidebar-open persistence; the real
+// mechanism is chrome.storage.session, keyed by tab id (§1.1), which is only
+// reachable from the extension context (service worker) — a content script
+// has no direct access to chrome.storage.session by default. So instead of
+// writing that state itself, the content script *tells* the background
+// script when the sidebar opens/closes (SIDEBAR_OPENED / SIDEBAR_CLOSED,
+// src/messages.ts), and background.ts (Phase 2) is the one that actually
+// persists it and decides whether to re-inject + re-ACTIVATE on a later
+// full-page reload.
 
 import { normaliseUrl } from './urlNorm';
-import { setTabActive } from './storage';
+import * as sidebar from './sidebar';
+import { SidebarOpenedMessage, SidebarClosedMessage } from './messages';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Idempotency guard + runtime init (wrapped in IIFE so we can `return` instead
@@ -33,6 +46,7 @@ if ((window as any).__annotatorActive) {
 
 let myTabId: number = -1;
 let lastKnownUrl = location.href;
+let started = false;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Message listener
@@ -48,25 +62,82 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return;
   }
   if (message.type === 'ICON_CLICKED') {
-    // Phase 3: toggle the sidebar open/closed on repeat icon clicks.
+    toggleSidebar();
     return;
   }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// init
+// init — always means "the sidebar should be open" (§1.1): background only
+// sends ACTIVATE either right after a fresh injection (icon clicked on a
+// page with no content script yet — the user just asked to open it) or
+// after re-injecting on a full reload *because* chrome.storage.session said
+// the sidebar was previously open. Either way, the right response is the
+// same: show the sidebar and let background know so the persisted state
+// stays correct.
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function init(tabId: number): Promise<void> {
+function init(tabId: number): void {
   myTabId = tabId;
+  ensureStarted();
+  openAndReport();
+}
 
-  await setTabActive(tabId);
+/**
+ * Build the sidebar and attach the page-lifetime listeners, exactly once per
+ * document. Split out of init() because ICON_CLICKED can legitimately arrive
+ * without a preceding ACTIVATE — background only sends it once PING has
+ * answered, and PING answers as soon as this script is *loaded*, which is
+ * strictly earlier than ACTIVATE being delivered (or at all, if that message
+ * was lost to a navigation). Toggling before the sidebar exists used to be a
+ * silent no-op that still told background the sidebar was open.
+ */
+function ensureStarted(): void {
+  if (started) return;
+  started = true;
 
-  // Phase 3: open the sidebar shell here.
-
+  sidebar.initSidebar({
+    onAdd: () => {
+      // Phase 4 wires real add-mode entry here.
+    },
+    onExport: () => {
+      // Phase 8 wires the real zip export here.
+    },
+    onImportFile: (_file: File) => {
+      // Phase 9 wires real bundle import here.
+    },
+    onClose: () => {
+      notifyBackground({ type: 'SIDEBAR_CLOSED' });
+    },
+  });
   setupNavigationDetection();
-
   window.addEventListener('beforeunload', handleBeforeUnload);
+}
+
+function openAndReport(): void {
+  sidebar.openSidebar();
+  sidebar.refreshForUrl(location.href);
+  lastKnownUrl = location.href;
+  notifyBackground({ type: 'SIDEBAR_OPENED' });
+}
+
+function toggleSidebar(): void {
+  ensureStarted();
+  if (sidebar.isSidebarVisible()) {
+    sidebar.closeSidebar();
+    notifyBackground({ type: 'SIDEBAR_CLOSED' });
+  } else {
+    openAndReport();
+  }
+}
+
+function notifyBackground(message: SidebarOpenedMessage | SidebarClosedMessage): void {
+  chrome.runtime.sendMessage(message, () => {
+    if (chrome.runtime.lastError) {
+      // Background/service worker not reachable — nothing actionable here;
+      // the persisted "sidebar open" state simply won't update this time.
+    }
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -97,7 +168,12 @@ function handleUrlChange(): void {
   if (newUrl === normaliseUrl(lastKnownUrl)) return;
   lastKnownUrl = location.href;
 
-  // Phase 3: refresh the sidebar's thumbnail list for the new URL.
+  // The sidebar itself (open/closed, and its page-resize) is untouched by
+  // navigation — §1.1 requires it to persist across SPA route changes.
+  // Only its thumbnail list content depends on the URL.
+  if (sidebar.isSidebarVisible()) {
+    sidebar.refreshForUrl(location.href);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -105,7 +181,11 @@ function handleUrlChange(): void {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function handleBeforeUnload(): void {
-  // Phase 3+: tear down sidebar/add-mode UI here.
+  // A full navigation/reload destroys this document (and with it, the
+  // sidebar's shadow host and any inline style it applied to <html>) —
+  // there is nothing to explicitly restore here. If the sidebar was open,
+  // it stays recorded as open in chrome.storage.session so background.ts
+  // re-injects and re-opens it on the next page (§1.1).
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
