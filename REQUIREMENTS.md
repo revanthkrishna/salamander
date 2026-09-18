@@ -13,9 +13,9 @@
 
 ---
 
-## Status: 🟡 Draft — In Progress
+## Status: 🟢 Requirements Finalized
 
-Open decisions are marked 🟡 inline — these are proposals, not final. Everything else reflects a confirmed decision from discussion.
+All technical open items have been resolved (see inline "*(decided by: ... subagent)*" notes for rationale on each) and non-technical decisions were confirmed directly with the user. Ready to move into development planning.
 
 ---
 
@@ -89,7 +89,7 @@ Decision: no computed styles (e.g. `position`, `display`, `background-color`) in
 - [ ] In the modal: user can edit the note text, or delete the item entirely. **The screenshot/selection area itself is not editable in v1** (delete and recapture instead) — cropping/repositioning is deferred (§7)
 - [ ] Delete is immediate — no confirmation dialog (consistent with v1's single-item delete)
 - [ ] Deleting a feedback item also deletes its stored screenshot blob (no orphaned images in storage)
-- [ ] **No persistent visual marker is placed on the live page for saved feedback items** — this is an explicit decision (not a v1-parity gap): re-locating elements after the fact proved unreliable in the pin-based version when pages changed or viewport size differed. Sidebar thumbnails are the sole record. 🟡 Revisit if this proves hard to use in practice (e.g. correlating a thumbnail back to its page location).
+- [ ] **No persistent visual marker is placed on the live page for saved feedback items** — this is an explicit decision (not a v1-parity gap): re-locating elements after the fact proved unreliable in the pin-based version when pages changed or viewport size differed. Sidebar thumbnails are the sole record. (Future consideration, not a v1 blocker: revisit if this proves hard to use in practice, e.g. correlating a thumbnail back to its page location.)
 
 ### 1.6 Exporting
 - [ ] User clicks **export** → downloads a `.zip` bundle containing **all** feedback items across **all URLs** of the current domain (not just the current page — mirrors v1's "export everything, filtered view only in the UI" model)
@@ -205,7 +205,7 @@ Decision: no computed styles (e.g. `position`, `display`, `background-color`) in
 |---|----------|----------|
 | 1 | Selection box would extend past the visible viewport | Clamped to viewport edges — cannot drag/resize further in that direction. Rationale: the underlying capture API only captures the rendered viewport; auto-scroll+stitch was considered and deferred as unnecessary complexity for v1. |
 | 2 | Selection box / handles / dimming scrim / comment box visible at moment of capture | This in-page overlay UI is hidden immediately before the capture call and restored immediately after — must never appear in the resulting screenshot. The sidebar itself doesn't need special handling here since it resizes the page and can never overlap a selection's crop bounds (see §1.2). |
-| 3 | Selection box drawn too small (accidental click) | Enforced minimum dimensions (🟡 proposed 20×20px) |
+| 3 | Selection box drawn too small (accidental click) | Enforced minimum dimensions: 20×20px (see §1.2 for rationale) |
 | 4 | High-DPI / Retina display | Capture naturally reflects device pixel ratio; captured resolution may exceed CSS pixel dimensions of the selection |
 | 5 | Browser zoom ≠ 100% | Selection coordinates and capture are computed against rendered pixels, so zoom is inherently accounted for |
 | 6 | Selection area contains a cross-origin `<iframe>` | Screenshot pixels still capture correctly (visible-tab capture doesn't care about origin), but DOM/context capture (§1.4) cannot see inside the iframe due to same-origin restrictions — context for that region is limited to the iframe element's own tag/attributes/`src` |
