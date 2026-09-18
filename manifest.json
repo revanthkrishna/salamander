@@ -3,7 +3,7 @@
   "name": "salamander",
   "version": "1.1.0",
   "description": "annotate directly on webpage elements. share exactly what you see.",
-  "permissions": ["storage", "scripting", "tabs"],
+  "permissions": ["storage", "scripting", "tabs", "unlimitedStorage", "downloads"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "dist/background.js"
