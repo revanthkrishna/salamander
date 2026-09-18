@@ -34,11 +34,11 @@ Open decisions are marked 🟡 inline — these are proposals, not final. Everyt
 ### 1.2 Capturing Feedback (Add Mode) 
 - [ ] User clicks **add** → pointer changes to a screenshot/crosshair icon → page enters add mode
 - [ ] User clicks once on the page → a default-sized selection box appears, anchored at the click point (default size: 200×150px, clamped to fit within the viewport from the click point)
-- [ ] User can resize the box via drag handles on its corners/edges. Minimum box size: 🟡 proposed 20×20px (prevents accidental slivers)
+- [ ] User can resize the box via drag handles on its corners/edges. **Decision:** Minimum box size 20×20px. **Rationale:** Small enough to avoid forcing larger selections than necessary, but large enough to prevent useless captures from accidental clicks; prevents "slivers" without imposing artificial minimum interaction costs. *(decided by: frontend-developer subagent)*
 - [ ] The box **cannot** be dragged/resized past the visible viewport edges (§ decision: clamp to viewport, no auto-scroll/stitch — see §6 for rationale)
 - [ ] Alongside the box, a comment box appears (positioned below the selection by default; flips above, or to whichever side has room, if insufficient space — same overflow logic as v1's popover)
 - [ ] Comment box contains: a textarea (placeholder `"type something..."`, lowercase), a character counter (see below), and two buttons: **cancel** and **ok**
-- [ ] Text input max length: 🟡 proposed 1000 characters (raised from v1's 400, per decision to allow richer descriptions). Character counter appears once the count reaches 900+, turns red at 980+ (scaled proportionally from v1's 350/380 thresholds — confirm exact thresholds)
+- [ ] **Decision:** Text input max length 1000 characters; counter appears at 900+, turns red at 980+. **Rationale:** 1000-char limit allows richer descriptions than v1's 400; 90%/98% thresholds (900/980) provide appropriate warning and danger signals proportional to the expanded limit, giving users clear feedback before hitting the hard limit. *(decided by: frontend-developer subagent)*
 - [ ] **ok** is disabled while the textarea is empty
 - [ ] Only clicking **cancel** discards the in-progress box and exits add mode with no feedback item created. Clicking outside the box/comment area does **nothing** — no wiggle, no dismiss, no effect at all — regardless of whether the textarea is empty or not. The user must explicitly click **ok** or **cancel** to leave the in-progress state.
 - [ ] Clicking **ok**:
@@ -51,7 +51,7 @@ Open decisions are marked 🟡 inline — these are proposals, not final. Everyt
 ### 1.3 Screenshot Capture — Technical Constraints
 - [ ] Screenshot capture uses the browser's visible-tab capture API, which captures only the currently rendered viewport — this is why selections are clamped to the viewport (§1.2)
 - [ ] Captured images are stored as PNG (lossless — preserves text sharpness for UI screenshots, at the cost of larger file size vs JPEG)
-- [ ] Capture respects the page's actual device pixel ratio (e.g. Retina screens produce higher-resolution crops) — 🟡 confirm whether images should be normalized/downscaled to CSS pixel dimensions for consistent export sizing, or kept at native capture resolution
+- [ ] **Decision:** Capture images are kept at native device pixel ratio (no downscaling to CSS pixels). **Rationale:** Developers receiving the bundle need to see exact pixel fidelity for their target platform; high-DPI captures are more useful for developers working on Retina/high-DPI screens; file size is secondary to output usefulness for this use case. *(decided by: frontend-developer subagent)*
 - [ ] If capture fails (e.g. rate-limited, or the page is a restricted URL like `chrome://` where content scripts can't run), show an error and do not create a partial feedback item (see §5)
 
 ### 1.4 Context Capture (for a human or AI agent to locate the code)
@@ -142,17 +142,17 @@ Decision: no computed styles (e.g. `position`, `display`, `background-color`) in
 ### 3.1 Sidebar (Idle State)
 - [ ] Docked right-edge panel that resizes the page's viewport (not an overlay) — page content is never blocked or covered by it
 - [ ] Header row: **add** / **export** / **import** / **close** icon buttons, no text labels
-- [ ] Below header: scrollable list of thumbnails for the current URL (empty state: 🟡 proposed simple "no feedback on this page yet" message)
+- [ ] Below header: scrollable list of thumbnails for the current URL. **Decision:** Empty state shows "no feedback on this page yet". **Rationale:** Clear, descriptive message that is lowercase-consistent with v1 convention (§3.4), reassures user the sidebar is working, and encourages action via the **add** button. *(decided by: frontend-developer subagent)*
 
 ### 3.2 Add Mode — Selection Box
 - [ ] Selection box has visible resize handles on all 4 corners + 4 edges
-- [ ] Box has a distinct outline color/style so it's clearly an overlay, not page content 🟡 (reuse v1's yellow `#FEC800` accent?)
+- [ ] **Decision:** Selection box outline uses v1's yellow accent color `#FEC800`. **Rationale:** Proven high-contrast yellow is distinctly overlay-like without being distracting; provides continuity with v1; stands out clearly against most page backgrounds while remaining professional and accessible. *(decided by: frontend-developer subagent)*
 - [ ] Everything **outside** the selection box is dimmed with a translucent scrim, matching the macOS screenshot-selection tool's visual pattern — the box itself stays fully clear/undimmed so the user can see exactly what they're capturing
 - [ ] Comment box appears attached to the selection box, flipping position (below → above → side) based on available viewport space
 
 ### 3.3 Thumbnail & Enlarged Modal
 - [ ] Thumbnail: screenshot image + note text truncated to a preview length, item number badge
-- [ ] Enlarged modal: translucent backdrop, full-size(r) screenshot, full note text in an editable textarea, **delete** and presumably an implicit save-on-edit or explicit **save** button 🟡 (confirm: does editing the note require an explicit save, or does it autosave on blur/close, consistent with v1's "all changes autosave immediately" principle?)
+- [ ] Enlarged modal: translucent backdrop, full-size(r) screenshot, full note text in an editable textarea, and a **delete** button. **Decision:** Note edits autosave on blur or modal close (no explicit save button). **Rationale:** Autosave on blur/close is consistent with the document's stated principle "all changes autosave immediately" elsewhere; reduces modal friction and aligns with modern UX patterns for transient text editing. *(decided by: frontend-developer subagent)*
 
 ### 3.4 Text Case
 - [ ] Carry forward v1's "all visible UI text is lowercase" convention (buttons, placeholders, errors, dialogs) — confirmed, still applies
