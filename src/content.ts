@@ -13,6 +13,13 @@
 // decides what happens to add mode and the sidebar on either outcome — see
 // handleCaptureOk below.
 //
+// Phase 7 wires the thumbnail list and the enlarged modal (src/thumbnails.ts,
+// src/modal.ts): this file is the message-sending orchestrator for both
+// (same role it already plays for capture/save), fetching a domain's/URL's
+// items via GET_PAGE_ITEMS and handing them to sidebar.setThumbnails(), and
+// supplying modal.ts's fetchFullImage/onSaveNote/onDelete callbacks so that
+// pure-DOM module never has to touch chrome.runtime itself.
+//
 // What survives from Phase 0/2 untouched, per the inventory table:
 //   1. The double-injection idempotency guard.
 //   2. The chrome.runtime message listener shape (PING / ACTIVATE / ICON_CLICKED).
@@ -31,11 +38,24 @@
 // persists it and decides whether to re-inject + re-ACTIVATE on a later
 // full-page reload.
 
-import { normaliseUrl } from './urlNorm';
+import { normaliseUrl, normaliseDomain } from './urlNorm';
 import * as sidebar from './sidebar';
 import * as addMode from './addMode';
 import * as capture from './capture';
-import { SidebarOpenedMessage, SidebarClosedMessage } from './messages';
+import * as modal from './modal';
+import { FeedbackItem } from './types';
+import {
+  SidebarOpenedMessage,
+  SidebarClosedMessage,
+  GetPageItemsMessage,
+  GetPageItemsResponse,
+  GetImageMessage,
+  GetImageResponse,
+  UpdateNoteMessage,
+  UpdateNoteResponse,
+  DeleteItemMessage,
+  DeleteItemResponse,
+} from './messages';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Idempotency guard + runtime init (wrapped in IIFE so we can `return` instead
@@ -130,6 +150,9 @@ function ensureStarted(): void {
     onClose: () => {
       notifyBackground({ type: 'SIDEBAR_CLOSED' });
     },
+    onOpenItem: (item) => {
+      openItemModal(item);
+    },
   });
   setupNavigationDetection();
   window.addEventListener('beforeunload', handleBeforeUnload);
@@ -156,16 +179,13 @@ async function handleCaptureOk(result: addMode.AddModeResult): Promise<void> {
   }
 
   addMode.exitAddMode();
-  // Re-read the list for the current URL so the new item shows up. Phase 3's
-  // refreshForUrl is still a stub that renders the empty state; Phase 7 turns
-  // it into the real thumbnail list, at which point this call starts painting
-  // the item that was just captured with no further wiring here.
-  sidebar.refreshForUrl(location.href);
+  // Re-read the list for the current URL so the new item shows up.
+  void refreshThumbnails();
 }
 
 function openAndReport(): void {
   sidebar.openSidebar();
-  sidebar.refreshForUrl(location.href);
+  void refreshThumbnails();
   lastKnownUrl = location.href;
   notifyBackground({ type: 'SIDEBAR_OPENED' });
 }
@@ -221,8 +241,94 @@ function handleUrlChange(): void {
   // navigation — §1.1 requires it to persist across SPA route changes.
   // Only its thumbnail list content depends on the URL.
   if (sidebar.isSidebarVisible()) {
-    sidebar.refreshForUrl(location.href);
+    void refreshThumbnails();
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 7 — thumbnail list + enlarged modal message plumbing
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** chrome.runtime.sendMessage as a promise that never rejects: a dead service
+ *  worker or a torn-down port surfaces as `undefined`, which every caller
+ *  here already has to treat as a failure. Mirrors capture.ts's private
+ *  helper of the same shape. */
+function sendMessage<TResponse>(message: unknown): Promise<TResponse | undefined> {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage(message, (response: TResponse | undefined) => {
+        if (chrome.runtime.lastError) {
+          resolve(undefined);
+          return;
+        }
+        resolve(response);
+      });
+    } catch {
+      // Extension context invalidated (e.g. reloaded while the page stayed open).
+      resolve(undefined);
+    }
+  });
+}
+
+/** Fetch the current URL's feedback items and repaint the sidebar's thumbnail
+ *  list (§1.5 — "current URL only"). Called on open, on every SPA navigation,
+ *  after a successful capture, and after a modal closes (an edit or a
+ *  delete may have changed what should be showing). */
+async function refreshThumbnails(): Promise<void> {
+  const message: GetPageItemsMessage = {
+    type: 'GET_PAGE_ITEMS',
+    domain: normaliseDomain(location.host),
+    normalisedUrl: normaliseUrl(location.href),
+  };
+  const response = await sendMessage<GetPageItemsResponse>(message);
+  if (!response || !response.ok) {
+    sidebar.setThumbnails([]);
+    if (response && !response.ok) sidebar.showError(response.message);
+    return;
+  }
+  sidebar.setThumbnails(response.items);
+}
+
+/** Open the enlarged modal for one thumbnail, wiring its callbacks onto the
+ *  GET_IMAGE / UPDATE_NOTE / DELETE_ITEM round trips (modal.ts itself never
+ *  touches chrome.runtime — gotcha #1/#3). */
+function openItemModal(item: FeedbackItem): void {
+  const domain = normaliseDomain(location.host);
+
+  modal.openModal(item, {
+    fetchFullImage: async () => {
+      const getImage: GetImageMessage = { type: 'GET_IMAGE', screenshotKey: item.screenshotKey };
+      const response = await sendMessage<GetImageResponse>(getImage);
+      return response && response.ok ? response.dataUrl : null;
+    },
+    onSaveNote: async (note) => {
+      const updateNote: UpdateNoteMessage = {
+        type: 'UPDATE_NOTE',
+        domain,
+        normalisedUrl: item.normalisedUrl,
+        itemId: item.id,
+        note,
+      };
+      const response = await sendMessage<UpdateNoteResponse>(updateNote);
+      return response?.ok === true;
+    },
+    onDelete: async () => {
+      const deleteItemMsg: DeleteItemMessage = {
+        type: 'DELETE_ITEM',
+        domain,
+        normalisedUrl: item.normalisedUrl,
+        itemId: item.id,
+      };
+      const response = await sendMessage<DeleteItemResponse>(deleteItemMsg);
+      return response?.ok === true;
+    },
+    onClose: () => {
+      // Covers both outcomes: an edited note (preview text changed) and a
+      // deletion (item should disappear) — re-reading beats trying to patch
+      // the in-memory list two different ways.
+      void refreshThumbnails();
+    },
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

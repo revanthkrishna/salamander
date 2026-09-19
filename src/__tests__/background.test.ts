@@ -27,6 +27,9 @@ jest.mock('../storage', () => ({
   cleanupStaleTabKeys: jest.fn().mockResolvedValue(undefined),
   getNextItemId: jest.fn().mockResolvedValue(1),
   addItem: jest.fn().mockResolvedValue(undefined),
+  getPageItems: jest.fn().mockResolvedValue([]),
+  updateNote: jest.fn().mockResolvedValue(undefined),
+  deleteItem: jest.fn().mockResolvedValue(undefined),
 }));
 
 type Cb<T> = (result: T) => void;
@@ -210,6 +213,9 @@ beforeEach(() => {
   mockedImageStore.deleteImage.mockResolvedValue(undefined);
   mockedStorage.getNextItemId.mockResolvedValue(1);
   mockedStorage.addItem.mockResolvedValue(undefined);
+  mockedStorage.getPageItems.mockResolvedValue([]);
+  mockedStorage.updateNote.mockResolvedValue(undefined);
+  mockedStorage.deleteItem.mockResolvedValue(undefined);
   sendMessageMock.mockImplementation(
     (_tabId: number, _message: unknown, callback?: Cb<{ alive: boolean }>) => {
       callback?.({ alive: true });
@@ -365,6 +371,55 @@ describe('handleRuntimeMessage', () => {
     expect(keepOpen).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: true });
+  });
+
+  it('dispatches GET_PAGE_ITEMS asynchronously and keeps the channel open', async () => {
+    const sendResponse = jest.fn();
+    const keepOpen = background.handleRuntimeMessage(
+      { type: 'GET_PAGE_ITEMS', domain: 'example.com', normalisedUrl: 'example.com/a' },
+      makeSender(3),
+      sendResponse,
+    );
+    expect(keepOpen).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: true, items: [] });
+  });
+
+  it('dispatches GET_IMAGE asynchronously and keeps the channel open', async () => {
+    mockedImageStore.getImage.mockResolvedValue('data:image/png;base64,ZnVsbA==');
+    const sendResponse = jest.fn();
+    const keepOpen = background.handleRuntimeMessage(
+      { type: 'GET_IMAGE', screenshotKey: 'key-1' },
+      makeSender(3),
+      sendResponse,
+    );
+    expect(keepOpen).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sendResponse.mock.calls[0][0]).toEqual({ ok: true, dataUrl: 'data:image/png;base64,ZnVsbA==' });
+  });
+
+  it('dispatches UPDATE_NOTE asynchronously and keeps the channel open', async () => {
+    const sendResponse = jest.fn();
+    const keepOpen = background.handleRuntimeMessage(
+      { type: 'UPDATE_NOTE', domain: 'example.com', normalisedUrl: 'example.com/a', itemId: 1, note: 'edited' },
+      makeSender(3),
+      sendResponse,
+    );
+    expect(keepOpen).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sendResponse.mock.calls[0][0]).toEqual({ ok: true });
+  });
+
+  it('dispatches DELETE_ITEM asynchronously and keeps the channel open', async () => {
+    const sendResponse = jest.fn();
+    const keepOpen = background.handleRuntimeMessage(
+      { type: 'DELETE_ITEM', domain: 'example.com', normalisedUrl: 'example.com/a', itemId: 1 },
+      makeSender(3),
+      sendResponse,
+    );
+    expect(keepOpen).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sendResponse.mock.calls[0][0]).toEqual({ ok: true });
   });
 });
 
@@ -831,5 +886,131 @@ describe('enqueueCapture throttle', () => {
 
     await expect(first).rejects.toThrow('first one fails');
     await expect(second).resolves.toBe('second succeeds');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 7 handlers — thumbnail list + enlarged modal (§1.5, §3.3)
+// ---------------------------------------------------------------------------
+
+describe('handleGetPageItems', () => {
+  it('returns storage.ts\'s items for the domain/url unchanged', async () => {
+    const items = [{ id: 1 } as any];
+    mockedStorage.getPageItems.mockResolvedValue(items);
+
+    const response = await background.handleGetPageItems({
+      type: 'GET_PAGE_ITEMS',
+      domain: 'example.com',
+      normalisedUrl: 'example.com/a',
+    });
+
+    expect(mockedStorage.getPageItems).toHaveBeenCalledWith('example.com', 'example.com/a');
+    expect(response).toEqual({ ok: true, items });
+  });
+
+  it('maps a storage read failure to a lowercase error, not a throw', async () => {
+    mockedStorage.getPageItems.mockRejectedValue(new Error('boom'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const response = await background.handleGetPageItems({
+      type: 'GET_PAGE_ITEMS',
+      domain: 'example.com',
+      normalisedUrl: 'example.com/a',
+    });
+
+    expect(response).toEqual({
+      ok: false,
+      message: "couldn't load feedback for this page. try again.",
+    });
+    warn.mockRestore();
+  });
+});
+
+describe('handleGetImage', () => {
+  it('returns the stored data url for the key', async () => {
+    mockedImageStore.getImage.mockResolvedValue('data:image/png;base64,ZnVsbA==');
+
+    const response = await background.handleGetImage({ type: 'GET_IMAGE', screenshotKey: 'key-1' });
+
+    expect(mockedImageStore.getImage).toHaveBeenCalledWith('key-1');
+    expect(response).toEqual({ ok: true, dataUrl: 'data:image/png;base64,ZnVsbA==' });
+  });
+
+  it('reports failure (lowercase) when the key has no stored image', async () => {
+    mockedImageStore.getImage.mockResolvedValue(null);
+
+    const response = await background.handleGetImage({ type: 'GET_IMAGE', screenshotKey: 'missing' });
+
+    expect(response).toEqual({ ok: false, message: "couldn't load screenshot. try again." });
+  });
+
+  it('maps a thrown error to the same lowercase failure', async () => {
+    mockedImageStore.getImage.mockRejectedValue(new Error('idb closed'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const response = await background.handleGetImage({ type: 'GET_IMAGE', screenshotKey: 'key-1' });
+
+    expect(response).toEqual({ ok: false, message: "couldn't load screenshot. try again." });
+    warn.mockRestore();
+  });
+});
+
+describe('handleUpdateNote', () => {
+  it('forwards to storage.ts\'s updateNote and reports success', async () => {
+    const response = await background.handleUpdateNote({
+      type: 'UPDATE_NOTE',
+      domain: 'example.com',
+      normalisedUrl: 'example.com/a',
+      itemId: 3,
+      note: 'edited note',
+    });
+
+    expect(mockedStorage.updateNote).toHaveBeenCalledWith('example.com', 'example.com/a', 3, 'edited note');
+    expect(response).toEqual({ ok: true });
+  });
+
+  it('maps a write failure to a lowercase error', async () => {
+    mockedStorage.updateNote.mockRejectedValue(new Error('quota exceeded'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const response = await background.handleUpdateNote({
+      type: 'UPDATE_NOTE',
+      domain: 'example.com',
+      normalisedUrl: 'example.com/a',
+      itemId: 3,
+      note: 'edited note',
+    });
+
+    expect(response).toEqual({ ok: false, message: "couldn't save note. try again." });
+    warn.mockRestore();
+  });
+});
+
+describe('handleDeleteItem', () => {
+  it('forwards to storage.ts\'s deleteItem (which also drops the blob) and reports success', async () => {
+    const response = await background.handleDeleteItem({
+      type: 'DELETE_ITEM',
+      domain: 'example.com',
+      normalisedUrl: 'example.com/a',
+      itemId: 5,
+    });
+
+    expect(mockedStorage.deleteItem).toHaveBeenCalledWith('example.com', 'example.com/a', 5);
+    expect(response).toEqual({ ok: true });
+  });
+
+  it('maps a delete failure to a lowercase error', async () => {
+    mockedStorage.deleteItem.mockRejectedValue(new Error('boom'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const response = await background.handleDeleteItem({
+      type: 'DELETE_ITEM',
+      domain: 'example.com',
+      normalisedUrl: 'example.com/a',
+      itemId: 5,
+    });
+
+    expect(response).toEqual({ ok: false, message: "couldn't delete item. try again." });
+    warn.mockRestore();
   });
 });

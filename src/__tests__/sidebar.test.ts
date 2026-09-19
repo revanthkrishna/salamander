@@ -11,6 +11,7 @@
 // Phase 3 asks for 5+ real sites), and Phase 10's Playwright suite.
 
 import * as sidebar from '../sidebar';
+import { FeedbackItem } from '../types';
 
 function getHost(): HTMLElement | null {
   return document.getElementById('annotator-sidebar-host');
@@ -37,15 +38,46 @@ function shadowRoot(): ShadowRoot {
 }
 
 function makeCallbacks(): sidebar.SidebarCallbacks & {
-  calls: { add: number; export: number; importFile: File[]; close: number };
+  calls: { add: number; export: number; importFile: File[]; close: number; openItem: FeedbackItem[] };
 } {
-  const calls = { add: 0, export: 0, importFile: [] as File[], close: 0 };
+  const calls = { add: 0, export: 0, importFile: [] as File[], close: 0, openItem: [] as FeedbackItem[] };
   return {
     calls,
     onAdd: () => { calls.add++; },
     onExport: () => { calls.export++; },
     onImportFile: (file: File) => { calls.importFile.push(file); },
     onClose: () => { calls.close++; },
+    onOpenItem: (item: FeedbackItem) => { calls.openItem.push(item); },
+  };
+}
+
+function makeItem(overrides: Partial<FeedbackItem> = {}): FeedbackItem {
+  return {
+    id: 1,
+    pageUrl: 'https://example.com/page',
+    normalisedUrl: 'https://example.com/page',
+    note: 'looks off-centre on mobile',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    selectionRect: { x: 0, y: 0, width: 100, height: 100 },
+    viewport: { width: 1280, height: 800 },
+    dpr: 1,
+    screenshotKey: 'key-1',
+    thumbnailDataUrl: 'data:image/jpeg;base64,AAAA',
+    context: {
+      primaryTarget: { cssSelector: 'div', xpath: '/html/body/div', outerHtmlSnippet: '<div></div>', truncated: false },
+      containedElements: [],
+      areaText: '',
+      pageMeta: {
+        url: 'https://example.com/page',
+        normalisedUrl: 'https://example.com/page',
+        title: 'example',
+        viewport: { width: 1280, height: 800 },
+        dpr: 1,
+        selectionRect: { x: 0, y: 0, width: 100, height: 100 },
+        capturedAt: '2026-01-01T00:00:00.000Z',
+      },
+    },
+    ...overrides,
   };
 }
 
@@ -323,14 +355,69 @@ describe('sidebar shell', () => {
     expect(fileInput.value).toBe('');
   });
 
-  test('refreshForUrl keeps the empty state visible and the (still-unpopulated) list hidden', () => {
+  test('setThumbnails([]) shows the empty state and hides the list', () => {
     sidebar.initSidebar(makeCallbacks());
-    sidebar.refreshForUrl('https://example.com/page');
+    sidebar.setThumbnails([]);
 
     const empty = shadowRoot().querySelector('.empty-state') as HTMLElement;
     const list = shadowRoot().querySelector('.thumbnail-list') as HTMLElement;
     expect(empty.hidden).toBe(false);
     expect(list.hidden).toBe(true);
+    expect(empty.textContent).toBe('no feedback on this page yet');
+  });
+
+  test('setThumbnails(items) hides the empty state, shows one <li> per item, badge + note preview', () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.setThumbnails([makeItem({ id: 1, note: 'a' }), makeItem({ id: 2, note: '' })]);
+
+    const empty = shadowRoot().querySelector('.empty-state') as HTMLElement;
+    const list = shadowRoot().querySelector('.thumbnail-list') as HTMLElement;
+    expect(empty.hidden).toBe(true);
+    expect(list.hidden).toBe(false);
+
+    const items = list.querySelectorAll('li.thumbnail');
+    expect(items.length).toBe(2);
+
+    const [first, second] = Array.from(items);
+    expect(first.querySelector('.thumbnail-badge')?.textContent).toBe('1');
+    expect(first.querySelector('.thumbnail-note')?.textContent).toBe('a');
+    expect(first.querySelector('img')?.getAttribute('src')).toBe('data:image/jpeg;base64,AAAA');
+
+    // Empty note renders the lowercase placeholder (§3.4), not a blank line.
+    expect(second.querySelector('.thumbnail-note')?.textContent).toBe('no note');
+  });
+
+  test('a second setThumbnails call replaces rather than appends', () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.setThumbnails([makeItem({ id: 1 })]);
+    sidebar.setThumbnails([makeItem({ id: 2 }), makeItem({ id: 3 })]);
+
+    const list = shadowRoot().querySelector('.thumbnail-list') as HTMLElement;
+    expect(list.querySelectorAll('li.thumbnail').length).toBe(2);
+  });
+
+  test('clicking a thumbnail fires onOpenItem with that item', () => {
+    const cb = makeCallbacks();
+    sidebar.initSidebar(cb);
+    const item = makeItem({ id: 7 });
+    sidebar.setThumbnails([item]);
+
+    const li = shadowRoot().querySelector('li.thumbnail') as HTMLLIElement;
+    li.click();
+
+    expect(cb.calls.openItem).toEqual([item]);
+  });
+
+  test('activating a thumbnail with Enter/Space also fires onOpenItem', () => {
+    const cb = makeCallbacks();
+    sidebar.initSidebar(cb);
+    const item = makeItem({ id: 9 });
+    sidebar.setThumbnails([item]);
+
+    const li = shadowRoot().querySelector('li.thumbnail') as HTMLLIElement;
+    li.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(cb.calls.openItem).toEqual([item]);
   });
 
   test('destroySidebar removes the host and restores <html> if it was open', () => {

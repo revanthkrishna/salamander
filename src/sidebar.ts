@@ -14,6 +14,19 @@
 // need them and toolbar.ts was their only home), and the design tokens from
 // docs/v1-archive/UX_DESIGN.md §11 (#FEC800 accent, #FB645A error, #D6AE7C
 // warning, #000000 toolbar bg, #FFFFFF / #B7B7B7 text).
+//
+// Phase 7 fills in the body that Phase 3 left empty: setThumbnails() renders
+// the current URL's feedback items (src/thumbnails.ts does the actual <li>
+// construction; this module just owns the <ul> and the empty-state toggle)
+// and wires each thumbnail's "open" activation to the new onOpenItem
+// callback. This module stays chrome.runtime-agnostic throughout — it is
+// content.ts's job (the message-sending orchestrator, per the existing
+// onAdd/onExport/onImportFile pattern) to fetch items and hand them to
+// setThumbnails, and to open src/modal.ts with real save/delete callbacks
+// when onOpenItem fires.
+
+import { FeedbackItem } from './types';
+import { renderThumbnailList } from './thumbnails';
 
 export const SIDEBAR_WIDTH = 320;
 
@@ -30,6 +43,9 @@ export interface SidebarCallbacks {
    *  to tell the background service worker so it can clear the persisted
    *  per-tab "sidebar open" state (§1.1). */
   onClose: () => void;
+  /** A thumbnail was activated (click or Enter/Space) — the caller opens the
+   *  enlarged modal (src/modal.ts) for this item (§1.5, §3.3). */
+  onOpenItem: (item: FeedbackItem) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -199,6 +215,63 @@ const SIDEBAR_CSS = `
     gap: 12px;
   }
   .thumbnail-list[hidden] { display: none !important; }
+
+  /* ─── Thumbnails (Phase 7, §1.5/§3.3) ─────────────────────────────────── */
+
+  .thumbnail {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    cursor: pointer;
+    border-radius: 8px;
+    padding: 6px;
+    transition: background-color 120ms ease;
+  }
+  .thumbnail:hover { background: rgba(255,255,255,0.06); }
+  .thumbnail:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  .thumbnail-image-wrap {
+    position: relative;
+    width: 100%;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #000000;
+    line-height: 0;
+  }
+
+  .thumbnail-image {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+
+  .thumbnail-badge {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--accent);
+    color: #000000;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 18px;
+    text-align: center;
+  }
+
+  .thumbnail-note {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text);
+    word-break: break-word;
+  }
+  .thumbnail-note-empty {
+    color: var(--text-muted);
+    font-style: italic;
+  }
 `;
 
 // ---------------------------------------------------------------------------
@@ -404,17 +477,27 @@ export function isSidebarVisible(): boolean {
 }
 
 /**
- * Phase 3 stub: the thumbnail list is intentionally empty (Phase 3 brief — "the
- * current-URL thumbnail list (empty for now)"). Phase 7 replaces the body with a
- * real chrome.runtime round trip to storage.ts's getPageItems(). Kept as a named
- * entry point now so content.ts has a stable hook to call on every SPA
- * navigation without Phase 7 having to also touch the navigation wiring.
+ * Repaint the thumbnail list for whatever items content.ts fetched for the
+ * current URL (§1.5 — "current URL only"; newest-at-the-bottom is the
+ * caller's responsibility, since storage.ts's getPageItems already returns
+ * capture order). Shows the empty state (§3.1's "no feedback on this page
+ * yet") when `items` is empty. content.ts calls this after every
+ * GET_PAGE_ITEMS round trip: on open, on SPA navigation, and after a
+ * successful capture or a modal close (edit/delete).
  */
-export function refreshForUrl(_url: string): void {
-  if (!elEmptyState || !elThumbnailList) return;
-  elEmptyState.hidden = false;
-  elThumbnailList.hidden = true;
-  elThumbnailList.innerHTML = '';
+export function setThumbnails(items: FeedbackItem[]): void {
+  if (!elEmptyState || !elThumbnailList || !callbacksRef) return;
+  if (items.length === 0) {
+    elEmptyState.hidden = false;
+    elThumbnailList.hidden = true;
+    elThumbnailList.innerHTML = '';
+    return;
+  }
+  elEmptyState.hidden = true;
+  elThumbnailList.hidden = false;
+  renderThumbnailList(elThumbnailList, items, {
+    onOpen: (item) => callbacksRef?.onOpenItem(item),
+  });
 }
 
 /** Full teardown: removes the host from the DOM and restores page layout. Not

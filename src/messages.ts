@@ -195,8 +195,110 @@ export interface SaveItemErrorResponse {
 
 export type SaveItemResponse = SaveItemSuccessResponse | SaveItemErrorResponse;
 
+// ---------------------------------------------------------------------------
+// Phase 7 — thumbnail list + enlarged modal (§1.5, §3.3)
+// ---------------------------------------------------------------------------
+//
+// The sidebar's thumbnail list paints entirely from FeedbackItem.thumbnailDataUrl
+// (Phase 1's inline-thumbnail design call), which already lives in
+// chrome.storage.local — so GetPageItemsMessage is the only round trip the
+// list needs. The modal additionally wants the full-resolution PNG, which
+// lives in IndexedDB behind the service worker (gotcha #1), hence the
+// separate GetImageMessage rather than inlining it into every item.
+
+/** Fetch every feedback item for one normalised URL of a domain (§1.5 —
+ *  "current URL only"), sent on sidebar open/refresh and on every SPA
+ *  navigation. */
+export interface GetPageItemsMessage {
+  type: 'GET_PAGE_ITEMS';
+  domain: string;
+  normalisedUrl: string;
+}
+
+export interface GetPageItemsSuccessResponse {
+  ok: true;
+  /** In capture order — storage.ts's getPageItems already returns them that
+   *  way, so the sidebar can render newest-at-the-bottom (§1.5) with no
+   *  re-sorting on this side. */
+  items: FeedbackItem[];
+}
+
+export interface GetPageItemsErrorResponse {
+  ok: false;
+  message: string;
+}
+
+export type GetPageItemsResponse = GetPageItemsSuccessResponse | GetPageItemsErrorResponse;
+
+/** Fetch the full-resolution PNG for one item, for the enlarged modal. The
+ *  sidebar list itself never sends this — only opening a modal does. */
+export interface GetImageMessage {
+  type: 'GET_IMAGE';
+  screenshotKey: string;
+}
+
+export interface GetImageSuccessResponse {
+  ok: true;
+  dataUrl: string;
+}
+
+export interface GetImageErrorResponse {
+  ok: false;
+  /** Lowercase, user-facing. Not a §5-numbered case — modal.ts falls back to
+   *  the already-on-screen thumbnail rather than surfacing this as a hard
+   *  failure, but the copy stays consistent with the rest of the extension's
+   *  error tone regardless. */
+  message: string;
+}
+
+export type GetImageResponse = GetImageSuccessResponse | GetImageErrorResponse;
+
+/** Edit a note's text (modal autosave on blur/close, §3.3). */
+export interface UpdateNoteMessage {
+  type: 'UPDATE_NOTE';
+  domain: string;
+  normalisedUrl: string;
+  itemId: number;
+  note: string;
+}
+
+export interface UpdateNoteSuccessResponse {
+  ok: true;
+}
+
+export interface UpdateNoteErrorResponse {
+  ok: false;
+  message: string;
+}
+
+export type UpdateNoteResponse = UpdateNoteSuccessResponse | UpdateNoteErrorResponse;
+
+/** Delete a feedback item and its screenshot blob (§1.5 — immediate, no
+ *  confirmation, no orphaned image). */
+export interface DeleteItemMessage {
+  type: 'DELETE_ITEM';
+  domain: string;
+  normalisedUrl: string;
+  itemId: number;
+}
+
+export interface DeleteItemSuccessResponse {
+  ok: true;
+}
+
+export interface DeleteItemErrorResponse {
+  ok: false;
+  message: string;
+}
+
+export type DeleteItemResponse = DeleteItemSuccessResponse | DeleteItemErrorResponse;
+
 export type ContentToBackgroundMessage =
   | SidebarOpenedMessage
   | SidebarClosedMessage
   | CaptureMessage
-  | SaveItemMessage;
+  | SaveItemMessage
+  | GetPageItemsMessage
+  | GetImageMessage
+  | UpdateNoteMessage
+  | DeleteItemMessage;

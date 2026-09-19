@@ -13,6 +13,9 @@ import {
   cleanupStaleTabKeys,
   getNextItemId,
   addItem,
+  getPageItems,
+  updateNote,
+  deleteItem,
 } from './storage';
 import * as imageStore from './imageStore';
 import { FeedbackItem, Rect, ViewportSize } from './types';
@@ -24,6 +27,14 @@ import {
   IconClickedMessage,
   SaveItemMessage,
   SaveItemResponse,
+  GetPageItemsMessage,
+  GetPageItemsResponse,
+  GetImageMessage,
+  GetImageResponse,
+  UpdateNoteMessage,
+  UpdateNoteResponse,
+  DeleteItemMessage,
+  DeleteItemResponse,
 } from './messages';
 
 const CONTENT_SCRIPT = 'dist/content.js';
@@ -153,6 +164,22 @@ export function handleRuntimeMessage(
       handleSaveItem(message as SaveItemMessage).then(sendResponse);
       return true; // keep the message channel open for the async response
     }
+    case 'GET_PAGE_ITEMS': {
+      handleGetPageItems(message as GetPageItemsMessage).then(sendResponse);
+      return true; // keep the message channel open for the async response
+    }
+    case 'GET_IMAGE': {
+      handleGetImage(message as GetImageMessage).then(sendResponse);
+      return true; // keep the message channel open for the async response
+    }
+    case 'UPDATE_NOTE': {
+      handleUpdateNote(message as UpdateNoteMessage).then(sendResponse);
+      return true; // keep the message channel open for the async response
+    }
+    case 'DELETE_ITEM': {
+      handleDeleteItem(message as DeleteItemMessage).then(sendResponse);
+      return true; // keep the message channel open for the async response
+    }
     default:
       return false; // PING/ACTIVATE/ICON_CLICKED are background->content; not ours to handle
   }
@@ -277,6 +304,66 @@ export async function handleSaveItem(message: SaveItemMessage): Promise<SaveItem
 /** Test-only escape hatch: reset the serialised save queue between tests. */
 export function _resetSaveQueueForTests(): void {
   saveQueueTail = Promise.resolve();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 7 — thumbnail list + enlarged modal (§1.5, §3.3)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Four small, independent read/write handlers on top of storage.ts/imageStore.ts.
+// None of them share saveQueueTail: GET_PAGE_ITEMS/GET_IMAGE are pure reads,
+// and UPDATE_NOTE/DELETE_ITEM mutate a single already-identified item by id
+// rather than allocating a new one, so there is no next-id race to serialise
+// against (unlike SAVE_ITEM's read-allocate-write of the domain counter).
+
+const ITEM_LOAD_FAILED_MESSAGE = "couldn't load feedback for this page. try again.";
+const IMAGE_LOAD_FAILED_MESSAGE = "couldn't load screenshot. try again.";
+const NOTE_SAVE_FAILED_MESSAGE = "couldn't save note. try again.";
+const ITEM_DELETE_FAILED_MESSAGE = "couldn't delete item. try again.";
+
+export async function handleGetPageItems(
+  message: GetPageItemsMessage,
+): Promise<GetPageItemsResponse> {
+  try {
+    const items = await getPageItems(message.domain, message.normalisedUrl);
+    return { ok: true, items };
+  } catch (err) {
+    console.warn('[Annotator] could not load page items:', err);
+    return { ok: false, message: ITEM_LOAD_FAILED_MESSAGE };
+  }
+}
+
+export async function handleGetImage(message: GetImageMessage): Promise<GetImageResponse> {
+  try {
+    const dataUrl = await imageStore.getImage(message.screenshotKey);
+    if (!dataUrl) {
+      return { ok: false, message: IMAGE_LOAD_FAILED_MESSAGE };
+    }
+    return { ok: true, dataUrl };
+  } catch (err) {
+    console.warn('[Annotator] could not load screenshot:', err);
+    return { ok: false, message: IMAGE_LOAD_FAILED_MESSAGE };
+  }
+}
+
+export async function handleUpdateNote(message: UpdateNoteMessage): Promise<UpdateNoteResponse> {
+  try {
+    await updateNote(message.domain, message.normalisedUrl, message.itemId, message.note);
+    return { ok: true };
+  } catch (err) {
+    console.warn('[Annotator] could not save note:', err);
+    return { ok: false, message: NOTE_SAVE_FAILED_MESSAGE };
+  }
+}
+
+export async function handleDeleteItem(message: DeleteItemMessage): Promise<DeleteItemResponse> {
+  try {
+    await deleteItem(message.domain, message.normalisedUrl, message.itemId);
+    return { ok: true };
+  } catch (err) {
+    console.warn('[Annotator] could not delete feedback item:', err);
+    return { ok: false, message: ITEM_DELETE_FAILED_MESSAGE };
+  }
 }
 
 // ---------------------------------------------------------------------------
