@@ -137,6 +137,9 @@ Decision: no computed styles (e.g. `position`, `display`, `background-color`) in
 - Hiding/restoring the in-page overlay UI (selection box, handles, dimming scrim, comment box) around the capture call must be fast enough to be visually imperceptible and must never appear in the captured image
 - Add-mode interactions (drawing, resizing) should feel instant — no lag
 
+### Compatibility — keyboard isolation from the host page
+- **Decision:** Keyboard input into any extension-owned text field (the add-mode comment box, the enlarged modal's note editor) must never leak to the host page's own keyboard-shortcut handlers, and the host page's shortcuts must never fire while the user is typing into extension UI. **Rationale:** Real-world testing surfaced this as a functional bug, not a hypothetical: sites like Gmail and Instagram attach global keyboard-shortcut listeners to `document`, and since the extension's UI lives in a closed shadow root, the host page cannot see that an input has focus (its `document.activeElement` check fails), so it fires its own shortcut instead — on Instagram, pressing "n" opened the site's notifications panel instead of typing an "n"; on both sites, some keystrokes were dropped entirely because the host page's shortcut handler called `preventDefault()` on them. **Mechanism:** a capture-phase listener on `window` for `keydown`/`keyup`/`keypress` calls `stopPropagation()` (never `preventDefault()`) for any event targeting extension UI, installed only while that UI is open. *(found and fixed via real browser testing on Gmail and Instagram)*
+
 ---
 
 ## 3. UX / UI Requirements
@@ -155,6 +158,7 @@ Decision: no computed styles (e.g. `position`, `display`, `background-color`) in
 
 ### 3.3 Thumbnail & Enlarged Modal
 - [ ] Thumbnail: screenshot image + note text truncated to a preview length, item number badge
+- [ ] **Decision:** Thumbnails render in a fixed-size image box (100px height, width fills the available sidebar content area) regardless of the captured screenshot's actual dimensions, with the image scaled via `object-fit: contain`. **Rationale:** Screenshots vary widely in size/aspect ratio depending on what was selected; a fixed box keeps the sidebar list visually even, and `contain` (rather than `cover`) ensures the full captured screenshot is always visible rather than cropped — losing part of the screenshot would undermine the tool's core purpose.
 - [ ] Enlarged modal: translucent backdrop, full-size(r) screenshot, full note text in an editable textarea, and a **delete** button. **Decision:** Note edits autosave on blur or modal close (no explicit save button). **Rationale:** Autosave on blur/close is consistent with the document's stated principle "all changes autosave immediately" elsewhere; reduces modal friction and aligns with modern UX patterns for transient text editing. *(decided by: frontend-developer subagent)*
 
 ### 3.4 Text Case

@@ -17,7 +17,7 @@ the same page.
 
 ---
 
-## 0. Regression checks (bugs found in the last manual pass — verify these first)
+## 0. Regression checks (bugs found in manual passes — verify these first)
 
 - [ ] **R1.** Click **add**. The comment box must **not** appear yet — only the crosshair cursor.
       It should only appear after you click on the page to place a selection box.
@@ -29,6 +29,17 @@ the same page.
       its backdrop.
 - [ ] **R4.** With the modal open, confirm it does not visually overlap or collide with the
       sidebar's own strip on the right edge of the screen.
+- [ ] **R5. (keyboard isolation — Gmail)** On mail.google.com, open add mode, place a box, and
+      type a full sentence with mixed letters into the comment box. Every character you type must
+      appear — none dropped — and no Gmail keyboard shortcut (e.g. "c" for compose) should fire.
+      Repeat while editing a note in the enlarged modal.
+- [ ] **R6. (keyboard isolation — Instagram)** On instagram.com, same test as R5. Specifically
+      type the letter "n" into the comment box — it must appear as text, and Instagram's
+      notifications panel must **not** open.
+- [ ] **R7. (YouTube sidebar)** On youtube.com, open the sidebar. Compare against a plain site —
+      YouTube's known layout quirks (see `REQUIREMENTS.md` §6 #13) may prevent the page from fully
+      reflowing; check that regardless, the sidebar itself stays fully visible, usable, and on top
+      (not clipped or hidden), and that closing it restores the page exactly as it was.
 
 ---
 
@@ -52,14 +63,31 @@ the same page.
       (closed state persists across reload too).
 - [ ] **1.10.** Restart Chrome entirely (quit and reopen), revisit a page you'd left the sidebar
       open on. Sidebar should be closed by default (session state cleared on browser restart).
+- [ ] **1.11. (Resizable sidebar)** Hover the sidebar's left edge — cursor should change to a
+      resize cursor and a thin yellow rail should appear. Drag it wider and narrower. It should
+      stop at 100px (min) and 300px (max) and not go past either. Reload the page — the width you
+      left it at should be remembered.
+- [ ] **1.12.** With the sidebar resized to a non-default width, open add mode and the enlarged
+      modal — both should respect the current width (selection area doesn't extend under the
+      sidebar; modal backdrop stops at the sidebar's edge, not the old default width).
 
 ## 2. Add mode & capture (§1.2, §1.3, §3.2)
 
 - [ ] **2.1.** Click **add** → cursor becomes a crosshair, page clicks stop navigating/activating
       anything underneath.
-- [ ] **2.2.** Click once on the page → a box appears at that point, roughly 200×150px, with a
-      dimming scrim over everything outside the box (rest of the page visibly darkened, box itself
-      stays fully clear — like the macOS screenshot tool).
+- [ ] **2.2. (Click-to-place, centered)** Click once somewhere in the middle of the page (not near
+      an edge) → a ~200×150px box appears **centered on your click point** (not with the click
+      point as its top-left corner), with a dimming scrim over everything outside the box (rest of
+      the page visibly darkened, box itself stays fully clear — like the macOS screenshot tool).
+- [ ] **2.2b. (Click near an edge — clamped, not centered)** Click very close to the top-left
+      corner of the viewport (e.g. within ~20px of both edges). The box should **not** hang off
+      the edge or get cut off — it should shift to stay fully on-screen (e.g. clicking at
+      roughly (20,20) should produce a box from about (0,0) to (200,150), not one centered on the
+      click point). Repeat near the top-right, bottom-left, and bottom-right corners.
+- [ ] **2.2c. (Drag-to-draw)** Instead of a single click, press and drag a noticeable distance
+      (like drawing a rectangle in Figma) → the box should be exactly the rectangle you dragged,
+      not the default 200×150 size, updating live as you drag in any direction (down-right,
+      up-left, etc.).
 - [ ] **2.3.** Box outline is yellow (`#FEC800`), with visible resize handles on all 4 corners and
       4 edges.
 - [ ] **2.4.** Drag a corner handle to resize the box larger and smaller. Try shrinking it down —
@@ -103,6 +131,11 @@ the same page.
 - [ ] **3.6.** Capture items on page A, navigate to page B (different URL, same domain) — sidebar
       should show **only** page B's items, not page A's. Navigate back to page A — its items should
       reappear, unchanged.
+- [ ] **3.7. (Fixed-size thumbnails)** Capture a very wide/short selection and a very tall/narrow
+      selection. Both thumbnails should occupy the same fixed-height image box in the sidebar, with
+      the actual screenshot scaled to fit inside it — no thumbnail should be a different height
+      than the others, and no screenshot should be cropped (the full image should always be
+      visible, letterboxed if its aspect ratio doesn't match the box).
 
 ## 4. Exporting (§1.6)
 
@@ -177,6 +210,12 @@ the same page.
 - [ ] **6.7. (Fixed/sticky elements)** Try selecting an area on a sticky header or fixed-position
       element while scrolled down the page. Should behave like any other selection — no odd
       jumping or misplacement.
+- [ ] **6.8. (App-shell sites — known limitation, see REQUIREMENTS.md §6 #13)** On youtube.com,
+      confirm the sidebar itself is still fully usable even though the page may not visibly narrow
+      the way it does on simpler sites. This is a documented, accepted limitation (YouTube sizes
+      its player using viewport units and `window.innerWidth`, which a content script cannot force
+      to shrink) — not something to file as a new bug unless the sidebar itself becomes unusable
+      or the page breaks/errors.
 
 ## 7. Text case convention (§3.4)
 
