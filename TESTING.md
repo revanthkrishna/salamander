@@ -23,12 +23,13 @@ npx jest bundle                   # markdown serialization round-trip
 - `selectorBuilder.test.ts` — CSS selector generation (data-* preference, ID rules, nth-of-type fallback, UUID/React hash rejection), XPath generation
 - `storage.test.ts` — domain CRUD, item CRUD (create/read/update/delete), blob orphan prevention, nextItemNumber monotonicity, session state round-trip
 - `thumbnails.test.ts` — thumbnail list rendering from FeedbackItem array
-- `modal.test.ts` — full-resolution image fetching, note editing, delete, modal lifecycle
+- `enlargedView.test.ts` — enlarged view open/collapse (incl. interrupted transitions), prev/next and the ends, autosave debounce + flush on navigate/collapse, save failures, the empty-note rule on every exit path, delete (middle/last/only), keyboard (Esc/↑/↓/focus in and out), add mode collapsing it first, reduced-motion path, teardown
+- `content.test.ts` — add-note toggle / double-click lock state machine end to end (capture re-entry while locked, cancel while locked, Esc, sidebar close, opening a note)
 - `import.test.ts` — all 13 error cases (not-a-zip, corrupt archive, missing `feedback.md`, malformed fence, missing screenshot, duplicate IDs, domain mismatch, version mismatch, existing-data confirmation) with purpose-built fixture bundles
 - `bundle.test.ts` — markdown → YAML fence extraction, YAML → object parsing, round-trip (export → parse → deep-equal)
 - `background.test.ts` — injection, message handlers, capture relay, throttle verification, re-inject on reload
 - `urlNorm.test.ts` — normalization rules (strip query/fragment, strip `www.`, strip trailing slash, case-sensitive paths, port handling) — kept from v1
-- `keyboardIsolation.test.ts` — capture-phase window-level keydown/keyup isolation so page shortcuts can't fire while typing into the comment box / modal note editor
+- `keyboardIsolation.test.ts` — capture-phase window-level keydown/keyup isolation so page shortcuts can't fire while typing into the comment box / enlarged-view note editor
 - `theme.test.ts` — theme mode (`auto`/`light`/`dark`) resolution and persistence, `chrome.storage.onChanged` cross-tab sync, OS `prefers-color-scheme` fallback, CSP-safe bundled `FontFace` loading, themed-host registration
 - `dockMotion.test.ts` — pointer-position-based influence/falloff math, spring integration toward scale/translate targets, keyboard-focus magnification, `prefers-reduced-motion` bypass, rAF loop lifecycle (starts on interaction, stops at rest, cleaned up on teardown)
 
@@ -57,22 +58,22 @@ In Chrome:
 
 ## manual test flows
 
-### Flow 1: Basic capture → thumbnail → modal → export
+### Flow 1: Basic capture → thumbnail → enlarged view → export
 
 **Page:** any real website (e.g. https://github.com, https://wikipedia.org)
 
 1. Click the extension icon → sidebar opens on right side of page
 2. Verify sidebar has resized the page (page is narrower, no overlay)
-3. Click **add** button → cursor becomes a crosshair
-4. Click a specific element (e.g. a button or heading) → default 200×150px box appears
+3. Click **add note** (it turns yellow = on) → cursor becomes a crosshair. Double-click it instead to lock add mode (padlock shown): after each save you're straight back in add mode until you click the button or press Esc
+4. Click a specific element (e.g. a button or heading) → default 267×100px box appears (the thumbnail's size at the default sidebar width)
 5. Drag from the invisible edge/corner resize zones (no visible handles) to adjust the box
    (minimum 20×20px enforced)
 6. Type a note in the comment box (test the 1000-char counter: appears past 900, danger-coloured
    at 980+)
 7. Click **save** → overlay hides, screenshot taken, overlay restores, thumbnail appears
 8. Thumbnail shows correct image + truncated note text + item number
-9. Click thumbnail → modal opens with full-size image and editable note
-10. Edit the note text → autosaves on blur or modal close
+9. Click thumbnail → the sidebar expands (thumbnail grows into the large screenshot; neighbouring notes peek in above/below)
+10. Edit the note text → autosaves shortly after typing stops ("saved" hint); try ↑/↓ and the peeks to move between notes; clear the text entirely and try to leave → blocked with an inline error
 11. Click **delete** → item removed, thumbnail gone, blob cleaned up
 12. Repeat steps 3–7 with 2+ items, then on a *different* URL in the same domain
 13. Click **export** → `.zip` downloads
@@ -91,8 +92,8 @@ In Chrome:
 2. Drag left/right → panel width follows the cursor live, page reflows to match,
    clamped at 100px (narrowest) and 300px (widest) — it will not go past either
 3. Tab to the handle → arrow keys resize in 10px steps, `Home`/`End` jump to the extremes
-4. Open a thumbnail's modal, then drag the handle while the modal is open → the modal's
-   backdrop edge tracks the sidebar; the sidebar is never covered
+4. Open a note in the enlarged view, then resize the window → the expanded panel stays ~75%
+   of the viewport and its layout recomputes; collapse → the sidebar is back at your chosen width
 5. Close the sidebar, reload, reopen → the width you picked is still there
    (persisted in `chrome.storage.local`, key `sidebarWidth`)
 6. **youtube.com — known limitation (REQUIREMENTS §6 #13), not a bug to file:**
@@ -150,7 +151,7 @@ In Chrome:
 
 1. Click extension icon, **add**
 2. Select a region containing specific UI elements (e.g. a button with text)
-3. Capture and open modal
+3. Capture and open the note in the enlarged view
 4. Visually verify the screenshot matches what's on screen (no offset/shift)
 5. Repeat at different zoom levels (80%, 100%, 150%) to catch scaling bugs
 
@@ -162,7 +163,7 @@ In Chrome:
 **Page:** a site with an embedded iframe (e.g. an embedded video player or ad)
 
 - Select an area that includes the iframe
-- Capture and open modal
+- Capture and open the note in the enlarged view
 - Verify the screenshot shows the iframe content correctly (visible-tab capture includes it)
 - Verify context capture shows the `<iframe>` tag's attributes but not the iframe's internal DOM (same-origin restriction)
 
@@ -170,7 +171,7 @@ In Chrome:
 **Page:** any complex website with many nested elements
 
 - Select a large region that contains >15 distinct elements with text/attributes
-- Capture and open the modal
+- Capture and open the note in the enlarged view
 - Look at the yaml context block in the exported markdown:
   - `contained_elements` should have exactly 15 items
   - `contained_elements_truncated: true` should be present

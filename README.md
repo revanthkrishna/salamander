@@ -75,7 +75,7 @@ The extension reads from `dist/` directly. After rebuilding, reload the extensio
 ### manual testing
 
 - Open the extension on any real website
-- Test the full journey: add → capture → thumbnail → modal → edit note → delete
+- Test the full journey: add note → capture → thumbnail → enlarged view → edit note → delete
 - Test SPA navigation (e.g. Reddit, Twitter) — sidebar should persist and refresh for the new URL
 - Test export on a domain with >1 URL and >1 item per URL
 - Test import by re-importing an export (should replace cleanly)
@@ -104,7 +104,7 @@ The extension is built across 21 TypeScript modules (~10,600 lines):
 
 **Import/Export** (`src/import.ts`, `src/export.ts`, `src/bundle.ts`) — `.zip` bundles with `screenshots/{id}.png` and single `feedback.md` containing markdown prose + embedded YAML context blocks.
 
-**Thumbnails & modal** (`src/thumbnails.ts`, `src/modal.ts`) — list view and enlarged modal for reviewing/editing notes.
+**Thumbnails & enlarged view** (`src/thumbnails.ts`, `src/dockMotion.ts`, `src/enlargedView.ts`, `src/flip.ts`) — the note list with dock-style hover, and the enlarged view where the sidebar expands to review, navigate, edit (autosave) and delete notes.
 
 Full technical details in [TECH_DESIGN.md](./TECH_DESIGN.md).
 
@@ -177,8 +177,8 @@ Before shipping:
 - [ ] `npm run build` succeeds
 - [ ] Sidebar opens/closes/persists on real sites (e.g. reddit.com, github.com)
 - [ ] Add mode: select, resize, comment, capture, undo (cancel)
-- [ ] Thumbnails display correctly; click opens modal
-- [ ] Modal: edit note (autosaves), delete (removes item + blob)
+- [ ] Thumbnails display correctly; click expands the sidebar into the enlarged view
+- [ ] Enlarged view: prev/next, edit note (autosaves; empty note blocked), delete (removes item + blob)
 - [ ] Export: generates `.zip`, unopened on empty domain
 - [ ] Import: validates all error cases, replaces cleanly, sidebar opens for current URL
 - [ ] SPA navigation: sidebar stays open, thumbnail list refreshes for new URL

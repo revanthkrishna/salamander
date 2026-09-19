@@ -85,118 +85,38 @@ The annotator is a Chrome extension that captures visual feedback from webpages.
 
 ---
 
-## Thumbnails & Modal
+## Thumbnails & Enlarged View
 
-**Thumbnail list** (`src/thumbnails.ts`)
+**Thumbnail list** (`src/thumbnails.ts`, magnification in `src/dockMotion.ts`)
 - Renders from `FeedbackItem[]` returned by `GET_PAGE_ITEMS` message
-- Shows inline thumbnail image + truncated note + item number badge
-- Newest at bottom (capture order)
+- Shows inline thumbnail image + note (3-line clamp) + item number badge
+- Newest at bottom (capture order); macOS-Dock-style spring magnification on hover/focus
 
-**Enlarged modal** (`src/modal.ts`)
-- Click thumbnail → translucent backdrop modal
-- Shows full-resolution image (fetched via `GET_IMAGE` message on open)
-- Editable note textarea with autosave on blur/close
+**Enlarged view** (`src/enlargedView.ts`, FLIP helpers in `src/flip.ts`) — replaces v1's modal
+- Click thumbnail → the sidebar itself expands to ~75% of the viewport inside the sidebar's shadow root (page not re-laid out; scrim over the remaining strip)
+- Shared-element FLIP morphs (panel, clicked thumbnail → main slot, neighbours → peek slots); prev/next/delete run as an interruptible morphing carousel; reduced motion = instant layout + crossfades. Spec: `design/MOTION_SPEC.md`
+- Shows the full-resolution image (fetched via `GET_IMAGE` on open, stale-fetch guarded)
+- Note autosaves (debounced, flushed on navigate/collapse/unload); empty notes are never saved and block leaving the note
 - Immediate delete (no confirmation); deletes both record and blob via background message
-
----
-
-## Export & Import
-
-**Export** (`src/export.ts`)
-- Service worker assembles `.zip` containing `screenshots/{id}.png` and single `feedback.md`
-- Filename: `feedback-{domain_with_underscores}-{YYYY-MM-DD}.zip`
-- `feedback.md` structure:
-  - One `##` section per URL (ordered by first-capture)
-  - Items chronological within section
-  - Each item: number + `![](screenshots/{id}.png)` + note + fenced ` ```yaml ` context block
-- Zip assembly happens in SW (blobs already there); downloads via `chrome.downloads` + data: URL
-- Empty domain → `alert("nothing to export")`
-
-**Import** (`src/import.ts`)
-- File picker (`.zip` only)
-- Content script validates full §5 error ladder (13 cases): not-a-zip, corrupt archive, missing `feedback.md`, malformed fence, missing screenshot, duplicate IDs, domain mismatch, version mismatch, existing-data confirmation
-- If all valid: message background with validated items
-- Background replaces domain data entirely (no merge); stores blobs via imageStore
-- Sidebar auto-opens showing current-URL items from imported bundle
-
-**Bundle format** (`src/bundle.ts`)
-- Shared serialization/deserialization (used by both export and import)
-- Markdown prose + fenced YAML blocks (one per item)
-- YAML schema: mirrors `FeedbackItem` fields (snake_case names) minus the two storage handles (`screenshotKey`, `thumbnailDataUrl`)
-- Round-trip tested: export → parse → deep-equal
-
----
-
-## URL Normalization
-
-**Normalization** (`src/urlNorm.ts`, §6 #11 of REQUIREMENTS)
-- Strip query params and fragments
-- Strip `www.` prefix
-- Strip trailing slash
-- Case-sensitive paths (preserve case)
-- Strip default ports (80 for HTTP, 443 for HTTPS), preserve non-standard ports
-- All feedback for one domain but different normalized URLs is stored separately in `DomainData.pages`
-
----
-
-## Security & Privacy
-
-- **No network calls.** CSP enforces `connect-src 'none'`; `fflate` (or alternative) bundled for decompression
-- **No external dependencies loaded at runtime.** esbuild bundles everything (script-src 'self')
-- **No visual masking of form fields.** Out of scope (v1 limitation); users can be warned at capture time
-- **Cross-origin iframes:** screenshot pixels still captured correctly (visible-tab capture doesn't care about origin), but DOM context limited to iframe element's own tag/attrs/`src` (same-origin restriction on DOM walk)
-
----
-
-## Error Handling
-
-All user-facing errors are lowercase (REQUIREMENTS §3.4) and verbatim from REQUIREMENTS §5:
-
-| # | Case | Behavior |
-|---|------|----------|
-| 1 | Wrong file type on import (not `.zip`) | "invalid file type. please upload a .zip feedback bundle." |
-| 2 | Corrupted zip | "could not read this file — it appears to be corrupted." |
-| 3 | Missing `feedback.md` | "this doesn't look like a feedback bundle." |
-| 4 | Missing screenshot file | "this file is missing screenshot data and can't be imported." |
-| 4b | Malformed metadata fence | "this bundle appears to be corrupted (couldn't read feedback data)." |
-| 5 | Domain mismatch | "this bundle contains feedback for '{other-domain}', but you're currently on '{current-domain}'." |
-| 6 | Newer schema version | "this bundle was created with a newer version of the extension. some feedback may not display correctly." (warning, import proceeds) |
-| 7 | Export zero items | `alert("nothing to export")` |
-| 8 | Capture fails (rate limit, restricted page) | "couldn't capture a screenshot here. try again." |
-| 9 | Sidebar on restricted page | Extension icon disabled; explanatory message on interaction |
-| 10 | Import with existing data | Confirmation dialog before replace |
-| 11 | Duplicate IDs in bundle | "this bundle appears to be corrupted (duplicate item ids)." |
-
----
-
-## Testing
-
-**Unit tests** (`src/__tests__/*.test.ts`)
-- jsdom (no browser launch) for DOM-related code
-- Mocked `chrome.storage` and `fake-indexeddb` for storage tests
-- Coverage: capture coordinate math, context capture size governance, selector stability, bundle round-trip, message handlers, storage CRUD
-
-**E2E tests** (Phase 10, separate agent)
-- Playwright suite: sidebar, capture, thumbnails, export/import, persistence
-- Real browser; manual verification on real sites before shipping
-
----
 
 ## File Inventory
 
 | File | Lines | Role |
 |---|---|---|
 | `src/background.ts` | 868 | Service worker: injection, capture relay, storage ownership |
-| `src/sidebar.ts` | 875 | Right-docked sidebar shell, page resize, modal wiring |
-| `src/content.ts` | 502 | Content script entry: injection guard, message listener, SPA nav detection |
-| `src/addMode.ts` | 645 | Selection box, dimming scrim, comment box, add mode lifecycle |
+| `src/sidebar.ts` | ~2100 | Right-docked sidebar shell, page resize, add-note toggle, hosts the enlarged view |
+| `src/content.ts` | ~700 | Content script entry: injection guard, message listener, SPA nav detection |
+| `src/addMode.ts` | ~960 | Selection box, dimming scrim, comment box, add mode lifecycle |
 | `src/capture.ts` | 318 | Capture pipeline: hide UI, capture, crop, restore, exit |
 | `src/contextCapture.ts` | 426 | DOM context extraction: DCA, contained elements, area text, size governance |
 | `src/import.ts` | 172 | Import validation ladder (13 cases), file picker, confirmation dialog |
 | `src/export.ts` | 111 | Export coordinator (assembly happens in bundle.ts + background) |
 | `src/bundle.ts` | 341 | Markdown serialization + YAML schema definition (shared by export/import) |
 | `src/imageStore.ts` | 98 | IndexedDB wrapper: CRUD for PNG blobs, cropping to thumbnail |
-| `src/modal.ts` | 390 | Enlarged modal: full image, editable note, delete button |
+| `src/enlargedView.ts` | ~1800 | Enlarged view: expanding sidebar note viewer/editor, autosave, carousel |
+| `src/flip.ts` | ~360 | FLIP / shared-element animation helpers |
+| `src/dockMotion.ts` | ~640 | Dock-style spring magnification for the note list |
+| `src/theme.ts` | ~650 | Design tokens, light/dark/auto theme, bundled font loading |
 | `src/thumbnails.ts` | 97 | Thumbnail list rendering |
 | `src/storage.ts` | 261 | `chrome.storage.local` wrappers: domain CRUD, item CRUD, session state |
 | `src/messages.ts` | 416 | Typed message union (documentation + types) |

@@ -13,7 +13,7 @@ const FIXTURES_DIR = path.resolve(__dirname, '../fixtures');
 // ---------------------------------------------------------------------------
 //
 // Everything the extension draws lives in a *closed* shadow root (sidebar.ts,
-// addMode.ts, modal.ts all call `attachShadow({ mode: 'closed' })` — this is
+// addMode.ts, enlargedView.ts (inside the sidebar) use `attachShadow({ mode: 'closed' })` — this is
 // deliberate production behaviour, not something Phase 10 is allowed to
 // change). Playwright's CSS engine only pierces *open* shadow roots, so
 // `installClosedShadowOpener` below patches `Element.prototype.attachShadow`
@@ -24,7 +24,7 @@ const FIXTURES_DIR = path.resolve(__dirname, '../fixtures');
 // needed.
 //
 // Each host is scoped by id below because a couple of class names (e.g.
-// `.note-input`, `.footer`) are reused across the sidebar/add-mode/modal
+// `.note-input`, `.footer`) are reused across the sidebar/add-mode/enlarged view
 // surfaces with different meanings.
 const SELECTORS = {
   // Sidebar (src/sidebar.ts)
@@ -60,15 +60,20 @@ const SELECTORS = {
   btnCancel: '#annotator-addmode-host .btn-cancel',
   btnSave: '#annotator-addmode-host .btn-save',
 
-  // Enlarged modal (src/modal.ts)
-  modalHost: '#annotator-modal-host',
-  modalBackdrop: '#annotator-modal-host .backdrop',
-  modalBadge: '#annotator-modal-host .item-badge',
-  modalCloseBtn: '#annotator-modal-host .close-btn',
-  modalImage: '#annotator-modal-host .screenshot',
-  modalNoteInput: '#annotator-modal-host .note-input',
-  modalDeleteBtn: '#annotator-modal-host .delete-btn',
-  modalInlineError: '#annotator-modal-host .inline-error',
+  // Enlarged view (src/enlargedView.ts) — the sidebar itself expands; it
+  // renders inside the sidebar's shadow root, so every selector is scoped to
+  // the sidebar host. `.enlarged` is detached when the view is closed.
+  enlarged: '#annotator-sidebar-host .enlarged',
+  enlargedOpen: '#annotator-sidebar-host .enlarged[data-state="open"]',
+  enlargedTitle: '#annotator-sidebar-host .xp-title',
+  enlargedCount: '#annotator-sidebar-host .xp-count',
+  enlargedExit: '#annotator-sidebar-host .xp-exit',
+  enlargedPrev: '#annotator-sidebar-host .xp-prev',
+  enlargedNext: '#annotator-sidebar-host .xp-next',
+  enlargedImage: '#annotator-sidebar-host .xp-card.is-main .xp-card-img',
+  enlargedNoteInput: '#annotator-sidebar-host .xp-note-input',
+  enlargedDelete: '#annotator-sidebar-host .xp-delete',
+  enlargedStatus: '#annotator-sidebar-host .xp-status',
 };
 
 // ---------------------------------------------------------------------------
@@ -429,32 +434,40 @@ async function captureFeedbackItem(page, opts) {
 }
 
 // ---------------------------------------------------------------------------
-// Sidebar thumbnails + modal (src/thumbnails.ts, src/modal.ts)
+// Sidebar thumbnails + enlarged view (src/thumbnails.ts, src/enlargedView.ts)
 // ---------------------------------------------------------------------------
 
+/** Click a thumbnail and wait until the enlarged view has finished expanding. */
 async function openThumbnail(page, index) {
   await page.locator(SELECTORS.thumbnail).nth(index).click();
-  await page.locator(SELECTORS.modalHost).waitFor({ state: 'attached', timeout: 5000 });
+  await page.locator(SELECTORS.enlargedOpen).waitFor({ state: 'attached', timeout: 5000 });
 }
 
-/** Edit the open modal's note and close via the close (x) button — exercises
- *  the "autosave on close" path (§3.3), not the blur path. */
-async function editModalNoteAndClose(page, newText) {
-  await page.locator(SELECTORS.modalNoteInput).fill(newText);
-  await page.locator(SELECTORS.modalCloseBtn).click();
-  await page.locator(SELECTORS.modalHost).waitFor({ state: 'detached', timeout: 5000 });
+/** Edit the open note and exit via the rail's x button — exercises the
+ *  "autosave flushed on collapse" path. */
+async function editNoteAndClose(page, newText) {
+  await page.locator(SELECTORS.enlargedNoteInput).fill(newText);
+  await page.locator(SELECTORS.enlargedExit).click();
+  await page.locator(SELECTORS.enlarged).waitFor({ state: 'detached', timeout: 5000 });
 }
 
-/** Edit the open modal's note and blur it (click the image area) rather than
- *  closing — exercises the "autosave on blur" path, leaving the modal open. */
-async function editModalNoteAndBlur(page, newText) {
-  await page.locator(SELECTORS.modalNoteInput).fill(newText);
-  await page.locator(SELECTORS.modalImage).click();
+/** Edit the open note and blur the text area — exercises autosave without
+ *  closing the view. Blurs directly rather than clicking another element:
+ *  the view's layers are composited/animated, so a click target can take a
+ *  while to count as "stable" for Playwright. */
+async function editNoteAndBlur(page, newText) {
+  const input = page.locator(SELECTORS.enlargedNoteInput);
+  await input.fill(newText);
+  await input.blur();
 }
 
-async function deleteCurrentModalItem(page) {
-  await page.locator(SELECTORS.modalDeleteBtn).click();
-  await page.locator(SELECTORS.modalHost).waitFor({ state: 'detached', timeout: 5000 });
+/** Delete the open note. With a single note the view collapses back to the
+ *  list; otherwise it moves on to a neighbouring note. */
+async function deleteCurrentNote(page, { expectCollapse = true } = {}) {
+  await page.locator(SELECTORS.enlargedDelete).click();
+  if (expectCollapse) {
+    await page.locator(SELECTORS.enlarged).waitFor({ state: 'detached', timeout: 5000 });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -512,9 +525,9 @@ module.exports = {
   clickAddModeCancel,
   captureFeedbackItem,
   openThumbnail,
-  editModalNoteAndClose,
-  editModalNoteAndBlur,
-  deleteCurrentModalItem,
+  editNoteAndClose,
+  editNoteAndBlur,
+  deleteCurrentNote,
   exportAndGetDownload,
   exportAndGetEmptyAlert,
   importFile,

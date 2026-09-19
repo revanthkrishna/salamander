@@ -28,15 +28,15 @@ the same page.
       growing out over the page, then immediately click **add** and capture a new item overlapping
       where the magnified item was bleeding. The resulting screenshot must show only page content —
       no trace of the sidebar's note/thumbnail should ever appear in it.
-- [ ] **R3.** Capture an item, click its thumbnail to open the modal. No underlying page content
-      (headers, sticky nav, cookie banners, etc.) should visually appear on top of the modal or
-      its backdrop.
-- [ ] **R4.** With the modal open, confirm it does not visually overlap or collide with the
-      sidebar's own strip on the right edge of the screen.
+- [ ] **R3.** Capture an item, click its thumbnail to open the enlarged view. No underlying page
+      content (headers, sticky nav, cookie banners, etc.) should visually appear on top of the
+      expanded panel or its scrim.
+- [ ] **R4.** With the enlarged view open, click **add note** — the view must collapse back to the
+      list *before* add mode starts, and nothing from the enlarged view may appear in the capture.
 - [ ] **R5. (keyboard isolation — Gmail)** On mail.google.com, open add mode, place a box, and
       type a full sentence with mixed letters into the comment box. Every character you type must
       appear — none dropped — and no Gmail keyboard shortcut (e.g. "c" for compose) should fire.
-      Repeat while editing a note in the enlarged modal.
+      Repeat while editing a note in the enlarged view.
 - [ ] **R6. (keyboard isolation — Instagram)** On instagram.com, same test as R5. Specifically
       type the letter "n" into the comment box — it must appear as text, and Instagram's
       notifications panel must **not** open.
@@ -72,9 +72,9 @@ the same page.
       resize cursor and a thin yellow rail should appear. Drag it wider and narrower. It should
       stop at 100px (min) and 300px (max) and not go past either. Reload the page — the width you
       left it at should be remembered.
-- [ ] **1.12.** With the sidebar resized to a non-default width, open add mode and the enlarged
-      modal — both should respect the current width (selection area doesn't extend under the
-      sidebar; modal backdrop stops at the sidebar's edge, not the old default width).
+- [ ] **1.12.** With the sidebar resized to a non-default width, open add mode — the selection area
+      must not extend under the sidebar. Then open a note: the enlarged view expands to ~75% of the
+      window regardless of the sidebar width, and collapsing returns the sidebar to your width.
 - [ ] **1.13. (Theme toggle)** Click the theme toggle in the header — it cycles auto → light →
       dark → auto. Its icon (sun/moon/half-circle) and its aria-label/title (hover to see the
       tooltip) should always describe the *current* mode, e.g. "theme: auto". Confirm the whole
@@ -83,11 +83,11 @@ the same page.
       change the theme in one — the other should update live, without a reload.
 - [ ] **1.14. (Auto theme follows the OS)** Set the toggle to "auto", then flip your OS/browser's
       light/dark appearance setting (or emulate it via DevTools' Rendering panel → "Emulate CSS
-      prefers-color-scheme") — the sidebar (and add mode / modal, if open) should repaint to match
+      prefers-color-scheme") — the sidebar (and add mode / the enlarged view, if open) should repaint to match
       without any click.
 - [ ] **1.15. (Narrow sidebar widths)** Drag the sidebar narrower than ~220px — the "salamander"
-      wordmark should hide and "add note" should collapse to an icon-only button (still with its
-      "add feedback" accessible label). Keep dragging to the 100px minimum — the action row should
+      wordmark should hide and "add note" should collapse to an icon-only button (its accessible
+      label stays "add note"). Keep dragging to the 100px minimum — the action row should
       wrap so "add note" and the export/import icons all stay reachable with nothing clipped or
       overflowing, and the logo mark should hide too.
 - [ ] **1.16. ("this page (n)" heading)** With items captured on the current page, the sidebar
@@ -166,16 +166,46 @@ the same page.
       one should show an error like "couldn't capture a screenshot here. try again." rather than
       silently failing or creating a broken item — confirm no partial/blank thumbnail appears.
 
+- [ ] **2.15. (add note toggle)** **add note** looks like a secondary button when off. Click it → it
+      turns yellow (on) and add mode starts; click it again → add mode is cancelled and it's off.
+      Hover/press show yellow in both states; Tab to it → a focus ring appears.
+- [ ] **2.16. (lock)** Double-click **add note** (also try shift+click and shift+enter) → a small
+      padlock appears on the button. Capture a note → you're immediately back in add mode for the
+      next one. Click **cancel** in a comment box → that note is discarded but you stay in add mode.
+      Single-click the button, or press Esc → the lock and add mode both end.
+- [ ] **2.17.** While locked, close the sidebar, or navigate to another page in the app — the lock
+      and add mode end cleanly, and the button shows off when the sidebar is reopened.
+- [ ] **2.18. (comment box)** The comment box is a rounded text area with a button bar tucked under
+      it (same width, edges line up). Hover the text area → its border darkens; focus it → the
+      border turns yellow (no extra glow). cancel/save are padded ghost buttons; save fills yellow
+      on hover, press and keyboard focus.
+
 ## 3. Viewing & managing feedback (§1.5, §3.3)
 
-- [ ] **3.1.** Click a thumbnail → modal opens with a translucent backdrop over the page, showing
-      the full-size screenshot and the full note in an editable textarea.
-- [ ] **3.2.** Edit the note text, then click outside the textarea (blur) — reopen the modal to
-      confirm the edit was saved automatically (no explicit save button, no lost edits).
-- [ ] **3.3.** Edit the note again, then close the modal (not by blurring the textarea first) —
-      reopen to confirm that edit also autosaved.
-- [ ] **3.4.** Click **delete** on an item — it disappears immediately, no confirmation dialog.
-      Reload the page/sidebar to confirm it's actually gone, not just hidden.
+- [ ] **3.1.** Click a thumbnail → the sidebar expands leftward to ~75% of the window (the page
+      itself doesn't reflow; the strip still visible is dimmed). The clicked thumbnail should
+      visibly *grow* into the large screenshot, and the notes above/below it grow into the peeking
+      cards — nothing should just fade or jump. The title reads "feedback #n" with "n / total".
+- [ ] **3.2.** Edit the note, then pause — a muted "✓ saved" appears briefly. Collapse (x) and
+      reopen to confirm the edit was kept (there is no save button).
+- [ ] **3.3.** Edit the note and immediately press ↓ (or Esc) without pausing — the edit must still
+      be saved (flushed on navigate/collapse).
+- [ ] **3.3a. (navigation)** Use ↓/↑ (focus not in the text area), the rail's ↑/↓ buttons, and
+      clicks on the peeking cards to move between notes — each move is a smooth carousel (the
+      peek grows into the main slot, the main shrinks into the opposite peek). ↑ is disabled on
+      the first note, ↓ on the last. Hover a peek → the top one nudges down, the bottom one up,
+      nothing else. Press ↓ several times quickly — it should keep up without glitches.
+- [ ] **3.3b. (empty note)** Clear the note text completely (or leave only spaces), then try to
+      leave: x, Esc, clicking the dimmed page, ↑/↓, the peeks, closing the sidebar. Every one must
+      be blocked with the inline error "a note can't be empty. add some text to continue." and a red
+      text-area border; the old text is still what's stored. Type something → the error clears and
+      leaving works again.
+- [ ] **3.3c. (reduced motion)** Turn on reduced motion (OS setting, or DevTools → Rendering →
+      emulate prefers-reduced-motion) — opening, navigating and collapsing should change layout
+      instantly with only crossfades, no sliding or growing.
+- [ ] **3.4.** In the enlarged view click **delete** — the note disappears immediately (no
+      confirmation) and the view moves on to the next note (or the previous one if it was last);
+      deleting the only note collapses back to the empty list. Reload to confirm it's really gone.
 - [ ] **3.5.** After capturing several items, confirm the newest one appears at the **bottom** of
       the sidebar list (chronological order, not reverse).
 - [ ] **3.6.** Capture items on page A, navigate to page B (different URL, same domain) — sidebar
@@ -186,10 +216,13 @@ the same page.
       the actual screenshot scaled to fit inside it — no thumbnail should be a different height
       than the others, and no screenshot should be cropped (the full image should always be
       visible, letterboxed if its aspect ratio doesn't match the box).
-- [ ] **3.8. (Modal focus)** Click a thumbnail — keyboard focus should land directly in the note
-      textarea (no extra Tab needed to start typing/editing). Close the modal (via close button,
-      Escape, or delete) — focus should return to the thumbnail button you opened it from, not to
-      the page body, so pressing Tab or Enter afterward behaves as expected.
+- [ ] **3.8. (Focus)** Open a note with the keyboard (Tab to a thumbnail, Enter) — focus lands on the
+      x button in the rail; Tab cycles rail → peeks → note → delete. Collapse (x or Esc) — focus
+      returns to the thumbnail you opened it from. Delete the only note — focus lands on the add
+      note button, not the page body.
+- [ ] **3.9. (Note hover)** Hover a note in the list — the thumbnail keeps all four rounded corners
+      and the note text gains a background that tucks under the thumbnail (same width, edges
+      aligned); the text itself doesn't move.
 
 ## 4. Exporting (§1.6)
 
@@ -249,7 +282,7 @@ the same page.
       exported yaml, `contained_elements` should cap at 15 with a truncation marker present —
       elements with text/attributes should be prioritized over bare `div`s.
 - [ ] **6.3. (High-DPI / zoom)** On a Retina display or at 150% browser zoom, capture a region with
-      recognizable text/UI. Open the modal and visually compare — no offset or misalignment between
+      recognizable text/UI. Open the note in the enlarged view and visually compare — no offset or misalignment between
       what you selected and what was captured.
 - [ ] **6.4. (Scrolled page)** Scroll halfway down a long page, then capture something below the
       fold. Confirm the screenshot shows the correct content (not something from the top of the
