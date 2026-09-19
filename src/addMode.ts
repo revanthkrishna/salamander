@@ -37,7 +37,7 @@
 // right space for cropping a viewport screenshot.
 
 import { Rect } from './types';
-import { SIDEBAR_WIDTH } from './sidebar';
+import { getSidebarWidth } from './sidebar';
 import { getContentViewportSize } from './capture';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
 
@@ -279,11 +279,16 @@ function clamp(value: number, min: number, max: number): number {
  *  `innerWidth` (which includes that scrollbar) the clamp lands ~15px to the
  *  right of where the sidebar actually starts, and a selection dragged flush
  *  to the right edge captures a sliver of the sidebar itself — exactly the
- *  "no extension UI in a capture" rule (§6 #2) it exists to uphold. */
+ *  "no extension UI in a capture" rule (§6 #2) it exists to uphold.
+ *
+ *  getSidebarWidth() is read on every call, never cached: the sidebar is
+ *  user-resizable, so a width captured at add-mode entry would be stale the
+ *  moment the user dragged the handle. This is called fresh on every
+ *  placement/resize gesture, so the bounds always match the panel on screen. */
 function getBounds(): { width: number; height: number } {
   const { width, height } = getContentViewportSize();
   return {
-    width: Math.max(0, width - SIDEBAR_WIDTH),
+    width: Math.max(0, width - getSidebarWidth()),
     height,
   };
 }

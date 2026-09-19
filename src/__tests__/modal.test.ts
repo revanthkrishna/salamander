@@ -6,7 +6,7 @@
 
 import * as modal from '../modal';
 import * as sidebar from '../sidebar';
-import { SIDEBAR_WIDTH } from '../sidebar';
+import { getSidebarWidth, setSidebarWidth } from '../sidebar';
 import { FeedbackItem } from '../types';
 
 // modal.ts uses attachShadow({ mode: 'closed' }), so tests can't query into
@@ -357,13 +357,31 @@ describe('modal', () => {
       expect(modalZ).toBeGreaterThan(sidebarZ);
     });
 
-    it('reserves the sidebar strip: the backdrop stops at SIDEBAR_WIDTH instead of covering the full viewport', () => {
+    it('reserves the sidebar strip: the backdrop stops at the live sidebar width instead of covering the full viewport', () => {
       modal.openModal(makeItem(), makeCallbacks());
 
       const styleText = shadowRoot().querySelector('style')!.textContent ?? '';
-      expect(styleText).toContain(`right: ${SIDEBAR_WIDTH}px`);
+      // Live value (sidebar.ts sets the custom property on <html> and it
+      // inherits in here), with the current width baked in as the fallback —
+      // never a hardcoded constant, since the sidebar is user-resizable.
+      expect(styleText).toContain(
+        `right: var(--annotator-sidebar-width, ${getSidebarWidth()}px)`,
+      );
       // Guards against a regression back to a full-bleed `inset: 0` backdrop.
       expect(styleText).not.toMatch(/\.backdrop\s*\{[^}]*inset:\s*0/);
+    });
+
+    it('the backdrop inset follows a sidebar resize rather than a build-time constant', () => {
+      const original = getSidebarWidth();
+      try {
+        setSidebarWidth(140, { persist: false });
+        modal.openModal(makeItem(), makeCallbacks());
+
+        const styleText = shadowRoot().querySelector('style')!.textContent ?? '';
+        expect(styleText).toContain('right: var(--annotator-sidebar-width, 140px)');
+      } finally {
+        setSidebarWidth(original, { persist: false });
+      }
     });
   });
 });

@@ -77,6 +77,27 @@ In Chrome:
     - One `##` section per URL, items chronological within section
     - Each item has number, image reference, note, and fenced yaml context block
 
+### Flow 1b: Resizable sidebar + the youtube page-shrink edge case
+
+**Page:** a normal-flow site (https://wikipedia.org) *and* https://youtube.com
+
+1. Sidebar open on wikipedia → hover the sidebar's left edge: cursor becomes `ew-resize`
+   and a thin yellow rail appears
+2. Drag left/right → panel width follows the cursor live, page reflows to match,
+   clamped at 100px (narrowest) and 300px (widest) — it will not go past either
+3. Tab to the handle → arrow keys resize in 10px steps, `Home`/`End` jump to the extremes
+4. Open a thumbnail's modal, then drag the handle while the modal is open → the modal's
+   backdrop edge tracks the sidebar; the sidebar is never covered
+5. Close the sidebar, reload, reopen → the width you picked is still there
+   (persisted in `chrome.storage.local`, key `sidebarWidth`)
+6. **youtube.com — known limitation (REQUIREMENTS §6 #13), not a bug to file:**
+   the sidebar is fully visible and usable, but page content bleeds *under* it —
+   YouTube sizes containers in `vw` units and computes player width from
+   `window.innerWidth` in JS, neither of which a root-element shrink can affect.
+   What to check is only that (a) the sidebar paints on top and every button works,
+   (b) capture still produces a clean screenshot with no extension UI in it, and
+   (c) closing the sidebar leaves the page exactly as it was.
+
 ### Flow 2: Import
 
 **Setup:** have a `.zip` bundle from Flow 1 on disk

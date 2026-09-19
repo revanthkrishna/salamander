@@ -144,7 +144,7 @@ describe('sidebar shell', () => {
     sidebar.openSidebar();
 
     const s = html().style;
-    expect(s.getPropertyValue('margin-right')).toBe(`${sidebar.SIDEBAR_WIDTH}px`);
+    expect(s.getPropertyValue('margin-right')).toBe(`${sidebar.getSidebarWidth()}px`);
     expect(s.getPropertyValue('width')).toBe('auto');
     expect(s.getPropertyValue('overflow-x')).toBe('hidden');
     for (const prop of ['margin-right', 'width', 'min-width', 'overflow-x']) {
@@ -240,7 +240,7 @@ describe('sidebar shell', () => {
 
     await flushObservers();
 
-    expect(html().style.getPropertyValue('margin-right')).toBe(`${sidebar.SIDEBAR_WIDTH}px`);
+    expect(html().style.getPropertyValue('margin-right')).toBe(`${sidebar.getSidebarWidth()}px`);
     expect(html().style.getPropertyValue('overflow-x')).toBe('hidden');
     expect(html().style.getPropertyValue('scroll-behavior')).toBe('smooth');
     expect(sidebar._pageResizeStateForTests().reasserts).toBe(1);
@@ -261,7 +261,7 @@ describe('sidebar shell', () => {
     await flushObservers();
 
     expect(sidebar._pageResizeStateForTests().reasserts).toBe(0);
-    expect(html().style.getPropertyValue('margin-right')).toBe(`${sidebar.SIDEBAR_WIDTH}px`);
+    expect(html().style.getPropertyValue('margin-right')).toBe(`${sidebar.getSidebarWidth()}px`);
   });
 
   test('gives up re-asserting against a page that keeps fighting back', async () => {
@@ -290,6 +290,216 @@ describe('sidebar shell', () => {
     html().style.cssText = '';
     await flushObservers();
     expect(html().style.getPropertyValue('margin-right')).toBe('');
+  });
+
+  // ── page resize: the youtube-style "page fights back" defences ───────────
+
+  test('injects a backstop stylesheet carrying the same !important shrink', () => {
+    // Defence 1: a page wiping <html>'s style *attribute* cannot reach a
+    // stylesheet, so the shrink survives with no un-shrunk frame at all.
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+
+    const styleEl = document.getElementById('annotator-page-resize') as HTMLStyleElement;
+    expect(styleEl).not.toBeNull();
+    expect(styleEl.parentElement).toBe(document.head);
+    const css = styleEl.textContent ?? '';
+    expect(css).toContain(`margin-right: ${sidebar.getSidebarWidth()}px !important`);
+    expect(css).toContain('width: auto !important');
+    expect(css).toContain('overflow-x: hidden !important');
+    expect(sidebar._pageResizeStateForTests().styleSheetAttached).toBe(true);
+  });
+
+  test('closeSidebar removes the backstop stylesheet', () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+    sidebar.closeSidebar();
+    expect(document.getElementById('annotator-page-resize')).toBeNull();
+  });
+
+  test('re-attaches the backstop stylesheet if the page rips it out', async () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+
+    document.getElementById('annotator-page-resize')!.remove();
+    // The observer watches <html>'s style/class; a class flip is the signal a
+    // page's own layout code just ran, which is when we re-check.
+    html().classList.add('theater-mode');
+    await flushObservers();
+
+    expect(document.getElementById('annotator-page-resize')).not.toBeNull();
+    html().classList.remove('theater-mode');
+  });
+
+  test('publishes the live width as a custom property on <html> for modal.ts', () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+    expect(html().style.getPropertyValue('--annotator-sidebar-width')).toBe(
+      `${sidebar.getSidebarWidth()}px`,
+    );
+
+    sidebar.setSidebarWidth(180);
+    expect(html().style.getPropertyValue('--annotator-sidebar-width')).toBe('180px');
+
+    sidebar.closeSidebar();
+    expect(html().style.getPropertyValue('--annotator-sidebar-width')).toBe('');
+  });
+
+  test('re-asserts a *wrong* value the page wrote over our margin, not just a missing one', async () => {
+    // The youtube-style failure mode: page JS re-applies its own inline
+    // margin/width on <html> for its own layout, silently un-shrinking us.
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+
+    html().style.setProperty('margin-right', '0px', 'important');
+    await flushObservers();
+
+    expect(html().style.getPropertyValue('margin-right')).toBe(
+      `${sidebar.getSidebarWidth()}px`,
+    );
+    expect(html().style.getPropertyPriority('margin-right')).toBe('important');
+    expect(sidebar._pageResizeStateForTests().reasserts).toBe(1);
+  });
+
+  // ── resizable sidebar ────────────────────────────────────────────────────
+
+  function resizer(): HTMLElement {
+    return shadowRoot().querySelector('.resizer') as HTMLElement;
+  }
+
+  function dragResizerTo(clientX: number): void {
+    // jsdom has no layout, so viewportRightEdge() falls back to innerWidth.
+    const startX = window.innerWidth - sidebar.getSidebarWidth();
+    resizer().dispatchEvent(
+      new MouseEvent('mousedown', { button: 0, clientX: startX, bubbles: true }),
+    );
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX, bubbles: true }));
+  }
+
+  test('the drag handle is on the panel edge that borders the page, and is keyboard-reachable', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const r = resizer();
+    expect(r).not.toBeNull();
+    expect(r.getAttribute('role')).toBe('separator');
+    expect(r.getAttribute('aria-label')).toBe('resize sidebar');
+    expect(r.tabIndex).toBe(0);
+    expect(r.getAttribute('aria-valuemin')).toBe(String(sidebar.SIDEBAR_MIN_WIDTH));
+    expect(r.getAttribute('aria-valuemax')).toBe(String(sidebar.SIDEBAR_MAX_WIDTH));
+    // First child of the panel so it paints over the header's left edge.
+    expect((r.parentElement as HTMLElement).className).toBe('sidebar');
+  });
+
+  test('default width is the top of the resizable range', () => {
+    sidebar.initSidebar(makeCallbacks());
+    expect(sidebar.getSidebarWidth()).toBe(sidebar.SIDEBAR_DEFAULT_WIDTH);
+    expect(sidebar.SIDEBAR_DEFAULT_WIDTH).toBe(sidebar.SIDEBAR_MAX_WIDTH);
+    expect(sidebar.SIDEBAR_MIN_WIDTH).toBe(100);
+    expect(sidebar.SIDEBAR_MAX_WIDTH).toBe(300);
+  });
+
+  test('dragging the handle resizes the panel and the page shrink together, live', () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+
+    dragResizerTo(window.innerWidth - 200);
+
+    expect(sidebar.getSidebarWidth()).toBe(200);
+    const panel = shadowRoot().querySelector('.sidebar') as HTMLElement;
+    expect(panel.style.width).toBe('200px');
+    expect(html().style.getPropertyValue('margin-right')).toBe('200px');
+    expect(document.getElementById('annotator-page-resize')!.textContent).toContain(
+      'margin-right: 200px !important',
+    );
+  });
+
+  test('the drag is clamped to 100–300px in both directions', () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+
+    dragResizerTo(window.innerWidth - 20); // far too narrow
+    expect(sidebar.getSidebarWidth()).toBe(100);
+
+    window.dispatchEvent(
+      new MouseEvent('mousemove', { clientX: window.innerWidth - 900, bubbles: true }),
+    );
+    expect(sidebar.getSidebarWidth()).toBe(300);
+  });
+
+  test('the drag stops tracking the mouse once the button is released', () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+
+    dragResizerTo(window.innerWidth - 200);
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+
+    window.dispatchEvent(
+      new MouseEvent('mousemove', { clientX: window.innerWidth - 120, bubbles: true }),
+    );
+    expect(sidebar.getSidebarWidth()).toBe(200);
+  });
+
+  test('the chosen width is persisted to chrome.storage.local once, on release', () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+    (chrome.storage.local.set as jest.Mock).mockClear();
+
+    dragResizerTo(window.innerWidth - 220);
+    expect(chrome.storage.local.set).not.toHaveBeenCalled(); // not once per frame
+
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    expect(chrome.storage.local.set).toHaveBeenCalledWith(
+      { sidebarWidth: 220 },
+      expect.any(Function),
+    );
+  });
+
+  test('a persisted width is restored on the next init', () => {
+    sidebar.initSidebar(makeCallbacks());
+    dragResizerTo(window.innerWidth - 150);
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    sidebar.destroySidebar();
+    expect(sidebar.getSidebarWidth()).toBe(sidebar.SIDEBAR_DEFAULT_WIDTH);
+
+    sidebar.initSidebar(makeCallbacks());
+    expect(sidebar.getSidebarWidth()).toBe(150);
+    const panel = shadowRoot().querySelector('.sidebar') as HTMLElement;
+    expect(panel.style.width).toBe('150px');
+  });
+
+  test('a persisted width outside the range is clamped rather than trusted', () => {
+    (chrome.storage.local.get as jest.Mock).mockImplementation(
+      (_keys: unknown, cb: (r: Record<string, unknown>) => void) => cb({ sidebarWidth: 9999 }),
+    );
+    sidebar.initSidebar(makeCallbacks());
+    expect(sidebar.getSidebarWidth()).toBe(sidebar.SIDEBAR_MAX_WIDTH);
+  });
+
+  test('arrow keys on the handle resize it and persist, left growing the panel', () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+    sidebar.setSidebarWidth(200);
+
+    resizer().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(sidebar.getSidebarWidth()).toBe(190);
+
+    resizer().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    expect(sidebar.getSidebarWidth()).toBe(200);
+
+    resizer().dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    expect(sidebar.getSidebarWidth()).toBe(sidebar.SIDEBAR_MIN_WIDTH);
+
+    resizer().dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+    expect(sidebar.getSidebarWidth()).toBe(sidebar.SIDEBAR_MAX_WIDTH);
+    expect(chrome.storage.local.set).toHaveBeenCalled();
+  });
+
+  test('resizing while closed leaves the page alone', () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.setSidebarWidth(150);
+    expect(html().style.getPropertyValue('margin-right')).toBe('');
+    // ...and the new width is what the next open reserves.
+    sidebar.openSidebar();
+    expect(html().style.getPropertyValue('margin-right')).toBe('150px');
   });
 
   test('dispatches a synthetic resize so js-measured layouts re-read their box', () => {

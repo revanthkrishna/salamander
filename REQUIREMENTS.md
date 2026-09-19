@@ -24,6 +24,7 @@ All technical open items have been resolved (see inline "*(decided by: ... subag
 ### 1.1 Sidebar & Activation
 - [ ] Clicking the extension icon injects/opens the sidebar on the current tab (consistent with v1's on-demand activation model — no automatic injection)
 - [ ] Sidebar is docked to the right edge of the viewport and **resizes the page** (shrinks the page's available viewport width), so it never blocks or overlaps page content
+- [ ] Sidebar width is **user-resizable** by dragging a handle on its left (page-facing) edge, clamped to **100–300px**, defaulting to 300px. The chosen width persists across sessions in `chrome.storage.local` (a durable UI preference, unlike the per-tab open/closed flag below which is deliberately `chrome.storage.session`). The page shrink, the add-mode selection bounds and the enlarged modal's backdrop all track the live width. The handle is also keyboard-operable (arrow keys / Home / End) for accessibility.
 - [ ] Sidebar header shows 4 buttons, left to right: **add**, **export**, **import**, **close**
 - [ ] **Close** hides the sidebar (content script stays loaded; feedback data is untouched). Re-opening via the extension icon restores the sidebar showing the same state.
 - [ ] Sidebar body shows the list of thumbnails for feedback captured on the **current URL only** (see §1.5)
@@ -141,7 +142,8 @@ Decision: no computed styles (e.g. `position`, `display`, `background-color`) in
 ## 3. UX / UI Requirements
 
 ### 3.1 Sidebar (Idle State)
-- [ ] Docked right-edge panel that resizes the page's viewport (not an overlay) — page content is never blocked or covered by it
+- [ ] Docked right-edge panel that resizes the page's viewport (not an overlay) — page content is never blocked or covered by it (see §6 #13 for the app-shell sites where this is not achievable)
+- [ ] Drag handle on the panel's left edge: invisible at rest, shows a 2px `#FEC800` rail on hover/focus/drag, `ew-resize` cursor
 - [ ] Header row: **add** / **export** / **import** / **close** icon buttons, no text labels
 - [ ] Below header: scrollable list of thumbnails for the current URL. **Decision:** Empty state shows "no feedback on this page yet". **Rationale:** Clear, descriptive message that is lowercase-consistent with v1 convention (§3.4), reassures user the sidebar is working, and encourages action via the **add** button. *(decided by: frontend-developer subagent)*
 
@@ -216,6 +218,7 @@ Decision: no computed styles (e.g. `position`, `display`, `background-color`) in
 | 10 | Same URL revisited in a later session | Sidebar reloads all previously stored feedback items for that normalized URL |
 | 11 | URL normalization | **Decision:** Carry forward v1's normalization rules unchanged: strip query params and fragments, strip `www.`, strip trailing slash, use case-sensitive path, strip default ports, preserve non-standard ports. **Rationale:** These are proven heuristics that balance URL grouping (query params and default ports don't change the "page") with precise targeting (case-sensitive paths distinguish similar URIs). No new requirements suggest changes. *(decided by: backend-developer subagent)* |
 | 12 | Sensitive form fields (passwords) within a selection | Out of scope for v1 — see §2 Security. UX can warn users at capture time, but no visual masking or field skipping in v1. |
+| 13 | App-shell sites whose layout ignores the page shrink (**youtube.com** is the known example) | **Known limitation, not a fixable bug.** The sidebar shrinks the page by giving `<html>` a `!important` right margin (defended by both an injected backstop stylesheet and a `MutationObserver` that re-asserts it). Two page-side patterns defeat *any* root-box shrink and cannot be worked around from a content script: (a) containers sized in **viewport units** — `100vw`/`100dvw` resolve against the real browser viewport by CSS spec, never against an element's used width, so they keep full-viewport width no matter what we set on the root (YouTube's full-bleed/theater player container); and (b) layouts that **measure `window.innerWidth` in JS** and set their own pixel widths from it — shrinking the root does not change `innerWidth`, so they recompute to the same too-wide value (YouTube's Polymer `ytd-watch-flexy` player sizing). A synthetic `resize` event is dispatched after every apply so such layouts at least re-run. On top of that, a page's own `position: fixed` elements (YouTube's masthead) never move for an ancestor width change — the general fixed-element case already noted in §1.1. **Degradation:** the sidebar host carries an explicit near-max `z-index`, so on such pages the panel stays fully visible and usable and the page simply reads as partly covered; closing the sidebar restores the page exactly. Rewriting the page's own stylesheets to neutralize `vw` units was considered and rejected as unsafe and unreliable. |
 
 ---
 

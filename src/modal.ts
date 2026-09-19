@@ -26,10 +26,22 @@
 // sidebar's reserved right-edge strip (§1.1 — the sidebar resizes the page
 // rather than overlaying it, and is meant to stay visible/usable at all
 // times). The modal can only be opened by activating a thumbnail, which only
-// exists while the sidebar is open and showing that strip, so reserving
-// SIDEBAR_WIDTH unconditionally is safe and keeps this module simple (no need
-// to ask sidebar.ts for its current visibility). Only one modal is ever open
-// at a time — a module-level singleton, same shape as sidebar.ts/addMode.ts.
+// exists while the sidebar is open and showing that strip, so reserving that
+// strip unconditionally is safe and keeps this module simple (no need to ask
+// sidebar.ts for its current visibility). Only one modal is ever open at a
+// time — a module-level singleton, same shape as sidebar.ts/addMode.ts.
+//
+// The strip's width is *live*, not a constant: the sidebar is user-resizable
+// (100–300px) and its drag handle sits on its left edge, which the backdrop
+// deliberately stops short of — so the width can change while the modal is
+// open. The backdrop's inset is therefore `var(--annotator-sidebar-width)`,
+// a custom property sidebar.ts sets on <html> whenever it applies or updates
+// the page shrink. Custom properties inherit through shadow boundaries
+// (closed roots included), so the value reaches this shadow tree and a drag
+// reflows the backdrop with no subscription plumbing. getSidebarWidth() is
+// baked in as the var's fallback so the inset is still correct at open time
+// in the (impossible-by-construction, but cheap to cover) case where the
+// property is missing.
 //
 // Gotcha #1: the full-resolution PNG lives in IndexedDB behind the service
 // worker. This module never touches chrome.runtime itself — the caller
@@ -41,7 +53,7 @@
 // swapped for the full-resolution image once fetchFullImage resolves.
 
 import { FeedbackItem } from './types';
-import { SIDEBAR_WIDTH } from './sidebar';
+import { getSidebarWidth } from './sidebar';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
 
 /** Highest possible z-index — see the file banner for why the host needs an
@@ -62,7 +74,10 @@ export interface ModalCallbacks {
   onClose: () => void;
 }
 
-const MODAL_CSS = `
+/** Built per-open rather than once at module load: the sidebar's width is
+ *  user-controlled, so the fallback baked into the backdrop's `right` inset
+ *  has to be read at the moment the modal is constructed. */
+const modalCss = (): string => `
   :host {
     --accent:  #FEC800;
     --error:   #FB645A;
@@ -75,10 +90,11 @@ const MODAL_CSS = `
     top: 0;
     left: 0;
     bottom: 0;
-    /* Stop short of the sidebar's own reserved strip (sidebar.ts,
-       SIDEBAR_WIDTH) rather than covering the full viewport — the sidebar
-       must stay visible/usable while the modal is open (§1.1). */
-    right: ${SIDEBAR_WIDTH}px;
+    /* Stop short of the sidebar's own reserved strip rather than covering the
+       full viewport — the sidebar must stay visible/usable (and resizable)
+       while the modal is open (§1.1). The custom property is set on <html> by
+       sidebar.ts and inherits in here, so this tracks a live drag. */
+    right: var(--annotator-sidebar-width, ${getSidebarWidth()}px);
     background: rgba(0, 0, 0, 0.72);
     display: flex;
     align-items: center;
@@ -284,7 +300,7 @@ function buildDOM(): void {
   const shadow = modalHost.attachShadow({ mode: 'closed' });
 
   const style = document.createElement('style');
-  style.textContent = MODAL_CSS;
+  style.textContent = modalCss();
   shadow.appendChild(style);
 
   elBackdrop = document.createElement('div');

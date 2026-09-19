@@ -28,7 +28,114 @@
 import { FeedbackItem } from './types';
 import { renderThumbnailList } from './thumbnails';
 
-export const SIDEBAR_WIDTH = 320;
+// ---------------------------------------------------------------------------
+// Sidebar width — user-resizable (drag handle on the panel's left edge) and
+// persisted, so every consumer must read it *live* via getSidebarWidth()
+// rather than importing a constant.
+//
+// The old fixed `SIDEBAR_WIDTH = 320` export is gone on purpose: modal.ts
+// (backdrop inset), addMode.ts (selectable bounds) and the page-resize logic
+// below all sized themselves off it, and a stale copy of the width in any of
+// those places shows up as the sidebar overlapping page UI or a selection
+// that can capture a sliver of our own chrome (§6 #2).
+//
+// Default is the maximum (300px) rather than the old 320px: the drag range is
+// capped at 300, and starting at the widest end of the range preserves as much
+// of the pre-resize experience as the new clamp allows.
+// ---------------------------------------------------------------------------
+
+/** Narrowest the user can drag the panel. */
+export const SIDEBAR_MIN_WIDTH = 100;
+/** Widest the user can drag the panel — also the default. */
+export const SIDEBAR_MAX_WIDTH = 300;
+/** Width used before any persisted preference has loaded. */
+export const SIDEBAR_DEFAULT_WIDTH = 300;
+
+/** chrome.storage.local key (NOT .session): the width is a durable UI
+ *  preference, unlike the per-tab "sidebar is open" flag which is
+ *  deliberately session-scoped (§1.1). Content scripts can read and write
+ *  chrome.storage.local directly, so this needs no service-worker round trip. */
+const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebarWidth';
+
+/** Keyboard resize step for the handle's arrow keys. */
+const RESIZE_KEY_STEP = 10;
+
+let sidebarWidth = SIDEBAR_DEFAULT_WIDTH;
+
+/** True once the user has dragged (or arrow-keyed) the handle in this
+ *  document. Guards against a slow chrome.storage read landing *after* the
+ *  user has already picked a width and snapping the panel back. */
+let widthChosenByUser = false;
+
+/** The sidebar's current width in CSS pixels. This is the single source of
+ *  truth — modal.ts, addMode.ts and the page-resize logic all call it. */
+export function getSidebarWidth(): number {
+  return sidebarWidth;
+}
+
+/** Clamp to the resizable range, tolerating NaN/Infinity from storage. */
+export function clampSidebarWidth(px: number): number {
+  if (!Number.isFinite(px)) return SIDEBAR_DEFAULT_WIDTH;
+  return Math.round(Math.min(Math.max(px, SIDEBAR_MIN_WIDTH), SIDEBAR_MAX_WIDTH));
+}
+
+/**
+ * Resize the panel. Updates the panel's own width, the page shrink (if the
+ * sidebar is open) and the `--annotator-sidebar-width` custom property that
+ * modal.ts's backdrop reads, all in one place.
+ *
+ * `persist` is false for the live frames of a drag and true once the gesture
+ * commits — writing chrome.storage on every mousemove would be pointless I/O.
+ */
+export function setSidebarWidth(px: number, options: { persist?: boolean } = {}): void {
+  const next = clampSidebarWidth(px);
+  const changed = next !== sidebarWidth;
+  sidebarWidth = next;
+  applyWidthToPanel();
+
+  if (changed && savedHtmlDecls !== null) {
+    // Sidebar is open, so the page is currently shrunk — re-shrink to match.
+    writeManagedProps();
+    writeResizeStyleSheet();
+    notifyPageOfResize();
+  }
+
+  if (options.persist) {
+    widthChosenByUser = true;
+    persistSidebarWidth(next);
+  }
+}
+
+function applyWidthToPanel(): void {
+  if (elSidebar) elSidebar.style.width = `${sidebarWidth}px`;
+  if (elResizer) elResizer.setAttribute('aria-valuenow', String(sidebarWidth));
+}
+
+function persistSidebarWidth(px: number): void {
+  try {
+    chrome?.storage?.local?.set({ [SIDEBAR_WIDTH_STORAGE_KEY]: px }, () => {
+      // Read lastError so Chrome doesn't log an unchecked-error warning; a
+      // failed write only costs the user their width next session.
+      void chrome.runtime?.lastError;
+    });
+  } catch {
+    // chrome.storage unavailable (restricted page, torn-down context).
+  }
+}
+
+function loadPersistedWidth(): void {
+  try {
+    chrome?.storage?.local?.get(SIDEBAR_WIDTH_STORAGE_KEY, (result) => {
+      if (chrome.runtime?.lastError) return;
+      if (widthChosenByUser) return; // user already picked one — don't snap back
+      const stored = result?.[SIDEBAR_WIDTH_STORAGE_KEY];
+      if (typeof stored !== 'number') return;
+      setSidebarWidth(stored, { persist: false });
+    });
+  } catch {
+    // chrome.storage unavailable — stay on the default width.
+  }
+}
 
 export interface SidebarCallbacks {
   /** "add" header button. No-op for Phase 3 — Phase 4 wires real add-mode entry. */
@@ -98,7 +205,9 @@ const SIDEBAR_CSS = `
     top: 0;
     bottom: 0;
     right: 0;
-    width: ${SIDEBAR_WIDTH}px;
+    /* Starting value only — applyWidthToPanel() writes the live width as an
+       inline style once the persisted preference (if any) has loaded. */
+    width: ${SIDEBAR_DEFAULT_WIDTH}px;
     background: var(--bg-panel);
     color: var(--text);
     display: flex;
@@ -107,6 +216,36 @@ const SIDEBAR_CSS = `
     z-index: 2147483645;
   }
   .sidebar[hidden] { display: none !important; }
+
+  /* ─── Drag handle on the page-facing (left) edge ──────────────────────────
+     A 6px hit target so it is actually grabbable, with a 2px visible rail that
+     only paints on hover/focus/drag so the panel's resting look is unchanged.
+     role="separator" + tabindex makes it keyboard-operable (arrow keys), which
+     a pure mousedown handle would not be. */
+  .resizer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 6px;
+    background: transparent;
+    cursor: ew-resize;
+    touch-action: none;
+    z-index: 1;
+  }
+  .resizer::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 2px;
+    background: transparent;
+    transition: background-color 120ms ease;
+  }
+  .resizer:hover::after,
+  .resizer.dragging::after { background: var(--accent); }
+  .resizer:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
   .header {
     display: flex;
@@ -283,6 +422,7 @@ let sidebarHost: HTMLDivElement | null = null;
 let sidebarShadow: ShadowRoot | null = null;
 
 let elSidebar: HTMLDivElement | null = null;
+let elResizer: HTMLDivElement | null = null;
 let elBtnAdd: HTMLButtonElement | null = null;
 let elBtnExport: HTMLButtonElement | null = null;
 let elBtnImport: HTMLButtonElement | null = null;
@@ -313,6 +453,17 @@ function buildDOM(shadow: ShadowRoot): void {
   elSidebar.setAttribute('role', 'complementary');
   elSidebar.setAttribute('aria-label', 'annotator sidebar');
   elSidebar.hidden = true;
+
+  elResizer = document.createElement('div');
+  elResizer.className = 'resizer';
+  elResizer.setAttribute('role', 'separator');
+  elResizer.setAttribute('aria-orientation', 'vertical');
+  elResizer.setAttribute('aria-label', 'resize sidebar');
+  elResizer.title = 'resize sidebar';
+  elResizer.tabIndex = 0;
+  elResizer.setAttribute('aria-valuemin', String(SIDEBAR_MIN_WIDTH));
+  elResizer.setAttribute('aria-valuemax', String(SIDEBAR_MAX_WIDTH));
+  elResizer.setAttribute('aria-valuenow', String(sidebarWidth));
 
   const header = document.createElement('div');
   header.className = 'header';
@@ -370,6 +521,7 @@ function buildDOM(shadow: ShadowRoot): void {
   elFileInput.accept = '.zip';
   elFileInput.style.display = 'none';
 
+  elSidebar.appendChild(elResizer);
   elSidebar.appendChild(header);
   elSidebar.appendChild(elNotif);
   elSidebar.appendChild(body);
@@ -447,6 +599,90 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
     closeSidebar();
     callbacksRef?.onClose();
   });
+
+  elResizer!.addEventListener('mousedown', onResizerMouseDown);
+  elResizer!.addEventListener('keydown', onResizerKeyDown);
+
+  applyWidthToPanel();
+  loadPersistedWidth();
+}
+
+// ---------------------------------------------------------------------------
+// Resize gesture (§ enhancement: user-resizable sidebar)
+//
+// Mouse events rather than Pointer Events on purpose: the whole gesture has to
+// keep tracking once the cursor leaves our shadow root and moves over the
+// page, and window-level mousemove/mouseup listeners installed for the
+// duration of the drag do that in every browser this runs in (and in jsdom, so
+// the behaviour is testable). Pointer capture would work too but is not
+// implemented in jsdom, which would leave the whole feature untested.
+//
+// Limitation shared with every drag implementation on the web: if the cursor
+// crosses into a cross-origin iframe mid-drag, the page stops delivering
+// mousemove to us and the width freezes until the cursor comes back out. The
+// mouseup listener is on window with capture so the gesture still ends
+// cleanly.
+// ---------------------------------------------------------------------------
+
+let resizeDragging = false;
+/** Distance between the cursor and the panel's left edge when the drag began,
+ *  so the panel does not jump by up to the handle's own width on grab. */
+let resizeGrabOffset = 0;
+
+/** The viewport's right edge in client coordinates. `documentElement.clientWidth`
+ *  excludes the document's vertical scrollbar, which is exactly where the
+ *  `position: fixed; right: 0` panel starts — `innerWidth` would include it and
+ *  make every dragged width ~15px too small. Falls back to innerWidth where
+ *  clientWidth is unavailable (jsdom reports 0: no layout engine). */
+function viewportRightEdge(): number {
+  return document.documentElement.clientWidth || window.innerWidth;
+}
+
+function onResizerMouseDown(e: MouseEvent): void {
+  if (e.button !== 0) return;
+  // Stops the page starting a text selection under the cursor for the whole
+  // drag, and stops the click reaching page handlers behind the handle.
+  e.preventDefault();
+  e.stopPropagation();
+  if (resizeDragging) return;
+  resizeDragging = true;
+  resizeGrabOffset = viewportRightEdge() - e.clientX - sidebarWidth;
+  elResizer?.classList.add('dragging');
+  window.addEventListener('mousemove', onResizeDragMove, true);
+  window.addEventListener('mouseup', onResizeDragEnd, true);
+}
+
+function onResizeDragMove(e: MouseEvent): void {
+  if (!resizeDragging) return;
+  setSidebarWidth(viewportRightEdge() - e.clientX - resizeGrabOffset);
+}
+
+function onResizeDragEnd(): void {
+  if (!resizeDragging) return;
+  endResizeDrag();
+  // Commit: one storage write per gesture, not one per frame.
+  setSidebarWidth(sidebarWidth, { persist: true });
+}
+
+function endResizeDrag(): void {
+  resizeDragging = false;
+  elResizer?.classList.remove('dragging');
+  window.removeEventListener('mousemove', onResizeDragMove, true);
+  window.removeEventListener('mouseup', onResizeDragEnd, true);
+}
+
+/** Keyboard equivalent of the drag: left grows the panel (it grows leftwards,
+ *  into the page), right shrinks it. Home/End jump to the extremes. */
+function onResizerKeyDown(e: KeyboardEvent): void {
+  let next: number | null = null;
+  if (e.key === 'ArrowLeft') next = sidebarWidth + RESIZE_KEY_STEP;
+  else if (e.key === 'ArrowRight') next = sidebarWidth - RESIZE_KEY_STEP;
+  else if (e.key === 'Home') next = SIDEBAR_MAX_WIDTH;
+  else if (e.key === 'End') next = SIDEBAR_MIN_WIDTH;
+  if (next === null) return;
+  e.preventDefault();
+  e.stopPropagation();
+  setSidebarWidth(next, { persist: true });
 }
 
 /** True once initSidebar() has built the host — content.ts uses this to avoid
@@ -524,6 +760,7 @@ export function setThumbnails(items: FeedbackItem[]): void {
  *  if the content script is ever torn down without a page navigation. */
 export function destroySidebar(): void {
   clearMessage();
+  endResizeDrag();
   restorePageResize();
   if (sidebarHost && sidebarHost.parentNode) {
     sidebarHost.parentNode.removeChild(sidebarHost);
@@ -531,6 +768,7 @@ export function destroySidebar(): void {
   sidebarHost = null;
   sidebarShadow = null;
   elSidebar = null;
+  elResizer = null;
   elBtnAdd = null;
   elBtnExport = null;
   elBtnImport = null;
@@ -544,6 +782,11 @@ export function destroySidebar(): void {
   elCountdownBar = null;
   callbacksRef = null;
   visible = false;
+  // Hard reset, not a soft close: the next initSidebar() re-reads the
+  // persisted width from scratch, so in-memory width state must not leak
+  // across a teardown.
+  sidebarWidth = SIDEBAR_DEFAULT_WIDTH;
+  widthChosenByUser = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -637,14 +880,21 @@ export function showConfirmDialog(message: string): Promise<boolean> {
 // ── Strategy: shrink the root element's box with a right margin ────────────
 //
 // Applied to `document.documentElement` (never <body> — see "why the root"
-// below), as four !important inline declarations:
+// below), as four !important inline declarations, where N is the sidebar's
+// *current* width (getSidebarWidth() — the user can drag it between 100 and
+// 300px, so nothing here may hardcode a number):
 //
-//     margin-right: 320px    the actual shrink
+//     margin-right: Npx      the actual shrink
 //     width:        auto     defeats page CSS that pins html's width
 //     min-width:    0        defeats page CSS that floors html's width
 //     overflow-x:   hidden   clips whatever refuses to shrink anyway
 //
-// `margin-right` rather than `width: calc(100% - 320px)`, which was the
+// Plus one non-layout declaration, `--annotator-sidebar-width: Npx`. Custom
+// properties inherit through shadow boundaries (closed roots included), so
+// setting it on <html> is how modal.ts's backdrop — in its own shadow tree —
+// tracks the live width without any subscription plumbing.
+//
+// `margin-right` rather than `width: calc(100% - Npx)`, which was the
 // previous implementation and is subtly worse:
 //
 //   * With `width`, the declaration only describes the *content* box under
@@ -717,9 +967,50 @@ export function showConfirmDialog(message: string): Promise<boolean> {
 // Page JS that assigns `documentElement.style.cssText` wholesale (or removes
 // the style attribute) would silently drop our declarations and un-shrink the
 // page while the sidebar is still on screen — content would end up underneath
-// it. A MutationObserver on the root's style attribute re-asserts the four
-// declarations if they go missing, with a hard cap so we can never end up in a
-// re-write war with a page that is fighting back.
+// it. Two independent defences, because they fail in different ways:
+//
+//   1. An injected <style> element (`#annotator-page-resize`) carrying the
+//      same declarations as `html:root { ... !important }`. A stylesheet is
+//      not stored in the style *attribute*, so a page wiping `cssText` cannot
+//      touch it and the shrink survives with zero latency — no observer tick,
+//      no un-shrunk frame. Inline !important still outranks it while both are
+//      present (inline is the top of the author cascade), so this is purely a
+//      backstop and never changes the normal case.
+//   2. A MutationObserver on the root's `style`/`class` attributes that
+//      re-asserts the inline declarations if they go missing, with a hard cap
+//      so we can never end up in a re-write war with a page that is fighting
+//      back. `class` is watched as well as `style` because class flips are the
+//      cheapest signal that a page's own layout code just ran (theme toggles,
+//      scroll locks, theater/fullscreen switches) — it is the moment to
+//      re-check that our stylesheet is still attached.
+//
+// ── Sites where the shrink cannot fully work (youtube.com is the known one) ─
+//
+// Two page-side patterns defeat *any* root-box shrink, and both are present on
+// YouTube. Neither is fixable from a content script; do not "fix" this by
+// rewriting the page's stylesheets, which is unsafe and unreliable.
+//
+//   * Viewport units. `100vw`/`100dvw` are defined by spec against the actual
+//     browser viewport, not against any element's used width — shrinking
+//     <html> has no effect on them whatsoever. YouTube's app shell sizes
+//     several containers this way (the full-bleed/theater player container
+//     most visibly), so those keep their full-viewport width and bleed under
+//     the sidebar strip no matter what we set on the root.
+//   * Layout measured in JS from `window.innerWidth`. Shrinking the root does
+//     not change `innerWidth`, so a layout that computes its own pixel widths
+//     from it recomputes to the same too-wide number. YouTube's Polymer app
+//     (ytd-watch-flexy's player sizing) does exactly this. We dispatch a
+//     synthetic `resize` after every apply so such layouts at least re-run,
+//     but they re-run to the same answer.
+//
+// On top of that, YouTube's masthead is `position: fixed`, which is the
+// already-accepted fixed-element limitation below.
+//
+// The degradation is deliberate and safe rather than silent: the sidebar host
+// carries an explicit z-index near the top of the 32-bit range, so on such a
+// page the panel stays fully visible and usable and the page simply reads as
+// "partly covered", which closing the sidebar undoes. This is a documented
+// edge case in REQUIREMENTS.md, not a bug with a pending fix.
 //
 // Restoration is per-property, not a whole-cssText snapshot: we record each
 // managed property's pre-open value and priority and put exactly those back,
@@ -736,12 +1027,30 @@ export function showConfirmDialog(message: string): Promise<boolean> {
 // re-measure; ResizeObserver-based layouts already fire on their own.
 // ═══════════════════════════════════════════════════════════════════════════
 
-const MANAGED_HTML_PROPS: ReadonlyArray<[prop: string, value: string]> = [
-  ['margin-right', `${SIDEBAR_WIDTH}px`],
-  ['width', 'auto'],
-  ['min-width', '0px'],
-  ['overflow-x', 'hidden'],
-];
+/** Read by modal.ts's backdrop (it inherits through the shadow boundary) so
+ *  the modal never overlaps the sidebar at any width. */
+const SIDEBAR_WIDTH_CSS_VAR = '--annotator-sidebar-width';
+
+/** id of the injected backstop stylesheet — see defence 1 in the banner. */
+const RESIZE_STYLE_ELEMENT_ID = 'annotator-page-resize';
+
+let resizeStyleEl: HTMLStyleElement | null = null;
+
+/** Property list + the value each should currently hold. A function, not a
+ *  constant: the margin (and the custom property modal.ts reads) track the
+ *  user's chosen sidebar width. Custom properties are written without
+ *  `important` — nothing competes for ours, and some engines drop the
+ *  priority on custom properties anyway. */
+function managedHtmlProps(): ReadonlyArray<[prop: string, value: string, priority: string]> {
+  const px = `${sidebarWidth}px`;
+  return [
+    ['margin-right', px, 'important'],
+    ['width', 'auto', 'important'],
+    ['min-width', '0px', 'important'],
+    ['overflow-x', 'hidden', 'important'],
+    [SIDEBAR_WIDTH_CSS_VAR, px, ''],
+  ];
+}
 
 interface SavedDecl {
   value: string;
@@ -768,7 +1077,7 @@ function applyPageResize(): void {
 
   if (savedHtmlDecls === null) {
     const saved = new Map<string, SavedDecl>();
-    for (const [prop] of MANAGED_HTML_PROPS) {
+    for (const [prop] of managedHtmlProps()) {
       saved.set(prop, {
         value: html.style.getPropertyValue(prop),
         priority: html.style.getPropertyPriority(prop),
@@ -779,16 +1088,18 @@ function applyPageResize(): void {
   }
 
   writeManagedProps();
+  writeResizeStyleSheet();
   startHtmlStyleObserver();
   notifyPageOfResize();
 }
 
 function restorePageResize(): void {
   stopHtmlStyleObserver();
+  removeResizeStyleSheet();
   if (savedHtmlDecls === null) return;
 
   const html = document.documentElement;
-  for (const [prop] of MANAGED_HTML_PROPS) {
+  for (const [prop] of managedHtmlProps()) {
     const saved = savedHtmlDecls.get(prop);
     html.style.removeProperty(prop);
     if (saved && saved.value !== '') {
@@ -804,8 +1115,8 @@ function restorePageResize(): void {
 function writeManagedProps(): void {
   const html = document.documentElement;
   const seen = new Map<string, string>();
-  for (const [prop, value] of MANAGED_HTML_PROPS) {
-    html.style.setProperty(prop, value, 'important');
+  for (const [prop, value, priority] of managedHtmlProps()) {
+    html.style.setProperty(prop, value, priority);
     // Read back rather than trusting what we wrote: user agents normalise
     // declarations on the way in (Chrome stores `min-width: 0` as `0px`), and
     // comparing against the un-normalised string would make managedPropsIntact()
@@ -828,10 +1139,52 @@ function managedPropsIntact(): boolean {
   return true;
 }
 
+/**
+ * Defence 1: the same declarations as a real stylesheet rule, which a page
+ * wiping <html>'s style *attribute* cannot reach. Appended to <head> (falling
+ * back to <html> for the rare document without one) and rewritten in place on
+ * every width change, so there is never more than one of these.
+ *
+ * `html:root` rather than bare `html` only to raise specificity above a page's
+ * own `html { ... }` rule; both carry !important anyway, and later-injected
+ * author sheets win ties, which ours is.
+ */
+function writeResizeStyleSheet(): void {
+  if (!resizeStyleEl) {
+    resizeStyleEl = document.createElement('style');
+    resizeStyleEl.id = RESIZE_STYLE_ELEMENT_ID;
+  }
+  resizeStyleEl.textContent =
+    `html:root {` +
+    `margin-right: ${sidebarWidth}px !important;` +
+    `width: auto !important;` +
+    `min-width: 0 !important;` +
+    `overflow-x: hidden !important;` +
+    `${SIDEBAR_WIDTH_CSS_VAR}: ${sidebarWidth}px;` +
+    `}`;
+  ensureResizeStyleSheetAttached();
+}
+
+function ensureResizeStyleSheetAttached(): void {
+  if (!resizeStyleEl) return;
+  if (resizeStyleEl.isConnected) return;
+  (document.head ?? document.documentElement).appendChild(resizeStyleEl);
+}
+
+function removeResizeStyleSheet(): void {
+  resizeStyleEl?.parentNode?.removeChild(resizeStyleEl);
+  resizeStyleEl = null;
+}
+
 function startHtmlStyleObserver(): void {
   if (htmlStyleObserver || typeof MutationObserver === 'undefined') return;
   htmlStyleObserver = new MutationObserver(() => {
-    if (savedHtmlDecls === null || managedPropsIntact()) return;
+    if (savedHtmlDecls === null) return;
+    // Cheap and unconditional: a page that tore our stylesheet out of <head>
+    // gets it back on the next mutation of <html>'s style/class, and this
+    // costs one `isConnected` read when nothing is wrong.
+    ensureResizeStyleSheetAttached();
+    if (managedPropsIntact()) return;
     if (reassertCount >= MAX_REASSERTS) {
       stopHtmlStyleObserver();
       return;
@@ -841,7 +1194,10 @@ function startHtmlStyleObserver(): void {
   });
   htmlStyleObserver.observe(document.documentElement, {
     attributes: true,
-    attributeFilter: ['style'],
+    // `class` as well as `style`: a class flip on <html> is the cheapest
+    // signal that the page's own layout code just ran (theme/scroll-lock/
+    // theater-mode toggles), which is exactly when to re-check our state.
+    attributeFilter: ['style', 'class'],
   });
 }
 
@@ -866,10 +1222,14 @@ export function _pageResizeStateForTests(): {
   applied: boolean;
   observing: boolean;
   reasserts: number;
+  styleSheetAttached: boolean;
+  width: number;
 } {
   return {
     applied: savedHtmlDecls !== null,
     observing: htmlStyleObserver !== null,
     reasserts: reassertCount,
+    styleSheetAttached: resizeStyleEl !== null && resizeStyleEl.isConnected,
+    width: sidebarWidth,
   };
 }

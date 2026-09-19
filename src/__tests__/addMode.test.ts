@@ -7,7 +7,7 @@
 // rendering. Real-site visual verification is Phase 10's Playwright suite.
 
 import * as addMode from '../addMode';
-import { SIDEBAR_WIDTH } from '../sidebar';
+import { getSidebarWidth } from '../sidebar';
 
 // addMode.ts uses attachShadow({ mode: 'closed' }); force 'open' for this test
 // file only so we can assert on the rendered DOM, same trick as sidebar.test.ts.
@@ -228,7 +228,7 @@ describe('add mode', () => {
 
   test('clamps a naive bottom/right-off-screen centered box symmetrically', () => {
     addMode.startAddMode(makeCallbacks());
-    const bounds = { width: 1200 - SIDEBAR_WIDTH, height: 800 };
+    const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
     // click 20px from the bottom-right corner of the selectable area: naive
     // centering pushes the box off both the right and bottom edges.
     place(blocker(), bounds.width - 20, bounds.height - 20);
@@ -246,7 +246,7 @@ describe('add mode', () => {
 
   test('placement clamps the default box to stay within the viewport bounds (minus sidebar width), independent per axis, for any click point', () => {
     addMode.startAddMode(makeCallbacks());
-    const bounds = { width: 1200 - SIDEBAR_WIDTH, height: 800 };
+    const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
     // click near the bottom-right corner of the selectable area
     place(blocker(), bounds.width - 5, bounds.height - 5);
 
@@ -329,7 +329,7 @@ describe('add mode', () => {
 
   test('drag-to-draw clamps to the viewport bounds', () => {
     addMode.startAddMode(makeCallbacks());
-    const bounds = { width: 1200 - SIDEBAR_WIDTH, height: 800 };
+    const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
     drag(blocker(), bounds.width - 50, bounds.height - 50, bounds.width + 500, bounds.height + 500);
 
     const box = addMode._boxForTests();
@@ -387,7 +387,7 @@ describe('add mode', () => {
 
   test('resize clamps to the viewport bounds', () => {
     addMode.startAddMode(makeCallbacks());
-    const bounds = { width: 1200 - SIDEBAR_WIDTH, height: 800 };
+    const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
     place(blocker(), 300, 300);
 
     mousedown(handle('e'), 500, 300);
@@ -546,14 +546,14 @@ describe('add mode', () => {
   // ── never-off-screen comment box ──────────────────────────────────────────
 
   test('comment box position is always clamped within the viewport bounds, even in a tiny viewport', () => {
-    setViewport(SIDEBAR_WIDTH + 260, 200); // barely wider than the sidebar + comment box
+    setViewport(getSidebarWidth() + 260, 200); // barely wider than the sidebar + comment box
     addMode.startAddMode(makeCallbacks());
     place(blocker(), 10, 10);
 
     const comment = shadowRoot().querySelector('.comment-box') as HTMLElement;
     const left = parseFloat(comment.style.left);
     const top = parseFloat(comment.style.top);
-    const bounds = { width: SIDEBAR_WIDTH + 260 - SIDEBAR_WIDTH, height: 200 };
+    const bounds = { width: getSidebarWidth() + 260 - getSidebarWidth(), height: 200 };
 
     expect(left).toBeGreaterThanOrEqual(0);
     expect(top).toBeGreaterThanOrEqual(0);
