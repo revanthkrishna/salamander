@@ -64,6 +64,14 @@ function counter(): HTMLElement {
   return shadowRoot().querySelector('.counter') as HTMLElement;
 }
 
+function commentBoxEl(): HTMLElement | null {
+  return shadowRoot().querySelector('.comment-box');
+}
+
+function stylesheetText(): string {
+  return (shadowRoot().querySelector('style') as HTMLStyleElement).textContent ?? '';
+}
+
 function click(el: HTMLElement, x: number, y: number): void {
   el.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: x, clientY: y, button: 0 }));
 }
@@ -120,6 +128,48 @@ describe('add mode', () => {
     addMode.exitAddMode();
     expect(getHost()).toBeNull();
     expect(addMode.isAddModeActive()).toBe(false);
+  });
+
+  // ── regression: bug 1 — comment box must not exist before placement ───────
+
+  test('the comment box does not exist in the DOM immediately after startAddMode (before any placement click)', () => {
+    addMode.startAddMode(makeCallbacks());
+    expect(commentBoxEl()).toBeNull();
+    expect(shadowRoot().querySelector('.note-input')).toBeNull();
+    expect(shadowRoot().querySelector('.btn-ok')).toBeNull();
+    expect(shadowRoot().querySelector('.btn-cancel')).toBeNull();
+  });
+
+  test('the comment box is created only once the placement click lands', () => {
+    addMode.startAddMode(makeCallbacks());
+    expect(commentBoxEl()).toBeNull();
+
+    click(blocker(), 300, 200);
+
+    expect(commentBoxEl()).not.toBeNull();
+    expect(textarea()).not.toBeNull();
+    expect(okBtn()).not.toBeNull();
+    expect(cancelBtn()).not.toBeNull();
+  });
+
+  // ── regression: bug 2 — comment box clicks must not be swallowed ──────────
+
+  test('the comment box opts back into pointer-events so its clicks are not swallowed by the pointer-events:none host', () => {
+    addMode.startAddMode(makeCallbacks());
+    click(blocker(), 300, 200); // build the comment box
+
+    // The host is `pointer-events: none` so the transparent .blocker overlay
+    // (which IS pointer-events: auto) can own page-click suppression while
+    // purely-visual children (box outline, scrim) stay click-through and let
+    // the blocker underneath receive the event. Anything meant to be
+    // clickable inside .visuals — resize handles, and the comment box — must
+    // explicitly opt back into pointer-events: auto, or its computed value
+    // inherits :none from the host and every click on it is silently
+    // swallowed (mouse only — Tab-key focus is unaffected, which is exactly
+    // the symptom this regression test guards against).
+    const css = stylesheetText();
+    const commentBoxRule = css.match(/\.comment-box\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(commentBoxRule).toMatch(/pointer-events:\s*auto/);
   });
 
   test('cancel button tears down add mode and fires onCancel, with no onOk call', () => {

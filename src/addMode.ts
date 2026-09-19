@@ -145,6 +145,14 @@ const ADD_MODE_CSS = `
     box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3);
     padding: 12px;
     color: #FFFFFF;
+    /* .visuals inherits pointer-events: none from the host (the host is
+       pointer-events: none so the blocker underneath can own page-click
+       suppression while non-interactive visuals like the box outline and
+       scrim stay click-through). .handle opts itself back into auto below;
+       the comment box and everything in it (textarea, cancel/ok buttons)
+       need the same opt-in, or their clicks fall through to nothing and
+       only keyboard/Tab focus keeps working. */
+    pointer-events: auto;
   }
 
   .note-input {
@@ -361,6 +369,32 @@ function buildDOM(): void {
     elHandles[key] = h;
   }
 
+  elVisuals.appendChild(elScrimTop);
+  elVisuals.appendChild(elScrimBottom);
+  elVisuals.appendChild(elScrimLeft);
+  elVisuals.appendChild(elScrimRight);
+  elVisuals.appendChild(elBox);
+  for (const key of HANDLE_KEYS) elVisuals.appendChild(elHandles[key]!);
+  // The comment box (textarea + counter + cancel/ok) is deliberately NOT
+  // built here. Per REQUIREMENTS §1.2 it must not exist until the user has
+  // placed the box with a click ('placing' -> 'editing'); buildCommentDOM()
+  // is called from handleBlockerClick() for that reason. Building it
+  // eagerly here left it in the DOM at its unset absolute-position default
+  // (top-left of the page) for the entire 'placing' phase.
+
+  shadow.appendChild(elBlocker);
+  shadow.appendChild(elVisuals);
+
+  document.documentElement.appendChild(host);
+}
+
+/** Builds and appends the comment box (textarea / counter / cancel / ok).
+ *  Called once, from handleBlockerClick(), the moment the user places the
+ *  selection box — never during startAddMode()/buildDOM() (§1.2: the
+ *  comment box must not exist before the first placement click). */
+function buildCommentDOM(): void {
+  if (!elVisuals || elComment) return;
+
   elComment = document.createElement('div');
   elComment.className = 'comment-box';
   elComment.setAttribute('role', 'dialog');
@@ -398,18 +432,7 @@ function buildDOM(): void {
   elComment.appendChild(elTextarea);
   elComment.appendChild(footer);
 
-  elVisuals.appendChild(elScrimTop);
-  elVisuals.appendChild(elScrimBottom);
-  elVisuals.appendChild(elScrimLeft);
-  elVisuals.appendChild(elScrimRight);
-  elVisuals.appendChild(elBox);
-  for (const key of HANDLE_KEYS) elVisuals.appendChild(elHandles[key]!);
   elVisuals.appendChild(elComment);
-
-  shadow.appendChild(elBlocker);
-  shadow.appendChild(elVisuals);
-
-  document.documentElement.appendChild(host);
 }
 
 function layoutHost(bounds: { width: number; height: number }): void {
@@ -506,6 +529,7 @@ function handleBlockerClick(e: MouseEvent): void {
   mode = 'editing';
   elBlocker?.classList.remove('placing');
 
+  buildCommentDOM();
   renderBox();
   elTextarea!.value = '';
   updateCounterAndOkState();
