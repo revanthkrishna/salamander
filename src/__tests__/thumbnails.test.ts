@@ -139,6 +139,17 @@ describe('renderThumbnailList', () => {
     expect(onOpen).toHaveBeenCalledTimes(2);
   });
 
+  it('gives each note a separate, aria-hidden background layer for the dock motion to fade (design spec §4)', () => {
+    renderThumbnailList(listEl, [makeItem()], { onOpen: jest.fn() });
+    const wrap = listEl.querySelector('button.thumbnail > .thumbnail-note-wrap') as HTMLElement;
+    expect(wrap).not.toBeNull();
+    const bg = wrap.querySelector('.thumbnail-note-bg') as HTMLElement;
+    expect(bg.getAttribute('aria-hidden')).toBe('true');
+    expect(bg.textContent).toBe('');
+    // The note text itself stays a sibling on top, so its accessible name is unchanged.
+    expect(wrap.querySelector('.thumbnail-note')?.textContent).toBe('a note');
+  });
+
   it('marks each thumbnail as a real, labelled <button> (native focusability/activation)', () => {
     renderThumbnailList(listEl, [makeItem({ id: 3 })], { onOpen: jest.fn() });
     const btn = listEl.querySelector('button.thumbnail') as HTMLButtonElement;

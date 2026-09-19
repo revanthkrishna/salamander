@@ -658,6 +658,34 @@ describe('sidebar shell', () => {
     expect(cb.calls.openItem).toEqual([item]);
   });
 
+  test('dock magnification (design spec §4) is wired only while the sidebar is open with items, and torn down on repaint/close/destroy', () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.setThumbnails([makeItem({ id: 1 }), makeItem({ id: 2 })]);
+    const list = shadowRoot().querySelector('.thumbnail-list') as HTMLElement;
+    // Closed: no motion layer (no listeners/rAF held for a hidden sidebar).
+    expect(list.dataset.dock).toBeUndefined();
+
+    sidebar.openSidebar();
+    expect(list.dataset.dock).toBe('on');
+
+    // Repaint keeps exactly one live layer on the fresh items.
+    sidebar.setThumbnails([makeItem({ id: 3 })]);
+    expect(list.dataset.dock).toBe('on');
+
+    sidebar.setThumbnails([]);
+    expect(list.dataset.dock).toBeUndefined();
+
+    sidebar.setThumbnails([makeItem({ id: 4 })]);
+    expect(list.dataset.dock).toBe('on');
+    sidebar.closeSidebar();
+    expect(list.dataset.dock).toBeUndefined();
+
+    sidebar.openSidebar();
+    expect(list.dataset.dock).toBe('on');
+    sidebar.destroySidebar();
+    expect(list.dataset.dock).toBeUndefined();
+  });
+
   test('destroySidebar removes the host and restores <html> if it was open', () => {
     html().style.cssText = 'color: green;';
     sidebar.initSidebar(makeCallbacks());

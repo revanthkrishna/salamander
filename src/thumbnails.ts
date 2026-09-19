@@ -22,9 +22,11 @@
 //
 // The class names below (.thumbnail, .thumbnail-image-wrap, .thumbnail-note,
 // .thumbnail-badge) are the hook points both for sidebar.ts's CSS and for
-// the later dock-magnification agent (design spec §4) — they predate this
-// restyle and are kept stable on purpose, including because
-// tests/helpers/extension.js's Playwright SELECTORS reference them directly.
+// src/dockMotion.ts's magnification (design spec §4, which also drives the
+// <li class="thumbnail-item"> transforms and the .thumbnail-note-bg layer's
+// opacity) — they predate this restyle and are kept stable on purpose,
+// including because tests/helpers/extension.js's Playwright SELECTORS
+// reference them directly.
 //
 // Newest-at-the-bottom ordering (§1.5) is the caller's responsibility —
 // storage.ts's getPageItems already returns items in capture order and this
@@ -122,8 +124,22 @@ function buildThumbnailEl(item: FeedbackItem, callbacks: ThumbnailCallbacks): HT
   note.className = preview ? 'thumbnail-note' : 'thumbnail-note thumbnail-note-empty';
   note.textContent = preview || 'no note';
 
+  // The note's hover/focus background (surface + shadowNote, design spec
+  // §3.1/§4) is its own layer rather than a background on the <p>: the dock
+  // magnification (src/dockMotion.ts) fades it with an opacity-only spring,
+  // and the <p>'s own `overflow: hidden` (needed for the 3-line clamp) would
+  // clip the shadow if it lived on the note itself. The wrap spans the
+  // button's width, so the background is never wider than the thumbnail.
+  const noteWrap = document.createElement('span');
+  noteWrap.className = 'thumbnail-note-wrap';
+  const noteBg = document.createElement('span');
+  noteBg.className = 'thumbnail-note-bg';
+  noteBg.setAttribute('aria-hidden', 'true');
+  noteWrap.appendChild(noteBg);
+  noteWrap.appendChild(note);
+
   btn.appendChild(imageWrap);
-  btn.appendChild(note);
+  btn.appendChild(noteWrap);
   li.appendChild(btn);
 
   const open = (): void => callbacks.onOpen(item);

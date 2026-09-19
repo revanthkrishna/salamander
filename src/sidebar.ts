@@ -24,6 +24,7 @@
 
 import { FeedbackItem } from './types';
 import { renderThumbnailList } from './thumbnails';
+import { attachDockMotion, DockMotionHandle } from './dockMotion';
 import {
   getThemeCSS,
   registerThemedHost,
@@ -250,6 +251,11 @@ const NARROW_WIDTH_BREAKPOINT = 220;
  *  the (purely decorative) logo mark, so the panel never overflows down to
  *  the 100px floor. */
 const COMPACT_WIDTH_BREAKPOINT = 150;
+/** How far (px) the note list's scrollport extends out over the page so
+ *  dock-magnified items aren't clipped at the panel edge (see .body). Worst
+ *  case at the 300px maximum width: 0.12 × 268px of scale + 22px of shift −
+ *  the list's 16px inset ≈ 38px past the edge, plus the note shadow's blur. */
+const DOCK_BLEED_PX = 72;
 
 const SIDEBAR_CSS = `
   :host {
@@ -279,11 +285,10 @@ const SIDEBAR_CSS = `
     /* No heavy shadow (§3.1) — the border-left is the only separation from
        the page. */
     z-index: 2147483645;
-    /* Note-list items grow ~1.12x and translate up to -24px past the panel's
-       left edge under dock magnification (design spec §4, not yet wired —
-       see .thumbnail below); overflow must stay visible everywhere along
-       that path (.sidebar/.body/.thumbnail-list) or the effect gets clipped
-       at the panel's own boundary. */
+    /* Note-list items grow ~1.12x and translate up to -22px past the panel's
+       left edge under dock magnification (design spec §4, src/dockMotion.ts);
+       nothing along that path may clip them — see .body below for how the
+       one scroll container on the path makes room. */
     overflow: visible;
   }
   .sidebar[hidden] { display: none !important; }
@@ -503,12 +508,21 @@ const SIDEBAR_CSS = `
   .body {
     flex: 1 1 auto;
     overflow-y: auto;
-    /* Visible, not hidden — see the .sidebar comment above: dock
-       magnification (§4) translates note-list items past the panel's own
-       left edge and nothing along that path may clip it. */
-    overflow-x: visible;
-    padding: 12px 0 16px;
+    /* A scroll container clips on both axes (overflow-x: visible computes
+       to auto next to overflow-y: auto), so dock magnification (§4) — which
+       swells items up to ~40px past the panel's left edge, plus the note's
+       shadow — gets room the other way: the scrollport itself extends
+       DOCK_BLEED_PX out over the page (negative margin, matching padding,
+       so the content box and list width are unchanged). That strip must not
+       swallow the page's clicks, so the body is pointer-events: none and
+       only its children take events back; wheel/trackpad scrolling over the
+       list still scrolls the body (scroll chaining follows the box tree,
+       not hit-testability). */
+    margin-left: -${DOCK_BLEED_PX}px;
+    padding: 12px 0 16px ${DOCK_BLEED_PX}px;
+    pointer-events: none;
   }
+  .body > * { pointer-events: auto; }
 
   .section-heading {
     margin: 0 16px 12px;
@@ -535,8 +549,24 @@ const SIDEBAR_CSS = `
     flex-direction: column;
     gap: 16px;
     overflow: visible;
+    /* No isolation here on purpose: the per-item z-index dockMotion.ts
+       writes (most magnified on top) has to compete in .sidebar's stacking
+       context so a magnified item also paints over the resizer hairline
+       (z-index 1), while resting items (no z-index) stay under it and the
+       handle stays grabbable. */
   }
   .thumbnail-list[hidden] { display: none !important; }
+
+  /* Dock magnification target (design spec §4): src/dockMotion.ts writes
+     transform (translateX/Y + scale), z-index and — only while animating —
+     will-change on each <li> from a single rAF spring loop. Right-centre
+     origin so items swell out to the left over the page. Deliberately no
+     CSS transition on transform here: the spring *is* the easing, and a
+     transition would lag every frame behind it. */
+  .thumbnail-item {
+    position: relative;
+    transform-origin: right center;
+  }
 
   /* ─── Note list items (design spec §3.1/§4) ───────────────────────────
      Each item is a real <button> (src/thumbnails.ts) so Enter/Space/click
@@ -544,12 +574,9 @@ const SIDEBAR_CSS = `
      role="button". No card/box around the item — just the thumbnail image
      and the note text below it.
 
-     Hook point for the Phase 3 dock-magnification agent: it drives
-     transform: translateX(...) scale(...) (transform-origin: right
-     center) on .thumbnail from a pointermove-driven rAF spring, keyed off
-     each item's layout-time vertical centre. Nothing here should assume a
-     static transform, and nothing along the ancestor chain above clips
-     overflow, by design. */
+     Dock magnification (§4) transforms the <li> around this button (see
+     .thumbnail-item above), not the button itself, so the button's own
+     press/state transitions never fight the spring. */
   .thumbnail {
     display: block;
     width: 100%;
@@ -597,8 +624,32 @@ const SIDEBAR_CSS = `
     text-align: center;
   }
 
+  .thumbnail-note-wrap {
+    display: block;
+    position: relative;
+    margin-top: 8px;
+  }
+  /* The note's hover/focus background (surface + shadowNote), a separate
+     layer so it can fade on opacity alone. Under dock motion its opacity is
+     spring-driven inline by dockMotion.ts (which sets data-dock="on" on the
+     list); with prefers-reduced-motion it falls back to the plain
+     :hover/:focus-visible rule below. Spans the button's width, so it is
+     never wider than the thumbnail — the thumbnail never gets one. */
+  .thumbnail-note-bg {
+    position: absolute;
+    inset: 0;
+    border-radius: var(--sal-radius-md);
+    background: var(--sal-surface);
+    box-shadow: var(--sal-shadow-note);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 140ms ease-out;
+  }
+  .thumbnail-list[data-dock="on"] .thumbnail-note-bg { transition: none; }
+
   .thumbnail-note {
-    margin: 8px 0 0;
+    position: relative;
+    margin: 0;
     padding: 8px 10px;
     max-width: 100%;
     border-radius: var(--sal-radius-md);
@@ -616,13 +667,12 @@ const SIDEBAR_CSS = `
     ${STATE_TRANSITION_CSS}
   }
   .thumbnail-note-empty { color: var(--sal-muted); font-style: italic; }
-  /* Hovered/focused item's note gets a surface background + shadowNote,
-     never wider than the thumbnail above it (the shared max-width already
-     guarantees that) — the thumbnail itself never gets a background. */
-  .thumbnail:hover .thumbnail-note,
-  .thumbnail:focus-visible .thumbnail-note {
-    background: var(--sal-surface);
-    box-shadow: var(--sal-shadow-note);
+  /* Reduced-motion (or not-yet-wired) fallback for the note background:
+     dockMotion.ts removes data-dock when prefers-reduced-motion is on, and
+     then only this static hover/focus state remains (§4). */
+  .thumbnail-list:not([data-dock="on"]) .thumbnail:hover .thumbnail-note-bg,
+  .thumbnail-list:not([data-dock="on"]) .thumbnail:focus-visible .thumbnail-note-bg {
+    opacity: 1;
   }
 `;
 
@@ -645,6 +695,11 @@ let elFileInput: HTMLInputElement | null = null;
 let elHeading: HTMLHeadingElement | null = null;
 let elEmptyState: HTMLParagraphElement | null = null;
 let elThumbnailList: HTMLUListElement | null = null;
+let elBody: HTMLDivElement | null = null;
+/** Dock magnification (design spec §4) for the currently rendered list —
+ *  rebuilt on every repaint, torn down on close/destroy (see
+ *  syncDockMotion). */
+let dockMotion: DockMotionHandle | null = null;
 let elNotif: HTMLDivElement | null = null;
 let elNotifIcon: HTMLSpanElement | null = null;
 let elNotifText: HTMLSpanElement | null = null;
@@ -747,6 +802,7 @@ function buildDOM(shadow: ShadowRoot): void {
 
   const body = document.createElement('div');
   body.className = 'body';
+  elBody = body;
 
   elHeading = document.createElement('h2');
   elHeading.className = 'section-heading';
@@ -1024,6 +1080,7 @@ export function openSidebar(): void {
   elSidebar.hidden = false;
   visible = true;
   applyPageResize();
+  syncDockMotion();
 }
 
 /** Hide the sidebar and restore the page's original layout exactly as it was
@@ -1031,6 +1088,7 @@ export function openSidebar(): void {
 export function closeSidebar(): void {
   if (elSidebar) elSidebar.hidden = true;
   visible = false;
+  syncDockMotion();
   clearMessage();
   restorePageResize();
 }
@@ -1072,6 +1130,7 @@ export function setThumbnails(items: FeedbackItem[]): void {
     elEmptyState.hidden = false;
     elThumbnailList.hidden = true;
     elThumbnailList.innerHTML = '';
+    syncDockMotion();
     return;
   }
   // "this page (n)" (design spec §3.1) — only ever shown alongside the list,
@@ -1080,9 +1139,27 @@ export function setThumbnails(items: FeedbackItem[]): void {
   elHeading.hidden = false;
   elEmptyState.hidden = true;
   elThumbnailList.hidden = false;
+  // Tear the old motion layer down *before* the repaint so it releases the
+  // outgoing <li>s, then attach a fresh one to the new ones.
+  dockMotion?.destroy();
+  dockMotion = null;
   renderThumbnailList(elThumbnailList, items, {
     onOpen: (item) => callbacksRef?.onOpenItem(item),
   });
+  syncDockMotion();
+}
+
+/** Keep exactly one dock-motion layer alive while the sidebar is visible and
+ *  showing items, and none otherwise (so a closed sidebar holds no rAF,
+ *  listeners or matchMedia subscription). */
+function syncDockMotion(): void {
+  const wanted = visible && !!elThumbnailList && !elThumbnailList.hidden && elThumbnailList.children.length > 0;
+  if (wanted && !dockMotion && elThumbnailList) {
+    dockMotion = attachDockMotion(elThumbnailList, { scrollContainer: elBody });
+  } else if (!wanted && dockMotion) {
+    dockMotion.destroy();
+    dockMotion = null;
+  }
 }
 
 /** Full teardown: removes the host from the DOM and restores page layout. Not
@@ -1090,6 +1167,8 @@ export function setThumbnails(items: FeedbackItem[]): void {
  *  content script stays loaded") — this exists for tests and for a hard reset
  *  if the content script is ever torn down without a page navigation. */
 export function destroySidebar(): void {
+  dockMotion?.destroy();
+  dockMotion = null;
   clearMessage();
   endResizeDrag();
   restorePageResize();
@@ -1112,6 +1191,7 @@ export function destroySidebar(): void {
   elHeading = null;
   elEmptyState = null;
   elThumbnailList = null;
+  elBody = null;
   elNotif = null;
   elNotifIcon = null;
   elNotifText = null;
