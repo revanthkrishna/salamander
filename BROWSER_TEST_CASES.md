@@ -220,6 +220,10 @@ the same page.
       x button in the rail; Tab cycles rail → peeks → note → delete. Collapse (x or Esc) — focus
       returns to the thumbnail you opened it from. Delete the only note — focus lands on the add
       note button, not the page body.
+- [ ] **3.8a.** Start add mode, place a box and type a comment, then click a note in the list — it
+      must not open; a banner says "finish or cancel your note first." and your comment is kept.
+- [ ] **3.8b.** Edit a note, then immediately reload the page — the edit should still be there
+      afterwards (pending edits are flushed on unload).
 - [ ] **3.9. (Note hover)** Hover a note in the list — the thumbnail keeps all four rounded corners
       and the note text gains a background that tucks under the thumbnail (same width, edges
       aligned); the text itself doesn't move.
