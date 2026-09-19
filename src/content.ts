@@ -55,7 +55,14 @@ import {
   UpdateNoteResponse,
   DeleteItemMessage,
   DeleteItemResponse,
+  ExportMessage,
+  ExportResponse,
 } from './messages';
+
+// §5 #7's alert text is fixed and verbatim; this is the fallback shown when
+// the export round trip itself fails (a dead service worker, etc.) — not one
+// of the 11 numbered §5 cases, but kept lowercase and in the same tone.
+const EXPORT_ROUND_TRIP_FAILED_MESSAGE = "couldn't export feedback. try again.";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Idempotency guard + runtime init (wrapped in IIFE so we can `return` instead
@@ -142,7 +149,7 @@ function ensureStarted(): void {
       });
     },
     onExport: () => {
-      // Phase 8 wires the real zip export here.
+      void handleExport();
     },
     onImportFile: (_file: File) => {
       // Phase 9 wires real bundle import here.
@@ -287,6 +294,39 @@ async function refreshThumbnails(): Promise<void> {
     return;
   }
   sidebar.setThumbnails(response.items);
+}
+
+/**
+ * §1.6 — export every feedback item across every URL of the current domain
+ * as a `.zip` download. The service worker (src/export.ts) does the actual
+ * assembly and download (gotchas #1, #4); this side's only job is the
+ * message round trip and surfacing the two possible non-success outcomes:
+ * §5 #7's empty-domain alert, or a generic failure in the sidebar's error
+ * bar. The export button is disabled for the duration so a second click
+ * can't start a second download mid-assembly.
+ */
+async function handleExport(): Promise<void> {
+  sidebar.setExportButtonEnabled(false);
+  try {
+    const message: ExportMessage = {
+      type: 'EXPORT',
+      domain: normaliseDomain(location.host),
+    };
+    const response = await sendMessage<ExportResponse>(message);
+    if (!response) {
+      sidebar.showError(EXPORT_ROUND_TRIP_FAILED_MESSAGE);
+      return;
+    }
+    if (!response.ok) {
+      if (response.code === 'EMPTY') {
+        alert('nothing to export'); // §5 #7, verbatim
+      } else {
+        sidebar.showError(response.message);
+      }
+    }
+  } finally {
+    sidebar.setExportButtonEnabled(true);
+  }
 }
 
 /** Open the enlarged modal for one thumbnail, wiring its callbacks onto the

@@ -293,6 +293,48 @@ export interface DeleteItemErrorResponse {
 
 export type DeleteItemResponse = DeleteItemSuccessResponse | DeleteItemErrorResponse;
 
+// ---------------------------------------------------------------------------
+// Phase 8 — export (§1.6)
+// ---------------------------------------------------------------------------
+//
+// The zip is assembled and downloaded entirely inside the service worker
+// (src/export.ts) — the screenshot blobs already live in its IndexedDB
+// (gotcha #1), and chrome.downloads is service-worker-only in practice for
+// this extension (content scripts don't get it — gotcha #4 covers the
+// createObjectURL half of that same constraint). So this message carries no
+// zip bytes in either direction: the content script only needs to know
+// whether to show the domain's empty-state alert or a real error.
+
+/** Ask the service worker to export every feedback item across every URL of
+ *  `domain` (§1.6 — "all URLs of the current domain", not just the current
+ *  page) as a `.zip` download. */
+export interface ExportMessage {
+  type: 'EXPORT';
+  /** Normalised domain (urlNorm.normaliseDomain) — the storage.local key. */
+  domain: string;
+}
+
+export interface ExportSuccessResponse {
+  ok: true;
+}
+
+/** §5 #7 — zero feedback items on the domain. The content script is the one
+ *  that calls `alert("nothing to export")`, verbatim, since `alert()` needs
+ *  the page's window and the service worker has none. */
+export interface ExportEmptyResponse {
+  ok: false;
+  code: 'EMPTY';
+}
+
+export interface ExportErrorResponse {
+  ok: false;
+  code: 'EXPORT_FAILED';
+  /** Lowercase, user-facing. */
+  message: string;
+}
+
+export type ExportResponse = ExportSuccessResponse | ExportEmptyResponse | ExportErrorResponse;
+
 export type ContentToBackgroundMessage =
   | SidebarOpenedMessage
   | SidebarClosedMessage
@@ -301,4 +343,5 @@ export type ContentToBackgroundMessage =
   | GetPageItemsMessage
   | GetImageMessage
   | UpdateNoteMessage
-  | DeleteItemMessage;
+  | DeleteItemMessage
+  | ExportMessage;

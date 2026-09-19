@@ -109,13 +109,17 @@ export function normaliseDomain(host: string): string {
 }
 
 /**
- * Generate the export filename for a normalised domain.
- * Dots and colons are replaced with underscores (colons appear in "localhost:3000").
+ * Generate the export filename for a normalised domain (§1.6: `.zip` bundle,
+ * not v1's single `.yaml` file). Dots and colons are replaced with
+ * underscores (colons appear in "localhost:3000"); {date} is YYYY-MM-DD,
+ * taken from `date`'s UTC calendar day so the name is deterministic
+ * regardless of the caller's local timezone.
  *
  * Examples:
- *   "figma.com"      → "annotations-figma_com.yaml"
- *   "localhost:3000" → "annotations-localhost_3000.yaml"
+ *   "figma.com"      → "feedback-figma_com-2026-09-18.zip"
+ *   "localhost:3000" → "feedback-localhost_3000-2026-09-18.zip"
  */
-export function exportFilename(domain: string): string {
-  return `annotations-${domain.replace(/[.:]/g, '_')}.yaml`;
+export function exportFilename(domain: string, date: Date = new Date()): string {
+  const dateStr = date.toISOString().slice(0, 10);
+  return `feedback-${domain.replace(/[.:]/g, '_')}-${dateStr}.zip`;
 }

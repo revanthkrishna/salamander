@@ -138,15 +138,32 @@ describe('normaliseDomain', () => {
 });
 
 describe('exportFilename', () => {
-  test('replaces dots with underscores', () => {
-    expect(exportFilename('figma.com')).toBe('annotations-figma_com.yaml');
+  const fixedDate = new Date('2026-09-18T12:34:56Z');
+
+  test('replaces dots with underscores and appends the date', () => {
+    expect(exportFilename('figma.com', fixedDate)).toBe('feedback-figma_com-2026-09-18.zip');
   });
 
   test('multi-part domain', () => {
-    expect(exportFilename('app.example.com')).toBe('annotations-app_example_com.yaml');
+    expect(exportFilename('app.example.com', fixedDate)).toBe(
+      'feedback-app_example_com-2026-09-18.zip',
+    );
   });
 
   test('simple tld', () => {
-    expect(exportFilename('example.io')).toBe('annotations-example_io.yaml');
+    expect(exportFilename('example.io', fixedDate)).toBe('feedback-example_io-2026-09-18.zip');
+  });
+
+  test('replaces colons in a port-bearing domain', () => {
+    expect(exportFilename('localhost:3000', fixedDate)).toBe(
+      'feedback-localhost_3000-2026-09-18.zip',
+    );
+  });
+
+  test('defaults to the current date when none is given', () => {
+    const before = new Date().toISOString().slice(0, 10);
+    const name = exportFilename('example.com');
+    expect(name).toMatch(/^feedback-example_com-\d{4}-\d{2}-\d{2}\.zip$/);
+    expect(name).toContain(before);
   });
 });

@@ -18,6 +18,7 @@ import {
   deleteItem,
 } from './storage';
 import * as imageStore from './imageStore';
+import { exportDomain } from './export';
 import { FeedbackItem, Rect, ViewportSize } from './types';
 import {
   ActivateMessage,
@@ -35,6 +36,8 @@ import {
   UpdateNoteResponse,
   DeleteItemMessage,
   DeleteItemResponse,
+  ExportMessage,
+  ExportResponse,
 } from './messages';
 
 const CONTENT_SCRIPT = 'dist/content.js';
@@ -178,6 +181,10 @@ export function handleRuntimeMessage(
     }
     case 'DELETE_ITEM': {
       handleDeleteItem(message as DeleteItemMessage).then(sendResponse);
+      return true; // keep the message channel open for the async response
+    }
+    case 'EXPORT': {
+      handleExport(message as ExportMessage).then(sendResponse);
       return true; // keep the message channel open for the async response
     }
     default:
@@ -364,6 +371,16 @@ export async function handleDeleteItem(message: DeleteItemMessage): Promise<Dele
     console.warn('[Annotator] could not delete feedback item:', err);
     return { ok: false, message: ITEM_DELETE_FAILED_MESSAGE };
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 8 — export (§1.6): src/export.ts owns the zip assembly and the
+// chrome.downloads call (both service-worker-only — gotchas #1 and #4); this
+// handler is just the message-boundary adapter.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function handleExport(message: ExportMessage): Promise<ExportResponse> {
+  return exportDomain(message.domain);
 }
 
 // ---------------------------------------------------------------------------

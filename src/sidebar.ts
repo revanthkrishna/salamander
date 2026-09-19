@@ -476,6 +476,14 @@ export function isSidebarVisible(): boolean {
   return visible;
 }
 
+/** Disable/enable the export header button (Phase 8, §1.6). Assembling a
+ *  multi-URL zip is an async round trip with no other on-screen affordance,
+ *  so content.ts disables this for the duration to prevent a second export
+ *  starting (and downloading) before the first finishes. */
+export function setExportButtonEnabled(enabled: boolean): void {
+  if (elBtnExport) elBtnExport.disabled = !enabled;
+}
+
 /**
  * Repaint the thumbnail list for whatever items content.ts fetched for the
  * current URL (§1.5 — "current URL only"; newest-at-the-bottom is the
