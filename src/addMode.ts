@@ -2,8 +2,9 @@
 // Phase 4 — the add-mode selection interaction (REQUIREMENTS §1.2, §3.2),
 // restyled to the Salamander design language (design spec §3.2).
 //
-// Scope: crosshair-cursor click-to-place (centered default 200x150 box,
-// clamped to the viewport by shifting) and Figma-style click-and-drag-to-draw
+// Scope: crosshair-cursor click-to-place (centered default box sized to match
+// the sidebar's thumbnail box, clamped to the viewport by shifting) and
+// Figma-style click-and-drag-to-draw
 // (custom-sized box between mousedown and mouseup, 5px movement threshold to
 // distinguish the two), resize from any edge or corner via invisible hit
 // zones (20x20 minimum), a macOS-screenshot-style dimming scrim outside the
@@ -38,7 +39,7 @@
 // right space for cropping a viewport screenshot.
 
 import { Rect } from './types';
-import { getSidebarWidth } from './sidebar';
+import { getSidebarWidth, DEFAULT_THUMBNAIL_BOX_SIZE } from './sidebar';
 import { getContentViewportSize } from './capture';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
 import { DISABLED_CSS, getThemeCSS, registerThemedHost, STATE_TRANSITION_CSS } from './theme';
@@ -75,8 +76,6 @@ export interface AddModeCallbacks {
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_WIDTH = 200;
-const DEFAULT_HEIGHT = 150;
 const MIN_SIZE = 20;
 /** Movement threshold (mousedown -> current position), in px, that
  *  distinguishes a "click" (place the centered default-size box) from a
@@ -312,7 +311,7 @@ type Mode = 'idle' | 'placing' | 'editing';
 let mode: Mode = 'idle';
 let callbacksRef: AddModeCallbacks | null = null;
 
-let box: Rect = { x: 0, y: 0, width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
+let box: Rect = { x: 0, y: 0, ...DEFAULT_THUMBNAIL_BOX_SIZE };
 let commentHeight = COMMENT_FALLBACK_HEIGHT;
 
 let host: HTMLDivElement | null = null;
@@ -376,11 +375,19 @@ function getBounds(): { width: number; height: number } {
 
 /** Click-to-place (no drag): the default-size box is *centered* on the click
  *  point, then clamped (shifted, not shrunk) independently per axis so it
- *  always lands fully on-screen — e.g. a click at (20, 20) naively centers
- *  the 200x150 default to (-80, -55), which clamps to (0, 0). */
+ *  always lands fully on-screen — e.g. a click at (20, 20) naively centers a
+ *  267x100 default to (-113.5, -30), which clamps to (0, 0).
+ *
+ *  The default size itself is DEFAULT_THUMBNAIL_BOX_SIZE (src/sidebar.ts)
+ *  rather than an unrelated fixed constant here: it matches the sidebar's
+ *  note thumbnail box at the sidebar's default width, so an un-dragged
+ *  capture fills a thumbnail with no letterboxing in the common case. It is
+ *  a fixed size — not read from the sidebar's *current* (user-resizable)
+ *  width — so the click-to-place default never shifts underfoot while the
+ *  panel is being dragged. */
 function computeDefaultBox(clickX: number, clickY: number, bounds: { width: number; height: number }): Rect {
-  const width = Math.min(DEFAULT_WIDTH, bounds.width);
-  const height = Math.min(DEFAULT_HEIGHT, bounds.height);
+  const width = Math.min(DEFAULT_THUMBNAIL_BOX_SIZE.width, bounds.width);
+  const height = Math.min(DEFAULT_THUMBNAIL_BOX_SIZE.height, bounds.height);
   const x = clamp(clickX - width / 2, 0, Math.max(0, bounds.width - width));
   const y = clamp(clickY - height / 2, 0, Math.max(0, bounds.height - height));
   return { x, y, width, height };
@@ -922,7 +929,7 @@ export function exitAddMode(): void {
 
   mode = 'idle';
   callbacksRef = null;
-  box = { x: 0, y: 0, width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
+  box = { x: 0, y: 0, ...DEFAULT_THUMBNAIL_BOX_SIZE };
 }
 
 /** Test-only: current selection rect, so tests can drive placement/resize via

@@ -126,6 +126,83 @@ function drag(el: HTMLElement, x1: number, y1: number, x2: number, y2: number): 
   mouseup(x2, y2);
 }
 
+/** Mirrors addMode's internal clamp() helper (not exported). */
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+/** Mirrors addMode's computeDefaultBox(): the click-to-place default box is
+ *  centered on the click point, sized to sidebar.DEFAULT_THUMBNAIL_BOX_SIZE
+ *  (the sidebar's thumbnail box size at the default sidebar width — see
+ *  src/sidebar.ts's DEFAULT_THUMBNAIL_BOX_SIZE / src/thumbnails.ts's
+ *  THUMBNAIL_IMAGE_HEIGHT_PX, the single source of truth), then clamped by
+ *  shifting to stay on-screen. Tests compute the *expected* box through this
+ *  same formula instead of hardcoding the old fixed 200x150 default. */
+function expectedDefaultBox(clickX: number, clickY: number, bounds: { width: number; height: number }) {
+  const defaultSize = sidebar.DEFAULT_THUMBNAIL_BOX_SIZE;
+  const width = Math.min(defaultSize.width, bounds.width);
+  const height = Math.min(defaultSize.height, bounds.height);
+  const x = clamp(clickX - width / 2, 0, Math.max(0, bounds.width - width));
+  const y = clamp(clickY - height / 2, 0, Math.max(0, bounds.height - height));
+  return { x, y, width, height };
+}
+
+/** Mirrors addMode's (unexported) computeZoneRects(): edge/corner hit-zone
+ *  rects for a given box, using the same EDGE_ZONE/CORNER_ZONE constants. */
+function expectedZoneRects(b: { x: number; y: number; width: number; height: number }) {
+  const EDGE_ZONE = 10;
+  const CORNER_ZONE = 16;
+  const e = EDGE_ZONE / 2;
+  const c = CORNER_ZONE / 2;
+  const left = b.x;
+  const top = b.y;
+  const right = b.x + b.width;
+  const bottom = b.y + b.height;
+  const innerW = Math.max(0, b.width - CORNER_ZONE);
+  const innerH = Math.max(0, b.height - CORNER_ZONE);
+  return {
+    n: { x: left + c, y: top - e, width: innerW, height: EDGE_ZONE },
+    s: { x: left + c, y: bottom - e, width: innerW, height: EDGE_ZONE },
+    w: { x: left - e, y: top + c, width: EDGE_ZONE, height: innerH },
+    e: { x: right - e, y: top + c, width: EDGE_ZONE, height: innerH },
+    nw: { x: left - c, y: top - c, width: CORNER_ZONE, height: CORNER_ZONE },
+    ne: { x: right - c, y: top - c, width: CORNER_ZONE, height: CORNER_ZONE },
+    sw: { x: left - c, y: bottom - c, width: CORNER_ZONE, height: CORNER_ZONE },
+    se: { x: right - c, y: bottom - c, width: CORNER_ZONE, height: CORNER_ZONE },
+  };
+}
+
+/** Mirrors addMode's (unexported) resizeBox(): moves only the edges named by
+ *  `zoneKey` to (clientX, clientY), clamped per edge to `bounds` and the
+ *  20x20 minimum — same formula as production, used so tests can assert on
+ *  resize results without hardcoding geometry that now depends on the
+ *  (variable) default box size. */
+function expectedResizeBox(
+  current: { x: number; y: number; width: number; height: number },
+  zoneKey: string,
+  clientX: number,
+  clientY: number,
+  bounds: { width: number; height: number },
+) {
+  const MIN_SIZE = 20;
+  const left = current.x;
+  const top = current.y;
+  const right = current.x + current.width;
+  const bottom = current.y + current.height;
+
+  let newLeft = left;
+  let newTop = top;
+  let newRight = right;
+  let newBottom = bottom;
+
+  if (zoneKey.includes('w')) newLeft = clamp(clientX, 0, right - MIN_SIZE);
+  if (zoneKey.includes('e')) newRight = clamp(clientX, left + MIN_SIZE, bounds.width);
+  if (zoneKey.includes('n')) newTop = clamp(clientY, 0, bottom - MIN_SIZE);
+  if (zoneKey.includes('s')) newBottom = clamp(clientY, top + MIN_SIZE, bounds.height);
+
+  return { x: newLeft, y: newTop, width: newRight - newLeft, height: newBottom - newTop };
+}
+
 function makeCallbacks() {
   const calls = { ok: [] as { rect: any; note: string }[], cancel: 0 };
   return {
@@ -224,26 +301,32 @@ describe('add mode', () => {
 
   // ── placement (click-to-place: center-on-click + viewport clamping) ──────
 
-  test('a plain click (no drag) centers the default 200x150 box on the click point', () => {
+  test('a plain click (no drag) centers the default box (sized to match the sidebar thumbnail) on the click point', () => {
     addMode.startAddMode(makeCallbacks());
     place(blocker(), 300, 200);
 
+    const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
+    const expected = expectedDefaultBox(300, 200, bounds);
     const box = addMode._boxForTests();
     // centered: top-left = (clickX - width/2, clickY - height/2)
-    expect(box).toEqual({ x: 200, y: 125, width: 200, height: 150 });
-    expect(boxEl().style.left).toBe('200px');
-    expect(boxEl().style.top).toBe('125px');
-    expect(boxEl().style.width).toBe('200px');
-    expect(boxEl().style.height).toBe('150px');
+    expect(box).toEqual(expected);
+    expect(boxEl().style.left).toBe(`${expected.x}px`);
+    expect(boxEl().style.top).toBe(`${expected.y}px`);
+    expect(boxEl().style.width).toBe(`${expected.width}px`);
+    expect(boxEl().style.height).toBe(`${expected.height}px`);
   });
 
-  test('clamps a naive top/left-off-screen centered box by shifting it fully on-screen (exact worked example: click (20,20) -> box (0,0)-(200,150))', () => {
+  test('clamps a naive top/left-off-screen centered box by shifting it fully on-screen', () => {
     addMode.startAddMode(makeCallbacks());
-    // naive centering: (20 - 100, 20 - 75) = (-80, -55), which clamps to (0, 0)
+    // naive centering pushes both edges negative, which clamps to (0, 0).
     place(blocker(), 20, 20);
 
+    const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
+    const expected = expectedDefaultBox(20, 20, bounds);
+    expect(expected.x).toBe(0);
+    expect(expected.y).toBe(0);
     const box = addMode._boxForTests();
-    expect(box).toEqual({ x: 0, y: 0, width: 200, height: 150 });
+    expect(box).toEqual(expected);
   });
 
   test('clamps a naive bottom/right-off-screen centered box symmetrically', () => {
@@ -254,12 +337,8 @@ describe('add mode', () => {
     place(blocker(), bounds.width - 20, bounds.height - 20);
 
     const box = addMode._boxForTests();
-    expect(box).toEqual({
-      x: bounds.width - 200,
-      y: bounds.height - 150,
-      width: 200,
-      height: 150,
-    });
+    const expected = expectedDefaultBox(bounds.width - 20, bounds.height - 20, bounds);
+    expect(box).toEqual(expected);
     expect(box.x + box.width).toBe(bounds.width);
     expect(box.y + box.height).toBe(bounds.height);
   });
@@ -302,8 +381,9 @@ describe('add mode', () => {
     // 3px total movement on each axis stays under the 5px threshold.
     drag(blocker(), 300, 300, 303, 303);
 
+    const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
     const box = addMode._boxForTests();
-    expect(box).toEqual({ x: 200, y: 225, width: 200, height: 150 });
+    expect(box).toEqual(expectedDefaultBox(300, 300, bounds));
   });
 
   test('movement past the 5px threshold in only one axis still counts as a drag', () => {
@@ -373,14 +453,16 @@ describe('add mode', () => {
 
   test('the scrim is a single rounded hole exactly over the box, clipped to the content area', () => {
     addMode.startAddMode(makeCallbacks());
-    place(blocker(), 300, 300); // box x200 y225 w200 h150
+    place(blocker(), 300, 300); // default box centered on (300, 300)
 
     expect(shadowRoot().querySelectorAll('.scrim-rect')).toHaveLength(0); // v1 four-strip scrim is gone
     const scrims = shadowRoot().querySelectorAll('.scrim');
     expect(scrims).toHaveLength(1);
     const scrim = scrims[0] as HTMLElement;
+    const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
+    const expected = expectedDefaultBox(300, 300, bounds);
     expect([scrim.style.left, scrim.style.top, scrim.style.width, scrim.style.height]).toEqual([
-      '200px', '225px', '200px', '150px',
+      `${expected.x}px`, `${expected.y}px`, `${expected.width}px`, `${expected.height}px`,
     ]);
 
     const layer = shadowRoot().querySelector('.scrim-layer') as HTMLElement;
@@ -456,21 +538,27 @@ describe('add mode', () => {
 
   test('edge zones are 10px strips straddling the outline between the corners; corner zones are 16x16 centred on the corners', () => {
     addMode.startAddMode(makeCallbacks());
-    place(blocker(), 300, 300); // box x200 y225 w200 h150 -> right 400 bottom 375
+    place(blocker(), 300, 300); // default box centered on (300, 300)
+
+    const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
+    const defaultBox = expectedDefaultBox(300, 300, bounds);
+    const rects = expectedZoneRects(defaultBox);
 
     const rectOf = (key: string) => {
       const el = zone(key);
       return [el.style.left, el.style.top, el.style.width, el.style.height];
     };
-    expect(rectOf('n')).toEqual(['208px', '220px', '184px', '10px']);
-    expect(rectOf('s')).toEqual(['208px', '370px', '184px', '10px']);
-    expect(rectOf('w')).toEqual(['195px', '233px', '10px', '134px']);
-    expect(rectOf('e')).toEqual(['395px', '233px', '10px', '134px']);
-    expect(rectOf('nw')).toEqual(['192px', '217px', '16px', '16px']);
-    expect(rectOf('ne')).toEqual(['392px', '217px', '16px', '16px']);
-    expect(rectOf('sw')).toEqual(['192px', '367px', '16px', '16px']);
-    expect(rectOf('se')).toEqual(['392px', '367px', '16px', '16px']);
-    expect(addMode._zoneRectsForTests().se).toEqual({ x: 392, y: 367, width: 16, height: 16 });
+    const asPx = (r: { x: number; y: number; width: number; height: number }) =>
+      [`${r.x}px`, `${r.y}px`, `${r.width}px`, `${r.height}px`];
+    expect(rectOf('n')).toEqual(asPx(rects.n));
+    expect(rectOf('s')).toEqual(asPx(rects.s));
+    expect(rectOf('w')).toEqual(asPx(rects.w));
+    expect(rectOf('e')).toEqual(asPx(rects.e));
+    expect(rectOf('nw')).toEqual(asPx(rects.nw));
+    expect(rectOf('ne')).toEqual(asPx(rects.ne));
+    expect(rectOf('sw')).toEqual(asPx(rects.sw));
+    expect(rectOf('se')).toEqual(asPx(rects.se));
+    expect(addMode._zoneRectsForTests().se).toEqual(rects.se);
 
     // Corners are appended after edges so they win the hit test where the
     // squares overlap the strip ends on a small box.
@@ -478,24 +566,28 @@ describe('add mode', () => {
     expect(order.slice(0, 4).sort()).toEqual(['e', 'n', 's', 'w']);
   });
 
-  // Placed at (300,300): box x200 y225 w200 h150 -> left 200, top 225, right 400, bottom 375.
+  // Placed at (300,300): the default box centered there (see
+  // expectedDefaultBox/sidebar.DEFAULT_THUMBNAIL_BOX_SIZE).
   test.each([
-    ['n', 300, 200, { x: 200, y: 200, width: 200, height: 175 }],
-    ['s', 300, 400, { x: 200, y: 225, width: 200, height: 175 }],
-    ['e', 450, 300, { x: 200, y: 225, width: 250, height: 150 }],
-    ['w', 150, 300, { x: 150, y: 225, width: 250, height: 150 }],
-    ['nw', 150, 200, { x: 150, y: 200, width: 250, height: 175 }],
-    ['ne', 450, 200, { x: 200, y: 200, width: 250, height: 175 }],
-    ['sw', 150, 400, { x: 150, y: 225, width: 250, height: 175 }],
-    ['se', 450, 400, { x: 200, y: 225, width: 250, height: 175 }],
-  ])('dragging the %s hit zone to (%i, %i) moves only that side/corner', (key, toX, toY, expected) => {
+    ['n', 300, 200],
+    ['s', 300, 400],
+    ['e', 450, 300],
+    ['w', 150, 300],
+    ['nw', 150, 200],
+    ['ne', 450, 200],
+    ['sw', 150, 400],
+    ['se', 450, 400],
+  ])('dragging the %s hit zone to (%i, %i) moves only that side/corner', (key, toX, toY) => {
     addMode.startAddMode(makeCallbacks());
+    const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
+    const defaultBox = expectedDefaultBox(300, 300, bounds);
     place(blocker(), 300, 300);
 
     mousedown(zone(key), 0, 0);
     mousemove(toX, toY);
     mouseup(toX, toY);
 
+    const expected = expectedResizeBox(defaultBox, key, toX, toY, bounds);
     expect(addMode._boxForTests()).toEqual(expected);
     // the rendered outline and scrim hole follow the new rect
     expect(boxEl().style.width).toBe(`${expected.width}px`);
@@ -531,22 +623,24 @@ describe('add mode', () => {
 
   test('dragging the se corner grows the box to the new bottom-right corner', () => {
     addMode.startAddMode(makeCallbacks());
-    place(blocker(), 100, 100); // centered default box: x0 y25 w200 h150 -> right 200 bottom 175
+    const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
+    const defaultBox = expectedDefaultBox(100, 100, bounds);
+    place(blocker(), 100, 100); // default box centered on (100, 100)
 
-    mousedown(zone('se'), 200, 175);
+    mousedown(zone('se'), defaultBox.x + defaultBox.width, defaultBox.y + defaultBox.height);
     mousemove(400, 350);
     mouseup();
 
     const box = addMode._boxForTests();
-    expect(box).toEqual({ x: 0, y: 25, width: 400, height: 325 });
+    expect(box).toEqual(expectedResizeBox(defaultBox, 'se', 400, 350, bounds));
   });
 
   test('resize enforces the 20x20 minimum size from an edge and from a corner', () => {
     addMode.startAddMode(makeCallbacks());
-    place(blocker(), 300, 300); // centered default box: right edge at 400, bottom at 375
+    place(blocker(), 300, 300); // default box centered on (300, 300)
 
     mousedown(zone('w'), 200, 300);
-    mousemove(390, 300); // try to shrink width to 10px
+    mousemove(1_000_000, 300); // drag far past the opposite edge, trying to shrink past the minimum
     mouseup();
     expect(addMode._boxForTests().width).toBe(20);
 
@@ -700,9 +794,10 @@ describe('add mode', () => {
     typeNote('  spacing is off here  ');
     click(saveBtn(), 0, 0);
 
+    const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
     expect(cbs.calls.ok).toHaveLength(1);
     expect(cbs.calls.ok[0].note).toBe('spacing is off here');
-    expect(cbs.calls.ok[0].rect).toEqual({ x: 200, y: 125, width: 200, height: 150 });
+    expect(cbs.calls.ok[0].rect).toEqual(expectedDefaultBox(300, 200, bounds));
     expect(saveBtn().disabled).toBe(true);
     expect(cancelBtn().disabled).toBe(true);
     expect(saveBtn().textContent).toBe('saving\u2026');

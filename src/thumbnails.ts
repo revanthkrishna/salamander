@@ -56,8 +56,14 @@ const NOTE_PREVIEW_LENGTH = 600;
  *  round of work, so a hardcoded width would either overflow or leave a gap
  *  as the sidebar is dragged. Applied as an inline style rather than a new
  *  sidebar.ts CSS rule since this module owns the elements it builds and
- *  sidebar.ts is out of scope for this change. */
-const THUMBNAIL_IMAGE_HEIGHT_PX = 100;
+ *  sidebar.ts is out of scope for this change.
+ *
+ *  Exported so sidebar.ts can combine it with the thumbnail box's live width
+ *  (sidebar width minus the list's horizontal padding) into a single
+ *  "current thumbnail box size" helper — the source of truth addMode.ts
+ *  reads for the click-to-place default selection size, so a default
+ *  capture always fills the thumbnail exactly with no letterboxing. */
+export const THUMBNAIL_IMAGE_HEIGHT_PX = 100;
 
 /** Truncate a note to the preview length, breaking on a trailing ellipsis
  *  rather than mid-word cleanup — exported so contextCapture-style callers

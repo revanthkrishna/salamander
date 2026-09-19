@@ -117,18 +117,20 @@ the same page.
 - [ ] **2.1.** Click **add** → cursor becomes a crosshair, page clicks stop navigating/activating
       anything underneath.
 - [ ] **2.2. (Click-to-place, centered)** Click once somewhere in the middle of the page (not near
-      an edge) → a ~200×150px box appears **centered on your click point** (not with the click
-      point as its top-left corner), with a dimming scrim over everything outside the box (rest of
-      the page visibly darkened, box itself stays fully clear — like the macOS screenshot tool).
+      an edge) → a box the same size as the sidebar's note thumbnail at the sidebar's default width
+      (267×100px, fixed — does not change if you've resized the sidebar) appears **centered on your
+      click point** (not with the click point as its top-left corner), with a dimming scrim over
+      everything outside the box (rest of the page visibly darkened, box itself stays fully clear —
+      like the macOS screenshot tool).
 - [ ] **2.2b. (Click near an edge — clamped, not centered)** Click very close to the top-left
       corner of the viewport (e.g. within ~20px of both edges). The box should **not** hang off
       the edge or get cut off — it should shift to stay fully on-screen (e.g. clicking at
-      roughly (20,20) should produce a box from about (0,0) to (200,150), not one centered on the
+      roughly (20,20) should produce a box from about (0,0) to (267,100), not one centered on the
       click point). Repeat near the top-right, bottom-left, and bottom-right corners.
 - [ ] **2.2c. (Drag-to-draw)** Instead of a single click, press and drag a noticeable distance
       (like drawing a rectangle in Figma) → the box should be exactly the rectangle you dragged,
-      not the default 200×150 size, updating live as you drag in any direction (down-right,
-      up-left, etc.).
+      not the default thumbnail-matching size, updating live as you drag in any direction
+      (down-right, up-left, etc.).
 - [ ] **2.3.** Box has a rounded outline (yellow `#FEC800` plus a thin dark keyline outside it) —
       no visible square handles anywhere on the corners or edges.
 - [ ] **2.4.** Hover near an edge (roughly a 10px-thick strip straddling the outline) or a corner

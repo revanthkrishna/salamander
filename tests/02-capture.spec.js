@@ -34,7 +34,7 @@ async function openPageWithSidebar(page) {
   await helper.activateExtension(context, page);
 }
 
-test('clicking add places a default 200x150 box with a comment box attached', async () => {
+test('clicking add places a default box matching the sidebar thumbnail size (267x100 at the default sidebar width) with a comment box attached', async () => {
   const page = await context.newPage();
   await openPageWithSidebar(page);
 
@@ -42,8 +42,8 @@ test('clicking add places a default 200x150 box with a comment box attached', as
   await helper.placeSelectionBox(page, 150, 200);
 
   const box = await page.locator(helper.SELECTORS.box).boundingBox();
-  expect(box.width).toBeCloseTo(200, 0);
-  expect(box.height).toBeCloseTo(150, 0);
+  expect(box.width).toBeCloseTo(267, 0);
+  expect(box.height).toBeCloseTo(100, 0);
 
   await expect(page.locator(helper.SELECTORS.commentBox)).toBeVisible();
   await expect(page.locator(helper.SELECTORS.noteInput)).toHaveAttribute('placeholder', 'what should change here?');

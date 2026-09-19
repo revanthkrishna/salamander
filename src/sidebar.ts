@@ -23,7 +23,7 @@
 // in sync with the user's theme mode for the sidebar's whole lifetime.
 
 import { FeedbackItem } from './types';
-import { renderThumbnailList } from './thumbnails';
+import { renderThumbnailList, THUMBNAIL_IMAGE_HEIGHT_PX } from './thumbnails';
 import { attachDockMotion, DockMotionHandle } from './dockMotion';
 import {
   getThemeCSS,
@@ -248,6 +248,31 @@ function extensionUrl(path: string): string {
 
 /** .sidebar's border-left (box-sizing: border-box, so it eats into width). */
 const PANEL_BORDER_PX = 1;
+/** `.thumbnail-list`'s left+right padding (each side) — see that CSS rule
+ *  below. Named so DEFAULT_THUMBNAIL_BOX_SIZE (below) can derive the
+ *  thumbnail's width from the exact same number the list is actually padded
+ *  with, instead of a second hardcoded copy drifting from the CSS. */
+const THUMBNAIL_LIST_PAD_X = 16;
+
+/** The note-list thumbnail's box size *at the default sidebar width*
+ *  (SIDEBAR_DEFAULT_WIDTH): that width minus the panel's left border minus
+ *  `.thumbnail-list`'s own left+right padding, by the thumbnail's fixed
+ *  height (THUMBNAIL_IMAGE_HEIGHT_PX, src/thumbnails.ts).
+ *
+ *  Deliberately a fixed constant rather than a live readout of the user's
+ *  current (resizable) sidebar width: addMode.ts uses this as the
+ *  click-to-place default selection size, and a default that shifted size
+ *  every time the sidebar was dragged would be a moving target rather than a
+ *  predictable default. It still derives from the same numbers the live
+ *  thumbnail box is built from (this module's padding/border constants and
+ *  thumbnails.ts's fixed height) rather than a second hardcoded 200x150-style
+ *  magic number, so it can't drift from what a thumbnail actually looks like
+ *  at the default width. */
+export const DEFAULT_THUMBNAIL_BOX_SIZE: { width: number; height: number } = {
+  width: SIDEBAR_DEFAULT_WIDTH - PANEL_BORDER_PX - THUMBNAIL_LIST_PAD_X * 2,
+  height: THUMBNAIL_IMAGE_HEIGHT_PX,
+};
+
 /** Action row side padding: design spec §3.1's 16px, 8px once compact. */
 const ACTION_ROW_PAD_X = 16;
 const ACTION_ROW_PAD_X_COMPACT = 8;
@@ -657,7 +682,7 @@ const SIDEBAR_CSS = `
   .thumbnail-list {
     list-style: none;
     margin: 0;
-    padding: 0 16px;
+    padding: 0 ${THUMBNAIL_LIST_PAD_X}px;
     display: flex;
     flex-direction: column;
     gap: 16px;
