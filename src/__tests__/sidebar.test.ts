@@ -39,12 +39,27 @@ function shadowRoot(): ShadowRoot {
 }
 
 function makeCallbacks(): sidebar.SidebarCallbacks & {
-  calls: { add: number; export: number; importFile: File[]; close: number; openItem: FeedbackItem[] };
+  calls: {
+    add: number;
+    addDoubleClick: number;
+    export: number;
+    importFile: File[];
+    close: number;
+    openItem: FeedbackItem[];
+  };
 } {
-  const calls = { add: 0, export: 0, importFile: [] as File[], close: 0, openItem: [] as FeedbackItem[] };
+  const calls = {
+    add: 0,
+    addDoubleClick: 0,
+    export: 0,
+    importFile: [] as File[],
+    close: 0,
+    openItem: [] as FeedbackItem[],
+  };
   return {
     calls,
     onAdd: () => { calls.add++; },
+    onAddDoubleClick: () => { calls.addDoubleClick++; },
     onExport: () => { calls.export++; },
     onImportFile: (file: File) => { calls.importFile.push(file); },
     onClose: () => { calls.close++; },
@@ -132,7 +147,7 @@ describe('sidebar shell', () => {
     const buttons = Array.from(shadowRoot().querySelectorAll('.action-row button'));
     expect(buttons).toHaveLength(3);
     expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual([
-      'add feedback',
+      'add note',
       'export feedback',
       'import feedback',
     ]);
@@ -1044,5 +1059,172 @@ describe('sidebar review fixes', () => {
     expect(focused.classList.contains('thumbnail')).toBe(true);
     expect(focused.getAttribute('aria-label')).toBe('feedback item 2');
     expect(sidebar.focusThumbnail(99)).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// design spec v2 §A — "add note" off/on/locked toggle
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('"add note" toggle (design spec v2 §A)', () => {
+  afterEach(() => {
+    sidebar.destroySidebar();
+    jest.restoreAllMocks();
+    _resetThemeStateForTests();
+  });
+
+  function css(): string {
+    return shadowRoot().querySelector('style')!.textContent ?? '';
+  }
+  function cssRule(selector: string): string {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return css().match(new RegExp(`(^|\\n)\\s*${escaped}\\s*\\{[^}]*\\}`))?.[0] ?? '';
+  }
+  function addButton(): HTMLButtonElement {
+    return shadowRoot().querySelector('.btn-primary') as HTMLButtonElement;
+  }
+
+  test('starts off: no is-on/is-locked, aria-pressed false, plain "add note" label', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const btn = addButton();
+    expect(btn.classList.contains('is-on')).toBe(false);
+    expect(btn.classList.contains('is-locked')).toBe(false);
+    expect(btn.getAttribute('aria-pressed')).toBe('false');
+    expect(btn.getAttribute('aria-label')).toBe('add note');
+    expect(btn.title).toBe('add note');
+    expect(btn.querySelector('.btn-label')?.textContent).toBe('add note');
+  });
+
+  test('setAddButtonState reflects on/locked in classes, aria-pressed and aria-label/title', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const btn = addButton();
+
+    sidebar.setAddButtonState('on');
+    expect(btn.classList.contains('is-on')).toBe(true);
+    expect(btn.classList.contains('is-locked')).toBe(false);
+    expect(btn.getAttribute('aria-pressed')).toBe('true');
+    expect(btn.getAttribute('aria-label')).toBe('add note (on)');
+    expect(btn.title).toBe('add note (on)');
+    // The visible label text never changes — only fill/aria do.
+    expect(btn.querySelector('.btn-label')?.textContent).toBe('add note');
+
+    sidebar.setAddButtonState('locked');
+    expect(btn.classList.contains('is-on')).toBe(true); // locked keeps the "on" fill
+    expect(btn.classList.contains('is-locked')).toBe(true);
+    expect(btn.getAttribute('aria-pressed')).toBe('true');
+    expect(btn.getAttribute('aria-label')).toBe('add note (locked)');
+
+    sidebar.setAddButtonState('off');
+    expect(btn.classList.contains('is-on')).toBe(false);
+    expect(btn.classList.contains('is-locked')).toBe(false);
+    expect(btn.getAttribute('aria-pressed')).toBe('false');
+    expect(btn.getAttribute('aria-label')).toBe('add note');
+  });
+
+  test('click fires onAdd; native dblclick fires onAddDoubleClick', () => {
+    const callbacks = makeCallbacks();
+    sidebar.initSidebar(callbacks);
+    const btn = addButton();
+
+    btn.click();
+    expect(callbacks.calls.add).toBe(1);
+    expect(callbacks.calls.addDoubleClick).toBe(0);
+
+    btn.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+    expect(callbacks.calls.addDoubleClick).toBe(1);
+  });
+
+  test('the padlock glyph is only visible once locked, and survives the icon-only narrow width', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const btn = addButton();
+    const lock = btn.querySelector('svg.icon-lock') as SVGElement;
+    expect(lock).not.toBeNull();
+
+    // Not shown off/on.
+    expect(cssRule('.btn-primary .icon svg.icon-lock')).toMatch(/display:\s*none/);
+    sidebar.setAddButtonState('on');
+    // Still governed by the same base rule (is-locked not set).
+    expect(lock.classList.contains('icon-lock')).toBe(true);
+
+    sidebar.setAddButtonState('locked');
+    expect(btn.classList.contains('is-locked')).toBe(true);
+    expect(cssRule('.btn-primary.is-locked .icon svg.icon-lock')).toMatch(/display:\s*block/);
+
+    // Icon-only narrow width only hides .btn-label, never .icon — the lock
+    // glyph (nested inside .icon) is unaffected.
+    sidebar.setSidebarWidth(150);
+    expect(shadowRoot().querySelector('.sidebar')!.classList.contains('is-narrow')).toBe(true);
+    expect(btn.contains(lock)).toBe(true);
+  });
+
+  test('off is styled as secondary (surface fill, line border); on/locked keep the accent-fill base rule', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const offOverride = cssRule('.btn-primary:not(.is-on)');
+    expect(offOverride).toMatch(/background:\s*var\(--sal-surface\)/);
+    expect(offOverride).toMatch(/border:\s*1px solid var\(--sal-line\)/);
+    expect(offOverride).toMatch(/font-weight:\s*500/);
+
+    const base = cssRule('.btn-primary');
+    expect(base).toMatch(/background:\s*var\(--sal-accent\)/);
+    expect(base).toMatch(/color:\s*var\(--sal-on-accent\)/);
+    expect(base).toMatch(/font-weight:\s*600/);
+
+    // Hover/press are the same accent fill regardless of on/off (§A).
+    expect(cssRule('.btn-primary:hover')).toMatch(/background:\s*var\(--sal-accent-hover\)/);
+    expect(cssRule('.btn-primary:active')).toMatch(/background:\s*var\(--sal-accent-press\)/);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// design spec v2 §B — note-in-list hover "extension"
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('note-in-list hover extension (design spec v2 §B)', () => {
+  afterEach(() => {
+    sidebar.destroySidebar();
+    jest.restoreAllMocks();
+    _resetThemeStateForTests();
+  });
+
+  function css(): string {
+    return shadowRoot().querySelector('style')!.textContent ?? '';
+  }
+  function cssRule(selector: string): string {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return css().match(new RegExp(`(^|\\n)\\s*${escaped}\\s*\\{[^}]*\\}`))?.[0] ?? '';
+  }
+
+  test('the thumbnail keeps radius on all four corners and paints above the note extension', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const wrap = cssRule('.thumbnail-image-wrap');
+    expect(wrap).toMatch(/border-radius:\s*var\(--sal-radius-md\)/);
+    expect(wrap).not.toMatch(/border-top-left-radius:\s*0/);
+    // Must out-stack the note extension so its tucked-under overlap is hidden.
+    expect(wrap).toMatch(/z-index:\s*1/);
+  });
+
+  test('the note extension is tucked up under the thumbnail, bottom-only radius, inset border', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const bg = cssRule('.thumbnail-note-bg');
+    // Reaches back through the 8px gap plus one more radius-md into the
+    // thumbnail itself.
+    expect(bg).toMatch(/top:\s*calc\(-8px - var\(--sal-radius-md\)\)/);
+    expect(bg).toMatch(/bottom:\s*0/);
+    // Only the bottom corners are rounded — the top is hidden under the
+    // thumbnail regardless.
+    expect(bg).toMatch(/border-radius:\s*0 0 var\(--sal-radius-md\) var\(--sal-radius-md\)/);
+    expect(bg).toMatch(/background:\s*var\(--sal-surface\)/);
+    // Soft outer drop shadow + a 1px line border drawn INSIDE (inset), not
+    // shadowNote's own outset ring.
+    expect(bg).toMatch(/box-shadow:\s*0 10px 28px rgba\(0, 0, 0, 0\.18\), inset 0 0 0 1px var\(--sal-line\)/);
+  });
+
+  test('the note text itself never changes position/padding between rest and hover', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const note = cssRule('.thumbnail-note');
+    // Same padding/position at rest as ever — no separate hover variant of
+    // this rule exists; only .thumbnail-note-bg's opacity changes.
+    expect(note).toMatch(/padding:\s*8px 10px/);
+    expect(css()).not.toMatch(/\.thumbnail:hover \.thumbnail-note\s*\{[^}]*padding/);
   });
 });

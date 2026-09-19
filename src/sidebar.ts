@@ -162,8 +162,16 @@ function loadPersistedWidth(): void {
 }
 
 export interface SidebarCallbacks {
-  /** "add" header button. No-op for Phase 3 — Phase 4 wires real add-mode entry. */
+  /** "add note" button was clicked (design spec v2 §A: a three-state
+   *  off/on/locked toggle). content.ts owns the whole state machine — single
+   *  click toggles, a second click within the double-click window is instead
+   *  turned into "lock" by onAddDoubleClick below, and this sidebar module
+   *  only ever paints whatever state it's told via setAddButtonState(). */
   onAdd: () => void;
+  /** Native browser 'dblclick' on the "add note" button — see onAdd.
+   *  Optional so callers that never toggle add mode (e.g. other modules'
+   *  test doubles) don't have to stub a callback they'll never receive. */
+  onAddDoubleClick?: () => void;
   /** "export" header button. No-op for Phase 3 — Phase 8 wires the real zip export. */
   onExport: () => void;
   /** "import" header button, fired once a file is chosen from the native
@@ -192,6 +200,13 @@ const STROKE_ICON_ATTRS =
   'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
 
 const ICON_PLUS = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M12 5v14M5 12h14"/></svg>`;
+
+/** Small plain-stroke padlock (no circle/badge) shown at the plus icon's
+ *  bottom-right once the "add note" button is locked (design spec v2 §A).
+ *  Sized/positioned by the `.icon-lock` CSS rule below — this markup is only
+ *  ever hidden/shown via that rule's `display`, never removed from the DOM,
+ *  so it survives the icon-only narrow/compact variants unchanged. */
+const ICON_LOCK = `<svg xmlns="http://www.w3.org/2000/svg" class="icon-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>`;
 
 const ICON_EXPORT = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14"/></svg>`;
 
@@ -501,6 +516,12 @@ const SIDEBAR_CSS = `
     flex-wrap: wrap;
   }
 
+  /* "add note" toggle (design spec v2 §A) — off/on/locked. The base rule
+     below *is* the on/locked look (accent fill, onAccent text, 600 weight);
+     :not(.is-on) overrides it to the off/secondary look. Both share every
+     interaction-state rule after it (hover/press/focus/disabled), since §A
+     says hover/press are identical fills regardless of on/off — only the
+     *regular* state differs. */
   .btn-primary {
     flex: 1 1 auto;
     /* Lets the button shrink below its label's width (the label ellipsizes)
@@ -513,21 +534,53 @@ const SIDEBAR_CSS = `
     justify-content: center;
     gap: 6px;
     padding: 0 12px;
-    background: var(--sal-accent);
-    color: var(--sal-on-accent);
     border: none;
     border-radius: var(--sal-radius-md);
-    font: 600 13px/1 var(--sal-font-body);
+    font-family: var(--sal-font-body);
+    font-size: 13px;
+    line-height: 1;
+    font-weight: 600;
+    background: var(--sal-accent);
+    color: var(--sal-on-accent);
     cursor: pointer;
     ${STATE_TRANSITION_CSS}
   }
-  .btn-primary:hover { background: var(--sal-accent-hover); }
-  .btn-primary:active { background: var(--sal-accent-press); ${PRESS_SCALE_CSS} }
+  .btn-primary:not(.is-on) {
+    background: var(--sal-surface);
+    border: 1px solid var(--sal-line);
+    color: var(--sal-text);
+    font-weight: 500;
+  }
+  /* Hover/press: accentHover/accentPress fill + onAccent text regardless of
+     on/off (§A) — border-color: transparent rather than removing the
+     declaration keeps the off variant's box the same size under
+     box-sizing: border-box. */
+  .btn-primary:hover { background: var(--sal-accent-hover); color: var(--sal-on-accent); border-color: transparent; }
+  .btn-primary:active {
+    background: var(--sal-accent-press);
+    color: var(--sal-on-accent);
+    border-color: transparent;
+    ${PRESS_SCALE_CSS}
+  }
   .btn-primary:focus-visible { ${FOCUS_RING_CSS} outline: none; }
   .btn-primary[disabled] { ${DISABLED_CSS} }
-  .btn-primary .icon { width: 16px; height: 16px; flex-shrink: 0; display: inline-flex; }
+  .btn-primary .icon { position: relative; width: 16px; height: 16px; flex-shrink: 0; display: inline-flex; }
   .btn-primary .btn-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .btn-primary .icon svg { width: 100%; height: 100%; display: block; }
+  /* The lock glyph (ICON_LOCK) is always in the DOM — display:none/block
+     rather than adding/removing it — so it survives the icon-only narrow/
+     compact variants (.is-narrow hides only .btn-label, never .icon)
+     unchanged. ~9px, bottom-right of the 16px plus icon, per design spec v2
+     §A / States.dc.html's "add note · locked" row. */
+  .btn-primary .icon svg.icon-lock {
+    position: absolute;
+    right: -3px;
+    bottom: -3px;
+    width: 9px;
+    height: 9px;
+    display: none;
+  }
+  .btn-primary.is-locked .icon svg.icon-lock { display: block; }
   /* Icon-only once the wordmark itself would no longer fit (§3.1). */
   .sidebar.is-narrow .btn-primary .btn-label { display: none; }
   .sidebar.is-narrow .btn-primary { flex: 0 0 ${ACTION_BUTTON_PX}px; padding: 0; }
@@ -739,6 +792,14 @@ const SIDEBAR_CSS = `
     overflow: hidden;
     background: var(--sal-raised);
     line-height: 0;
+    /* Radius on all four corners in every state (design spec v2 §B) — this
+       rule never changes on hover/focus. Needs an explicit stacking order
+       above .thumbnail-note-bg (below): that layer's top edge is tucked up
+       *underneath* this box's bottom edge (see .thumbnail-note-bg), and
+       without this the two are plain same-context siblings painted in DOM
+       order, which would put the note-wrap (later in the DOM) on top and
+       show a sliver of it inside the thumbnail. */
+    z-index: 1;
   }
 
   .thumbnail-image {
@@ -767,18 +828,39 @@ const SIDEBAR_CSS = `
     position: relative;
     margin-top: 8px;
   }
-  /* The note's hover/focus background (surface + shadowNote), a separate
-     layer so it can fade on opacity alone. Under dock motion its opacity is
-     spring-driven inline by dockMotion.ts (which sets data-dock="on" on the
-     list); with prefers-reduced-motion it falls back to the plain
-     :hover/:focus-visible rule below. Spans the button's width, so it is
-     never wider than the thumbnail — the thumbnail never gets one. */
+  /* The note's hover/focus "extension" (design spec v2 §B): a separate layer
+     so it can fade on opacity alone, exactly as before — dockMotion.ts still
+     only ever touches this element's inline opacity (spring-driven while
+     .thumbnail-list carries data-dock="on"; the plain :hover/:focus-visible
+     rule below takes over under prefers-reduced-motion), so none of that
+     wiring changed. What changed is the box itself: rather than a rectangle
+     matching the note text's own area, it starts tucked one radius-md *up*
+     under the thumbnail's bottom edge (through the 8px gap
+     .thumbnail-note-wrap's margin-top opens up, and one radius-md further
+     into the thumbnail itself, where .thumbnail-image-wrap's higher z-index
+     and opaque fill hide the overlap completely) and runs down to the
+     button's bottom edge — same width as the thumbnail throughout, so its
+     edges land exactly flush with the thumbnail's own. Only the bottom
+     corners are rounded (the top is hidden under the thumbnail regardless).
+     The note text itself never moves between rest and hover — only this
+     layer's opacity changes. */
   .thumbnail-note-bg {
     position: absolute;
-    inset: 0;
-    border-radius: var(--sal-radius-md);
+    left: 0;
+    right: 0;
+    /* 8px = .thumbnail-note-wrap's own margin-top, i.e. the gap this reaches
+       back through before it goes one radius-md further up, under the
+       thumbnail's bottom edge. */
+    top: calc(-8px - var(--sal-radius-md));
+    bottom: 0;
+    border-radius: 0 0 var(--sal-radius-md) var(--sal-radius-md);
     background: var(--sal-surface);
-    box-shadow: var(--sal-shadow-note);
+    /* Soft outer drop shadow (shadowNote's own, which is identical in both
+       themes) plus a 1px line border drawn INSIDE via an inset shadow rather
+       than shadowNote's outset ring — an outset ring would bleed half a
+       pixel past the thumbnail's own (border-less) edges on each side, and
+       v2 §B calls for the two to align exactly. */
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18), inset 0 0 0 1px var(--sal-line);
     opacity: 0;
     pointer-events: none;
     transition: opacity 140ms ease-out;
@@ -919,7 +1001,7 @@ function buildDOM(shadow: ShadowRoot): void {
   const actionRow = document.createElement('div');
   actionRow.className = 'action-row';
 
-  elBtnAdd = makePrimaryButton(ICON_PLUS, 'add feedback', 'add note');
+  elBtnAdd = makePrimaryButton(ICON_PLUS, 'add note');
   elBtnExport = makeSecondaryButton(ICON_EXPORT, 'export feedback');
   elBtnImport = makeSecondaryButton(ICON_IMPORT, 'import feedback');
 
@@ -1017,17 +1099,17 @@ function makeSecondaryButton(svgMarkup: string, ariaLabel: string): HTMLButtonEl
   return btn;
 }
 
-/** Primary button ("add note") — accent fill, icon + label (label hides at
- *  narrow widths via the .is-narrow CSS class). */
-function makePrimaryButton(svgMarkup: string, ariaLabel: string, label: string): HTMLButtonElement {
+/** Primary button ("add note") — the off/on/locked toggle (design spec v2
+ *  §A). Label text stays "add note" in every state (only the fill/border and
+ *  the lock glyph change); state is applied afterward via
+ *  setAddButtonState(), which owns the classes/aria-pressed/aria-label. */
+function makePrimaryButton(svgMarkup: string, label: string): HTMLButtonElement {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'btn-primary';
-  btn.setAttribute('aria-label', ariaLabel);
-  btn.title = ariaLabel;
   const icon = document.createElement('span');
   icon.className = 'icon';
-  icon.innerHTML = svgMarkup;
+  icon.innerHTML = svgMarkup + ICON_LOCK;
   const text = document.createElement('span');
   text.className = 'btn-label';
   text.textContent = label;
@@ -1045,6 +1127,34 @@ function updateThemeToggleUI(mode: ThemeMode): void {
   const label = `theme: ${mode}`;
   elBtnTheme.setAttribute('aria-label', label);
   elBtnTheme.title = label;
+}
+
+/** The "add note" button's three states (design spec v2 §A). */
+export type AddButtonState = 'off' | 'on' | 'locked';
+
+const ADD_BUTTON_LABELS: Record<AddButtonState, string> = {
+  off: 'add note',
+  on: 'add note (on)',
+  locked: 'add note (locked)',
+};
+
+/**
+ * Paint the "add note" button for `state` — fill/border (via .is-on),
+ * the padlock glyph (via .is-locked), `aria-pressed` and the
+ * aria-label/title (design spec v2 §A: "add note" / "add note (on)" /
+ * "add note (locked)"). content.ts is the only caller: it owns the real
+ * add-mode/lock state and calls this on every transition so the button never
+ * drifts from what add mode is actually doing.
+ */
+export function setAddButtonState(state: AddButtonState): void {
+  if (!elBtnAdd) return;
+  const isOn = state !== 'off';
+  elBtnAdd.classList.toggle('is-on', isOn);
+  elBtnAdd.classList.toggle('is-locked', state === 'locked');
+  elBtnAdd.setAttribute('aria-pressed', String(isOn));
+  const label = ADD_BUTTON_LABELS[state];
+  elBtnAdd.setAttribute('aria-label', label);
+  elBtnAdd.title = label;
 }
 
 /** Swaps the logo asset for the resolved theme (design spec §1: yellow mark
@@ -1093,6 +1203,15 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
     e.stopPropagation();
     callbacksRef?.onAdd();
   });
+  elBtnAdd!.addEventListener('dblclick', (e) => {
+    e.stopPropagation();
+    // Not every browser treats a button as a natural double-click target
+    // for text selection, but pointer-down text selection can still occur
+    // on the label — suppress it so a rapid double-click reads as a clean
+    // "lock" gesture rather than also highlighting "add note".
+    e.preventDefault();
+    callbacksRef?.onAddDoubleClick?.();
+  });
 
   elBtnExport!.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -1136,6 +1255,10 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
     updateThemeToggleUI(mode);
     updateLogoForTheme(resolved);
   });
+
+  // "add note" starts off (design spec v2 §A) — content.ts moves it to
+  // on/locked as the real add-mode state changes.
+  setAddButtonState('off');
 
   applyWidthToPanel();
   loadPersistedWidth();

@@ -132,12 +132,15 @@ function buildThumbnailEl(item: FeedbackItem, callbacks: ThumbnailCallbacks): HT
   note.className = preview ? 'thumbnail-note' : 'thumbnail-note thumbnail-note-empty';
   note.textContent = preview || 'no note';
 
-  // The note's hover/focus background (surface + shadowNote, design spec
-  // §3.1/§4) is its own layer rather than a background on the <p>: the dock
-  // magnification (src/dockMotion.ts) fades it with an opacity-only spring,
-  // and the <p>'s own `overflow: hidden` (needed for the 3-line clamp) would
-  // clip the shadow if it lived on the note itself. The wrap spans the
-  // button's width, so the background is never wider than the thumbnail.
+  // The note's hover/focus "extension" background (design spec v2 §B) is its
+  // own layer rather than a background on the <p>: the dock magnification
+  // (src/dockMotion.ts) fades it with an opacity-only spring, and the <p>'s
+  // own `overflow: hidden` (needed for the 3-line clamp) would clip the
+  // shadow if it lived on the note itself. Its geometry (tucked up under the
+  // thumbnail's bottom edge, bottom-only radius, inset border) is entirely
+  // sidebar.ts's `.thumbnail-note-bg` CSS rule — this module just gives it an
+  // element spanning the button's width, so it's never wider than the
+  // thumbnail.
   const noteWrap = document.createElement('span');
   noteWrap.className = 'thumbnail-note-wrap';
   const noteBg = document.createElement('span');

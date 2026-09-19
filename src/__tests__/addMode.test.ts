@@ -725,52 +725,64 @@ describe('add mode', () => {
     expect(css).toMatch(/\.counter\[data-danger="true"\]\s*\{[^}]*color:\s*var\(--sal-danger\)[^}]*font-weight:\s*600/);
   });
 
-  test('comment box is one merged 280px surface: radius lg, 1px line border, shadowPop, overflow hidden, no padding', () => {
+  test('comment box wrapper is a plain 280px shadowPop container; the text area and footer form the visible surface (design spec §3.2 v2 §C)', () => {
     addMode.startAddMode(makeCallbacks());
     const rule = cssRule('.comment-box');
     expect(rule).toMatch(/width:\s*280px/);
-    expect(rule).toMatch(/border-radius:\s*var\(--sal-radius-lg\)/);
-    expect(rule).toMatch(/border:\s*1px solid var\(--sal-line\)/);
-    expect(rule).toMatch(/background:\s*var\(--sal-surface\)/);
     expect(rule).toMatch(/box-shadow:\s*var\(--sal-shadow-pop\)/);
-    expect(rule).toMatch(/overflow:\s*hidden/);
-    expect(rule).toMatch(/padding:\s*0/);
+    // no fill/border/radius of its own — those live on the textarea/footer
+    expect(rule).not.toMatch(/background:/);
+    expect(rule).not.toMatch(/border(-radius)?:/);
     expect(addModeOwnCSS()).not.toMatch(/\.comment-box:(hover|focus)/);
-
-    const footer = cssRule('.footer');
-    expect(footer).toMatch(/height:\s*36px/);
-    expect(footer).toMatch(/border-top:\s*1px solid var\(--sal-line\)/);
     expect(addModeOwnCSS()).not.toMatch(/border-(left|right):/); // no dividers between buttons
   });
 
-  test('textarea: no border of its own; hover edge = inset lineStrong, focus edge = inset accent only', () => {
+  test('the footer is a raised extension tucked under the text area by one radius-lg, sitting behind it (z-index)', () => {
     addMode.startAddMode(makeCallbacks());
-    expect(cssRule('.note-input')).toMatch(/border:\s*none/);
+    const textareaRule = cssRule('.note-input');
+    expect(textareaRule).toMatch(/z-index:\s*1/);
+
+    const footer = cssRule('.footer');
+    expect(footer).toMatch(/z-index:\s*0/);
+    expect(footer).toMatch(/margin-top:\s*calc\(-1 \* var\(--sal-radius-lg\)\)/);
+    expect(footer).toMatch(/background:\s*var\(--sal-raised\)/);
+    expect(footer).toMatch(/border-radius:\s*0 0 var\(--sal-radius-lg\) var\(--sal-radius-lg\)/);
+    expect(footer).not.toMatch(/border-top:/); // hidden under the textarea — no divider needed
+  });
+
+  test('textarea is its own bordered surface: line border at rest, lineStrong on hover, accent on focus (colour change only)', () => {
+    addMode.startAddMode(makeCallbacks());
+    expect(cssRule('.note-input')).toMatch(/border:\s*1px solid var\(--sal-line\)/);
+    expect(cssRule('.note-input')).toMatch(/border-radius:\s*var\(--sal-radius-lg\)/);
     expect(cssRule('.note-input')).toMatch(/outline:\s*none/);
-    expect(cssRule('.note-input:hover')).toMatch(/box-shadow:\s*inset 0 0 0 1px var\(--sal-line-strong\);/);
+    expect(cssRule('.note-input:hover')).toMatch(/border-color:\s*var\(--sal-line-strong\);/);
     const focus = cssRule('.note-input:focus');
-    expect(focus).toMatch(/box-shadow:\s*inset 0 0 0 1px var\(--sal-accent\);/);
-    expect(focus).not.toMatch(/,/); // a single inset edge — no secondary soft ring
+    expect(focus).toMatch(/border-color:\s*var\(--sal-accent\);/);
+    expect(focus).not.toMatch(/box-shadow/); // colour change only — no extra ring
     // :focus comes after :hover so it wins while both apply
     const css = addModeOwnCSS();
     expect(css.indexOf('.note-input:focus')).toBeGreaterThan(css.indexOf('.note-input:hover'));
   });
 
-  test('save/cancel button states follow design spec §2', () => {
+  test('save/cancel buttons: rounded-sm, ~30px tall, padded, standard (non-inset) focus ring (design spec §2, v2 §C)', () => {
     addMode.startAddMode(makeCallbacks());
+    expect(cssRule('.btn')).toMatch(/height:\s*30px/);
+    expect(cssRule('.btn')).toMatch(/border-radius:\s*var\(--sal-radius-sm\)/);
+    expect(cssRule('.btn')).toMatch(/padding:\s*0 12px/);
+
     expect(cssRule('.btn-save')).toMatch(/color:\s*var\(--sal-accent-ink\)/);
     expect(cssRule('.btn-save')).toMatch(/font-weight:\s*700/);
     expect(cssRule('.btn-save:not(:disabled):hover')).toMatch(/background:\s*var\(--sal-accent\);\s*color:\s*var\(--sal-on-accent\)/);
     expect(cssRule('.btn-save:not(:disabled):active')).toMatch(/background:\s*var\(--sal-accent-press\)/);
     const saveFocus = cssRule('.btn-save:not(:disabled):focus-visible');
     expect(saveFocus).toMatch(/background:\s*var\(--sal-accent\)/);
-    expect(saveFocus).toMatch(/box-shadow:\s*inset 0 0 0 2px var\(--sal-focus\)/);
+    expect(saveFocus).toMatch(/box-shadow:\s*0 0 0 2px var\(--sal-bg\), 0 0 0 4px var\(--sal-focus\)/);
     expect(cssRule('.btn-save:disabled')).toMatch(/color:\s*var\(--sal-muted\);\s*opacity:\s*0\.5/);
 
     expect(cssRule('.btn-cancel')).toMatch(/color:\s*var\(--sal-muted\)/);
     expect(cssRule('.btn-cancel:not(:disabled):hover')).toMatch(/background:\s*var\(--sal-hover\)/);
     expect(cssRule('.btn-cancel:not(:disabled):active')).toMatch(/background:\s*var\(--sal-press\)/);
-    expect(cssRule('.btn-cancel:focus-visible')).toMatch(/box-shadow:\s*inset 0 0 0 2px var\(--sal-focus\)/);
+    expect(cssRule('.btn-cancel:focus-visible')).toMatch(/box-shadow:\s*0 0 0 2px var\(--sal-bg\), 0 0 0 4px var\(--sal-focus\)/);
 
     // cancel comes before save in the footer, counter first
     const footerKids = Array.from(shadowRoot().querySelectorAll('.footer > *'));

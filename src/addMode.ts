@@ -42,7 +42,7 @@ import { Rect } from './types';
 import { getSidebarWidth, DEFAULT_THUMBNAIL_BOX_SIZE } from './sidebar';
 import { getContentViewportSize } from './capture';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
-import { DISABLED_CSS, getThemeCSS, registerThemedHost, STATE_TRANSITION_CSS } from './theme';
+import { DISABLED_CSS, FOCUS_RING_CSS, getThemeCSS, registerThemedHost, STATE_TRANSITION_CSS } from './theme';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -84,10 +84,13 @@ const MIN_SIZE = 20;
 const DRAG_THRESHOLD = 5;
 const COMMENT_WIDTH = 280;
 /** Comment box height before its first layout pass (offsetHeight is 0 until
- *  then): 88px textarea + 36px footer + 1px footer divider + 2px outer
- *  border (design spec §3.2). Only used to pick a flip candidate on the very
+ *  then): 88px textarea + 42px of visible footer bar (design spec §3.2 v2
+ *  §C — the footer's own 56px height, made of a 20px top padding that
+ *  absorbs the hidden radius-lg overlap, a 30px button row and 6px bottom
+ *  padding, minus the 14px negative margin that tucks it under the
+ *  textarea's bottom edge). Only used to pick a flip candidate on the very
  *  first render; every later render measures the real element. */
-const COMMENT_FALLBACK_HEIGHT = 127;
+const COMMENT_FALLBACK_HEIGHT = 130;
 const COMMENT_MARGIN = 8;
 const MAX_NOTE_LENGTH = 1000;
 /** Counter visibility (design spec §3.2): hidden at 0–900 chars, muted at
@@ -186,17 +189,16 @@ const ADD_MODE_CSS = `
     pointer-events: auto;
   }
 
+  /* The wrapper itself has no fill/border/radius of its own (design spec
+     §3.2 v2 §C): it just positions and drop-shadows its two block children,
+     the text area and the footer "extension", which each own their own
+     rounded surface and together read as one merged shape. */
   .comment-box {
     position: absolute;
     width: ${COMMENT_WIDTH}px;
-    background: var(--sal-surface);
-    border: 1px solid var(--sal-line);
-    border-radius: var(--sal-radius-lg);
-    box-shadow: var(--sal-shadow-pop);
-    overflow: hidden;
-    padding: 0;
     color: var(--sal-text);
     font-family: var(--sal-font-body);
+    box-shadow: var(--sal-shadow-pop);
     /* .visuals inherits pointer-events: none from the host (the host is
        pointer-events: none so the blocker underneath can own page-click
        suppression while non-interactive visuals like the box outline and
@@ -207,45 +209,60 @@ const ADD_MODE_CSS = `
     pointer-events: auto;
   }
 
-  /* Text area and footer merge into the one outer box: the textarea has no
-     border of its own, only an inset edge on hover (lineStrong) and focus
-     (accent). The outer box never changes. Inner top radius = lg minus the
-     outer 1px border so the inset edge hugs the box's corner. */
+  /* Text area is its own fully-rounded surface (design spec §3.2 v2 §C):
+     radius lg on all four corners, a real 1px border (box-sizing: border-box
+     keeps it from growing the box), surface fill. Hover/focus only ever
+     change the border colour — no extra ring, no shape change. Positioned
+     above the footer (z-index 1 vs 0) so its rounded bottom corners paint
+     over the footer's square top ones. */
   .note-input {
+    position: relative;
+    z-index: 1;
     display: block;
     width: 100%;
     height: 88px;
+    box-sizing: border-box;
     margin: 0;
     resize: none;
-    border: none;
-    border-radius: calc(var(--sal-radius-lg) - 1px) calc(var(--sal-radius-lg) - 1px) 0 0;
+    border: 1px solid var(--sal-line);
+    border-radius: var(--sal-radius-lg);
     outline: none;
-    background: transparent;
+    background: var(--sal-surface);
     padding: 10px 12px;
     font-family: var(--sal-font-body);
     font-size: 13px;
     line-height: 1.4;
     color: var(--sal-text);
-    transition: box-shadow 140ms ease-out;
+    transition: border-color 140ms ease-out;
   }
   .note-input::placeholder { color: var(--sal-muted); }
-  .note-input:hover { box-shadow: inset 0 0 0 1px var(--sal-line-strong); }
-  /* After :hover so focus wins while both apply. Accent edge only — no
-     secondary/soft ring. */
-  .note-input:focus { box-shadow: inset 0 0 0 1px var(--sal-accent); }
+  .note-input:hover { border-color: var(--sal-line-strong); }
+  /* After :hover so focus wins while both apply. */
+  .note-input:focus { border-color: var(--sal-accent); }
 
+  /* Button bar "extension" (design spec §3.2 v2 §C, same pattern as the
+     sidebar's hovered note-list item): tucked under the text area's bottom
+     edge by exactly one radius-lg via a negative margin, with that same
+     amount added back as top padding so the counter/buttons never render
+     inside the hidden zone. .footer is a plain block child of .comment-box
+     just like .note-input, so both span the same 280px width and their
+     edges line up exactly. */
   .footer {
+    position: relative;
+    z-index: 0;
+    margin-top: calc(-1 * var(--sal-radius-lg));
+    box-sizing: border-box;
+    padding: calc(var(--sal-radius-lg) + 6px) 6px 6px 6px;
+    border-radius: 0 0 var(--sal-radius-lg) var(--sal-radius-lg);
+    background: var(--sal-raised);
     display: flex;
-    align-items: stretch;
-    box-sizing: content-box;
-    height: 36px;
-    border-top: 1px solid var(--sal-line);
+    align-items: center;
+    gap: 8px;
   }
 
   .counter {
-    align-self: center;
     margin-right: auto;
-    padding: 0 12px;
+    padding: 0 6px;
     font-family: var(--sal-font-mono);
     font-size: 11px;
     color: var(--sal-muted);
@@ -254,15 +271,15 @@ const ADD_MODE_CSS = `
   .counter[data-warn="true"] { visibility: visible; }
   .counter[data-danger="true"] { color: var(--sal-danger); font-weight: 600; }
 
-  /* Flush text buttons in the footer bar (design spec §2 "save"/"cancel"
-     rows). No vertical dividers, no scale-on-press: they sit flush against
-     the bar/box edges, so shrinking them would open visible gaps. */
+  /* Ghost buttons (design spec §2 "save"/"cancel" rows, restyled per v2 §C):
+     rounded-sm, ~30px tall, padded — free-floating inside the raised bar
+     rather than flush against its edges. No vertical dividers between them. */
   .btn {
-    height: 100%;
+    height: 30px;
     margin: 0;
-    padding: 0 14px;
+    padding: 0 12px;
     border: none;
-    border-radius: 0;
+    border-radius: var(--sal-radius-sm);
     background: transparent;
     font-family: var(--sal-font-body);
     font-size: 13px;
@@ -278,22 +295,18 @@ const ADD_MODE_CSS = `
   }
   .btn-cancel:not(:disabled):hover { background: var(--sal-hover); color: var(--sal-text); }
   .btn-cancel:not(:disabled):active { background: var(--sal-press); color: var(--sal-text); }
-  .btn-cancel:focus-visible { box-shadow: inset 0 0 0 2px var(--sal-focus); color: var(--sal-text); }
+  .btn-cancel:focus-visible { color: var(--sal-text); ${FOCUS_RING_CSS} }
 
-  /* The save button is the last thing in the box, so its bottom-right corner
-     follows the box radius (overflow: hidden already clips the fill; the
-     explicit radius keeps the inset focus ring following the curve too). */
   .btn-save {
     color: var(--sal-accent-ink);
     font-weight: 700;
-    border-bottom-right-radius: calc(var(--sal-radius-lg) - 1px);
   }
   .btn-save:not(:disabled):hover { background: var(--sal-accent); color: var(--sal-on-accent); }
   .btn-save:not(:disabled):active { background: var(--sal-accent-press); color: var(--sal-on-accent); }
   .btn-save:not(:disabled):focus-visible {
     background: var(--sal-accent);
     color: var(--sal-on-accent);
-    box-shadow: inset 0 0 0 2px var(--sal-focus);
+    ${FOCUS_RING_CSS}
   }
   /* Empty note: muted text at half opacity (design spec §2 "save disabled"). */
   .btn-save:disabled { color: var(--sal-muted); opacity: 0.5; }
