@@ -43,6 +43,7 @@ import * as sidebar from './sidebar';
 import * as addMode from './addMode';
 import * as capture from './capture';
 import * as modal from './modal';
+import { ensureFontsLoaded } from './theme';
 import { parseImportBundle } from './import';
 import { FeedbackItem, ImportError, ImportErrorCode, ImportErrorDetails } from './types';
 import {
@@ -139,6 +140,13 @@ function init(tabId: number): void {
 function ensureStarted(): void {
   if (started) return;
   started = true;
+
+  // Salamander design fonts (src/theme.ts): fetched once, lazily, and
+  // registered via the FontFace API — shadow-DOM @font-face is ignored by
+  // Chrome and a host page's CSP can block a chrome-extension:// font URL,
+  // so this can't just be a CSS @font-face rule (design spec §5). Fails
+  // silently to the system font stack if anything goes wrong.
+  void ensureFontsLoaded();
 
   sidebar.initSidebar({
     onAdd: () => {

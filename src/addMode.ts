@@ -40,6 +40,7 @@ import { Rect } from './types';
 import { getSidebarWidth } from './sidebar';
 import { getContentViewportSize } from './capture';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
+import { getThemeCSS, registerThemedHost } from './theme';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -251,6 +252,7 @@ let elOkBtn: HTMLButtonElement | null = null;
 
 let activeHandle: HandleKey | null = null;
 let keyboardIsolation: KeyboardIsolationHandle | null = null;
+let unregisterThemedHost: (() => void) | null = null;
 
 /** Set on mousedown while mode === 'placing', cleared once placement
  *  finalizes (mouseup). Null whenever no placement gesture is in progress. */
@@ -403,9 +405,14 @@ function buildDOM(): void {
   host.style.cssText = 'position: fixed; top: 0; left: 0; z-index: 2147483640; pointer-events: none;';
 
   shadow = host.attachShadow({ mode: 'closed' });
+  unregisterThemedHost = registerThemedHost(host);
 
   const style = document.createElement('style');
-  style.textContent = ADD_MODE_CSS;
+  // Salamander design tokens (--sal-*) as :host custom properties, prepended
+  // ahead of add mode's own CSS so every rule below can reference them.
+  // Phase 1 only wires this up; restyling ADD_MODE_CSS itself is a later
+  // phase's job.
+  style.textContent = getThemeCSS() + '\n' + ADD_MODE_CSS;
   shadow.appendChild(style);
 
   elBlocker = document.createElement('div');
@@ -757,6 +764,9 @@ export function exitAddMode(): void {
 
   keyboardIsolation?.release();
   keyboardIsolation = null;
+
+  unregisterThemedHost?.();
+  unregisterThemedHost = null;
 
   if (host && host.parentNode) host.parentNode.removeChild(host);
 

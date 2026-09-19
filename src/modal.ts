@@ -55,6 +55,7 @@
 import { FeedbackItem } from './types';
 import { getSidebarWidth } from './sidebar';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
+import { getThemeCSS, registerThemedHost } from './theme';
 
 /** Highest possible z-index — see the file banner for why the host needs an
  *  explicit value at all rather than relying on DOM order. */
@@ -232,6 +233,7 @@ let currentItem: FeedbackItem | null = null;
 let currentCallbacks: ModalCallbacks | null = null;
 let lastSavedNote = '';
 let keyboardIsolation: KeyboardIsolationHandle | null = null;
+let unregisterThemedHost: (() => void) | null = null;
 
 export function isModalOpen(): boolean {
   return modalHost !== null;
@@ -298,9 +300,14 @@ function buildDOM(): void {
   modalHost.id = 'annotator-modal-host';
   modalHost.style.cssText = `position: fixed; top: 0; left: 0; width: 0; height: 0; z-index: ${MODAL_HOST_Z_INDEX};`;
   const shadow = modalHost.attachShadow({ mode: 'closed' });
+  unregisterThemedHost = registerThemedHost(modalHost);
 
   const style = document.createElement('style');
-  style.textContent = modalCss();
+  // Salamander design tokens (--sal-*) as :host custom properties, prepended
+  // ahead of the modal's own CSS so every rule below can reference them.
+  // Phase 1 only wires this up; restyling modalCss() itself is a later
+  // phase's job.
+  style.textContent = getThemeCSS() + '\n' + modalCss();
   shadow.appendChild(style);
 
   elBackdrop = document.createElement('div');
@@ -422,6 +429,8 @@ function showInlineError(message: string | null): void {
 function teardown(): void {
   keyboardIsolation?.release();
   keyboardIsolation = null;
+  unregisterThemedHost?.();
+  unregisterThemedHost = null;
   if (modalHost && modalHost.parentNode) modalHost.parentNode.removeChild(modalHost);
   modalHost = null;
   elBackdrop = null;

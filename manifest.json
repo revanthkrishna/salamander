@@ -23,7 +23,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["icons/logo-button.svg"],
+      "resources": ["icons/logo-button.svg", "icons/logo-button-black.svg", "fonts/*.woff2"],
       "matches": ["<all_urls>"]
     }
   ],

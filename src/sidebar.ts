@@ -27,6 +27,7 @@
 
 import { FeedbackItem } from './types';
 import { renderThumbnailList } from './thumbnails';
+import { getThemeCSS, registerThemedHost } from './theme';
 
 // ---------------------------------------------------------------------------
 // Sidebar width — user-resizable (drag handle on the panel's left edge) and
@@ -445,7 +446,11 @@ let notifTimer: ReturnType<typeof setTimeout> | null = null;
 
 function buildDOM(shadow: ShadowRoot): void {
   const style = document.createElement('style');
-  style.textContent = SIDEBAR_CSS;
+  // Salamander design tokens (--sal-*) as :host custom properties, prepended
+  // ahead of the sidebar's own CSS so every rule below can reference them.
+  // Phase 1 only wires this up; restyling SIDEBAR_CSS itself is a later
+  // phase's job.
+  style.textContent = getThemeCSS() + '\n' + SIDEBAR_CSS;
   shadow.appendChild(style);
 
   elSidebar = document.createElement('div');
@@ -568,6 +573,11 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
 
   sidebarShadow = sidebarHost.attachShadow({ mode: 'closed' });
   document.documentElement.appendChild(sidebarHost);
+  // Keeps `data-theme` on the shadow host in sync with the resolved
+  // light/dark theme for the sidebar's whole lifetime (it's never torn down
+  // and rebuilt like modal.ts/addMode.ts, so there's no matching unregister
+  // call here).
+  registerThemedHost(sidebarHost);
 
   buildDOM(sidebarShadow);
 
