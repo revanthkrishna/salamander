@@ -10,36 +10,6 @@
 const { test, expect } = require('@playwright/test');
 const helper = require('./helpers/extension');
 
-// Add-mode selectors that changed in the Salamander redesign. Defined here
-// rather than read from helper.SELECTORS (whose `handle`/`btnOk` entries
-// still name the v1 `.handle[data-handle]` / `.btn-ok` elements).
-const ADD_MODE = {
-  zone: (key) => `#annotator-addmode-host .resize-zone[data-zone="${key}"]`,
-  handle: '#annotator-addmode-host .handle',
-  btnSave: '#annotator-addmode-host .btn-save',
-};
-
-/** Drag one invisible resize hit zone (edge strip or corner square) from its
- *  centre to a new viewport position. */
-async function dragResizeZone(page, key, toX, toY) {
-  const zone = await page.locator(ADD_MODE.zone(key)).boundingBox();
-  if (!zone) throw new Error(`resize zone "${key}" not found`);
-  await page.mouse.move(zone.x + zone.width / 2, zone.y + zone.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(toX, toY, { steps: 8 });
-  await page.mouse.up();
-}
-
-/** Same flow as helper.captureFeedbackItem, but clicks the renamed "save"
- *  button directly (see ADD_MODE above). */
-async function captureWithSave(page, { x, y, note, expectedCount }) {
-  await helper.enterAddMode(page);
-  await helper.placeSelectionBox(page, x, y);
-  await helper.typeAddModeNote(page, note);
-  await page.locator(ADD_MODE.btnSave).click();
-  await page.locator(helper.SELECTORS.thumbnail).nth(expectedCount - 1).waitFor({ state: 'visible', timeout: 15000 });
-}
-
 let fileServer;
 let context;
 
@@ -77,10 +47,11 @@ test('clicking add places a default 200x150 box with a comment box attached', as
 
   await expect(page.locator(helper.SELECTORS.commentBox)).toBeVisible();
   await expect(page.locator(helper.SELECTORS.noteInput)).toHaveAttribute('placeholder', 'what should change here?');
-  await expect(page.locator(ADD_MODE.btnSave)).toHaveText('save');
-  await expect(page.locator(ADD_MODE.btnSave)).toBeDisabled();
-  // No visible v1 square handles remain.
-  await expect(page.locator(ADD_MODE.handle)).toHaveCount(0);
+  await expect(page.locator(helper.SELECTORS.btnSave)).toHaveText('save');
+  await expect(page.locator(helper.SELECTORS.btnSave)).toBeDisabled();
+  // No visible v1 square handles remain (design spec §3.2 — replaced by
+  // invisible .resize-zone hit zones).
+  await expect(page.locator('#annotator-addmode-host .handle')).toHaveCount(0);
 });
 
 test('invisible edge/corner hit zones resize the box, and the box cannot shrink below 20x20', async () => {
@@ -92,21 +63,21 @@ test('invisible edge/corner hit zones resize the box, and the box cannot shrink 
   const before = await page.locator(helper.SELECTORS.box).boundingBox();
 
   // Grow via the se corner.
-  await dragResizeZone(page, 'se', before.x + 350, before.y + 300);
+  await helper.dragResizeZone(page, 'se', before.x + 350, before.y + 300);
   const grown = await page.locator(helper.SELECTORS.box).boundingBox();
   expect(grown.width).toBeGreaterThan(before.width);
   expect(grown.height).toBeGreaterThan(before.height);
 
   // An edge moves only its own side: dragging the n edge up grows height
   // while the width stays put.
-  await dragResizeZone(page, 'n', grown.x + grown.width / 2, grown.y - 40);
+  await helper.dragResizeZone(page, 'n', grown.x + grown.width / 2, grown.y - 40);
   const taller = await page.locator(helper.SELECTORS.box).boundingBox();
   expect(taller.height).toBeGreaterThan(grown.height);
   expect(taller.width).toBeCloseTo(grown.width, 0);
 
   // Try to collapse it via the se corner dragged past the nw corner —
   // clamped to the 20x20 minimum (§1.2), never to zero or negative.
-  await dragResizeZone(page, 'se', taller.x - 500, taller.y - 500);
+  await helper.dragResizeZone(page, 'se', taller.x - 500, taller.y - 500);
   const collapsed = await page.locator(helper.SELECTORS.box).boundingBox();
   expect(collapsed.width).toBeGreaterThanOrEqual(20);
   expect(collapsed.height).toBeGreaterThanOrEqual(20);
@@ -158,11 +129,11 @@ test('save is disabled while the note is empty, and capturing produces a numbere
 
   await helper.enterAddMode(page);
   await helper.placeSelectionBox(page, 150, 200);
-  await expect(page.locator(ADD_MODE.btnSave)).toBeDisabled();
+  await expect(page.locator(helper.SELECTORS.btnSave)).toBeDisabled();
 
   await helper.typeAddModeNote(page, 'the fixed header overlaps this button');
-  await expect(page.locator(ADD_MODE.btnSave)).toBeEnabled();
-  await page.locator(ADD_MODE.btnSave).click();
+  await expect(page.locator(helper.SELECTORS.btnSave)).toBeEnabled();
+  await helper.clickAddModeSave(page);
 
   // Add mode exits, sidebar restores, thumbnail #1 appears (§1.2 step 4).
   await expect(page.locator(helper.SELECTORS.addModeHost)).toHaveCount(0);
@@ -175,8 +146,8 @@ test('feedback item ids are sequential across successive captures on the same pa
   const page = await context.newPage();
   await openPageWithSidebar(page);
 
-  await captureWithSave(page, { x: 100, y: 150, note: 'first item', expectedCount: 1 });
-  await captureWithSave(page, { x: 400, y: 150, note: 'second item', expectedCount: 2 });
+  await helper.captureFeedbackItem(page, { x: 100, y: 150, note: 'first item', expectedCount: 1 });
+  await helper.captureFeedbackItem(page, { x: 400, y: 150, note: 'second item', expectedCount: 2 });
 
   const badges = page.locator(helper.SELECTORS.thumbnailBadge);
   await expect(badges).toHaveCount(2);

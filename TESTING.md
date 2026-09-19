@@ -15,9 +15,9 @@ npx jest import                   # all 13 import error cases
 npx jest bundle                   # markdown serialization round-trip
 ```
 
-**Test coverage** (~270 tests, 12 test files):
-- `sidebar.test.ts` — sidebar open/close, page resize, URL tracking
-- `addMode.test.ts` — selection box creation, resize handles, clamping to viewport, comment box positioning
+**Test coverage** (~395 tests, 15 test files):
+- `sidebar.test.ts` — sidebar open/close, page resize, URL tracking, resizable width (drag/keyboard, persistence, clamping), narrow-width breakpoints, theme toggle wiring
+- `addMode.test.ts` — selection box creation, edge/corner resize hit zones, clamping to viewport, comment box positioning, counter thresholds, save/cancel state
 - `capture.test.ts` — viewport-relative CSS coordinates, CSS → device-pixel scale calculation, DPR accounting, crop verification
 - `contextCapture.test.ts` — deepest-common-ancestor selection, contained-elements prioritization (15-element cap), area-text aggregation, 2KB size governor, truncation markers
 - `selectorBuilder.test.ts` — CSS selector generation (data-* preference, ID rules, nth-of-type fallback, UUID/React hash rejection), XPath generation
@@ -28,6 +28,9 @@ npx jest bundle                   # markdown serialization round-trip
 - `bundle.test.ts` — markdown → YAML fence extraction, YAML → object parsing, round-trip (export → parse → deep-equal)
 - `background.test.ts` — injection, message handlers, capture relay, throttle verification, re-inject on reload
 - `urlNorm.test.ts` — normalization rules (strip query/fragment, strip `www.`, strip trailing slash, case-sensitive paths, port handling) — kept from v1
+- `keyboardIsolation.test.ts` — capture-phase window-level keydown/keyup isolation so page shortcuts can't fire while typing into the comment box / modal note editor
+- `theme.test.ts` — theme mode (`auto`/`light`/`dark`) resolution and persistence, `chrome.storage.onChanged` cross-tab sync, OS `prefers-color-scheme` fallback, CSP-safe bundled `FontFace` loading, themed-host registration
+- `dockMotion.test.ts` — pointer-position-based influence/falloff math, spring integration toward scale/translate targets, keyboard-focus magnification, `prefers-reduced-motion` bypass, rAF loop lifecycle (starts on interaction, stops at rest, cleaned up on teardown)
 
 **Jest/jsdom:** no browser launch. `chrome.storage` and IndexedDB are mocked via `src/__tests__/setup.ts`. jsdom doesn't implement layout, so layout-dependent code (e.g. `offsetWidth` for visibility checks) is stubbed to return non-zero for any connected element.
 
@@ -38,7 +41,7 @@ npx jest bundle                   # markdown serialization round-trip
 The extension's compiled bundle lives in `dist/`. Chrome reads from there directly via "Load unpacked".
 
 ```bash
-npm run build       # esbuild → dist/ (all 18 .ts modules bundled into dist/*.js)
+npm run build       # esbuild → dist/ (all 21 .ts modules bundled into dist/*.js)
 ```
 
 In Chrome:
@@ -62,9 +65,11 @@ In Chrome:
 2. Verify sidebar has resized the page (page is narrower, no overlay)
 3. Click **add** button → cursor becomes a crosshair
 4. Click a specific element (e.g. a button or heading) → default 200×150px box appears
-5. Drag corner handles to adjust the box (minimum 20×20px enforced)
-6. Type a note in the comment box (test the 1000-char counter: appears at 900+, red at 980+)
-7. Click **ok** → overlay hides, screenshot taken, overlay restores, thumbnail appears
+5. Drag from the invisible edge/corner resize zones (no visible handles) to adjust the box
+   (minimum 20×20px enforced)
+6. Type a note in the comment box (test the 1000-char counter: appears past 900, danger-coloured
+   at 980+)
+7. Click **save** → overlay hides, screenshot taken, overlay restores, thumbnail appears
 8. Thumbnail shows correct image + truncated note text + item number
 9. Click thumbnail → modal opens with full-size image and editable note
 10. Edit the note text → autosaves on blur or modal close
@@ -107,7 +112,7 @@ In Chrome:
 1. Sidebar open, domain is empty (or has old feedback)
 2. Click **import** → file picker opens, accept `.zip` only
 3. Select the bundle → extension reads and validates
-4. If existing feedback: confirmation dialog appears → click ok to replace
+4. If existing feedback: confirmation dialog appears → accept it to replace
 5. Sidebar populates with thumbnails for URLs in the bundle
 6. Navigate to other URLs in the domain → thumbnails appear/disappear per URL
 
@@ -287,7 +292,7 @@ Note: E2E tests (`npx playwright test`) are **not** run in this CI loop — they
 
 ## shipping checklist
 
-- [ ] `npm test` passes (all 270+ tests green)
+- [ ] `npm test` passes (all 395+ tests green)
 - [ ] `npm run build` succeeds with no errors/warnings
 - [ ] Manual flows 1–5 verified on ≥3 real websites
 - [ ] Edge cases (iframe, large selection, form inputs, rapid captures, restricted pages) spot-checked

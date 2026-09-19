@@ -22,8 +22,12 @@ the same page.
 - [ ] **R1.** Click **add**. The comment box must **not** appear yet — only the crosshair cursor.
       It should only appear after you click on the page to place a selection box.
 - [ ] **R2.** Place a box, then click directly into the comment box's textarea with the mouse
-      (not Tab) — it should focus and accept typing normally. Click **cancel** and **ok** with the
-      mouse too — both must respond to a real click.
+      (not Tab) — it should focus and accept typing normally. Click **cancel** and **save** with
+      the mouse too — both must respond to a real click.
+- [ ] **R8. (dock magnification vs. capture)** Hover the note list to get an item magnified and
+      growing out over the page, then immediately click **add** and capture a new item overlapping
+      where the magnified item was bleeding. The resulting screenshot must show only page content —
+      no trace of the sidebar's note/thumbnail should ever appear in it.
 - [ ] **R3.** Capture an item, click its thumbnail to open the modal. No underlying page content
       (headers, sticky nav, cookie banners, etc.) should visually appear on top of the modal or
       its backdrop.
@@ -48,8 +52,9 @@ the same page.
 - [ ] **1.1.** Click the extension icon on a normal page → sidebar opens on the right edge.
 - [ ] **1.2.** The page itself visibly narrows/reflows to make room — the sidebar does **not**
       float on top of or cover page content.
-- [ ] **1.3.** Sidebar header shows exactly 4 icon buttons, no text labels: add, export, import,
-      close.
+- [ ] **1.3.** Sidebar header shows a logo + "salamander" wordmark (display italic), a theme
+      toggle, and a close button. Below it, a separate action row holds the primary "add note"
+      button (icon + label) and the export/import icon buttons.
 - [ ] **1.4.** With no feedback captured yet on this page, sidebar body shows the empty-state
       message: "no feedback on this page yet".
 - [ ] **1.5.** Click **close** → sidebar disappears, page returns to full width.
@@ -70,6 +75,42 @@ the same page.
 - [ ] **1.12.** With the sidebar resized to a non-default width, open add mode and the enlarged
       modal — both should respect the current width (selection area doesn't extend under the
       sidebar; modal backdrop stops at the sidebar's edge, not the old default width).
+- [ ] **1.13. (Theme toggle)** Click the theme toggle in the header — it cycles auto → light →
+      dark → auto. Its icon (sun/moon/half-circle) and its aria-label/title (hover to see the
+      tooltip) should always describe the *current* mode, e.g. "theme: auto". Confirm the whole
+      sidebar (background, text, accent colour) actually repaints for light vs. dark. Reload the
+      page — the mode you left it on should be remembered. With two tabs open on the same site,
+      change the theme in one — the other should update live, without a reload.
+- [ ] **1.14. (Auto theme follows the OS)** Set the toggle to "auto", then flip your OS/browser's
+      light/dark appearance setting (or emulate it via DevTools' Rendering panel → "Emulate CSS
+      prefers-color-scheme") — the sidebar (and add mode / modal, if open) should repaint to match
+      without any click.
+- [ ] **1.15. (Narrow sidebar widths)** Drag the sidebar narrower than ~220px — the "salamander"
+      wordmark should hide and "add note" should collapse to an icon-only button (still with its
+      "add feedback" accessible label). Keep dragging to the 100px minimum — the action row should
+      wrap so "add note" and the export/import icons all stay reachable with nothing clipped or
+      overflowing, and the logo mark should hide too.
+- [ ] **1.16. ("this page (n)" heading)** With items captured on the current page, the sidebar
+      shows a small "this page (n)" heading above the list, where n matches the visible item count.
+      Delete items down to zero — the heading should disappear and the empty state should show
+      instead (never both at once).
+- [ ] **1.17. (Notification banners)** Trigger an error or warning (e.g. import an invalid file —
+      see §5.4) — confirm it renders as a small rounded banner just under the action row (not a
+      full-width black bar), with an icon and lowercase text, and a thin progress line along its
+      bottom edge that drains over about 8 seconds before the banner auto-clears.
+- [ ] **1.18. (Dock magnification — hover)** With 4+ items in the list, move your mouse slowly up
+      and down over it. The item nearest the cursor should grow and shift left (out over the page)
+      the most, with neighbouring items growing progressively less — smooth and continuous like the
+      macOS Dock, never a sudden jump between discrete "hovered/not hovered" states. The hovered
+      item's note text should gain a subtle background as it magnifies. Moving the mouse off the
+      list should relax every item back to its resting size smoothly, not instantly.
+- [ ] **1.19. (Dock magnification — keyboard focus)** Click into the page to move focus away, then
+      Tab into the sidebar's note list. The focused item should magnify the same way a hovered item
+      does, and its note background should appear.
+- [ ] **1.20. (Reduced motion)** Enable "prefers-reduced-motion: reduce" (DevTools Rendering panel,
+      or your OS's reduce-motion setting), then hover/focus items in the list again — none of them
+      should grow or shift position, but the hovered/focused item's note background should still
+      appear normally.
 
 ## 2. Add mode & capture (§1.2, §1.3, §3.2)
 
@@ -88,24 +129,31 @@ the same page.
       (like drawing a rectangle in Figma) → the box should be exactly the rectangle you dragged,
       not the default 200×150 size, updating live as you drag in any direction (down-right,
       up-left, etc.).
-- [ ] **2.3.** Box outline is yellow (`#FEC800`), with visible resize handles on all 4 corners and
-      4 edges.
-- [ ] **2.4.** Drag a corner handle to resize the box larger and smaller. Try shrinking it down —
-      it should refuse to go below ~20×20px.
+- [ ] **2.3.** Box has a rounded outline (yellow `#FEC800` plus a thin dark keyline outside it) —
+      no visible square handles anywhere on the corners or edges.
+- [ ] **2.4.** Hover near an edge (roughly a 10px-thick strip straddling the outline) or a corner
+      (roughly a 16×16 area centred on it) — the cursor should change to the matching resize cursor
+      (↕/↔/⤡/⤢) even though nothing is drawn there, and dragging from that invisible zone should
+      resize the box from that edge/corner. Try shrinking it down from a corner — it should refuse
+      to go below ~20×20px.
 - [ ] **2.5.** Drag the box (or a handle) toward a viewport edge — it should stop exactly at the
       edge, never extend past it or trigger the page to scroll.
-- [ ] **2.6.** Comment box appears attached to the selection box (below it by default). Type in
-      the textarea — no counter should be visible yet under 900 characters.
-- [ ] **2.7.** Keep typing past 900 characters — a counter (e.g. "912 / 1000") should appear.
-      Continue past 980 — the counter should turn red. Confirm you're hard-capped at 1000 chars.
-- [ ] **2.8.** With the textarea empty, confirm **ok** is disabled (greyed out / unclickable).
+- [ ] **2.6.** Comment box appears attached to the selection box (below it by default) as a single
+      rounded, merged surface — no gap or divider between the textarea and the footer bar below it,
+      only the footer's own top hairline. The empty textarea shows the placeholder "what should
+      change here?". Type in it — no counter should be visible yet under 900 characters.
+- [ ] **2.7.** Keep typing past 900 characters — a muted counter (e.g. "942/1000") should appear.
+      Continue past 980 — the counter should turn red/danger-coloured (e.g. "980/1000"). Confirm
+      you're hard-capped at 1000 chars.
+- [ ] **2.8.** With the textarea empty, confirm **save** is disabled (muted, unclickable).
 - [ ] **2.9.** Click somewhere outside the box/comment area (on the dimmed page) — nothing should
       happen at all: no dismiss, no shake/wiggle, no page interaction underneath.
 - [ ] **2.10.** Click **cancel** — box, scrim, and comment box all disappear, add mode exits, no
       thumbnail is created.
-- [ ] **2.11.** Repeat 2.1–2.7, then click **ok** with valid text — overlay UI should disappear
-      briefly, then a new thumbnail appears at the bottom of the sidebar list showing the
-      screenshot and a truncated preview of your note.
+- [ ] **2.11.** Repeat 2.1–2.7, then click **save** with valid text — the label may briefly read
+      "saving…" while the textarea/buttons lock, overlay UI should disappear briefly, then a new
+      thumbnail appears at the bottom of the sidebar list showing the screenshot and a truncated
+      preview of your note.
 - [ ] **2.12.** Capture 3+ items across 2 different pages of the same site (domain). Confirm the
       item numbers keep incrementing across pages (e.g. page A gets #1–2, page B continues at #3),
       not restarting per page.
@@ -136,6 +184,10 @@ the same page.
       the actual screenshot scaled to fit inside it — no thumbnail should be a different height
       than the others, and no screenshot should be cropped (the full image should always be
       visible, letterboxed if its aspect ratio doesn't match the box).
+- [ ] **3.8. (Modal focus)** Click a thumbnail — keyboard focus should land directly in the note
+      textarea (no extra Tab needed to start typing/editing). Close the modal (via close button,
+      Escape, or delete) — focus should return to the thumbnail button you opened it from, not to
+      the page body, so pressing Tab or Enter afterward behaves as expected.
 
 ## 4. Exporting (§1.6)
 
@@ -220,13 +272,13 @@ the same page.
 ## 7. Text case convention (§3.4)
 
 - [ ] **7.1.** Scan every piece of visible text you've encountered so far — button labels,
-      placeholder text ("type something..."), error messages, confirm dialogs, the empty-state
-      message. All of it should be **lowercase**, no exceptions, no title case.
+      placeholder text ("what should change here?"), error messages, confirm dialogs, the
+      empty-state message. All of it should be **lowercase**, no exceptions, no title case.
 
 ## 8. End-to-end journey smoke tests (§4)
 
 - [ ] **8.1. (Journey 1)** From a cold start (extension freshly loaded, no prior data): open
-      sidebar → add → place box → resize → note → ok → thumbnail appears → repeat on a second page
+      sidebar → add → place box → resize → note → save → thumbnail appears → repeat on a second page
       → export. Confirm the whole flow works without any console errors (check the page's DevTools
       console and the extension's service-worker console — right-click the extension icon →
       "Manage extension" → "Inspect views: service worker").

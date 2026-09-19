@@ -18,11 +18,12 @@
 
 1. Click the extension icon in your Chrome toolbar
 2. The sidebar opens on the right side of the page
-3. Click **add** to enter add mode
+3. Click **add note** to enter add mode
 4. Click & drag to select an area on the page; a default box appears if you just click
-5. Drag the resize handles to adjust the selection
+5. Drag from any edge or corner of the box to resize the selection (invisible hit zones, no
+   visible handles)
 6. Type a note in the comment box (up to 1000 characters)
-7. Click **ok** to capture, or **cancel** to discard
+7. Click **save** to capture, or **cancel** to discard
 8. New screenshot appears as a thumbnail in the sidebar
 9. Repeat for other areas (sidebar stays open across page navigation)
 10. Click **export** to download a `.zip` file with all captures and a markdown file
@@ -85,13 +86,15 @@ See [TESTING.md](./TESTING.md) for detailed test cases and debugging instruction
 
 ## architecture
 
-The extension is built across 18 TypeScript modules (~7700 lines):
+The extension is built across 21 TypeScript modules (~10,600 lines):
 
 **Background service worker** (`src/background.ts`) — owns all storage, relays captures, handles extension icon clicks and tab lifecycle.
 
 **Content script** (`src/content.ts`) — injected on demand, listens for messages, detects SPA navigation, wires up the sidebar UI.
 
-**Sidebar & add mode** (`src/sidebar.ts`, `src/addMode.ts`) — right-docked panel that resizes the page, selection box with comment input, all in a closed shadow root.
+**Sidebar & add mode** (`src/sidebar.ts`, `src/addMode.ts`) — right-docked, resizable panel that resizes the page, selection box (edge/corner resize) with a merged comment input, all in a closed shadow root.
+
+**Design language** (`src/theme.ts`, `src/dockMotion.ts`) — light/dark/auto theme tokens (persisted, live-synced across tabs and surfaces) plus bundled fonts loaded via `FontFace`; macOS-Dock-style pointer/keyboard-focus magnification for the sidebar's note list.
 
 **Capture pipeline** (`src/capture.ts`) — hide UI → double-rAF → message background → crop → restore UI → persist item.
 
@@ -170,7 +173,7 @@ MIT
 
 Before shipping:
 
-- [ ] `npm test` passes (270+ tests)
+- [ ] `npm test` passes (395+ tests)
 - [ ] `npm run build` succeeds
 - [ ] Sidebar opens/closes/persists on real sites (e.g. reddit.com, github.com)
 - [ ] Add mode: select, resize, comment, capture, undo (cancel)

@@ -47,12 +47,15 @@ const SELECTORS = {
   addModeHost: '#annotator-addmode-host',
   blocker: '#annotator-addmode-host .blocker',
   box: '#annotator-addmode-host .box',
-  handle: (key) => `#annotator-addmode-host .handle[data-handle="${key}"]`,
+  // Invisible edge/corner resize hit zones (design spec §3.2) — the v1 square
+  // handles are gone. `key` is a ZoneKey ('n' | 's' | 'e' | 'w' | 'ne' | 'nw'
+  // | 'se' | 'sw'), matching src/addMode.ts's `data-zone` attribute.
+  resizeZone: (key) => `#annotator-addmode-host .resize-zone[data-zone="${key}"]`,
   commentBox: '#annotator-addmode-host .comment-box',
   noteInput: '#annotator-addmode-host .note-input',
   counter: '#annotator-addmode-host .counter',
   btnCancel: '#annotator-addmode-host .btn-cancel',
-  btnOk: '#annotator-addmode-host .btn-ok',
+  btnSave: '#annotator-addmode-host .btn-save',
 
   // Enlarged modal (src/modal.ts)
   modalHost: '#annotator-modal-host',
@@ -352,26 +355,34 @@ async function clearExtensionStorage(context) {
 // ---------------------------------------------------------------------------
 
 /** Click "add" in the sidebar header and wait for the add-mode host to
- *  attach. */
+ *  attach. Only the blocker/box-drawing surface exists at this point —
+ *  src/addMode.ts deliberately does not build the comment box (`.comment-box`)
+ *  until the user places the selection (buildCommentDOM() is called from
+ *  finalizePlacement(), not from startAddMode()) — so callers must place the
+ *  box (placeSelectionBox) before looking for it. */
 async function enterAddMode(page) {
   await page.locator(SELECTORS.btnAdd).click();
   await page.locator(SELECTORS.addModeHost).waitFor({ state: 'attached', timeout: 5000 });
-  await page.locator(SELECTORS.commentBox).waitFor({ state: 'attached', timeout: 5000 });
 }
 
 /** Click once on the page (in add mode) to place the default-sized box at
  *  (x, y). Coordinates are viewport-relative CSS px, matching
- *  MouseEvent.clientX/clientY (the same space addMode.ts works in). */
+ *  MouseEvent.clientX/clientY (the same space addMode.ts works in). Waits for
+ *  the box outline and the now-built comment box, since placement is what
+ *  creates the latter (see enterAddMode's doc comment). */
 async function placeSelectionBox(page, x, y) {
   await page.locator(SELECTORS.blocker).click({ position: { x, y } });
   await page.locator(SELECTORS.box).waitFor({ state: 'visible', timeout: 5000 });
+  await page.locator(SELECTORS.commentBox).waitFor({ state: 'attached', timeout: 5000 });
 }
 
-/** Drag one resize handle to a new viewport position. */
-async function dragResizeHandle(page, handleKey, toX, toY) {
-  const handle = page.locator(SELECTORS.handle(handleKey));
-  const box = await handle.boundingBox();
-  if (!box) throw new Error(`resize handle "${handleKey}" not found`);
+/** Drag one invisible resize hit zone (edge strip or corner square — design
+ *  spec §3.2; the v1 square handles are gone) to a new viewport position.
+ *  `zoneKey` is a ZoneKey ('n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'). */
+async function dragResizeZone(page, zoneKey, toX, toY) {
+  const zone = page.locator(SELECTORS.resizeZone(zoneKey));
+  const box = await zone.boundingBox();
+  if (!box) throw new Error(`resize zone "${zoneKey}" not found`);
   const startX = box.x + box.width / 2;
   const startY = box.y + box.height / 2;
   await page.mouse.move(startX, startY);
@@ -381,13 +392,13 @@ async function dragResizeHandle(page, handleKey, toX, toY) {
 }
 
 /** Type into the add-mode note textarea (fires the same 'input' listener
- *  addMode.ts uses to drive the counter and ok-button enabled state). */
+ *  addMode.ts uses to drive the counter and save-button enabled state). */
 async function typeAddModeNote(page, text) {
   await page.locator(SELECTORS.noteInput).fill(text);
 }
 
-async function clickAddModeOk(page) {
-  await page.locator(SELECTORS.btnOk).click();
+async function clickAddModeSave(page) {
+  await page.locator(SELECTORS.btnSave).click();
 }
 
 async function clickAddModeCancel(page) {
@@ -401,16 +412,16 @@ async function clickAddModeCancel(page) {
  * `expectedCount`.
  *
  * @param {import('@playwright/test').Page} page
- * @param {{x: number, y: number, note: string, resize?: {handle: string, toX: number, toY: number}, expectedCount: number}} opts
+ * @param {{x: number, y: number, note: string, resize?: {zone: string, toX: number, toY: number}, expectedCount: number}} opts
  */
 async function captureFeedbackItem(page, opts) {
   await enterAddMode(page);
   await placeSelectionBox(page, opts.x, opts.y);
   if (opts.resize) {
-    await dragResizeHandle(page, opts.resize.handle, opts.resize.toX, opts.resize.toY);
+    await dragResizeZone(page, opts.resize.zone, opts.resize.toX, opts.resize.toY);
   }
   await typeAddModeNote(page, opts.note);
-  await clickAddModeOk(page);
+  await clickAddModeSave(page);
   await page.locator(SELECTORS.thumbnail).nth(opts.expectedCount - 1).waitFor({ state: 'visible', timeout: 15000 });
 }
 
@@ -492,9 +503,9 @@ module.exports = {
   clearExtensionStorage,
   enterAddMode,
   placeSelectionBox,
-  dragResizeHandle,
+  dragResizeZone,
   typeAddModeNote,
-  clickAddModeOk,
+  clickAddModeSave,
   clickAddModeCancel,
   captureFeedbackItem,
   openThumbnail,
