@@ -27,6 +27,32 @@
     <div id="section-4">More content.</div>
     <div id="section-5">Even more content here to allow scrolling.</div>
     <div id="section-6">Bottom content area.</div>
+
+    <!--
+      Minimal SPA-navigation simulation for tests/05-persistence.spec.js
+      (REQUIREMENTS §1.1: the sidebar must persist across SPA route changes,
+      and its thumbnail list must refresh per normalised URL). These buttons
+      push/pop a fake route with history.pushState — the same mechanism
+      content.ts's navigation detection patches — without a real network
+      request, so the extension's SPA-nav listener fires exactly as it would
+      on a real client-routed app.
+    -->
+    <div id="spa-nav">
+      <button id="goto-page-two" type="button">go to page two</button>
+      <button id="goto-page-one" type="button">go to page one</button>
+    </div>
   </div>
+  <script>
+    document.getElementById('goto-page-two').addEventListener('click', function () {
+      history.pushState({}, '', '/page-two');
+      document.title = 'Test Page Two';
+      document.getElementById('main-heading').textContent = 'Test Page Two';
+    });
+    document.getElementById('goto-page-one').addEventListener('click', function () {
+      history.pushState({}, '', '/');
+      document.title = 'Annotator Test Page';
+      document.getElementById('main-heading').textContent = 'Test Page';
+    });
+  </script>
 </body>
 </html>

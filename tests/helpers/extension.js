@@ -9,43 +9,60 @@ const EXTENSION_PATH = path.resolve(__dirname, '../../');
 const FIXTURES_DIR = path.resolve(__dirname, '../fixtures');
 
 // ---------------------------------------------------------------------------
-// Selectors (all toolbar/popover elements are in closed Shadow DOM)
+// Selectors
 // ---------------------------------------------------------------------------
-
-// NOTE: Extension shadow DOMs are temporarily set to mode:'open' for Playwright testing.
-// Playwright can pierce open shadow DOMs automatically with standard CSS selectors.
+//
+// Everything the extension draws lives in a *closed* shadow root (sidebar.ts,
+// addMode.ts, modal.ts all call `attachShadow({ mode: 'closed' })` — this is
+// deliberate production behaviour, not something Phase 10 is allowed to
+// change). Playwright's CSS engine only pierces *open* shadow roots, so
+// `installClosedShadowOpener` below patches `Element.prototype.attachShadow`
+// inside the extension's isolated world (the same JS realm content.js runs
+// in) to force every shadow root open, for every test run. Once that patch is
+// in place, plain CSS locators pierce all three of the extension's shadow
+// hosts exactly as if the DOM were flat — no special shadow-piercing syntax
+// needed.
+//
+// Each host is scoped by id below because a couple of class names (e.g.
+// `.note-input`, `.footer`) are reused across the sidebar/add-mode/modal
+// surfaces with different meanings.
 const SELECTORS = {
-  // Toolbar host (regular DOM)
-  toolbarHost: '#annotator-host',
+  // Sidebar (src/sidebar.ts)
+  sidebarHost: '#annotator-sidebar-host',
+  sidebar: '#annotator-sidebar-host .sidebar',
+  btnAdd: '#annotator-sidebar-host button[aria-label="add feedback"]',
+  btnExport: '#annotator-sidebar-host button[aria-label="export feedback"]',
+  btnImport: '#annotator-sidebar-host button[aria-label="import feedback"]',
+  btnClose: '#annotator-sidebar-host button[aria-label="close sidebar"]',
+  fileInput: '#annotator-sidebar-host input[type="file"]',
+  emptyState: '#annotator-sidebar-host .empty-state',
+  thumbnailList: '#annotator-sidebar-host .thumbnail-list',
+  thumbnail: '#annotator-sidebar-host .thumbnail',
+  thumbnailBadge: '#annotator-sidebar-host .thumbnail-badge',
+  thumbnailNote: '#annotator-sidebar-host .thumbnail-note',
+  notif: '#annotator-sidebar-host .notif',
+  notifText: '#annotator-sidebar-host .notif-text',
 
-  // Toolbar inner elements (open shadow DOM — standard CSS works)
-  toolbar:      '.annotator-toolbar',
-  btnStart:     '#btn-start-annotating',
-  btnExit:      '#btn-exit',
-  btnExport:    '#btn-export',
-  btnUpload:    '#btn-upload',
-  btnDeleteAll: '#btn-delete-all',
-  messageArea:  '.message-area',
-  filenameArea: '.filename-area',
-  filenameText: '.filename-text',
+  // Add mode (src/addMode.ts)
+  addModeHost: '#annotator-addmode-host',
+  blocker: '#annotator-addmode-host .blocker',
+  box: '#annotator-addmode-host .box',
+  handle: (key) => `#annotator-addmode-host .handle[data-handle="${key}"]`,
+  commentBox: '#annotator-addmode-host .comment-box',
+  noteInput: '#annotator-addmode-host .note-input',
+  counter: '#annotator-addmode-host .counter',
+  btnCancel: '#annotator-addmode-host .btn-cancel',
+  btnOk: '#annotator-addmode-host .btn-ok',
 
-  // Popover host (regular DOM)
-  popoverHost: '#annotator-popover-host',
-
-  // Popover inner elements (open shadow DOM — standard CSS works)
-  popover:          '.popover',
-  noteInput:        '.note-input',
-  counter:          '.counter',
-  addBtn:           '.add-btn',
-  deleteBtn:        '.delete-btn',
-  closeBtn:         '.close-btn',
-  deleteConfirm:    '.delete-confirm',
-  confirmDeleteBtn: '.confirm-delete-btn',
-  confirmCancelBtn: '.confirm-cancel-btn',
-
-  // Pins (regular DOM — appended directly to body)
-  pin:              '.annotator-pin',
-  pinByNumber: (n) => `.annotator-pin[data-pin-id="${n}"]`,
+  // Enlarged modal (src/modal.ts)
+  modalHost: '#annotator-modal-host',
+  modalBackdrop: '#annotator-modal-host .backdrop',
+  modalBadge: '#annotator-modal-host .item-badge',
+  modalCloseBtn: '#annotator-modal-host .close-btn',
+  modalImage: '#annotator-modal-host .screenshot',
+  modalNoteInput: '#annotator-modal-host .note-input',
+  modalDeleteBtn: '#annotator-modal-host .delete-btn',
+  modalInlineError: '#annotator-modal-host .inline-error',
 };
 
 // ---------------------------------------------------------------------------
@@ -56,9 +73,14 @@ let _fileServer = null;
 let _fileServerPort = null;
 
 /**
- * Start a local HTTP server to serve fixture files.
- * Returns { port, baseUrl, stop }.
- * Idempotent — safe to call multiple times.
+ * Start a local HTTP server to serve fixture files. SPA-style fallback: any
+ * path with no file extension (e.g. `/page-two`, pushState'd in by the SPA
+ * nav buttons on the fixture page — see test-page.html) that doesn't exist on
+ * disk serves test-page.html instead of 404ing, so a real page reload while
+ * "on" a pushState'd route still loads something sensible (mirrors how a
+ * real single-page app's server is configured).
+ *
+ * Returns { port, baseUrl, stop }. Idempotent — safe to call multiple times.
  */
 async function startFileServer() {
   if (_fileServer) {
@@ -67,19 +89,33 @@ async function startFileServer() {
 
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
-      // Strip query string
       const urlPath = req.url.split('?')[0];
-      const filePath = path.join(FIXTURES_DIR, urlPath === '/' ? 'test-page.html' : urlPath);
+      const requested = urlPath === '/' ? 'test-page.html' : urlPath;
+      let filePath = path.join(FIXTURES_DIR, requested);
 
-      try {
-        const content = fs.readFileSync(filePath);
-        const ext = path.extname(filePath).toLowerCase();
+      const serve = (resolvedPath) => {
+        const content = fs.readFileSync(resolvedPath);
+        const ext = path.extname(resolvedPath).toLowerCase();
         const contentType = ext === '.html' ? 'text/html; charset=utf-8'
-          : ext === '.yaml' || ext === '.yml' ? 'application/x-yaml'
+          : ext === '.zip' ? 'application/zip'
           : 'application/octet-stream';
         res.writeHead(200, { 'Content-Type': contentType, 'Access-Control-Allow-Origin': '*' });
         res.end(content);
+      };
+
+      try {
+        serve(filePath);
       } catch {
+        // No real file at this path. If it looks like a route (no extension)
+        // rather than a missing asset, fall back to the SPA shell.
+        if (!path.extname(requested)) {
+          try {
+            serve(path.join(FIXTURES_DIR, 'test-page.html'));
+            return;
+          } catch {
+            // fixture itself missing — fall through to 404 below
+          }
+        }
         res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('Not found: ' + urlPath);
       }
@@ -113,12 +149,14 @@ async function stopFileServer() {
 
 /**
  * Launch a persistent browser context with the Annotator extension loaded.
- * Waits for the service worker to be ready before returning.
+ * Waits for the service worker to be ready, then installs the closed-shadow
+ * opener patch (see SELECTORS comment above) before returning.
  */
 async function launchWithExtension() {
   const context = await chromium.launchPersistentContext('', {
     headless: false,
     acceptDownloads: true,
+    viewport: { width: 1280, height: 900 },
     args: [
       `--disable-extensions-except=${EXTENSION_PATH}`,
       `--load-extension=${EXTENSION_PATH}`,
@@ -129,45 +167,113 @@ async function launchWithExtension() {
     ],
   });
 
-  // Ensure the extension service worker is registered before we return.
-  // If it fired before we got here, serviceWorkers() will already have it.
-  // If not, waitForEvent catches it. This prevents the timing race in tests.
   if (context.serviceWorkers().length === 0) {
     await context.waitForEvent('serviceworker', { timeout: 10000 });
   }
+
+  const sw = await getServiceWorker(context);
+  await installClosedShadowOpener(sw);
 
   return context;
 }
 
 /**
- * Get the service worker for the extension.
- * By the time this is called, launchWithExtension() should have ensured SW is ready.
+ * Get the service worker for the extension. By the time this is called,
+ * launchWithExtension() should have ensured it's ready.
  */
 async function getServiceWorker(context) {
   let sw = context.serviceWorkers()[0];
   if (!sw) {
-    // Fallback: should rarely happen after launchWithExtension fix
     sw = await context.waitForEvent('serviceworker', { timeout: 8000 });
   }
   return sw;
 }
 
+// ---------------------------------------------------------------------------
+// Closed shadow DOM opener
+// ---------------------------------------------------------------------------
+//
+// See the SELECTORS comment for the full rationale. Mechanically: we wrap
+// `chrome.scripting.executeScript` inside the service worker's own global
+// scope so that every call injecting `dist/content.js` (background.ts's
+// real icon-click / reload-reinject paths, and this helper's own
+// `activateExtension` below) is preceded by a tiny `func`-based injection
+// into the *same* isolated world that forces `Element.prototype.attachShadow`
+// to ignore whatever `mode` it was asked for and open anyway. Scripts
+// injected by the same extension into the same tab/frame via
+// `chrome.scripting.executeScript` share one isolated-world JS realm — the
+// same mechanism content.ts's own `window.__annotatorActive` double-injection
+// guard relies on — so a prototype patch made by one injected script is still
+// in effect for the next one.
+//
+// The wrapper is idempotent (guarded by a flag on the function itself) and
+// installed fresh on every `launchWithExtension()` / explicit re-call, since
+// an idle-timed-out and respawned service worker would otherwise lose it.
+async function installClosedShadowOpener(sw) {
+  await sw.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    const scripting = chrome.scripting;
+    if (scripting.executeScript.__annotatorPatched) return;
+
+    const original = scripting.executeScript.bind(scripting);
+
+    const openerFunc = () => {
+      if (window.__annotatorShadowOpened) return;
+      window.__annotatorShadowOpened = true;
+      const nativeAttachShadow = Element.prototype.attachShadow;
+      Element.prototype.attachShadow = function (init) {
+        return nativeAttachShadow.call(this, Object.assign({}, init || {}, { mode: 'open' }));
+      };
+    };
+
+    const patched = async function (details) {
+      if (details && Array.isArray(details.files) && details.files.includes('dist/content.js')) {
+        try {
+          await original({ target: details.target, world: 'ISOLATED', func: openerFunc });
+        } catch {
+          // Best-effort — if this fails the real injection below still runs;
+          // tests interacting with shadow content will simply fail loudly.
+        }
+      }
+      return original(details);
+    };
+    patched.__annotatorPatched = true;
+
+    try {
+      Object.defineProperty(scripting, 'executeScript', {
+        value: patched,
+        writable: true,
+        configurable: true,
+      });
+    } catch {
+      scripting.executeScript = patched;
+    }
+  });
+}
+
 /**
- * Inject and activate the extension on the given page.
- * Returns after the toolbar (#annotator-host) is visible.
+ * Inject and activate the extension on the given page (bypasses a real
+ * toolbar-icon click — see clickExtensionIcon() for that). Returns after the
+ * sidebar panel is visible.
  *
  * @param {import('@playwright/test').BrowserContext} context
  * @param {import('@playwright/test').Page} page
  */
 async function activateExtension(context, page) {
   const sw = await getServiceWorker(context);
+  await installClosedShadowOpener(sw);
 
   await page.waitForLoadState('domcontentloaded');
-  // Short wait for Chrome to fully register the tab
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(200);
 
-  // Find the tab ID by matching the current page URL
-  const pageUrl = page.url();
+  const tabId = await findTabId(sw, page.url());
+  await injectAndActivate(sw, tabId);
+
+  await page.locator(SELECTORS.sidebar).waitFor({ state: 'visible', timeout: 8000 });
+  return page.locator(SELECTORS.sidebar);
+}
+
+async function findTabId(sw, pageUrl) {
   const tabId = await sw.evaluate(async (url) => {
     return new Promise(resolve => {
       chrome.tabs.query({}, tabs => {
@@ -176,82 +282,226 @@ async function activateExtension(context, page) {
       });
     });
   }, pageUrl);
+  if (!tabId) throw new Error(`Could not find tab for URL: ${pageUrl}`);
+  return tabId;
+}
 
-  if (!tabId) {
-    throw new Error(`Could not find tab for URL: ${pageUrl}`);
-  }
-
-  // Inject content script
+async function injectAndActivate(sw, tabId) {
   await sw.evaluate(async (tabId) => {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ['dist/content.js'],
-    });
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['dist/content.js'] });
   }, tabId);
-
-  // Brief pause for script to initialise
-  await page.waitForTimeout(300);
-
-  // Send ACTIVATE message
   await sw.evaluate((tabId) => {
-    chrome.tabs.sendMessage(tabId, { type: 'ACTIVATE', tabId });
+    chrome.tabs.sendMessage(tabId, { type: 'ACTIVATE', tabId }, () => void chrome.runtime.lastError);
   }, tabId);
-
-  // Wait for toolbar host to be attached (#annotator-host is 0x0 by design — don't check visibility)
-  await page.waitForSelector('#annotator-host', { state: 'attached', timeout: 8000 });
-
-  return page.locator('#annotator-host');
 }
 
 /**
- * Clear all extension storage (call between tests for isolation).
+ * Simulate a real click on the extension's toolbar icon — mirrors
+ * background.ts's handleActionClicked: ping the content script first; if it's
+ * alive, toggle via ICON_CLICKED (exactly what a second real icon click
+ * does); otherwise inject + activate as if this were the first click on a
+ * fresh page.
+ */
+async function clickExtensionIcon(context, page) {
+  const sw = await getServiceWorker(context);
+  await installClosedShadowOpener(sw);
+  const tabId = await findTabId(sw, page.url());
+
+  const isAlive = await sw.evaluate((tabId) => {
+    return new Promise(resolve => {
+      const timeout = setTimeout(() => resolve(false), 500);
+      chrome.tabs.sendMessage(tabId, { type: 'PING' }, (response) => {
+        clearTimeout(timeout);
+        if (chrome.runtime.lastError) { resolve(false); return; }
+        resolve(response?.alive === true);
+      });
+    });
+  }, tabId);
+
+  if (isAlive) {
+    await sw.evaluate((tabId) => {
+      chrome.tabs.sendMessage(tabId, { type: 'ICON_CLICKED' }, () => void chrome.runtime.lastError);
+    }, tabId);
+  } else {
+    await injectAndActivate(sw, tabId);
+  }
+}
+
+/**
+ * Clear all extension storage — chrome.storage.local/session and the
+ * screenshots IndexedDB — for isolation between tests.
  */
 async function clearExtensionStorage(context) {
   const sw = await getServiceWorker(context);
   await sw.evaluate(() => {
-    return new Promise(resolve => chrome.storage.local.clear(resolve));
+    return Promise.all([
+      new Promise(resolve => chrome.storage.local.clear(resolve)),
+      new Promise(resolve => chrome.storage.session.clear(resolve)),
+      new Promise(resolve => {
+        const req = indexedDB.deleteDatabase('annotator-images');
+        req.onsuccess = () => resolve();
+        req.onerror = () => resolve();
+        req.onblocked = () => resolve();
+      }),
+    ]);
   });
 }
 
-/**
- * Enter annotation mode by clicking the Start Annotating button.
- */
-async function enterAnnotationMode(page) {
-  await page.locator(SELECTORS.btnStart).click();
-  await page.waitForTimeout(100);
+// ---------------------------------------------------------------------------
+// Add mode (src/addMode.ts) — selection + comment box
+// ---------------------------------------------------------------------------
+
+/** Click "add" in the sidebar header and wait for the add-mode host to
+ *  attach. */
+async function enterAddMode(page) {
+  await page.locator(SELECTORS.btnAdd).click();
+  await page.locator(SELECTORS.addModeHost).waitFor({ state: 'attached', timeout: 5000 });
+  await page.locator(SELECTORS.commentBox).waitFor({ state: 'attached', timeout: 5000 });
+}
+
+/** Click once on the page (in add mode) to place the default-sized box at
+ *  (x, y). Coordinates are viewport-relative CSS px, matching
+ *  MouseEvent.clientX/clientY (the same space addMode.ts works in). */
+async function placeSelectionBox(page, x, y) {
+  await page.locator(SELECTORS.blocker).click({ position: { x, y } });
+  await page.locator(SELECTORS.box).waitFor({ state: 'visible', timeout: 5000 });
+}
+
+/** Drag one resize handle to a new viewport position. */
+async function dragResizeHandle(page, handleKey, toX, toY) {
+  const handle = page.locator(SELECTORS.handle(handleKey));
+  const box = await handle.boundingBox();
+  if (!box) throw new Error(`resize handle "${handleKey}" not found`);
+  const startX = box.x + box.width / 2;
+  const startY = box.y + box.height / 2;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(toX, toY, { steps: 8 });
+  await page.mouse.up();
+}
+
+/** Type into the add-mode note textarea (fires the same 'input' listener
+ *  addMode.ts uses to drive the counter and ok-button enabled state). */
+async function typeAddModeNote(page, text) {
+  await page.locator(SELECTORS.noteInput).fill(text);
+}
+
+async function clickAddModeOk(page) {
+  await page.locator(SELECTORS.btnOk).click();
+}
+
+async function clickAddModeCancel(page) {
+  await page.locator(SELECTORS.btnCancel).click();
 }
 
 /**
- * Create one annotation by clicking a target element and filling in a note.
- * Returns after the popover closes and the pin is added.
+ * End-to-end capture convenience: enter add mode, place the default box at
+ * (x, y), optionally resize it, type `note`, click ok, and wait for a new
+ * thumbnail to land in the sidebar list. Returns once the thumbnail count is
+ * `expectedCount`.
  *
  * @param {import('@playwright/test').Page} page
- * @param {string} targetSelector - CSS selector of the element to click
- * @param {string} noteText - annotation note
+ * @param {{x: number, y: number, note: string, resize?: {handle: string, toX: number, toY: number}, expectedCount: number}} opts
  */
-async function createAnnotation(page, targetSelector, noteText) {
-  // Click the element to open popover
-  await page.locator(targetSelector).click();
-  // Wait for popover host to be attached (0x0 host like toolbar, check attached not visible)
-  await page.waitForSelector('.note-input', { state: 'visible', timeout: 5000 });
+async function captureFeedbackItem(page, opts) {
+  await enterAddMode(page);
+  await placeSelectionBox(page, opts.x, opts.y);
+  if (opts.resize) {
+    await dragResizeHandle(page, opts.resize.handle, opts.resize.toX, opts.resize.toY);
+  }
+  await typeAddModeNote(page, opts.note);
+  await clickAddModeOk(page);
+  await page.locator(SELECTORS.thumbnail).nth(opts.expectedCount - 1).waitFor({ state: 'visible', timeout: 15000 });
+}
 
-  // Type the note
-  await page.locator(SELECTORS.noteInput).fill(noteText);
-  // Click Add
-  await page.locator(SELECTORS.addBtn).click();
-  // Brief pause for pin to render
-  await page.waitForTimeout(200);
+// ---------------------------------------------------------------------------
+// Sidebar thumbnails + modal (src/thumbnails.ts, src/modal.ts)
+// ---------------------------------------------------------------------------
+
+async function openThumbnail(page, index) {
+  await page.locator(SELECTORS.thumbnail).nth(index).click();
+  await page.locator(SELECTORS.modalHost).waitFor({ state: 'attached', timeout: 5000 });
+}
+
+/** Edit the open modal's note and close via the close (x) button — exercises
+ *  the "autosave on close" path (§3.3), not the blur path. */
+async function editModalNoteAndClose(page, newText) {
+  await page.locator(SELECTORS.modalNoteInput).fill(newText);
+  await page.locator(SELECTORS.modalCloseBtn).click();
+  await page.locator(SELECTORS.modalHost).waitFor({ state: 'detached', timeout: 5000 });
+}
+
+/** Edit the open modal's note and blur it (click the image area) rather than
+ *  closing — exercises the "autosave on blur" path, leaving the modal open. */
+async function editModalNoteAndBlur(page, newText) {
+  await page.locator(SELECTORS.modalNoteInput).fill(newText);
+  await page.locator(SELECTORS.modalImage).click();
+}
+
+async function deleteCurrentModalItem(page) {
+  await page.locator(SELECTORS.modalDeleteBtn).click();
+  await page.locator(SELECTORS.modalHost).waitFor({ state: 'detached', timeout: 5000 });
+}
+
+// ---------------------------------------------------------------------------
+// Export / import (src/export.ts, src/import.ts)
+// ---------------------------------------------------------------------------
+
+/** Click "export" and wait for the resulting browser download. */
+async function exportAndGetDownload(context, page) {
+  const [download] = await Promise.all([
+    context.waitForEvent('download', { timeout: 10000 }),
+    page.locator(SELECTORS.btnExport).click(),
+  ]);
+  return download;
+}
+
+/** Click "export" on an empty domain and capture the resulting
+ *  `alert("nothing to export")` (§5 #7). Dismisses the dialog and returns its
+ *  message. */
+async function exportAndGetEmptyAlert(page) {
+  const dialogPromise = page.waitForEvent('dialog', { timeout: 5000 });
+  await page.locator(SELECTORS.btnExport).click();
+  const dialog = await dialogPromise;
+  const message = dialog.message();
+  await dialog.dismiss();
+  return message;
+}
+
+/** Click "import", pick `filePath` from the native file chooser, and wait for
+ *  the round trip to settle (sidebar re-render / confirm dialog, if any). */
+async function importFile(page, filePath) {
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser', { timeout: 5000 }),
+    page.locator(SELECTORS.btnImport).click(),
+  ]);
+  await chooser.setFiles(filePath);
 }
 
 module.exports = {
   SELECTORS,
   EXTENSION_PATH,
+  FIXTURES_DIR,
   startFileServer,
   stopFileServer,
   launchWithExtension,
   getServiceWorker,
+  installClosedShadowOpener,
   activateExtension,
+  clickExtensionIcon,
   clearExtensionStorage,
-  enterAnnotationMode,
-  createAnnotation,
+  enterAddMode,
+  placeSelectionBox,
+  dragResizeHandle,
+  typeAddModeNote,
+  clickAddModeOk,
+  clickAddModeCancel,
+  captureFeedbackItem,
+  openThumbnail,
+  editModalNoteAndClose,
+  editModalNoteAndBlur,
+  deleteCurrentModalItem,
+  exportAndGetDownload,
+  exportAndGetEmptyAlert,
+  importFile,
 };
