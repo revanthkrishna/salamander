@@ -29,6 +29,18 @@ export interface ThumbnailCallbacks {
  *  couple of lines. */
 const NOTE_PREVIEW_LENGTH = 80;
 
+/** Fixed height (px) for every thumbnail's image box (§1.5/§3.3). Screenshots
+ *  are captured at whatever aspect ratio the user's selection happened to be,
+ *  so without a fixed box the grid reads as uneven — some thumbnails tall,
+ *  some short/wide. Width intentionally stays relative (100%, set in
+ *  sidebar.ts's `.thumbnail-image-wrap` rule) rather than a paired fixed
+ *  value: the sidebar itself is becoming resizable (100–300px) in this same
+ *  round of work, so a hardcoded width would either overflow or leave a gap
+ *  as the sidebar is dragged. Applied as an inline style rather than a new
+ *  sidebar.ts CSS rule since this module owns the elements it builds and
+ *  sidebar.ts is out of scope for this change. */
+const THUMBNAIL_IMAGE_HEIGHT_PX = 100;
+
 /** Truncate a note to the preview length, breaking on a trailing ellipsis
  *  rather than mid-word cleanup — exported so contextCapture-style callers
  *  and tests can assert on it directly without re-deriving the constant. */
@@ -62,12 +74,21 @@ function buildThumbnailEl(item: FeedbackItem, callbacks: ThumbnailCallbacks): HT
 
   const imageWrap = document.createElement('div');
   imageWrap.className = 'thumbnail-image-wrap';
+  // Fixed-size box (see THUMBNAIL_IMAGE_HEIGHT_PX) — width stays whatever
+  // sidebar.ts's CSS gives it (100% of the resizable sidebar's content area).
+  imageWrap.style.height = `${THUMBNAIL_IMAGE_HEIGHT_PX}px`;
 
   const img = document.createElement('img');
   img.className = 'thumbnail-image';
   img.src = item.thumbnailDataUrl;
   img.alt = '';
   img.draggable = false;
+  // Scale the (variably-sized) captured screenshot to fit inside the fixed
+  // box without cropping — this is a feedback tool, so losing part of the
+  // screenshot to a `cover` crop would hide the very thing being reported.
+  img.style.width = '100%';
+  img.style.height = '100%';
+  img.style.objectFit = 'contain';
 
   const badge = document.createElement('span');
   badge.className = 'thumbnail-badge';

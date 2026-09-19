@@ -79,6 +79,22 @@ describe('renderThumbnailList', () => {
     expect(img.getAttribute('src')).toBe('data:image/jpeg;base64,ZZZZ');
   });
 
+  it('gives the image wrap a fixed height and scales the image to fit via object-fit: contain', () => {
+    renderThumbnailList(listEl, [makeItem()], { onOpen: jest.fn() });
+    const wrap = listEl.querySelector('.thumbnail-image-wrap') as HTMLElement;
+    const img = listEl.querySelector('img.thumbnail-image') as HTMLImageElement;
+
+    // jsdom doesn't compute layout, so assert against the inline style this
+    // module applies directly (it owns the elements it builds) rather than a
+    // stylesheet rule — same pattern as other CSS assertions in this codebase.
+    expect(wrap.style.height).toMatch(/^\d+px$/);
+    expect(parseInt(wrap.style.height, 10)).toBeGreaterThanOrEqual(80);
+
+    expect(img.style.objectFit).toBe('contain');
+    expect(img.style.width).toBe('100%');
+    expect(img.style.height).toBe('100%');
+  });
+
   it('shows the lowercase "no note" placeholder for an empty note, styled distinctly', () => {
     renderThumbnailList(listEl, [makeItem({ note: '' })], { onOpen: jest.fn() });
     const note = listEl.querySelector('.thumbnail-note') as HTMLElement;
