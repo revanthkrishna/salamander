@@ -199,7 +199,10 @@ export async function handleCapture(
     const { dataUrl, thumbnailDataUrl } = await cropCapture(fullDataUrl, message);
     const screenshotKey = generateScreenshotKey();
     await imageStore.putImage(screenshotKey, dataUrl);
-    return { ok: true, screenshotKey, dataUrl, thumbnailDataUrl };
+    // The full-resolution crop deliberately does not travel back to the
+    // content script — only the key and the small thumbnail do (see
+    // CaptureSuccessResponse in messages.ts).
+    return { ok: true, screenshotKey, thumbnailDataUrl };
   } catch (err) {
     return mapCaptureError(err);
   }
@@ -512,8 +515,7 @@ export function computeThumbnailSize(
 export async function cropCapture(dataUrl: string, message: CaptureMessage): Promise<CropResult> {
   let bitmap: ImageBitmap;
   try {
-    const blob = await (await fetch(dataUrl)).blob();
-    bitmap = await createImageBitmap(blob);
+    bitmap = await createImageBitmap(dataUrlToBlob(dataUrl));
   } catch (err) {
     throw new CropError(err);
   }
@@ -575,6 +577,47 @@ class CropError extends Error {
     super(cause instanceof Error ? cause.message : String(cause));
     this.name = 'CropError';
   }
+}
+
+/**
+ * Manual data URL -> Blob conversion, so `createImageBitmap` can decode what
+ * `chrome.tabs.captureVisibleTab` handed us.
+ *
+ * ⚠ This must never go back to being `await (await fetch(dataUrl)).blob()`,
+ * which is the idiomatic one-liner and is what it was originally. The
+ * extension's CSP (manifest.json, carried forward from v1's "no network calls
+ * at all" posture — §2 Security) sets `connect-src 'none'`, and an MV3
+ * service worker is an extension page for CSP purposes: `fetch()` there is
+ * governed by `connect-src`, and a `data:` URL is not exempt. So every real
+ * capture died on a CSP violation inside cropCapture and surfaced to the user
+ * as §5 #8's "couldn't capture a screenshot here. try again." — while the unit
+ * tests stayed green, because they stub `global.fetch`. Decoding the base64 by
+ * hand has no CSP surface, no network stack, and no async hop; it is the exact
+ * mirror of blobToDataUrl below. (Relaxing the CSP instead was the other
+ * option and was rejected: nothing in this extension should be able to talk to
+ * the network, and manifest.json's permissions/CSP are Phase 0's contract.)
+ */
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const comma = typeof dataUrl === 'string' ? dataUrl.indexOf(',') : -1;
+  if (comma === -1 || !dataUrl.startsWith('data:')) {
+    throw new Error('captured image is not a data url');
+  }
+
+  const header = dataUrl.slice('data:'.length, comma);
+  const payload = dataUrl.slice(comma + 1);
+  const isBase64 = /;base64$/i.test(header);
+  const mime = header.replace(/;base64$/i, '').split(';')[0] || 'image/png';
+
+  if (!isBase64) {
+    // captureVisibleTab always returns base64, but a percent-encoded data URL
+    // is still a legal one — decode it rather than feed atob() garbage.
+    return new Blob([decodeURIComponent(payload)], { type: mime });
+  }
+
+  const binary = atob(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
 }
 
 /** Manual Blob -> data URL conversion: no URL.createObjectURL (gotcha #4)

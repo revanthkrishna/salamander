@@ -130,13 +130,16 @@ export type CaptureErrorCode = 'RATE_LIMITED' | 'CAPTURE_FAILED' | 'CROP_FAILED'
 export interface CaptureSuccessResponse {
   ok: true;
   /** Key into imageStore.ts (Phase 1) — the cropped PNG is already persisted
-   *  there by the time this response is sent. */
+   *  there by the time this response is sent.
+   *
+   *  Phase 2 also returned the full-resolution crop inline as a data URL;
+   *  Phase 5 dropped it. Nothing on the content-script side consumed it (the
+   *  sidebar list paints from `thumbnailDataUrl`, and Phase 7's modal will
+   *  fetch the full image by key), while every capture paid for serialising a
+   *  multi-megabyte base64 string across the boundary — gotcha #2's cost, for
+   *  a value that was thrown away on arrival. */
   screenshotKey: string;
-  /** The cropped, full-resolution PNG as a data URL, handed back so the
-   *  caller can render it immediately without a follow-up round trip through
-   *  storage. Identical to what imageStore now holds under `screenshotKey`. */
-  dataUrl: string;
-  /** A downscaled copy of the same crop, for FeedbackItem.thumbnailDataUrl
+  /** A downscaled copy of the crop, for FeedbackItem.thumbnailDataUrl
    *  (the Phase 1 design call: thumbnails live inline in storage.local so the
    *  sidebar list paints from one read). Produced in the service worker
    *  because that is where OffscreenCanvas and the decoded bitmap already

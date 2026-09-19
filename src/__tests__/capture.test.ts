@@ -71,7 +71,7 @@ function setGeometry(opts: {
 function defaultHandler(message: any): unknown {
   if (message.type === 'CAPTURE') {
     timeline.push('capture');
-    return { ok: true, screenshotKey: 'key-1', dataUrl: 'data:image/png;base64,AA', thumbnailDataUrl: 'data:image/jpeg;base64,BB' };
+    return { ok: true, screenshotKey: 'key-1', thumbnailDataUrl: 'data:image/jpeg;base64,BB' };
   }
   if (message.type === 'SAVE_ITEM') {
     timeline.push('save');

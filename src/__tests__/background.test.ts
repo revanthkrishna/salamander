@@ -126,14 +126,29 @@ function installChromeMocks(): void {
 
 function installCropGlobals(): void {
   (global as any).OffscreenCanvas = FakeOffscreenCanvas;
-  (global as any).createImageBitmap = jest.fn(async () => fakeBitmap);
-  (global as any).fetch = jest.fn(async (_url: string) => ({
-    blob: async () => new FakeBlob([9, 9, 9], 'image/png') as unknown as Blob,
-  }));
+  (global as any).createImageBitmap = jest.fn(async (blob: Blob) => {
+    decodedBlobs.push(blob);
+    return fakeBitmap;
+  });
+  // Regression guard, not a stub: the service worker must never call fetch().
+  // manifest.json's CSP is `connect-src 'none'`, which applies to the MV3
+  // service worker, so `fetch(dataUrl)` — the obvious way to turn a capture
+  // into a Blob — is blocked at runtime even though the URL is a data: one.
+  // A mock that *satisfied* fetch is exactly what let that bug ship green.
+  (global as any).fetch = jest.fn(() => {
+    throw new Error('fetch() is blocked by connect-src \'none\' in the service worker');
+  });
   if (typeof (global as any).btoa === 'undefined') {
     (global as any).btoa = (s: string) => Buffer.from(s, 'binary').toString('base64');
   }
+  if (typeof (global as any).atob === 'undefined') {
+    (global as any).atob = (s: string) => Buffer.from(s, 'base64').toString('binary');
+  }
 }
+
+/** Every Blob handed to createImageBitmap this test, so the decode path can be
+ *  asserted on without a real image decoder. */
+const decodedBlobs: Blob[] = [];
 
 installChromeMocks();
 installCropGlobals();
@@ -187,6 +202,7 @@ beforeEach(() => {
   FakeOffscreenCanvas.drawCalls = [];
   FakeOffscreenCanvas.shouldFailDraw = false;
   FakeOffscreenCanvas.lastConvertOptions = null;
+  decodedBlobs.length = 0;
   setCaptureImageSize(1024, 768);
   background._resetCaptureQueueForTests();
   background._resetSaveQueueForTests();
@@ -390,9 +406,25 @@ describe('handleCapture', () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(mockedImageStore.putImage).toHaveBeenCalledWith(result.screenshotKey, result.dataUrl);
-      expect(result.dataUrl.startsWith('data:image/png;base64,')).toBe(true);
+      expect(mockedImageStore.putImage).toHaveBeenCalledWith(
+        result.screenshotKey,
+        expect.stringMatching(/^data:image\/png;base64,/),
+      );
+      // The full-resolution PNG is persisted, never returned: only the key and
+      // the small thumbnail cross the messaging boundary (gotcha #2).
+      expect(Object.keys(result).sort()).toEqual(['ok', 'screenshotKey', 'thumbnailDataUrl']);
     }
+  });
+
+  it('decodes the capture without fetch() — connect-src \'none\' blocks it in the worker', async () => {
+    const result = await background.handleCapture(message, makeSender(5, 77));
+
+    expect(result.ok).toBe(true);
+    expect(global.fetch).not.toHaveBeenCalled();
+    // captureVisibleTab's "full-image" payload reached the decoder intact.
+    expect(decodedBlobs).toHaveLength(1);
+    expect(decodedBlobs[0].type).toBe('image/png');
+    expect(decodedBlobs[0].size).toBe('full-image'.length);
   });
 
   it('also renders a downscaled thumbnail from the same decoded bitmap', async () => {
@@ -618,6 +650,56 @@ describe('computeThumbnailSize', () => {
 
   it('never rounds an extreme aspect ratio down to zero', () => {
     expect(background.computeThumbnailSize(2000, 3)).toEqual({ width: 480, height: 1 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// dataUrlToBlob — the CSP-safe replacement for fetch(dataUrl)
+// ---------------------------------------------------------------------------
+
+describe('dataUrlToBlob', () => {
+  /** jsdom's Blob has no arrayBuffer()/text() and jsdom has no Response, but
+   *  it does have a working FileReader — enough to read the bytes back out. */
+  function bytesOf(blob: Blob): Promise<number[]> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(Array.from(new Uint8Array(reader.result as ArrayBuffer)));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsArrayBuffer(blob);
+    });
+  }
+
+  async function textOf(blob: Blob): Promise<string> {
+    return String.fromCharCode(...(await bytesOf(blob)));
+  }
+
+  it('decodes a base64 png into bytes, preserving the mime type', async () => {
+    const blob = background.dataUrlToBlob('data:image/png;base64,AAECAw==');
+    expect(blob.type).toBe('image/png');
+    expect(await bytesOf(blob)).toEqual([0, 1, 2, 3]);
+  });
+
+  it('keeps every byte value intact across the 0x80 boundary', async () => {
+    const source = [0, 127, 128, 200, 255];
+    const base64 = Buffer.from(source).toString('base64');
+    const blob = background.dataUrlToBlob(`data:image/png;base64,${base64}`);
+    expect(await bytesOf(blob)).toEqual(source);
+  });
+
+  it('handles a percent-encoded (non-base64) data url', async () => {
+    const blob = background.dataUrlToBlob('data:image/svg+xml,%3Csvg%3E');
+    expect(blob.type).toBe('image/svg+xml');
+    expect(await textOf(blob)).toBe('<svg>');
+  });
+
+  it('defaults the mime type when the header omits it', () => {
+    expect(background.dataUrlToBlob('data:;base64,AAA=').type).toBe('image/png');
+  });
+
+  it('rejects anything that is not a data url', () => {
+    expect(() => background.dataUrlToBlob('https://example.com/a.png')).toThrow(/data url/);
+    expect(() => background.dataUrlToBlob('data:image/png;base64')).toThrow(/data url/);
+    expect(() => background.dataUrlToBlob('' as unknown as string)).toThrow(/data url/);
   });
 });
 
