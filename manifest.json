@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "salamander",
   "version": "1.1.0",
-  "description": "annotate directly on webpage elements. share exactly what you see.",
+  "description": "select an area of any webpage, screenshot it, attach a note, and export for developers or ai agents to act on.",
   "permissions": ["storage", "scripting", "tabs", "unlimitedStorage", "downloads"],
   "host_permissions": ["<all_urls>"],
   "background": {
