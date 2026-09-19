@@ -1,6 +1,7 @@
-// Phase 4: add-mode tests — box placement/clamping, resize-handle geometry,
-// scrim regions, the comment box's char counter and ok-disabled state, the
-// never-off-screen positioning guarantee, and cancel/ok lifecycle.
+// Phase 4: add-mode tests — box placement/clamping, resize hit-zone geometry
+// and edge/corner resizing, the rounded-hole scrim, the comment box's char
+// counter and save-disabled state, the never-off-screen positioning
+// guarantee, and cancel/save lifecycle (Salamander design spec §3.2).
 //
 // jsdom has no layout engine, so these verify the *mechanism* — inline
 // px values computed from window.innerWidth/innerHeight — not actual pixel
@@ -8,6 +9,7 @@
 
 import * as addMode from '../addMode';
 import { getSidebarWidth } from '../sidebar';
+import { getThemeCSS } from '../theme';
 
 // addMode.ts uses attachShadow({ mode: 'closed' }); force 'open' for this test
 // file only so we can assert on the rendered DOM, same trick as sidebar.test.ts.
@@ -44,16 +46,16 @@ function boxEl(): HTMLElement {
   return shadowRoot().querySelector('.box') as HTMLElement;
 }
 
-function handle(key: string): HTMLElement {
-  return shadowRoot().querySelector(`.handle[data-handle="${key}"]`) as HTMLElement;
+function zone(key: string): HTMLElement {
+  return shadowRoot().querySelector(`.resize-zone[data-zone="${key}"]`) as HTMLElement;
 }
 
 function textarea(): HTMLTextAreaElement {
   return shadowRoot().querySelector('.note-input') as HTMLTextAreaElement;
 }
 
-function okBtn(): HTMLButtonElement {
-  return shadowRoot().querySelector('.btn-ok') as HTMLButtonElement;
+function saveBtn(): HTMLButtonElement {
+  return shadowRoot().querySelector('.btn-save') as HTMLButtonElement;
 }
 
 function cancelBtn(): HTMLButtonElement {
@@ -70,6 +72,23 @@ function commentBoxEl(): HTMLElement | null {
 
 function stylesheetText(): string {
   return (shadowRoot().querySelector('style') as HTMLStyleElement).textContent ?? '';
+}
+
+/** Add mode's own rules, i.e. the stylesheet minus the prepended theme
+ *  token block (which legitimately contains raw hex values). */
+function addModeOwnCSS(): string {
+  return stylesheetText().replace(getThemeCSS(), '');
+}
+
+/** The first `selector { ... }` rule body in add mode's own CSS. */
+function cssRule(selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return addModeOwnCSS().match(new RegExp(`(^|\\n)\\s*${escaped}\\s*\\{[^}]*\\}`))?.[0] ?? '';
+}
+
+function typeNote(text: string): void {
+  textarea().value = text;
+  textarea().dispatchEvent(new Event('input'));
 }
 
 function click(el: HTMLElement, x: number, y: number): void {
@@ -154,7 +173,7 @@ describe('add mode', () => {
     addMode.startAddMode(makeCallbacks());
     expect(commentBoxEl()).toBeNull();
     expect(shadowRoot().querySelector('.note-input')).toBeNull();
-    expect(shadowRoot().querySelector('.btn-ok')).toBeNull();
+    expect(shadowRoot().querySelector('.btn-save')).toBeNull();
     expect(shadowRoot().querySelector('.btn-cancel')).toBeNull();
   });
 
@@ -166,7 +185,7 @@ describe('add mode', () => {
 
     expect(commentBoxEl()).not.toBeNull();
     expect(textarea()).not.toBeNull();
-    expect(okBtn()).not.toBeNull();
+    expect(saveBtn()).not.toBeNull();
     expect(cancelBtn()).not.toBeNull();
   });
 
@@ -180,7 +199,7 @@ describe('add mode', () => {
     // (which IS pointer-events: auto) can own page-click suppression while
     // purely-visual children (box outline, scrim) stay click-through and let
     // the blocker underneath receive the event. Anything meant to be
-    // clickable inside .visuals — resize handles, and the comment box — must
+    // clickable inside .visuals — resize hit zones, and the comment box — must
     // explicitly opt back into pointer-events: auto, or its computed value
     // inherits :none from the host and every click on it is silently
     // swallowed (mouse only — Tab-key focus is unaffected, which is exactly
@@ -190,7 +209,7 @@ describe('add mode', () => {
     expect(commentBoxRule).toMatch(/pointer-events:\s*auto/);
   });
 
-  test('cancel button tears down add mode and fires onCancel, with no onOk call', () => {
+  test('cancel button tears down add mode and fires onCancel, with no onOk (save) call', () => {
     const cbs = makeCallbacks();
     addMode.startAddMode(cbs);
     place(blocker(), 100, 100); // place the box first so the comment box exists
@@ -337,20 +356,183 @@ describe('add mode', () => {
     expect(box.y + box.height).toBeLessThanOrEqual(bounds.height);
   });
 
-  // ── resize handles ─────────────────────────────────────────────────────────
+  // ── scrim + selection outline (design spec §3.2) ──────────────────────────
 
-  test('renders all 8 resize handles once placed', () => {
+  test('nothing selection-related is shown before the first placement', () => {
     addMode.startAddMode(makeCallbacks());
-    place(blocker(), 300, 200);
-    const handles = shadowRoot().querySelectorAll('.handle');
-    expect(handles).toHaveLength(8);
+    const visuals = shadowRoot().querySelector('.visuals') as HTMLElement;
+    expect(visuals.dataset.hasBox).toBeUndefined();
+    // The CSS gate that keeps the scrim's spread shadow from dimming the page
+    // during 'placing'.
+    expect(addModeOwnCSS()).toMatch(/\.visuals:not\(\[data-has-box="true"\]\) \.scrim-layer/);
+
+    place(blocker(), 300, 300);
+    expect(visuals.dataset.hasBox).toBe('true');
   });
 
-  test('dragging the se handle grows the box to the new bottom-right corner', () => {
+  test('the scrim is a single rounded hole exactly over the box, clipped to the content area', () => {
+    addMode.startAddMode(makeCallbacks());
+    place(blocker(), 300, 300); // box x200 y225 w200 h150
+
+    expect(shadowRoot().querySelectorAll('.scrim-rect')).toHaveLength(0); // v1 four-strip scrim is gone
+    const scrims = shadowRoot().querySelectorAll('.scrim');
+    expect(scrims).toHaveLength(1);
+    const scrim = scrims[0] as HTMLElement;
+    expect([scrim.style.left, scrim.style.top, scrim.style.width, scrim.style.height]).toEqual([
+      '200px', '225px', '200px', '150px',
+    ]);
+
+    const layer = shadowRoot().querySelector('.scrim-layer') as HTMLElement;
+    expect(layer.style.width).toBe(`${1200 - getSidebarWidth()}px`);
+    expect(layer.style.height).toBe('800px');
+
+    expect(cssRule('.scrim')).toMatch(/border-radius:\s*var\(--sal-radius-md\)/);
+    expect(cssRule('.scrim')).toMatch(/box-shadow:[^;]*var\(--sal-scrim\)/);
+    expect(cssRule('.scrim')).toMatch(/pointer-events:\s*none/);
+    expect(cssRule('.scrim-layer')).toMatch(/overflow:\s*hidden/);
+    expect(cssRule('.scrim-layer')).toMatch(/pointer-events:\s*none/);
+  });
+
+  test('the selection box has a radius-md outline of accent + keyline and no hover/press styling', () => {
+    addMode.startAddMode(makeCallbacks());
+    const rule = cssRule('.box');
+    expect(rule).toMatch(/border-radius:\s*var\(--sal-radius-md\)/);
+    expect(rule).toMatch(/box-shadow:\s*0 0 0 2px var\(--sal-accent\), 0 0 0 3px var\(--sal-keyline\)/);
+    expect(addModeOwnCSS()).not.toMatch(/\.box:(hover|active)/);
+    expect(addModeOwnCSS()).not.toMatch(/\.resize-zone:(hover|active)/);
+  });
+
+  test('add mode keeps exactly one <style> element and uses tokens instead of v1 hard-coded colours', () => {
+    addMode.startAddMode(makeCallbacks());
+    place(blocker(), 300, 200);
+    expect(shadowRoot().querySelectorAll('style')).toHaveLength(1);
+    expect(stylesheetText().startsWith(getThemeCSS())).toBe(true);
+    expect(addModeOwnCSS()).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    expect(addModeOwnCSS()).not.toMatch(/rgba?\(/);
+  });
+
+  // ── resize hit zones ───────────────────────────────────────────────────────
+
+  test('no visible resize handles remain; 8 invisible hit zones (4 edges + 4 corners) replace them', () => {
+    addMode.startAddMode(makeCallbacks());
+    place(blocker(), 300, 200);
+    expect(shadowRoot().querySelectorAll('.handle')).toHaveLength(0);
+    expect(shadowRoot().querySelectorAll('[data-handle]')).toHaveLength(0);
+
+    const zones = Array.from(shadowRoot().querySelectorAll('.resize-zone')) as HTMLElement[];
+    expect(zones.map((z) => z.dataset.zone).sort()).toEqual(['e', 'n', 'ne', 'nw', 's', 'se', 'sw', 'w']);
+    for (const z of zones) expect(z.getAttribute('aria-hidden')).toBe('true');
+
+    const rule = cssRule('.resize-zone');
+    expect(rule).toMatch(/background:\s*transparent/);
+    expect(rule).toMatch(/pointer-events:\s*auto/);
+  });
+
+  test('hit zones live inside .visuals, so hideOverlayUI() keeps them out of the screenshot', () => {
+    addMode.startAddMode(makeCallbacks());
+    place(blocker(), 300, 200);
+    const visuals = shadowRoot().querySelector('.visuals') as HTMLElement;
+    for (const z of Array.from(shadowRoot().querySelectorAll('.resize-zone'))) {
+      expect(visuals.contains(z)).toBe(true);
+    }
+    expect(visuals.contains(shadowRoot().querySelector('.scrim'))).toBe(true);
+  });
+
+  test.each([
+    ['n', 'ns-resize'],
+    ['s', 'ns-resize'],
+    ['e', 'ew-resize'],
+    ['w', 'ew-resize'],
+    ['nw', 'nwse-resize'],
+    ['se', 'nwse-resize'],
+    ['ne', 'nesw-resize'],
+    ['sw', 'nesw-resize'],
+  ])('the %s hit zone shows the %s cursor', (key, cursor) => {
+    addMode.startAddMode(makeCallbacks());
+    place(blocker(), 300, 300);
+    expect(zone(key).style.cursor).toBe(cursor);
+  });
+
+  test('edge zones are 10px strips straddling the outline between the corners; corner zones are 16x16 centred on the corners', () => {
+    addMode.startAddMode(makeCallbacks());
+    place(blocker(), 300, 300); // box x200 y225 w200 h150 -> right 400 bottom 375
+
+    const rectOf = (key: string) => {
+      const el = zone(key);
+      return [el.style.left, el.style.top, el.style.width, el.style.height];
+    };
+    expect(rectOf('n')).toEqual(['208px', '220px', '184px', '10px']);
+    expect(rectOf('s')).toEqual(['208px', '370px', '184px', '10px']);
+    expect(rectOf('w')).toEqual(['195px', '233px', '10px', '134px']);
+    expect(rectOf('e')).toEqual(['395px', '233px', '10px', '134px']);
+    expect(rectOf('nw')).toEqual(['192px', '217px', '16px', '16px']);
+    expect(rectOf('ne')).toEqual(['392px', '217px', '16px', '16px']);
+    expect(rectOf('sw')).toEqual(['192px', '367px', '16px', '16px']);
+    expect(rectOf('se')).toEqual(['392px', '367px', '16px', '16px']);
+    expect(addMode._zoneRectsForTests().se).toEqual({ x: 392, y: 367, width: 16, height: 16 });
+
+    // Corners are appended after edges so they win the hit test where the
+    // squares overlap the strip ends on a small box.
+    const order = (Array.from(shadowRoot().querySelectorAll('.resize-zone')) as HTMLElement[]).map((z) => z.dataset.zone);
+    expect(order.slice(0, 4).sort()).toEqual(['e', 'n', 's', 'w']);
+  });
+
+  // Placed at (300,300): box x200 y225 w200 h150 -> left 200, top 225, right 400, bottom 375.
+  test.each([
+    ['n', 300, 200, { x: 200, y: 200, width: 200, height: 175 }],
+    ['s', 300, 400, { x: 200, y: 225, width: 200, height: 175 }],
+    ['e', 450, 300, { x: 200, y: 225, width: 250, height: 150 }],
+    ['w', 150, 300, { x: 150, y: 225, width: 250, height: 150 }],
+    ['nw', 150, 200, { x: 150, y: 200, width: 250, height: 175 }],
+    ['ne', 450, 200, { x: 200, y: 200, width: 250, height: 175 }],
+    ['sw', 150, 400, { x: 150, y: 225, width: 250, height: 175 }],
+    ['se', 450, 400, { x: 200, y: 225, width: 250, height: 175 }],
+  ])('dragging the %s hit zone to (%i, %i) moves only that side/corner', (key, toX, toY, expected) => {
+    addMode.startAddMode(makeCallbacks());
+    place(blocker(), 300, 300);
+
+    mousedown(zone(key), 0, 0);
+    mousemove(toX, toY);
+    mouseup(toX, toY);
+
+    expect(addMode._boxForTests()).toEqual(expected);
+    // the rendered outline and scrim hole follow the new rect
+    expect(boxEl().style.width).toBe(`${expected.width}px`);
+    expect((shadowRoot().querySelector('.scrim') as HTMLElement).style.height).toBe(`${expected.height}px`);
+  });
+
+  test('the resize cursor is held on the blocker for the whole drag and cleared on mouseup', () => {
+    addMode.startAddMode(makeCallbacks());
+    place(blocker(), 300, 300);
+
+    mousedown(zone('ne'), 400, 225);
+    expect(blocker().style.cursor).toBe('nesw-resize');
+    mousemove(420, 210);
+    mouseup(420, 210);
+    expect(blocker().style.cursor).toBe('');
+
+    // listener hygiene: a stray move after mouseup no longer resizes
+    const after = addMode._boxForTests();
+    mousemove(600, 100);
+    expect(addMode._boxForTests()).toEqual(after);
+  });
+
+  test('hit zones do nothing before placement is finalized', () => {
+    addMode.startAddMode(makeCallbacks());
+    mousedown(blocker(), 300, 300);
+    mousemove(500, 450); // live drag-to-draw, still 'placing'
+    const during = addMode._boxForTests();
+    mousedown(zone('se'), 500, 450);
+    expect(blocker().style.cursor).toBe('');
+    mouseup(500, 450);
+    expect(addMode._boxForTests()).toEqual(during);
+  });
+
+  test('dragging the se corner grows the box to the new bottom-right corner', () => {
     addMode.startAddMode(makeCallbacks());
     place(blocker(), 100, 100); // centered default box: x0 y25 w200 h150 -> right 200 bottom 175
 
-    mousedown(handle('se'), 300, 250);
+    mousedown(zone('se'), 200, 175);
     mousemove(400, 350);
     mouseup();
 
@@ -358,89 +540,149 @@ describe('add mode', () => {
     expect(box).toEqual({ x: 0, y: 25, width: 400, height: 325 });
   });
 
-  test('dragging the nw handle moves the top-left corner and keeps the opposite corner fixed', () => {
+  test('resize enforces the 20x20 minimum size from an edge and from a corner', () => {
     addMode.startAddMode(makeCallbacks());
-    place(blocker(), 300, 300); // centered default box: x200 y225 w200 h150 -> right 400 bottom 375
+    place(blocker(), 300, 300); // centered default box: right edge at 400, bottom at 375
 
-    mousedown(handle('nw'), 300, 300);
-    mousemove(250, 260);
-    mouseup();
-
-    const box = addMode._boxForTests();
-    expect(box.x).toBe(250);
-    expect(box.y).toBe(260);
-    expect(box.x + box.width).toBe(400);
-    expect(box.y + box.height).toBe(375);
-  });
-
-  test('resize enforces the 20x20 minimum size', () => {
-    addMode.startAddMode(makeCallbacks());
-    place(blocker(), 300, 300); // centered default box: right edge at 400
-
-    mousedown(handle('w'), 300, 300);
+    mousedown(zone('w'), 200, 300);
     mousemove(390, 300); // try to shrink width to 10px
     mouseup();
+    expect(addMode._boxForTests().width).toBe(20);
 
+    mousedown(zone('se'), 400, 375);
+    mousemove(-500, -500); // drag the corner far past the opposite one
+    mouseup();
     const box = addMode._boxForTests();
-    expect(box.width).toBeGreaterThanOrEqual(20);
+    expect(box.width).toBe(20);
+    expect(box.height).toBe(20);
   });
 
-  test('resize clamps to the viewport bounds', () => {
+  test('resize clamps to the content viewport bounds (minus the sidebar) on every side', () => {
     addMode.startAddMode(makeCallbacks());
     const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
     place(blocker(), 300, 300);
 
-    mousedown(handle('e'), 500, 300);
-    mousemove(bounds.width + 500, 300); // drag far past the right edge
+    mousedown(zone('se'), 400, 375);
+    mousemove(bounds.width + 500, bounds.height + 500);
+    mouseup();
+    mousedown(zone('nw'), 200, 225);
+    mousemove(-500, -500);
     mouseup();
 
-    const box = addMode._boxForTests();
-    expect(box.x + box.width).toBeLessThanOrEqual(bounds.width);
+    expect(addMode._boxForTests()).toEqual({ x: 0, y: 0, width: bounds.width, height: bounds.height });
   });
 
   // ── comment box ────────────────────────────────────────────────────────────
 
-  test('ok is disabled while the textarea is empty, enabled once text is entered', () => {
+  test('save is disabled while the textarea is empty, enabled once text is entered', () => {
     addMode.startAddMode(makeCallbacks());
     place(blocker(), 300, 200);
-    expect(okBtn().disabled).toBe(true);
+    expect(saveBtn().disabled).toBe(true);
 
-    textarea().value = 'looks broken here';
-    textarea().dispatchEvent(new Event('input'));
-    expect(okBtn().disabled).toBe(false);
+    typeNote('looks broken here');
+    expect(saveBtn().disabled).toBe(false);
   });
 
-  test('ok stays disabled for whitespace-only text', () => {
+  test('save stays disabled for whitespace-only text', () => {
     addMode.startAddMode(makeCallbacks());
     place(blocker(), 300, 200);
 
-    textarea().value = '   ';
-    textarea().dispatchEvent(new Event('input'));
-    expect(okBtn().disabled).toBe(true);
+    typeNote('   ');
+    expect(saveBtn().disabled).toBe(true);
   });
 
-  test('placeholder text is lowercase per §3.4', () => {
+  test('placeholder text is lowercase per §3.4 ("what should change here?")', () => {
     addMode.startAddMode(makeCallbacks());
     place(blocker(), 300, 200);
-    expect(textarea().placeholder).toBe('type something...');
+    expect(textarea().placeholder).toBe('what should change here?');
   });
 
-  test('counter is hidden below 900 characters, visible at 900+, flagged danger at 980+', () => {
+  test('counter: hidden at 0-900 chars, muted at 901-979, danger at 980-1000, formatted "n/1000"', () => {
     addMode.startAddMode(makeCallbacks());
     place(blocker(), 300, 200);
 
-    textarea().value = 'a'.repeat(899);
-    textarea().dispatchEvent(new Event('input'));
+    typeNote('a'.repeat(900));
     expect(counter().dataset.warn).toBe('false');
-
-    textarea().value = 'a'.repeat(900);
-    textarea().dispatchEvent(new Event('input'));
-    expect(counter().dataset.warn).toBe('true');
     expect(counter().dataset.danger).toBe('false');
 
-    textarea().value = 'a'.repeat(980);
-    textarea().dispatchEvent(new Event('input'));
+    typeNote('a'.repeat(901));
+    expect(counter().dataset.warn).toBe('true');
+    expect(counter().dataset.danger).toBe('false');
+    expect(counter().textContent).toBe('901/1000');
+
+    typeNote('a'.repeat(979));
+    expect(counter().dataset.danger).toBe('false');
+
+    typeNote('a'.repeat(980));
+    expect(counter().dataset.warn).toBe('true');
     expect(counter().dataset.danger).toBe('true');
+    expect(counter().textContent).toBe('980/1000');
+
+    typeNote('a'.repeat(1000));
+    expect(counter().dataset.danger).toBe('true');
+    expect(counter().textContent).toBe('1000/1000');
+
+    const css = addModeOwnCSS();
+    expect(cssRule('.counter')).toMatch(/visibility:\s*hidden/);
+    expect(cssRule('.counter')).toMatch(/color:\s*var\(--sal-muted\)/);
+    expect(cssRule('.counter')).toMatch(/font-family:\s*var\(--sal-font-mono\)/);
+    expect(css).toMatch(/\.counter\[data-warn="true"\]\s*\{\s*visibility:\s*visible/);
+    expect(css).toMatch(/\.counter\[data-danger="true"\]\s*\{[^}]*color:\s*var\(--sal-danger\)[^}]*font-weight:\s*600/);
+  });
+
+  test('comment box is one merged 280px surface: radius lg, 1px line border, shadowPop, overflow hidden, no padding', () => {
+    addMode.startAddMode(makeCallbacks());
+    const rule = cssRule('.comment-box');
+    expect(rule).toMatch(/width:\s*280px/);
+    expect(rule).toMatch(/border-radius:\s*var\(--sal-radius-lg\)/);
+    expect(rule).toMatch(/border:\s*1px solid var\(--sal-line\)/);
+    expect(rule).toMatch(/background:\s*var\(--sal-surface\)/);
+    expect(rule).toMatch(/box-shadow:\s*var\(--sal-shadow-pop\)/);
+    expect(rule).toMatch(/overflow:\s*hidden/);
+    expect(rule).toMatch(/padding:\s*0/);
+    expect(addModeOwnCSS()).not.toMatch(/\.comment-box:(hover|focus)/);
+
+    const footer = cssRule('.footer');
+    expect(footer).toMatch(/height:\s*36px/);
+    expect(footer).toMatch(/border-top:\s*1px solid var\(--sal-line\)/);
+    expect(addModeOwnCSS()).not.toMatch(/border-(left|right):/); // no dividers between buttons
+  });
+
+  test('textarea: no border of its own; hover edge = inset lineStrong, focus edge = inset accent only', () => {
+    addMode.startAddMode(makeCallbacks());
+    expect(cssRule('.note-input')).toMatch(/border:\s*none/);
+    expect(cssRule('.note-input')).toMatch(/outline:\s*none/);
+    expect(cssRule('.note-input:hover')).toMatch(/box-shadow:\s*inset 0 0 0 1px var\(--sal-line-strong\);/);
+    const focus = cssRule('.note-input:focus');
+    expect(focus).toMatch(/box-shadow:\s*inset 0 0 0 1px var\(--sal-accent\);/);
+    expect(focus).not.toMatch(/,/); // a single inset edge — no secondary soft ring
+    // :focus comes after :hover so it wins while both apply
+    const css = addModeOwnCSS();
+    expect(css.indexOf('.note-input:focus')).toBeGreaterThan(css.indexOf('.note-input:hover'));
+  });
+
+  test('save/cancel button states follow design spec §2', () => {
+    addMode.startAddMode(makeCallbacks());
+    expect(cssRule('.btn-save')).toMatch(/color:\s*var\(--sal-accent-ink\)/);
+    expect(cssRule('.btn-save')).toMatch(/font-weight:\s*700/);
+    expect(cssRule('.btn-save:not(:disabled):hover')).toMatch(/background:\s*var\(--sal-accent\);\s*color:\s*var\(--sal-on-accent\)/);
+    expect(cssRule('.btn-save:not(:disabled):active')).toMatch(/background:\s*var\(--sal-accent-press\)/);
+    const saveFocus = cssRule('.btn-save:not(:disabled):focus-visible');
+    expect(saveFocus).toMatch(/background:\s*var\(--sal-accent\)/);
+    expect(saveFocus).toMatch(/box-shadow:\s*inset 0 0 0 2px var\(--sal-focus\)/);
+    expect(cssRule('.btn-save:disabled')).toMatch(/color:\s*var\(--sal-muted\);\s*opacity:\s*0\.5/);
+
+    expect(cssRule('.btn-cancel')).toMatch(/color:\s*var\(--sal-muted\)/);
+    expect(cssRule('.btn-cancel:not(:disabled):hover')).toMatch(/background:\s*var\(--sal-hover\)/);
+    expect(cssRule('.btn-cancel:not(:disabled):active')).toMatch(/background:\s*var\(--sal-press\)/);
+    expect(cssRule('.btn-cancel:focus-visible')).toMatch(/box-shadow:\s*inset 0 0 0 2px var\(--sal-focus\)/);
+
+    // cancel comes before save in the footer, counter first
+    const footerKids = Array.from(shadowRoot().querySelectorAll('.footer > *'));
+    expect(footerKids).toHaveLength(0); // not built until placement
+    place(blocker(), 300, 200);
+    const classes = (Array.from(shadowRoot().querySelectorAll('.footer > *')) as HTMLElement[]).map((el) => el.className);
+    expect(classes).toEqual(['counter', 'btn btn-cancel', 'btn btn-save']);
   });
 
   test('textarea has a maxlength of 1000', () => {
@@ -449,29 +691,34 @@ describe('add mode', () => {
     expect(textarea().maxLength).toBe(1000);
   });
 
-  test('ok click fires onOk with the selection rect and trimmed note, and disables both buttons', () => {
+  test('save click fires onOk with the selection rect and trimmed note, and locks the comment box while capturing', () => {
     const cbs = makeCallbacks();
     addMode.startAddMode(cbs);
     place(blocker(), 300, 200);
 
-    textarea().value = '  spacing is off here  ';
-    textarea().dispatchEvent(new Event('input'));
-    click(okBtn(), 0, 0);
+    typeNote('  spacing is off here  ');
+    click(saveBtn(), 0, 0);
 
     expect(cbs.calls.ok).toHaveLength(1);
     expect(cbs.calls.ok[0].note).toBe('spacing is off here');
     expect(cbs.calls.ok[0].rect).toEqual({ x: 200, y: 125, width: 200, height: 150 });
-    expect(okBtn().disabled).toBe(true);
+    expect(saveBtn().disabled).toBe(true);
     expect(cancelBtn().disabled).toBe(true);
-    // add mode does not tear itself down on ok — the caller drives that.
+    expect(saveBtn().textContent).toBe('saving\u2026');
+    expect(textarea().readOnly).toBe(true);
+    expect(commentBoxEl()!.getAttribute('aria-busy')).toBe('true');
+    // add mode does not tear itself down on save — the caller drives that.
     expect(addMode.isAddModeActive()).toBe(true);
   });
 
-  test('cancel and ok buttons render lowercase labels per §3.4', () => {
+  test('cancel and save buttons render lowercase labels per §3.4 (no "ok" button remains)', () => {
     addMode.startAddMode(makeCallbacks());
     place(blocker(), 300, 200);
     expect(cancelBtn().textContent).toBe('cancel');
-    expect(okBtn().textContent).toBe('ok');
+    expect(saveBtn().textContent).toBe('save');
+    expect(shadowRoot().querySelector('.btn-ok')).toBeNull();
+    const labels = (Array.from(shadowRoot().querySelectorAll('button')) as HTMLButtonElement[]).map((b) => b.textContent);
+    expect(labels).not.toContain('ok');
   });
 
   // ── hide/show overlay UI (for Phase 5's capture pipeline) ────────────────
@@ -480,17 +727,19 @@ describe('add mode', () => {
     addMode.startAddMode(makeCallbacks());
     place(blocker(), 300, 200);
 
-    textarea().value = 'note';
-    textarea().dispatchEvent(new Event('input'));
-    click(okBtn(), 0, 0); // disables ok/cancel, simulating a capture in flight
+    typeNote('note');
+    click(saveBtn(), 0, 0); // disables save/cancel, simulating a capture in flight
 
     addMode.hideOverlayUI();
     expect(shadowRoot().querySelector('.visuals')!.getAttribute('data-hidden')).toBe('true');
 
     addMode.showOverlayUI();
     expect(shadowRoot().querySelector('.visuals')!.getAttribute('data-hidden')).toBe('false');
-    expect(okBtn().disabled).toBe(false); // note still present, so re-enabled
+    expect(saveBtn().disabled).toBe(false); // note still present, so re-enabled
+    expect(saveBtn().textContent).toBe('save');
     expect(cancelBtn().disabled).toBe(false);
+    expect(textarea().readOnly).toBe(false);
+    expect(commentBoxEl()!.hasAttribute('aria-busy')).toBe(false);
   });
 
   // ── keyboard isolation regression (Gmail/Instagram leak bug) ─────────────

@@ -55,7 +55,14 @@
 import { FeedbackItem } from './types';
 import { getSidebarWidth } from './sidebar';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
-import { getThemeCSS, registerThemedHost } from './theme';
+import {
+  getThemeCSS,
+  registerThemedHost,
+  FOCUS_RING_CSS,
+  PRESS_SCALE_CSS,
+  STATE_TRANSITION_CSS,
+  DISABLED_CSS,
+} from './theme';
 
 /** Highest possible z-index — see the file banner for why the host needs an
  *  explicit value at all rather than relying on DOM order. */
@@ -80,9 +87,7 @@ export interface ModalCallbacks {
  *  has to be read at the moment the modal is constructed. */
 const modalCss = (): string => `
   :host {
-    --accent:  #FEC800;
-    --error:   #FB645A;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: var(--sal-font-body);
   }
   *, *::before, *::after { box-sizing: border-box; }
 
@@ -96,7 +101,7 @@ const modalCss = (): string => `
        while the modal is open (§1.1). The custom property is set on <html> by
        sidebar.ts and inherits in here, so this tracks a live drag. */
     right: var(--annotator-sidebar-width, ${getSidebarWidth()}px);
-    background: rgba(0, 0, 0, 0.72);
+    background: var(--sal-backdrop);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -108,9 +113,10 @@ const modalCss = (): string => `
     flex-direction: column;
     max-width: min(900px, 100%);
     max-height: 100%;
-    background: #141414;
-    border-radius: 12px;
-    box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+    background: var(--sal-surface);
+    border: 1px solid var(--sal-line);
+    border-radius: var(--sal-radius-lg);
+    box-shadow: var(--sal-shadow-pop);
     overflow: hidden;
   }
 
@@ -119,29 +125,40 @@ const modalCss = (): string => `
     align-items: center;
     justify-content: space-between;
     flex-shrink: 0;
-    padding: 10px 14px;
-    background: #000000;
-    border-bottom: 1px solid rgba(255,255,255,0.10);
+    padding: 8px 10px 8px 16px;
+    border-bottom: 1px solid var(--sal-line);
   }
 
   .item-badge {
-    color: #FFFFFF;
-    font-size: 13px;
-    font-weight: 600;
+    font-family: var(--sal-font-display);
+    font-style: italic;
+    font-weight: 400;
+    font-size: 20px;
+    color: var(--sal-text);
   }
 
   .close-btn {
-    width: 28px;
-    height: 28px;
-    padding: 6px;
+    width: 32px;
+    height: 32px;
+    padding: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: transparent;
     border: none;
-    border-radius: 6px;
-    color: #FFFFFF;
+    border-radius: var(--sal-radius-md);
+    color: var(--sal-muted);
     cursor: pointer;
+    ${STATE_TRANSITION_CSS}
   }
-  .close-btn:hover { color: var(--accent); background: rgba(255,255,255,0.08); }
-  .close-btn svg { width: 100%; height: 100%; display: block; }
+  .close-btn:hover { background: var(--sal-hover); color: var(--sal-text); }
+  .close-btn:active { background: var(--sal-press); color: var(--sal-text); ${PRESS_SCALE_CSS} }
+  .close-btn:focus-visible {
+    outline: none;
+    color: var(--sal-text);
+    ${FOCUS_RING_CSS}
+  }
+  .close-btn svg { width: 18px; height: 18px; display: block; }
 
   .image-area {
     flex: 1 1 auto;
@@ -150,7 +167,7 @@ const modalCss = (): string => `
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #0a0a0a;
+    background: var(--sal-bg);
     padding: 12px;
   }
 
@@ -158,63 +175,92 @@ const modalCss = (): string => `
     max-width: 100%;
     max-height: 60vh;
     display: block;
+    border-radius: var(--sal-radius-md);
+    object-fit: contain;
   }
 
-  .footer {
-    flex-shrink: 0;
-    padding: 12px 14px;
+  /* Note editor: same merged textarea + footer-bar feel as the add-mode
+     comment box (§3.2) — no gap/border between the two, only the footer
+     bar's own top divider, so it still reads as one surface even though
+     (unlike the floating comment box) this editor lives inside the modal
+     panel rather than owning its own radius/shadow. */
+  .note-editor {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    background: #141414;
+    flex-shrink: 0;
   }
 
   .note-input {
     width: 100%;
     height: 88px;
     resize: vertical;
-    background: rgba(255,255,255,0.07);
-    border: 1px solid rgba(255,255,255,0.15);
-    border-radius: 6px;
-    padding: 8px 10px;
+    background: var(--sal-surface);
+    border: none;
+    padding: 10px 12px;
     font-size: 13px;
-    color: #FFFFFF;
     font-family: inherit;
+    color: var(--sal-text);
+    display: block;
   }
-  .note-input::placeholder { color: rgba(255,255,255,0.35); }
-  .note-input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+  .note-input::placeholder { color: var(--sal-muted); }
+  /* Hover/focus only darken the text area's own edge — the outer panel never
+     changes (§3.2: "no soft/secondary yellow ring anywhere"). */
+  .note-input:hover { box-shadow: inset 0 0 0 1px var(--sal-line-strong); }
+  .note-input:focus {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--sal-accent);
+  }
 
-  .footer-row {
+  .footer-bar {
+    height: 36px;
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+    padding: 0 10px;
+    border-top: 1px solid var(--sal-line);
   }
 
   .inline-error {
     font-size: 12px;
-    color: var(--error);
+    color: var(--sal-danger);
     flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .inline-error[hidden] { display: none !important; }
 
   .delete-btn {
-    height: 30px;
+    height: 28px;
     padding: 0 14px;
-    border-radius: 6px;
+    border-radius: var(--sal-radius-md);
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 600;
     cursor: pointer;
     border: none;
-    background: var(--error);
-    color: #FFFFFF;
+    background: var(--sal-danger-soft);
+    color: var(--sal-danger);
     flex-shrink: 0;
+    ${STATE_TRANSITION_CSS}
   }
-  .delete-btn:hover { background: #e04f46; }
-  .delete-btn:disabled { opacity: 0.5; cursor: default; }
+  .delete-btn:hover:not(:disabled) { background: var(--sal-danger-hover); }
+  .delete-btn:active:not(:disabled) {
+    background: var(--sal-danger-press);
+    ${PRESS_SCALE_CSS}
+  }
+  .delete-btn:focus-visible {
+    outline: none;
+    ${FOCUS_RING_CSS}
+  }
+  .delete-btn:disabled { ${DISABLED_CSS} }
 `;
 
-const ICON_CROSS_SMALL = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><polygon points="18.707 6.707 17.293 5.293 12 10.586 6.707 5.293 5.293 6.707 10.586 12 5.293 17.293 6.707 18.707 12 13.414 17.293 18.707 18.707 17.293 13.414 12 18.707 6.707"/></svg>`;
+// 1.8px stroke, round caps/joins, currentColor, 18px in the 32px close button
+// (design spec §1's icon table: `close: M6 6l12 12M18 6L6 18`).
+const ICON_CLOSE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>`;
 
 // ---------------------------------------------------------------------------
 // Module-level singleton state
@@ -333,7 +379,7 @@ function buildDOM(): void {
   elCloseBtn.className = 'close-btn';
   elCloseBtn.setAttribute('aria-label', 'close');
   elCloseBtn.title = 'close';
-  elCloseBtn.innerHTML = ICON_CROSS_SMALL;
+  elCloseBtn.innerHTML = ICON_CLOSE;
   elCloseBtn.addEventListener('click', () => void closeModal());
 
   header.appendChild(elBadge);
@@ -346,16 +392,19 @@ function buildDOM(): void {
   elImage.alt = 'captured feedback screenshot';
   imageArea.appendChild(elImage);
 
-  const footer = document.createElement('div');
-  footer.className = 'footer';
+  // Note editor: textarea + footer bar merged into one visual surface, same
+  // shape as the add-mode comment box (§3.2) — see the .note-editor CSS
+  // comment for why this doesn't also need its own radius/shadow/border here.
+  const noteEditor = document.createElement('div');
+  noteEditor.className = 'note-editor';
 
   elTextarea = document.createElement('textarea');
   elTextarea.className = 'note-input';
   elTextarea.placeholder = 'add a note...';
   elTextarea.addEventListener('blur', () => void maybeSaveNote());
 
-  const footerRow = document.createElement('div');
-  footerRow.className = 'footer-row';
+  const footerBar = document.createElement('div');
+  footerBar.className = 'footer-bar';
 
   elError = document.createElement('span');
   elError.className = 'inline-error';
@@ -367,15 +416,15 @@ function buildDOM(): void {
   elDeleteBtn.textContent = 'delete';
   elDeleteBtn.addEventListener('click', () => void handleDelete());
 
-  footerRow.appendChild(elError);
-  footerRow.appendChild(elDeleteBtn);
+  footerBar.appendChild(elError);
+  footerBar.appendChild(elDeleteBtn);
 
-  footer.appendChild(elTextarea);
-  footer.appendChild(footerRow);
+  noteEditor.appendChild(elTextarea);
+  noteEditor.appendChild(footerBar);
 
   panel.appendChild(header);
   panel.appendChild(imageArea);
-  panel.appendChild(footer);
+  panel.appendChild(noteEditor);
   elBackdrop.appendChild(panel);
   shadow.appendChild(elBackdrop);
 

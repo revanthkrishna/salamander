@@ -12,6 +12,7 @@
 
 import * as sidebar from '../sidebar';
 import { FeedbackItem } from '../types';
+import { _resetThemeStateForTests, setThemeMode } from '../theme';
 
 function getHost(): HTMLElement | null {
   return document.getElementById('annotator-sidebar-host');
@@ -94,6 +95,10 @@ describe('sidebar shell', () => {
     html().style.cssText = '';
     jest.useRealTimers();
     jest.restoreAllMocks();
+    // theme.ts's mode/listener state is a module-level singleton independent
+    // of the sidebar host's own lifecycle (see theme.test.ts) — reset it so
+    // a theme change made in one test can't leak into the next.
+    _resetThemeStateForTests();
   });
 
   // ── structure ────────────────────────────────────────────────────────────
@@ -111,15 +116,25 @@ describe('sidebar shell', () => {
     expect(sidebar.isSidebarVisible()).toBe(false);
   });
 
-  test('header shows exactly 4 buttons in order: add, export, import, close', () => {
+  test('header holds the logo, wordmark, theme toggle and close (in that order)', () => {
     sidebar.initSidebar(makeCallbacks());
-    const buttons = Array.from(shadowRoot().querySelectorAll('.header button'));
-    expect(buttons).toHaveLength(4);
+    const header = shadowRoot().querySelector('.header') as HTMLElement;
+    expect(header.querySelector('.logo img')).not.toBeNull();
+    expect(header.querySelector('.wordmark')?.textContent).toBe('salamander');
+
+    const buttons = Array.from(header.querySelectorAll('button'));
+    expect(buttons).toHaveLength(2);
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(['theme: auto', 'close sidebar']);
+  });
+
+  test('action row holds add, export and import (in that order)', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const buttons = Array.from(shadowRoot().querySelectorAll('.action-row button'));
+    expect(buttons).toHaveLength(3);
     expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual([
       'add feedback',
       'export feedback',
       'import feedback',
-      'close sidebar',
     ]);
   });
 
@@ -532,7 +547,7 @@ describe('sidebar shell', () => {
     sidebar.initSidebar(cb);
     sidebar.openSidebar();
 
-    const closeBtn = shadowRoot().querySelectorAll('.header button')[3] as HTMLButtonElement;
+    const closeBtn = shadowRoot().querySelector('button[aria-label="close sidebar"]') as HTMLButtonElement;
     closeBtn.click();
 
     expect(sidebar.isSidebarVisible()).toBe(false);
@@ -540,10 +555,10 @@ describe('sidebar shell', () => {
     expect(cb.calls.close).toBe(1);
   });
 
-  test('add and export buttons invoke their callbacks (no-ops for Phase 3, still wired)', () => {
+  test('add and export buttons invoke their callbacks (still no-ops of their own — Phases 4/8 fill them in)', () => {
     const cb = makeCallbacks();
     sidebar.initSidebar(cb);
-    const [addBtn, exportBtn] = Array.from(shadowRoot().querySelectorAll('.header button'));
+    const [addBtn, exportBtn] = Array.from(shadowRoot().querySelectorAll('.action-row button'));
     (addBtn as HTMLButtonElement).click();
     (exportBtn as HTMLButtonElement).click();
     expect(cb.calls.add).toBe(1);
@@ -576,16 +591,19 @@ describe('sidebar shell', () => {
     expect(empty.textContent).toBe('no feedback on this page yet');
   });
 
-  test('setThumbnails(items) hides the empty state, shows one <li> per item, badge + note preview', () => {
+  test('setThumbnails(items) hides the empty state, shows "this page (n)", one button.thumbnail per item, badge + note preview', () => {
     sidebar.initSidebar(makeCallbacks());
     sidebar.setThumbnails([makeItem({ id: 1, note: 'a' }), makeItem({ id: 2, note: '' })]);
 
     const empty = shadowRoot().querySelector('.empty-state') as HTMLElement;
     const list = shadowRoot().querySelector('.thumbnail-list') as HTMLElement;
+    const heading = shadowRoot().querySelector('.section-heading') as HTMLElement;
     expect(empty.hidden).toBe(true);
     expect(list.hidden).toBe(false);
+    expect(heading.hidden).toBe(false);
+    expect(heading.textContent).toBe('this page (2)');
 
-    const items = list.querySelectorAll('li.thumbnail');
+    const items = list.querySelectorAll('button.thumbnail');
     expect(items.length).toBe(2);
 
     const [first, second] = Array.from(items);
@@ -597,13 +615,23 @@ describe('sidebar shell', () => {
     expect(second.querySelector('.thumbnail-note')?.textContent).toBe('no note');
   });
 
+  test('the "this page (n)" heading is hidden along with the list when there are no items', () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.setThumbnails([makeItem({ id: 1 })]);
+    sidebar.setThumbnails([]);
+
+    const heading = shadowRoot().querySelector('.section-heading') as HTMLElement;
+    expect(heading.hidden).toBe(true);
+  });
+
   test('a second setThumbnails call replaces rather than appends', () => {
     sidebar.initSidebar(makeCallbacks());
     sidebar.setThumbnails([makeItem({ id: 1 })]);
     sidebar.setThumbnails([makeItem({ id: 2 }), makeItem({ id: 3 })]);
 
     const list = shadowRoot().querySelector('.thumbnail-list') as HTMLElement;
-    expect(list.querySelectorAll('li.thumbnail').length).toBe(2);
+    expect(list.querySelectorAll('button.thumbnail').length).toBe(2);
+    expect((shadowRoot().querySelector('.section-heading') as HTMLElement).textContent).toBe('this page (2)');
   });
 
   test('clicking a thumbnail fires onOpenItem with that item', () => {
@@ -612,7 +640,7 @@ describe('sidebar shell', () => {
     const item = makeItem({ id: 7 });
     sidebar.setThumbnails([item]);
 
-    const li = shadowRoot().querySelector('li.thumbnail') as HTMLLIElement;
+    const li = shadowRoot().querySelector('button.thumbnail') as HTMLButtonElement;
     li.click();
 
     expect(cb.calls.openItem).toEqual([item]);
@@ -624,7 +652,7 @@ describe('sidebar shell', () => {
     const item = makeItem({ id: 9 });
     sidebar.setThumbnails([item]);
 
-    const li = shadowRoot().querySelector('li.thumbnail') as HTMLLIElement;
+    const li = shadowRoot().querySelector('button.thumbnail') as HTMLButtonElement;
     li.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
 
     expect(cb.calls.openItem).toEqual([item]);
@@ -671,8 +699,8 @@ describe('sidebar shell', () => {
     expect(notif.classList.contains('warning')).toBe(true);
     // Compared by a distinctive path fragment rather than the whole string:
     // innerHTML round-trips `<path/>` back out as `<path></path>`.
-    expect(sidebar.ICON_EXCLAMATION).toContain('M12,1C6.916');
-    expect(icon.innerHTML).toContain('M12,1C6.916');
+    expect(sidebar.ICON_WARNING).toContain('M12 7.5v5.5');
+    expect(icon.innerHTML).toContain('M12 7.5v5.5');
 
     sidebar.showWarning('custom', '<svg id="custom-icon"></svg>');
     expect(icon.innerHTML).toContain('custom-icon');
@@ -712,5 +740,80 @@ describe('sidebar shell', () => {
 
     confirmSpy.mockReturnValue(false);
     await expect(sidebar.showConfirmDialog('replace your current feedback?')).resolves.toBe(false);
+  });
+
+  // ── theme toggle (design spec §3.4) ──────────────────────────────────────
+
+  function themeToggleBtn(): HTMLButtonElement {
+    return shadowRoot().querySelector('button[aria-label^="theme:"]') as HTMLButtonElement;
+  }
+
+  test('the theme toggle starts on "theme: auto" and cycles auto -> light -> dark -> auto on click', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const btn = themeToggleBtn();
+    expect(btn.getAttribute('aria-label')).toBe('theme: auto');
+    expect(btn.title).toBe('theme: auto');
+
+    btn.click();
+    expect(btn.getAttribute('aria-label')).toBe('theme: light');
+    btn.click();
+    expect(btn.getAttribute('aria-label')).toBe('theme: dark');
+    btn.click();
+    expect(btn.getAttribute('aria-label')).toBe('theme: auto');
+  });
+
+  test('the theme toggle label follows a mode change made elsewhere (e.g. another tab)', () => {
+    sidebar.initSidebar(makeCallbacks());
+    setThemeMode('dark'); // same call chrome.storage.onChanged sync ends in (see theme.test.ts)
+    expect(themeToggleBtn().getAttribute('aria-label')).toBe('theme: dark');
+  });
+
+  test('the sidebar host carries data-theme and the logo swaps between the yellow and black asset per theme', () => {
+    // chrome.runtime.getURL isn't part of the shared jest mock (setup.ts) —
+    // stand in an identity implementation just for this test, same pattern
+    // theme.test.ts's font-loading tests use.
+    const originalGetURL = (chrome.runtime as any).getURL;
+    (chrome.runtime as any).getURL = jest.fn((path: string) => path);
+    try {
+      sidebar.initSidebar(makeCallbacks());
+      const host = getHost() as HTMLElement;
+      const logoImg = shadowRoot().querySelector('.logo img') as HTMLImageElement;
+
+      expect(host.getAttribute('data-theme')).toBe('light');
+      expect(logoImg.getAttribute('src') ?? '').toContain('logo-button-black.svg');
+
+      themeToggleBtn().click(); // -> light (no-op transition, still light)
+      themeToggleBtn().click(); // -> dark
+      expect(host.getAttribute('data-theme')).toBe('dark');
+      expect(logoImg.getAttribute('src') ?? '').toContain('logo-button.svg');
+      expect(logoImg.getAttribute('src') ?? '').not.toContain('logo-button-black.svg');
+    } finally {
+      (chrome.runtime as any).getURL = originalGetURL;
+    }
+  });
+
+  // ── responsive layout (design spec §3.1) ─────────────────────────────────
+
+  test('narrows below ~220px: the wordmark hides and "add note" goes icon-only', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const panel = shadowRoot().querySelector('.sidebar') as HTMLElement;
+
+    sidebar.setSidebarWidth(300);
+    expect(panel.classList.contains('is-narrow')).toBe(false);
+
+    sidebar.setSidebarWidth(200);
+    expect(panel.classList.contains('is-narrow')).toBe(true);
+  });
+
+  test('goes compact at the low end of the range so the 100px floor never overflows', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const panel = shadowRoot().querySelector('.sidebar') as HTMLElement;
+
+    sidebar.setSidebarWidth(200);
+    expect(panel.classList.contains('is-compact')).toBe(false);
+
+    sidebar.setSidebarWidth(sidebar.SIDEBAR_MIN_WIDTH);
+    expect(panel.classList.contains('is-compact')).toBe(true);
+    expect(panel.classList.contains('is-narrow')).toBe(true);
   });
 });

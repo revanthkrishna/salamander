@@ -1,33 +1,43 @@
 // src/sidebar.ts
-// Phase 3 — the right-docked sidebar shell (REQUIREMENTS §1.1, §3.1).
+// The right-docked sidebar shell (REQUIREMENTS §1.1, design spec §3.1).
 //
-// Replaces v1's bottom-right floating toolbar (src/toolbar.ts, deleted) with a
-// full-height panel docked to the right edge that *resizes* the page instead of
-// overlaying it. The header's four buttons (add / export / import / close) are
-// wired to caller-supplied callbacks; per the Phase 3 brief add/export/import
-// are no-ops for now (Phases 4/8/9 fill them in) — only close does real work,
-// since closing is this phase's own job.
+// A full-height panel docked to the right edge that *resizes* the page instead
+// of overlaying it (see the PAGE RESIZE section below, unchanged by the
+// Salamander restyle). Structure per design spec §3.1:
+//   - header row: logo + wordmark, theme toggle, close
+//   - action row: primary "add note", secondary export/import icon buttons
+//   - notification banner (error/warning, auto-clears)
+//   - "this page (n)" heading + note list, or the empty state
 //
-// Carried over from toolbar.ts per DEVELOPMENT_PLAN.md's reuse list: the
-// closed-shadow-root host construction, inline currentColor SVG icons, the
-// showError / showWarning / showConfirmDialog primitives (Phases 5, 8 and 9 all
-// need them and toolbar.ts was their only home), and the design tokens from
-// docs/v1-archive/UX_DESIGN.md §11 (#FEC800 accent, #FB645A error, #D6AE7C
-// warning, #000000 toolbar bg, #FFFFFF / #B7B7B7 text).
+// This module owns the shell and wiring; src/thumbnails.ts owns the actual
+// note-list <li> construction (setThumbnails() below just toggles the
+// empty-state/heading and delegates to renderThumbnailList()). It stays
+// chrome.runtime-agnostic throughout — content.ts fetches items/wires
+// callbacks and opens src/modal.ts when onOpenItem fires — with the one
+// necessary exception of chrome.runtime.getURL() for the theme-dependent logo
+// asset, which is guarded the same way theme.ts guards every chrome.* access.
 //
-// Phase 7 fills in the body that Phase 3 left empty: setThumbnails() renders
-// the current URL's feedback items (src/thumbnails.ts does the actual <li>
-// construction; this module just owns the <ul> and the empty-state toggle)
-// and wires each thumbnail's "open" activation to the new onOpenItem
-// callback. This module stays chrome.runtime-agnostic throughout — it is
-// content.ts's job (the message-sending orchestrator, per the existing
-// onAdd/onExport/onImportFile pattern) to fetch items and hand them to
-// setThumbnails, and to open src/modal.ts with real save/delete callbacks
-// when onOpenItem fires.
+// Design tokens come from src/theme.ts's --sal-* custom properties
+// (getThemeCSS()) rather than any hardcoded palette; registerThemedHost keeps
+// this host's data-theme attribute (and therefore every var(--sal-*) below)
+// in sync with the user's theme mode for the sidebar's whole lifetime.
 
 import { FeedbackItem } from './types';
 import { renderThumbnailList } from './thumbnails';
-import { getThemeCSS, registerThemedHost } from './theme';
+import {
+  getThemeCSS,
+  registerThemedHost,
+  getThemeMode,
+  getResolvedTheme,
+  cycleThemeMode,
+  subscribeThemeChange,
+  ThemeMode,
+  ResolvedTheme,
+  FOCUS_RING_CSS,
+  PRESS_SCALE_CSS,
+  STATE_TRANSITION_CSS,
+  DISABLED_CSS,
+} from './theme';
 
 // ---------------------------------------------------------------------------
 // Sidebar width — user-resizable (drag handle on the panel's left edge) and
@@ -108,7 +118,16 @@ export function setSidebarWidth(px: number, options: { persist?: boolean } = {})
 }
 
 function applyWidthToPanel(): void {
-  if (elSidebar) elSidebar.style.width = `${sidebarWidth}px`;
+  if (elSidebar) {
+    elSidebar.style.width = `${sidebarWidth}px`;
+    // Responsive layout (design spec §3.1) — driven from here rather than a
+    // CSS container query so the same jsdom tests that already exercise
+    // every other width-driven behaviour in this module (drag/keyboard
+    // resize, persistence) can assert on it directly, with no layout engine
+    // required.
+    elSidebar.classList.toggle('is-narrow', sidebarWidth < NARROW_WIDTH_BREAKPOINT);
+    elSidebar.classList.toggle('is-compact', sidebarWidth < COMPACT_WIDTH_BREAKPOINT);
+  }
   if (elResizer) elResizer.setAttribute('aria-valuenow', String(sidebarWidth));
 }
 
@@ -158,42 +177,85 @@ export interface SidebarCallbacks {
 }
 
 // ---------------------------------------------------------------------------
-// Inline currentColor SVG icons (pattern and paths lifted from toolbar.ts)
+// Inline currentColor SVG icons — 1.8px stroke, round caps/joins (design
+// spec §1's icon language). Fill-based icons are gone with the v1 palette.
 // ---------------------------------------------------------------------------
 
-const ICON_ADD = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="M12,2a1,1,0,0,1,1,1V11h8a1,1,0,0,1,0,2H13v8a1,1,0,0,1-2,0V13H3a1,1,0,0,1,0-2h8V3A1,1,0,0,1,12,2Z"/></svg>`;
+/** Shared attributes for every stroke icon — kept as one string so a change
+ *  to the stroke language (weight, cap style) only has to happen once. */
+const STROKE_ICON_ATTRS =
+  'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
 
-const ICON_DOWNLOAD = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="M9.878,18.122a3,3,0,0,0,4.244,0l3.211-3.211A1,1,0,0,0,15.919,13.5l-2.926,2.927L13,1a1,1,0,0,0-1-1h0a1,1,0,0,0-1,1l-.009,15.408L8.081,13.5a1,1,0,0,0-1.414,1.415Z"/><path d="M23,16h0a1,1,0,0,0-1,1v4a1,1,0,0,1-1,1H3a1,1,0,0,1-1-1V17a1,1,0,0,0-1-1H1a1,1,0,0,0-1,1v4a3,3,0,0,0,3,3H21a3,3,0,0,0,3-3V17A1,1,0,0,0,23,16Z"/></svg>`;
+const ICON_PLUS = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M12 5v14M5 12h14"/></svg>`;
 
-const ICON_UPLOAD = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="M11.007,2.578,11,18.016a1,1,0,0,0,1,1h0a1,1,0,0,0,1-1l.007-15.421,2.912,2.913a1,1,0,0,0,1.414,0h0a1,1,0,0,0,0-1.414L14.122.879a3,3,0,0,0-4.244,0L6.667,4.091a1,1,0,0,0,0,1.414h0a1,1,0,0,0,1.414,0Z"/><path d="M22,17v4a1,1,0,0,1-1,1H3a1,1,0,0,1-1-1V17a1,1,0,0,0-1-1H1a1,1,0,0,0-1,1v4a3,3,0,0,0,3,3H21a3,3,0,0,0,3-3V17a1,1,0,0,0-1-1h0A1,1,0,0,0,22,17Z"/></svg>`;
+const ICON_EXPORT = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14"/></svg>`;
 
-const ICON_CROSS_SMALL = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><polygon points="18.707 6.707 17.293 5.293 12 10.586 6.707 5.293 5.293 6.707 10.586 12 5.293 17.293 6.707 18.707 12 13.414 17.293 18.707 18.707 17.293 13.414 12 18.707 6.707"/></svg>`;
+const ICON_IMPORT = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M5 19h14"/></svg>`;
 
-/** Default warning-bar icon. Exported so later phases can pass their own to
- *  showWarning() while still having the default to fall back on. */
-export const ICON_EXCLAMATION = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><g><path d="M12,1C6.916,1,1.081,2.25,1.081,12s5.835,11,10.919,11,10.919-1.25,10.919-11S17.084,1,12,1Zm0,20c-5.354,0-8.919-1.53-8.919-9S6.646,3,12,3s8.919,1.53,8.919,9-3.565,9-8.919,9Z"/><path d="M12,6.461c-.553,0-1,.447-1,1v5.667c0,.553,.447,1,1,1s1-.447,1-1V7.461c0-.553-.447-1-1-1Z"/></g><path d="M12,15.544c-.552,0-.999,.447-.999,.999s.447,.999,.999,.999,.999-.447,.999-.999-.447-.999-.999-.999Z"/></svg>`;
+const ICON_CLOSE = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M6 6l12 12M18 6L6 18"/></svg>`;
 
-/** Error-bar icon (v1's woozy face — kept for visual continuity). */
-const ICON_FACE_WOOZY = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true"><path d="M12,0C5.383,0,0,5.383,0,12s5.383,12,12,12,12-5.383,12-12S18.617,0,12,0Zm0,22c-5.514,0-10-4.486-10-10S6.486,2,12,2s10,4.486,10,10-4.486,10-10,10ZM5.37,9.334l-.742-1.857c1.188-.474,2.268-1.373,3.04-2.531l1.664,1.109c-1.01,1.514-2.38,2.647-3.962,3.279Zm8.63,.666c0-1.657,.672-3,1.5-3s1.5,1.343,1.5,3-.672,3-1.5,3-1.5-1.343-1.5-3Zm-7.447,1.105l4-2,.895,1.789-4,2-.895-1.789Zm10.582,3.394l1.731,1c-.337,.584-2.129,3.5-4.289,3.5-.903,0-1.609-.68-2.232-1.28-.263-.252-.702-.676-.884-.724-.149,.003-.338,.124-.656,.335-.423,.282-1.002,.668-1.805,.668-1.276,0-3.018-1.604-3.707-2.293l1.414-1.415c.85,.849,1.951,1.663,2.311,1.708,.171,0,.359-.121,.678-.333,.423-.282,1.002-.668,1.805-.668,.903,0,1.609,.68,2.232,1.28,.263,.252,.702,.676,.884,.724,.684-.003,1.91-1.456,2.519-2.504Z"/></svg>`;
+/** Default error-bar icon. Exported so later phases can pass their own to
+ *  showError()/showWarning() while still having the default to fall back on. */
+export const ICON_ERROR = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>`;
+
+/** Default warning-bar icon. */
+export const ICON_WARNING = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg>`;
+
+// ─── Theme toggle icons (design spec §3.4: sun / moon / half-circle) ────────
+
+const ICON_THEME_LIGHT = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5.6 5.6 4.2 4.2M19.8 19.8l-1.4-1.4M5.6 18.4 4.2 19.8M19.8 4.2l-1.4 1.4"/></svg>`;
+
+const ICON_THEME_DARK = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5Z"/></svg>`;
+
+/** "auto" — a half-filled circle rather than a third distinct glyph, so it
+ *  reads as "in between" light and dark at a glance. */
+const ICON_THEME_AUTO = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none"/></svg>`;
+
+const THEME_MODE_ICONS: Record<ThemeMode, string> = {
+  auto: ICON_THEME_AUTO,
+  light: ICON_THEME_LIGHT,
+  dark: ICON_THEME_DARK,
+};
+
+/** Logo asset paths (design spec §1) — the yellow mark reads on the dark
+ *  panel, the black copy on the light one. Both are already
+ *  web_accessible_resources in manifest.json. */
+const LOGO_PATH_DARK = 'icons/logo-button.svg';
+const LOGO_PATH_LIGHT = 'icons/logo-button-black.svg';
+
+/** Guarded chrome.runtime.getURL — mirrors theme.ts's own chrome.* guards
+ *  (optional-chained + try/catch) so this behaves the same under jsdom (no
+ *  chrome.runtime.getURL mock) as it does in a torn-down content-script
+ *  context: quietly falls back to an empty src rather than throwing. */
+function extensionUrl(path: string): string {
+  try {
+    return chrome?.runtime?.getURL ? chrome.runtime.getURL(path) : '';
+  } catch {
+    return '';
+  }
+}
 
 // ---------------------------------------------------------------------------
-// CSS — tokens carried over from docs/v1-archive/UX_DESIGN.md §11
+// CSS — Salamander design tokens (src/theme.ts's --sal-* custom properties,
+// design spec §1–§3.1). FOCUS_RING_CSS/PRESS_SCALE_CSS/STATE_TRANSITION_CSS/
+// DISABLED_CSS are the same shared interaction-state snippets modal.ts and
+// addMode.ts already paste in, so all three surfaces feel identical.
 // ---------------------------------------------------------------------------
+
+/** Below this width the wordmark hides and "add note" goes icon-only (design
+ *  spec §3.1's "narrow widths" rule). */
+const NARROW_WIDTH_BREAKPOINT = 220;
+/** Below this width the action row wraps to a column and the header sheds
+ *  the (purely decorative) logo mark, so the panel never overflows down to
+ *  the 100px floor. */
+const COMPACT_WIDTH_BREAKPOINT = 150;
 
 const SIDEBAR_CSS = `
   :host {
-    --accent:     #FEC800;
-    --error:      #FB645A;
-    --warning:    #D6AE7C;
-    --bg:         #000000;
-    --bg-panel:   #141414;
-    --text:       #FFFFFF;
-    --text-muted: #B7B7B7;
-    --border:     rgba(255,255,255,0.10);
-
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: var(--sal-font-body);
     font-size: 13px;
-    color: var(--text);
+    color: var(--sal-text);
   }
 
   *, *::before, *::after { box-sizing: border-box; }
@@ -209,20 +271,28 @@ const SIDEBAR_CSS = `
     /* Starting value only — applyWidthToPanel() writes the live width as an
        inline style once the persisted preference (if any) has loaded. */
     width: ${SIDEBAR_DEFAULT_WIDTH}px;
-    background: var(--bg-panel);
-    color: var(--text);
+    background: var(--sal-bg);
+    color: var(--sal-text);
     display: flex;
     flex-direction: column;
-    box-shadow: -2px 0 16px rgba(0,0,0,0.35);
+    border-left: 1px solid var(--sal-line);
+    /* No heavy shadow (§3.1) — the border-left is the only separation from
+       the page. */
     z-index: 2147483645;
+    /* Note-list items grow ~1.12x and translate up to -24px past the panel's
+       left edge under dock magnification (design spec §4, not yet wired —
+       see .thumbnail below); overflow must stay visible everywhere along
+       that path (.sidebar/.body/.thumbnail-list) or the effect gets clipped
+       at the panel's own boundary. */
+    overflow: visible;
   }
   .sidebar[hidden] { display: none !important; }
 
   /* ─── Drag handle on the page-facing (left) edge ──────────────────────────
-     A 6px hit target so it is actually grabbable, with a 2px visible rail that
-     only paints on hover/focus/drag so the panel's resting look is unchanged.
-     role="separator" + tabindex makes it keyboard-operable (arrow keys), which
-     a pure mousedown handle would not be. */
+     A 6px hit target so it is actually grabbable, with a 1px hairline that
+     is always visible (design spec §3.1) and turns accent on hover/drag/
+     focus. role="separator" + tabindex makes it keyboard-operable (arrow
+     keys), which a pure mousedown handle would not be. */
   .resizer {
     position: absolute;
     top: 0;
@@ -240,13 +310,16 @@ const SIDEBAR_CSS = `
     top: 0;
     bottom: 0;
     left: 0;
-    width: 2px;
-    background: transparent;
-    transition: background-color 120ms ease;
+    width: 1px;
+    background: var(--sal-line);
+    transition: background-color 140ms ease-out;
   }
   .resizer:hover::after,
-  .resizer.dragging::after { background: var(--accent); }
-  .resizer:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .resizer.dragging::after,
+  .resizer:focus-visible::after { background: var(--sal-accent); }
+  .resizer:focus-visible { outline: none; }
+
+  /* ─── Header: logo + wordmark, theme toggle, close (§3.1) ────────────── */
 
   .header {
     display: flex;
@@ -254,78 +327,175 @@ const SIDEBAR_CSS = `
     align-items: center;
     flex-shrink: 0;
     height: 56px;
-    padding: 0 8px;
-    gap: 4px;
-    background: var(--bg);
-    border-bottom: 1px solid var(--border);
+    padding: 0 10px 0 16px;
+    gap: 10px;
+    border-bottom: 1px solid var(--sal-line);
   }
+  .sidebar.is-compact .header { padding: 0 8px; gap: 6px; }
 
-  .icon-btn {
-    width: 40px;
-    height: 40px;
-    padding: 8px;
-    background: transparent;
-    border: none;
-    border-radius: 8px;
-    color: var(--text);
-    cursor: pointer;
+  .logo {
+    width: 35px;
+    height: 20px;
+    flex-shrink: 0;
+    display: block;
+  }
+  .logo img { width: 100%; height: 100%; display: block; }
+  /* Purely decorative chrome — shed first, before the header's actual
+     controls (theme toggle, close) could ever be squeezed out. */
+  .sidebar.is-compact .logo { display: none; }
+
+  .wordmark {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-family: var(--sal-font-display);
+    font-style: italic;
+    font-size: 22px;
+    line-height: 1;
+    color: var(--sal-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sidebar.is-narrow .wordmark { display: none; }
+
+  /* Ghost buttons: theme toggle + close (design spec §2's "ghost" row). */
+  .btn-ghost {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: color 120ms ease, background-color 120ms ease;
+    background: transparent;
+    border: none;
+    border-radius: var(--sal-radius-md);
+    color: var(--sal-muted);
+    cursor: pointer;
+    ${STATE_TRANSITION_CSS}
   }
-  .icon-btn:hover { color: var(--accent); background: rgba(255,255,255,0.06); }
-  .icon-btn:active .icon { transform: scale(0.88); }
-  .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-  .icon-btn[disabled] { cursor: default; opacity: 0.38; }
-  .icon-btn[disabled]:hover { color: var(--text); background: transparent; }
+  .btn-ghost:hover { background: var(--sal-hover); color: var(--sal-text); }
+  .btn-ghost:active { background: var(--sal-press); color: var(--sal-text); ${PRESS_SCALE_CSS} }
+  .btn-ghost:focus-visible { ${FOCUS_RING_CSS} outline: none; color: var(--sal-text); }
+  .btn-ghost[disabled] { ${DISABLED_CSS} }
+  .btn-ghost .icon { width: 16px; height: 16px; display: inline-flex; }
+  .btn-ghost.btn-close .icon { width: 18px; height: 18px; }
+  .btn-ghost .icon svg { width: 100%; height: 100%; display: block; }
 
-  .icon-btn .icon {
-    width: 20px;
-    height: 20px;
-    display: inline-flex;
-    transition: transform 80ms ease;
+  /* ─── Action row: primary "add note" + secondary export/import (§3.1) ── */
+
+  .action-row {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    padding: 4px 16px 16px;
+    gap: 8px;
   }
-  .icon-btn .icon svg { width: 100%; height: 100%; display: block; }
+  .sidebar.is-compact .action-row { padding-left: 8px; padding-right: 8px; flex-wrap: wrap; }
 
-  /* ─── Notification bar (error / warning) ──────────────────────────────
-     Carried over from toolbar.ts, collapsed into one bar with a colour
-     modifier since only one message is ever shown at a time. */
-  .notif { flex-shrink: 0; background: var(--bg); }
+  .btn-primary {
+    flex: 1 1 auto;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 12px;
+    background: var(--sal-accent);
+    color: var(--sal-on-accent);
+    border: none;
+    border-radius: var(--sal-radius-md);
+    font: 600 13px/1 var(--sal-font-body);
+    cursor: pointer;
+    ${STATE_TRANSITION_CSS}
+  }
+  .btn-primary:hover { background: var(--sal-accent-hover); }
+  .btn-primary:active { background: var(--sal-accent-press); ${PRESS_SCALE_CSS} }
+  .btn-primary:focus-visible { ${FOCUS_RING_CSS} outline: none; }
+  .btn-primary[disabled] { ${DISABLED_CSS} }
+  .btn-primary .icon { width: 16px; height: 16px; flex-shrink: 0; display: inline-flex; }
+  .btn-primary .icon svg { width: 100%; height: 100%; display: block; }
+  /* Icon-only once the wordmark itself would no longer fit (§3.1). */
+  .sidebar.is-narrow .btn-primary .btn-label { display: none; }
+  .sidebar.is-narrow .btn-primary { flex: 0 0 36px; padding: 0; }
+  /* At the 100px floor the action row wraps instead: the primary button
+     takes its own full-width row so the two icon buttons below always have
+     room to sit side by side. */
+  .sidebar.is-compact .btn-primary { flex: 1 1 100%; }
+
+  .btn-secondary {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--sal-surface);
+    border: 1px solid var(--sal-line);
+    border-radius: var(--sal-radius-md);
+    color: var(--sal-text);
+    cursor: pointer;
+    ${STATE_TRANSITION_CSS}
+  }
+  .btn-secondary:hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
+  .btn-secondary:active { background: var(--sal-press); border-color: var(--sal-line-strong); ${PRESS_SCALE_CSS} }
+  .btn-secondary:focus-visible { ${FOCUS_RING_CSS} outline: none; }
+  .btn-secondary[disabled] { ${DISABLED_CSS} }
+  .btn-secondary .icon { width: 16px; height: 16px; display: inline-flex; }
+  .btn-secondary .icon svg { width: 100%; height: 100%; display: block; }
+
+  /* ─── Notification banner (error / warning) — design spec §3.1 ────────
+     An inline rounded banner (not the old full-bleed black bar), with a
+     subtle bottom progress line standing in for the countdown bar. Only one
+     message is ever shown at a time, so a single .warning modifier covers
+     both colour variants. */
+  .notif {
+    flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+    margin: 0 16px 12px;
+    border-radius: var(--sal-radius-md);
+    background: var(--sal-danger-soft);
+    color: var(--sal-danger);
+  }
+  .notif.warning { background: var(--sal-warn-soft); color: var(--sal-warn); }
   .notif[hidden] { display: none !important; }
 
-  .countdown-bar {
+  .notif-progress {
+    position: absolute;
+    left: 0;
+    bottom: 0;
     width: 100%;
-    height: 3px;
-    background: var(--error);
+    height: 2px;
+    background: currentColor;
+    opacity: 0.3;
     transform-origin: left center;
     transform: scaleX(1);
   }
-  .countdown-bar[hidden] { display: none !important; }
-  .notif.warning .countdown-bar { background: var(--warning); }
+  .notif-progress[hidden] { display: none !important; }
 
   .notif-row {
+    position: relative;
     display: flex;
     flex-direction: row;
-    align-items: center;
-    min-height: 32px;
-    padding: 8px 12px;
+    align-items: flex-start;
+    padding: 10px 12px;
     gap: 6px;
-    color: var(--error);
   }
-  .notif.warning .notif-row { color: var(--warning); }
 
   .notif-row .icon {
     width: 16px;
     height: 16px;
+    margin-top: 1px;
     flex-shrink: 0;
     display: inline-flex;
   }
   .notif-row .icon svg { width: 100%; height: 100%; display: block; }
 
   .notif-text {
-    font-size: 12px;
-    line-height: 14px;
+    font-size: 12.5px;
+    line-height: 1.4;
     flex: 1 1 auto;
     word-break: break-word;
   }
@@ -333,85 +503,126 @@ const SIDEBAR_CSS = `
   .body {
     flex: 1 1 auto;
     overflow-y: auto;
-    overflow-x: hidden;
-    padding: 16px;
+    /* Visible, not hidden — see the .sidebar comment above: dock
+       magnification (§4) translates note-list items past the panel's own
+       left edge and nothing along that path may clip it. */
+    overflow-x: visible;
+    padding: 12px 0 16px;
   }
 
+  .section-heading {
+    margin: 0 16px 12px;
+    font: 600 12px/1.2 var(--sal-font-body);
+    color: var(--sal-muted);
+  }
+  .section-heading[hidden] { display: none !important; }
+
   .empty-state {
-    color: var(--text-muted);
+    color: var(--sal-muted);
     font-size: 13px;
     line-height: 1.5;
     text-align: center;
     margin-top: 48px;
-    padding: 0 12px;
+    padding: 0 24px;
   }
   .empty-state[hidden] { display: none !important; }
 
   .thumbnail-list {
     list-style: none;
     margin: 0;
-    padding: 0;
+    padding: 0 16px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 16px;
+    overflow: visible;
   }
   .thumbnail-list[hidden] { display: none !important; }
 
-  /* ─── Thumbnails (Phase 7, §1.5/§3.3) ─────────────────────────────────── */
+  /* ─── Note list items (design spec §3.1/§4) ───────────────────────────
+     Each item is a real <button> (src/thumbnails.ts) so Enter/Space/click
+     all come from native button semantics rather than a hand-rolled
+     role="button". No card/box around the item — just the thumbnail image
+     and the note text below it.
 
+     Hook point for the Phase 3 dock-magnification agent: it drives
+     transform: translateX(...) scale(...) (transform-origin: right
+     center) on .thumbnail from a pointermove-driven rAF spring, keyed off
+     each item's layout-time vertical centre. Nothing here should assume a
+     static transform, and nothing along the ancestor chain above clips
+     overflow, by design. */
   .thumbnail {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+    display: block;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: transparent;
+    text-align: left;
+    border-radius: var(--sal-radius-md);
     cursor: pointer;
-    border-radius: 8px;
-    padding: 6px;
-    transition: background-color 120ms ease;
+    position: relative;
+    ${STATE_TRANSITION_CSS}
   }
-  .thumbnail:hover { background: rgba(255,255,255,0.06); }
-  .thumbnail:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .thumbnail:focus-visible { outline: none; }
+  .thumbnail:focus-visible .thumbnail-image-wrap { ${FOCUS_RING_CSS} }
 
   .thumbnail-image-wrap {
     position: relative;
     width: 100%;
-    border-radius: 6px;
+    height: 100px;
+    border-radius: var(--sal-radius-md);
     overflow: hidden;
-    background: #000000;
+    background: var(--sal-raised);
     line-height: 0;
   }
 
   .thumbnail-image {
     width: 100%;
-    height: auto;
+    height: 100%;
+    object-fit: contain;
     display: block;
   }
 
   .thumbnail-badge {
     position: absolute;
-    top: 6px;
-    left: 6px;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    border-radius: 9px;
-    background: var(--accent);
-    color: #000000;
-    font-size: 11px;
-    font-weight: 700;
-    line-height: 18px;
+    top: 8px;
+    left: 8px;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: var(--sal-radius-sm);
+    background: var(--sal-accent);
+    color: var(--sal-on-accent);
+    font: 600 11px/20px var(--sal-font-mono);
     text-align: center;
   }
 
   .thumbnail-note {
-    margin: 0;
-    font-size: 12px;
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    max-width: 100%;
+    border-radius: var(--sal-radius-md);
+    background: transparent;
+    font-size: 13px;
     line-height: 1.4;
-    color: var(--text);
+    color: var(--sal-text);
     word-break: break-word;
+    /* Clamp to 3 lines (§3.1) rather than letting long notes push the list
+       around. */
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    ${STATE_TRANSITION_CSS}
   }
-  .thumbnail-note-empty {
-    color: var(--text-muted);
-    font-style: italic;
+  .thumbnail-note-empty { color: var(--sal-muted); font-style: italic; }
+  /* Hovered/focused item's note gets a surface background + shadowNote,
+     never wider than the thumbnail above it (the shared max-width already
+     guarantees that) — the thumbnail itself never gets a background. */
+  .thumbnail:hover .thumbnail-note,
+  .thumbnail:focus-visible .thumbnail-note {
+    background: var(--sal-surface);
+    box-shadow: var(--sal-shadow-note);
   }
 `;
 
@@ -424,11 +635,14 @@ let sidebarShadow: ShadowRoot | null = null;
 
 let elSidebar: HTMLDivElement | null = null;
 let elResizer: HTMLDivElement | null = null;
+let elLogoImg: HTMLImageElement | null = null;
+let elBtnTheme: HTMLButtonElement | null = null;
 let elBtnAdd: HTMLButtonElement | null = null;
 let elBtnExport: HTMLButtonElement | null = null;
 let elBtnImport: HTMLButtonElement | null = null;
 let elBtnClose: HTMLButtonElement | null = null;
 let elFileInput: HTMLInputElement | null = null;
+let elHeading: HTMLHeadingElement | null = null;
 let elEmptyState: HTMLParagraphElement | null = null;
 let elThumbnailList: HTMLUListElement | null = null;
 let elNotif: HTMLDivElement | null = null;
@@ -439,6 +653,10 @@ let elCountdownBar: HTMLDivElement | null = null;
 let callbacksRef: SidebarCallbacks | null = null;
 let visible = false;
 let notifTimer: ReturnType<typeof setTimeout> | null = null;
+/** Unsubscribes this host from theme.ts's mode/resolved-theme change feed
+ *  (the theme toggle's icon/label and the logo swap both depend on it). Set
+ *  in initSidebar, called from destroySidebar. */
+let unsubscribeThemeChange: (() => void) | null = null;
 
 // ---------------------------------------------------------------------------
 // DOM construction
@@ -448,8 +666,6 @@ function buildDOM(shadow: ShadowRoot): void {
   const style = document.createElement('style');
   // Salamander design tokens (--sal-*) as :host custom properties, prepended
   // ahead of the sidebar's own CSS so every rule below can reference them.
-  // Phase 1 only wires this up; restyling SIDEBAR_CSS itself is a later
-  // phase's job.
   style.textContent = getThemeCSS() + '\n' + SIDEBAR_CSS;
   shadow.appendChild(style);
 
@@ -470,18 +686,40 @@ function buildDOM(shadow: ShadowRoot): void {
   elResizer.setAttribute('aria-valuemax', String(SIDEBAR_MAX_WIDTH));
   elResizer.setAttribute('aria-valuenow', String(sidebarWidth));
 
+  // ── Header: logo + wordmark, theme toggle, close (design spec §3.1) ──────
   const header = document.createElement('div');
   header.className = 'header';
 
-  elBtnAdd = makeIconButton(ICON_ADD, 'add feedback');
-  elBtnExport = makeIconButton(ICON_DOWNLOAD, 'export feedback');
-  elBtnImport = makeIconButton(ICON_UPLOAD, 'import feedback');
-  elBtnClose = makeIconButton(ICON_CROSS_SMALL, 'close sidebar');
+  const logo = document.createElement('span');
+  logo.className = 'logo';
+  elLogoImg = document.createElement('img');
+  elLogoImg.alt = ''; // decorative — the wordmark carries the name
+  elLogoImg.draggable = false;
+  logo.appendChild(elLogoImg);
 
-  header.appendChild(elBtnAdd);
-  header.appendChild(elBtnExport);
-  header.appendChild(elBtnImport);
+  const wordmark = document.createElement('span');
+  wordmark.className = 'wordmark';
+  wordmark.textContent = 'salamander';
+
+  elBtnTheme = makeGhostButton(THEME_MODE_ICONS.auto, 'theme: auto');
+  elBtnClose = makeGhostButton(ICON_CLOSE, 'close sidebar', 'btn-close');
+
+  header.appendChild(logo);
+  header.appendChild(wordmark);
+  header.appendChild(elBtnTheme);
   header.appendChild(elBtnClose);
+
+  // ── Action row: primary "add note" + secondary export/import (§3.1) ─────
+  const actionRow = document.createElement('div');
+  actionRow.className = 'action-row';
+
+  elBtnAdd = makePrimaryButton(ICON_PLUS, 'add feedback', 'add note');
+  elBtnExport = makeSecondaryButton(ICON_EXPORT, 'export feedback');
+  elBtnImport = makeSecondaryButton(ICON_IMPORT, 'import feedback');
+
+  actionRow.appendChild(elBtnAdd);
+  actionRow.appendChild(elBtnExport);
+  actionRow.appendChild(elBtnImport);
 
   // Notification bar — live region so a screen reader announces errors and
   // warnings that appear without the user having focused anything.
@@ -491,24 +729,28 @@ function buildDOM(shadow: ShadowRoot): void {
   elNotif.hidden = true;
 
   elCountdownBar = document.createElement('div');
-  elCountdownBar.className = 'countdown-bar';
+  elCountdownBar.className = 'notif-progress';
   elCountdownBar.hidden = true;
 
   const notifRow = document.createElement('div');
   notifRow.className = 'notif-row';
   elNotifIcon = document.createElement('span');
   elNotifIcon.className = 'icon';
-  elNotifIcon.innerHTML = ICON_FACE_WOOZY;
+  elNotifIcon.innerHTML = ICON_ERROR;
   elNotifText = document.createElement('span');
   elNotifText.className = 'notif-text';
   notifRow.appendChild(elNotifIcon);
   notifRow.appendChild(elNotifText);
 
-  elNotif.appendChild(elCountdownBar);
   elNotif.appendChild(notifRow);
+  elNotif.appendChild(elCountdownBar);
 
   const body = document.createElement('div');
   body.className = 'body';
+
+  elHeading = document.createElement('h2');
+  elHeading.className = 'section-heading';
+  elHeading.hidden = true;
 
   elEmptyState = document.createElement('p');
   elEmptyState.className = 'empty-state';
@@ -518,6 +760,7 @@ function buildDOM(shadow: ShadowRoot): void {
   elThumbnailList.className = 'thumbnail-list';
   elThumbnailList.hidden = true;
 
+  body.appendChild(elHeading);
   body.appendChild(elEmptyState);
   body.appendChild(elThumbnailList);
 
@@ -528,6 +771,7 @@ function buildDOM(shadow: ShadowRoot): void {
 
   elSidebar.appendChild(elResizer);
   elSidebar.appendChild(header);
+  elSidebar.appendChild(actionRow);
   elSidebar.appendChild(elNotif);
   elSidebar.appendChild(body);
   elSidebar.appendChild(elFileInput);
@@ -535,10 +779,13 @@ function buildDOM(shadow: ShadowRoot): void {
   shadow.appendChild(elSidebar);
 }
 
-function makeIconButton(svgMarkup: string, ariaLabel: string): HTMLButtonElement {
+/** Ghost button (theme toggle / close) — transparent at rest, per design
+ *  spec §2's "ghost" row. `extraClass` lets the close button size its icon
+ *  up to 18px without a whole second button variant. */
+function makeGhostButton(svgMarkup: string, ariaLabel: string, extraClass = ''): HTMLButtonElement {
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'icon-btn';
+  btn.className = extraClass ? `btn-ghost ${extraClass}` : 'btn-ghost';
   btn.setAttribute('aria-label', ariaLabel);
   btn.title = ariaLabel;
   const span = document.createElement('span');
@@ -546,6 +793,57 @@ function makeIconButton(svgMarkup: string, ariaLabel: string): HTMLButtonElement
   span.innerHTML = svgMarkup;
   btn.appendChild(span);
   return btn;
+}
+
+/** Secondary icon button (export / import) — surface fill, 1px line border. */
+function makeSecondaryButton(svgMarkup: string, ariaLabel: string): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn-secondary';
+  btn.setAttribute('aria-label', ariaLabel);
+  btn.title = ariaLabel;
+  const span = document.createElement('span');
+  span.className = 'icon';
+  span.innerHTML = svgMarkup;
+  btn.appendChild(span);
+  return btn;
+}
+
+/** Primary button ("add note") — accent fill, icon + label (label hides at
+ *  narrow widths via the .is-narrow CSS class). */
+function makePrimaryButton(svgMarkup: string, ariaLabel: string, label: string): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn-primary';
+  btn.setAttribute('aria-label', ariaLabel);
+  btn.title = ariaLabel;
+  const icon = document.createElement('span');
+  icon.className = 'icon';
+  icon.innerHTML = svgMarkup;
+  const text = document.createElement('span');
+  text.className = 'btn-label';
+  text.textContent = label;
+  btn.appendChild(icon);
+  btn.appendChild(text);
+  return btn;
+}
+
+/** Reflects the current theme mode onto the toggle's icon + aria-label/title
+ *  (design spec §3.4 — "aria-label/title describe the *current* mode"). */
+function updateThemeToggleUI(mode: ThemeMode): void {
+  if (!elBtnTheme) return;
+  const icon = elBtnTheme.querySelector('.icon');
+  if (icon) icon.innerHTML = THEME_MODE_ICONS[mode];
+  const label = `theme: ${mode}`;
+  elBtnTheme.setAttribute('aria-label', label);
+  elBtnTheme.title = label;
+}
+
+/** Swaps the logo asset for the resolved theme (design spec §1: yellow mark
+ *  on dark, black copy on light). */
+function updateLogoForTheme(resolved: ResolvedTheme): void {
+  if (!elLogoImg) return;
+  elLogoImg.src = extensionUrl(resolved === 'dark' ? LOGO_PATH_DARK : LOGO_PATH_LIGHT);
 }
 
 // ---------------------------------------------------------------------------
@@ -610,8 +908,26 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
     callbacksRef?.onClose();
   });
 
+  elBtnTheme!.addEventListener('click', (e) => {
+    e.stopPropagation();
+    updateThemeToggleUI(cycleThemeMode());
+  });
+
   elResizer!.addEventListener('mousedown', onResizerMouseDown);
   elResizer!.addEventListener('keydown', onResizerKeyDown);
+
+  // Theme (design spec §3.4): paint the toggle/logo for whatever mode is
+  // already resolved (a fresh 'auto' default, or a mode already restored
+  // from chrome.storage.local by the time this host is built), then stay
+  // live for every future change — this surface's own cycleThemeMode()
+  // click above, another tab's chrome.storage.onChanged write, or (in
+  // 'auto' mode) the OS flipping light/dark.
+  updateThemeToggleUI(getThemeMode());
+  updateLogoForTheme(getResolvedTheme());
+  unsubscribeThemeChange = subscribeThemeChange((mode, resolved) => {
+    updateThemeToggleUI(mode);
+    updateLogoForTheme(resolved);
+  });
 
   applyWidthToPanel();
   loadPersistedWidth();
@@ -750,13 +1066,18 @@ export function setImportButtonEnabled(enabled: boolean): void {
  * successful capture or a modal close (edit/delete).
  */
 export function setThumbnails(items: FeedbackItem[]): void {
-  if (!elEmptyState || !elThumbnailList || !callbacksRef) return;
+  if (!elEmptyState || !elThumbnailList || !elHeading || !callbacksRef) return;
   if (items.length === 0) {
+    elHeading.hidden = true;
     elEmptyState.hidden = false;
     elThumbnailList.hidden = true;
     elThumbnailList.innerHTML = '';
     return;
   }
+  // "this page (n)" (design spec §3.1) — only ever shown alongside the list,
+  // never alongside the empty state.
+  elHeading.textContent = `this page (${items.length})`;
+  elHeading.hidden = false;
   elEmptyState.hidden = true;
   elThumbnailList.hidden = false;
   renderThumbnailList(elThumbnailList, items, {
@@ -772,6 +1093,8 @@ export function destroySidebar(): void {
   clearMessage();
   endResizeDrag();
   restorePageResize();
+  unsubscribeThemeChange?.();
+  unsubscribeThemeChange = null;
   if (sidebarHost && sidebarHost.parentNode) {
     sidebarHost.parentNode.removeChild(sidebarHost);
   }
@@ -779,11 +1102,14 @@ export function destroySidebar(): void {
   sidebarShadow = null;
   elSidebar = null;
   elResizer = null;
+  elLogoImg = null;
+  elBtnTheme = null;
   elBtnAdd = null;
   elBtnExport = null;
   elBtnImport = null;
   elBtnClose = null;
   elFileInput = null;
+  elHeading = null;
   elEmptyState = null;
   elThumbnailList = null;
   elNotif = null;
@@ -809,13 +1135,13 @@ const NOTIF_DURATION_MS = 8000;
 
 /** Show the error bar inside the sidebar. Auto-clears after 8s. */
 export function showError(message: string): void {
-  showNotif('error', message, ICON_FACE_WOOZY);
+  showNotif('error', message, ICON_ERROR);
 }
 
 /** Show the warning bar inside the sidebar. Auto-clears after 8s. Pass
  *  `customIcon` to swap the default exclamation for this one message. */
 export function showWarning(message: string, customIcon?: string): void {
-  showNotif('warning', message, customIcon ?? ICON_EXCLAMATION);
+  showNotif('warning', message, customIcon ?? ICON_WARNING);
 }
 
 function showNotif(kind: 'error' | 'warning', message: string, icon: string): void {

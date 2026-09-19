@@ -26,7 +26,11 @@ test.afterEach(async () => {
   await context.close();
 });
 
-test('clicking the icon opens the sidebar, docked right, with 4 header buttons and the empty state', async () => {
+test('clicking the icon opens the sidebar, docked right, with the header/action-row controls and the empty state', async () => {
+  // Salamander restyle (design spec §3.1): add/export/import moved out of
+  // the header into their own action row below it, and the header itself
+  // gained a logo/wordmark and a theme toggle — but every button still
+  // carries the same aria-label, so the selectors below are unchanged.
   const page = await context.newPage();
   await page.goto(fileServer.baseUrl);
   await helper.activateExtension(context, page);

@@ -384,4 +384,56 @@ describe('modal', () => {
       }
     });
   });
+
+  // Design spec §3.3 regression coverage: the modal used to hardcode a black
+  // header bar, a #141414 panel and a #FB645A delete button rather than
+  // pulling from the shared Salamander tokens (theme.ts). These guard
+  // against sliding back to those v1 literals now that every surface is
+  // supposed to read from `var(--sal-*)` instead.
+  describe('design spec §3.3 — Salamander tokens instead of v1 hardcoded colours', () => {
+    it('panel, header and delete button reference --sal- tokens, not v1 literals', () => {
+      modal.openModal(makeItem(), makeCallbacks());
+      const styleText = shadowRoot().querySelector('style')!.textContent ?? '';
+
+      expect(styleText).toContain('var(--sal-surface)');
+      expect(styleText).toContain('var(--sal-backdrop)');
+      expect(styleText).toContain('var(--sal-shadow-pop)');
+      expect(styleText).toContain('var(--sal-danger-soft)');
+
+      // v1 literals that must be gone.
+      expect(styleText).not.toContain('#141414');
+      expect(styleText).not.toContain('#FB645A');
+      expect(styleText).not.toContain('rgba(0, 0, 0, 0.72)');
+      expect(styleText).not.toContain('background: #000000');
+    });
+
+    it('renders the note editor as a merged textarea + footer bar (§3.2 comment-box shape)', () => {
+      modal.openModal(makeItem(), makeCallbacks());
+
+      const editor = shadowRoot().querySelector('.note-editor') as HTMLElement;
+      expect(editor).not.toBeNull();
+
+      const textarea = editor.querySelector('textarea.note-input');
+      const footerBar = editor.querySelector('.footer-bar');
+      expect(textarea).not.toBeNull();
+      expect(footerBar).not.toBeNull();
+
+      // Error text on the left, delete on the right, both inside the bar.
+      expect(footerBar!.querySelector('.inline-error')).not.toBeNull();
+      expect(footerBar!.querySelector('.delete-btn')).not.toBeNull();
+    });
+
+    it('close button keeps its aria-label/title and renders an 18x18 stroked icon', () => {
+      modal.openModal(makeItem(), makeCallbacks());
+
+      const closeBtn = shadowRoot().querySelector('.close-btn') as HTMLButtonElement;
+      expect(closeBtn.getAttribute('aria-label')).toBe('close');
+      expect(closeBtn.title).toBe('close');
+
+      const svg = closeBtn.querySelector('svg');
+      expect(svg).not.toBeNull();
+      expect(svg!.getAttribute('stroke-width')).toBe('1.8');
+      expect(svg!.getAttribute('stroke-linecap')).toBe('round');
+    });
+  });
 });

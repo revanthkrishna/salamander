@@ -38,11 +38,16 @@ describe('truncateNotePreview', () => {
     expect(truncateNotePreview('  hello  ')).toBe('hello');
   });
 
-  it('truncates long notes with a trailing ellipsis, capped at the preview length', () => {
-    const long = 'x'.repeat(200);
+  it('truncates pathologically long notes with a trailing ellipsis (visual 3-line clamp is CSS, this is just a DOM-size ceiling)', () => {
+    const long = 'x'.repeat(2000);
     const preview = truncateNotePreview(long);
-    expect(preview.length).toBeLessThanOrEqual(80);
+    expect(preview.length).toBeLessThanOrEqual(600);
     expect(preview.endsWith('…')).toBe(true);
+  });
+
+  it('leaves realistic note lengths untouched — the 3-line clamp is CSS, not a JS char cap', () => {
+    const note = 'x'.repeat(200);
+    expect(truncateNotePreview(note)).toBe(note);
   });
 
   it('returns an empty string for an empty/whitespace-only note', () => {
@@ -57,10 +62,11 @@ describe('renderThumbnailList', () => {
     listEl = document.createElement('ul');
   });
 
-  it('renders one <li class="thumbnail"> per item, in the order given', () => {
+  it('renders one <li> wrapping a real <button class="thumbnail"> per item, in the order given', () => {
     renderThumbnailList(listEl, [makeItem({ id: 1 }), makeItem({ id: 2 })], { onOpen: jest.fn() });
-    const items = listEl.querySelectorAll('li.thumbnail');
+    const items = listEl.querySelectorAll('li > button.thumbnail');
     expect(items.length).toBe(2);
+    expect(items[0].tagName).toBe('BUTTON');
     expect(items[0].querySelector('.thumbnail-badge')?.textContent).toBe('1');
     expect(items[1].querySelector('.thumbnail-badge')?.textContent).toBe('2');
   });
@@ -68,7 +74,7 @@ describe('renderThumbnailList', () => {
   it('clears previous content before rendering (no accumulation across calls)', () => {
     renderThumbnailList(listEl, [makeItem({ id: 1 })], { onOpen: jest.fn() });
     renderThumbnailList(listEl, [makeItem({ id: 2 }), makeItem({ id: 3 })], { onOpen: jest.fn() });
-    expect(listEl.querySelectorAll('li.thumbnail').length).toBe(2);
+    expect(listEl.querySelectorAll('button.thumbnail').length).toBe(2);
   });
 
   it('sets the thumbnail image src from thumbnailDataUrl', () => {
@@ -114,7 +120,7 @@ describe('renderThumbnailList', () => {
     const item = makeItem({ id: 42 });
     renderThumbnailList(listEl, [item], { onOpen });
 
-    (listEl.querySelector('li.thumbnail') as HTMLLIElement).click();
+    (listEl.querySelector('button.thumbnail') as HTMLButtonElement).click();
 
     expect(onOpen).toHaveBeenCalledWith(item);
   });
@@ -123,21 +129,21 @@ describe('renderThumbnailList', () => {
     const onOpen = jest.fn();
     const item = makeItem({ id: 5 });
     renderThumbnailList(listEl, [item], { onOpen });
-    const li = listEl.querySelector('li.thumbnail') as HTMLLIElement;
+    const btn = listEl.querySelector('button.thumbnail') as HTMLButtonElement;
 
-    li.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    btn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
     expect(onOpen).not.toHaveBeenCalled();
 
-    li.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    li.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    btn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    btn.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
     expect(onOpen).toHaveBeenCalledTimes(2);
   });
 
-  it('marks each thumbnail as a keyboard-focusable, labelled button role', () => {
+  it('marks each thumbnail as a real, labelled <button> (native focusability/activation)', () => {
     renderThumbnailList(listEl, [makeItem({ id: 3 })], { onOpen: jest.fn() });
-    const li = listEl.querySelector('li.thumbnail') as HTMLLIElement;
-    expect(li.tabIndex).toBe(0);
-    expect(li.getAttribute('role')).toBe('button');
-    expect(li.getAttribute('aria-label')).toContain('3');
+    const btn = listEl.querySelector('button.thumbnail') as HTMLButtonElement;
+    expect(btn.tagName).toBe('BUTTON');
+    expect(btn.type).toBe('button');
+    expect(btn.getAttribute('aria-label')).toContain('3');
   });
 });

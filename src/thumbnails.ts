@@ -1,16 +1,30 @@
 // src/thumbnails.ts
-// Phase 7 — sidebar thumbnail list rendering (REQUIREMENTS §1.5, §3.3).
+// Sidebar note-list rendering (REQUIREMENTS §1.5, design spec §3.1/§3.3).
 //
 // Pure DOM builder: given the shadow-root <ul> sidebar.ts already owns and a
 // list of FeedbackItem for the current URL, (re)builds one <li> per item —
-// screenshot image, item-number badge, note text truncated to a preview
-// length — and wires a click/keyboard "open" handler per item. No
-// chrome.runtime, no module-level state: sidebar.ts calls renderThumbnailList
-// on every refresh and this module just repaints the list from scratch,
-// mirroring how addMode/modal own their own DOM but this one owns none of
-// its own — the <ul> belongs to sidebar.ts's shadow root (§1.1's single
-// closed-shadow-root-per-surface pattern doesn't apply here since this isn't
-// a separate host).
+// each wrapping a real <button class="thumbnail"> (screenshot + number badge
+// + note text below, no card/box around it) — and wires its click/keyboard
+// "open" activation. No chrome.runtime, no module-level state: sidebar.ts
+// calls renderThumbnailList on every refresh and this module just repaints
+// the list from scratch, mirroring how addMode/modal own their own DOM but
+// this one owns none of its own — the <ul> belongs to sidebar.ts's shadow
+// root (§1.1's single closed-shadow-root-per-surface pattern doesn't apply
+// here since this isn't a separate host).
+//
+// A real <button> per item (design spec §3.1) rather than the old
+// tabindex/role="button" pair, so Enter/Space/click all come from native
+// button semantics. The keydown handler below still exists (rather than
+// relying solely on the browser's own click-on-Enter/Space behaviour)
+// because it needs to preventDefault before that default action fires —
+// otherwise Enter would both call onOpen() directly *and* trigger a second,
+// synthetic click.
+//
+// The class names below (.thumbnail, .thumbnail-image-wrap, .thumbnail-note,
+// .thumbnail-badge) are the hook points both for sidebar.ts's CSS and for
+// the later dock-magnification agent (design spec §4) — they predate this
+// restyle and are kept stable on purpose, including because
+// tests/helpers/extension.js's Playwright SELECTORS reference them directly.
 //
 // Newest-at-the-bottom ordering (§1.5) is the caller's responsibility —
 // storage.ts's getPageItems already returns items in capture order and this
@@ -23,11 +37,13 @@ export interface ThumbnailCallbacks {
   onOpen: (item: FeedbackItem) => void;
 }
 
-/** Preview length for the note text under each thumbnail (§3.3 — "note text
- *  truncated to a preview length"). Long enough to be useful at a glance,
- *  short enough that the sidebar's 320px column never wraps to more than a
- *  couple of lines. */
-const NOTE_PREVIEW_LENGTH = 80;
+/** Hard cap on the note text handed to the DOM (design spec §3.1's visual
+ *  3-line clamp is CSS's job now — sidebar.ts's `.thumbnail-note` rule sets
+ *  `-webkit-line-clamp: 3`, which adapts to the resizable 100–300px sidebar
+ *  width the way a fixed character count never could). This is only a sanity
+ *  ceiling for pathological notes so a many-KB note never bloats one list
+ *  item's DOM/paint cost. */
+const NOTE_PREVIEW_LENGTH = 600;
 
 /** Fixed height (px) for every thumbnail's image box (§1.5/§3.3). Screenshots
  *  are captured at whatever aspect ratio the user's selection happened to be,
@@ -67,10 +83,14 @@ export function renderThumbnailList(
 
 function buildThumbnailEl(item: FeedbackItem, callbacks: ThumbnailCallbacks): HTMLLIElement {
   const li = document.createElement('li');
-  li.className = 'thumbnail';
-  li.tabIndex = 0;
-  li.setAttribute('role', 'button');
-  li.setAttribute('aria-label', `feedback item ${item.id}`);
+  li.className = 'thumbnail-item';
+
+  // The interactive element is the button, not the <li> — see the file
+  // banner for why this is a real <button> rather than a role="button" div.
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'thumbnail';
+  btn.setAttribute('aria-label', `feedback item ${item.id}`);
 
   const imageWrap = document.createElement('div');
   imageWrap.className = 'thumbnail-image-wrap';
@@ -102,13 +122,17 @@ function buildThumbnailEl(item: FeedbackItem, callbacks: ThumbnailCallbacks): HT
   note.className = preview ? 'thumbnail-note' : 'thumbnail-note thumbnail-note-empty';
   note.textContent = preview || 'no note';
 
-  li.appendChild(imageWrap);
-  li.appendChild(note);
+  btn.appendChild(imageWrap);
+  btn.appendChild(note);
+  li.appendChild(btn);
 
   const open = (): void => callbacks.onOpen(item);
-  li.addEventListener('click', open);
-  li.addEventListener('keydown', (e) => {
+  btn.addEventListener('click', open);
+  btn.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
+      // Stop the button's own default activation from also firing a
+      // synthetic click for this same keypress — open() below is that
+      // activation.
       e.preventDefault();
       open();
     }
