@@ -14,6 +14,7 @@ import {
   EMPTY_NOTE_MESSAGE,
   SAVE_ERROR_MESSAGE,
   DELETE_ERROR_MESSAGE,
+  saveErrorFor,
   T,
   EnlargedViewCallbacks,
 } from '../enlargedView';
@@ -516,7 +517,7 @@ describe('autosave', () => {
     exitBtn().click();
     jest.advanceTimersByTime(T.collapseSettle);
     await flush();
-    expect(q('.notif-text')!.textContent).toBe(SAVE_ERROR_MESSAGE);
+    expect(q('.notif-text')!.textContent).toBe(saveErrorFor(1));
   });
 });
 
@@ -695,14 +696,26 @@ describe('reduced motion', () => {
 });
 
 describe('lifecycle', () => {
-  test('a list refresh while open is deferred until the view closes', () => {
+  test('a list refresh while open is held off, then dropped on close (onClosed re-reads storage)', () => {
     setup(2);
-    open(1);
+    const cbs = open(1);
     settleOpen();
-    sidebar.setThumbnails([makeItem(1, 'fresh'), makeItem(2), makeItem(9)]);
+    // A refresh that started before the view's delete still lists note 2.
+    sidebar.setThumbnails([makeItem(1), makeItem(2)]);
     expect(shadow().querySelectorAll('button.thumbnail')).toHaveLength(2);
-    sidebar.collapseEnlargedView({ immediate: true });
-    expect(shadow().querySelectorAll('button.thumbnail')).toHaveLength(3);
+    downBtn().click();
+    jest.advanceTimersByTime(T.carousel);
+    q<HTMLButtonElement>('.xp-delete')!.click();
+    return (async () => {
+      jest.advanceTimersByTime(T.deleteStep);
+      await flush();
+      sidebar.collapseEnlargedView({ immediate: true });
+      // The deleted note doesn't flash back; focus stays where the view put it.
+      const ids = [...shadow().querySelectorAll<HTMLElement>('button.thumbnail')].map((b) => b.dataset.itemId);
+      expect(ids).toEqual(['1']);
+      expect((shadow().activeElement as HTMLElement | null)?.dataset.itemId).toBe('1');
+      expect(cbs.onClosed).toHaveBeenCalledWith(1);
+    })();
   });
 
   test('closing the sidebar tears the view down', () => {
@@ -738,5 +751,175 @@ describe('lifecycle', () => {
     jest.advanceTimersByTime(20); // coalesced into one frame
     expect(q('.xp-bg')!.style.width).not.toBe(before);
     (window as any).innerWidth = orig;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Review fixes: save failures, dedupe, unload flush, key leaks, focus, timers
+// ---------------------------------------------------------------------------
+
+/** onSaveNote whose replies the test settles by hand, in call order. */
+function deferredSaves() {
+  const pending: Array<(ok: boolean) => void> = [];
+  const onSaveNote = jest.fn(() => new Promise<boolean>((resolve) => pending.push(resolve)));
+  return { onSaveNote, pending };
+}
+
+describe('save failures stay visible', () => {
+  test('a failure for a note no longer shown lands in the view status slot, named, and is retried on the next flush', async () => {
+    setup(2);
+    const saves = deferredSaves();
+    open(1, makeCallbacks({ onSaveNote: saves.onSaveNote }));
+    settleOpen();
+    typeInto(textarea(), 'edit one');
+    downBtn().click(); // flush → note 1's save in flight
+    jest.advanceTimersByTime(T.carousel);
+    saves.pending[0](false);
+    await flush();
+    expect(status().dataset.kind).toBe('save-error');
+    expect(status().textContent).toBe(saveErrorFor(1));
+    expect(q('.notif')!.hidden).toBe(true); // not the invisible sidebar banner
+
+    upBtn().click(); // next flush retries the failed note
+    expect(saves.onSaveNote).toHaveBeenCalledTimes(2);
+    expect(saves.onSaveNote).toHaveBeenLastCalledWith(expect.objectContaining({ id: 1 }), 'edit one');
+  });
+
+  test('a failure while collapsing never lands on the fading editor: the banner reports it once the list is back, and the list keeps the stored text', async () => {
+    setup(1);
+    const saves = deferredSaves();
+    open(1, makeCallbacks({ onSaveNote: saves.onSaveNote }));
+    settleOpen();
+    typeInto(textarea(), 'unsaved');
+    keydown(textarea(), 'Escape'); // flush + closing
+    expect(wrapper()!.dataset.state).toBe('closing');
+    saves.pending[0](false);
+    await flush();
+    expect(status().dataset.kind).not.toBe('save-error');
+    jest.advanceTimersByTime(T.collapseSettle);
+    expect(sidebar.isEnlargedViewOpen()).toBe(false);
+    expect(q('.notif-text')!.textContent).toBe(saveErrorFor(1));
+    expect(q('.thumbnail-note')!.textContent).toBe('note 1');
+  });
+});
+
+describe('save dedupe', () => {
+  test('blur then navigate sends the in-flight value once', () => {
+    setup(2);
+    const saves = deferredSaves();
+    open(1, makeCallbacks({ onSaveNote: saves.onSaveNote }));
+    settleOpen();
+    typeInto(textarea(), 'once');
+    textarea().dispatchEvent(new Event('blur'));
+    downBtn().click();
+    expect(saves.onSaveNote).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('unload flush', () => {
+  test('flushEnlargedView sends a pending edit immediately, and never an empty note', () => {
+    setup(2);
+    const cbs = open(1);
+    settleOpen();
+    typeInto(textarea(), 'typed just now');
+    sidebar.flushEnlargedView();
+    expect(cbs.onSaveNote).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'typed just now');
+    typeInto(textarea(), '  ');
+    sidebar.flushEnlargedView();
+    expect(cbs.onSaveNote).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Enter/Space isolation while the view is up', () => {
+  test('activation keys aimed outside the view, or auto-repeating on its controls, are cancelled; the textarea keeps them', () => {
+    setup(2);
+    const onOpenItem = jest.fn();
+    sidebar.initSidebar({ onAdd: () => {}, onExport: () => {}, onImportFile: () => {}, onClose: () => {}, onOpenItem });
+    open(1);
+    const listItem = shadow().querySelector<HTMLButtonElement>('button.thumbnail[data-item-id="1"]')!;
+    expect(keydown(listItem, 'Enter').defaultPrevented).toBe(true);
+    expect(keydown(listItem, ' ').defaultPrevented).toBe(true);
+    // A native click that slips through anyway is ignored while opening/open.
+    listItem.click();
+    expect(onOpenItem).not.toHaveBeenCalled();
+    settleOpen();
+
+    const repeat = (el: Element, key: string) => {
+      const e = new KeyboardEvent('keydown', { key, repeat: true, bubbles: true, composed: true, cancelable: true });
+      el.dispatchEvent(e);
+      return e;
+    };
+    expect(repeat(exitBtn(), 'Enter').defaultPrevented).toBe(true);
+    expect(keydown(exitBtn(), 'Enter').defaultPrevented).toBe(false);
+    expect(repeat(textarea(), 'Enter').defaultPrevented).toBe(false);
+    expect(repeat(textarea(), ' ').defaultPrevented).toBe(false);
+    expect(sidebar.isEnlargedViewOpen()).toBe(true);
+  });
+});
+
+describe('IME composition', () => {
+  test('Esc that ends a composition does not collapse the view', () => {
+    setup(1);
+    open(1);
+    settleOpen();
+    textarea().dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, composed: true, cancelable: true }),
+    );
+    expect(wrapper()!.dataset.state).toBe('open');
+    keydown(textarea(), 'Escape');
+    expect(wrapper()!.dataset.state).toBe('closing');
+  });
+});
+
+describe('delete edge cases', () => {
+  test('deleting the only note returns focus to the "add note" button', async () => {
+    setup(1);
+    const cbs = open(1);
+    settleOpen();
+    q<HTMLButtonElement>('.xp-delete')!.click();
+    jest.advanceTimersByTime(T.deleteStep);
+    await flush();
+    jest.advanceTimersByTime(T.collapseSettle);
+    expect(cbs.onClosed).toHaveBeenCalledWith(null);
+    expect(shadow().activeElement).toBe(q('.btn-primary'));
+  });
+
+  test('a delete during the expand does not strand the view in "opening"', async () => {
+    setup(3);
+    open(2);
+    q<HTMLButtonElement>('.xp-delete')!.click();
+    jest.advanceTimersByTime(T.deleteStep);
+    await flush();
+    jest.advanceTimersByTime(T.expandSettle);
+    expect(wrapper()!.dataset.state).toBe('open');
+  });
+
+  test('Esc while an emptied note is being deleted collapses after the delete, with no empty-note error', async () => {
+    setup(2);
+    const cbs = open(1);
+    settleOpen();
+    typeInto(textarea(), '');
+    q<HTMLButtonElement>('.xp-delete')!.click();
+    keydown(q('.xp-delete')!, 'Escape');
+    expect(status().dataset.kind).not.toBe('empty-error');
+    jest.advanceTimersByTime(T.deleteStep);
+    await flush();
+    jest.advanceTimersByTime(T.collapseSettle);
+    expect(cbs.onClosed).toHaveBeenCalledWith(2);
+  });
+});
+
+describe('empty-note error a11y', () => {
+  test('the textarea is aria-invalid and described by the status while the error shows', () => {
+    setup(2);
+    open(1);
+    settleOpen();
+    typeInto(textarea(), '');
+    downBtn().click();
+    expect(textarea().getAttribute('aria-invalid')).toBe('true');
+    expect(textarea().getAttribute('aria-describedby')).toBe(status().id);
+    typeInto(textarea(), 'fixed');
+    expect(textarea().hasAttribute('aria-invalid')).toBe(false);
+    expect(textarea().hasAttribute('aria-describedby')).toBe(false);
   });
 });

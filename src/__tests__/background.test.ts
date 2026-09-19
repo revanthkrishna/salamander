@@ -1014,3 +1014,68 @@ describe('handleDeleteItem', () => {
     warn.mockRestore();
   });
 });
+
+describe('domain-record writes share the save queue', () => {
+  it('UPDATE_NOTE and DELETE_ITEM wait for an in-flight SAVE_ITEM (no overlapping read-modify-write)', async () => {
+    const order: string[] = [];
+    let releaseAdd!: () => void;
+    mockedStorage.addItem.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          order.push('add:start');
+          releaseAdd = () => {
+            order.push('add:end');
+            resolve();
+          };
+        }),
+    );
+    mockedStorage.updateNote.mockImplementation(async () => {
+      order.push('update');
+    });
+    mockedStorage.deleteItem.mockImplementation(async () => {
+      order.push('delete');
+    });
+
+    const save = background.handleSaveItem({ type: 'SAVE_ITEM', domain: 'example.com', item: makeNewItem() });
+    const update = background.handleUpdateNote({
+      type: 'UPDATE_NOTE',
+      domain: 'example.com',
+      normalisedUrl: 'example.com/a',
+      itemId: 3,
+      note: 'edited',
+    });
+    const del = background.handleDeleteItem({
+      type: 'DELETE_ITEM',
+      domain: 'example.com',
+      normalisedUrl: 'example.com/a',
+      itemId: 5,
+    });
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(order).toEqual(['add:start']);
+
+    releaseAdd();
+    await Promise.all([save, update, del]);
+    expect(order).toEqual(['add:start', 'add:end', 'update', 'delete']);
+  });
+
+  it('GET_PAGE_ITEMS reads after a pending UPDATE_NOTE lands (read-after-write)', async () => {
+    const order: string[] = [];
+    let releaseUpdate!: () => void;
+    mockedStorage.updateNote.mockImplementation(
+      () => new Promise<void>((resolve) => (releaseUpdate = () => { order.push('update'); resolve(); })),
+    );
+    mockedStorage.getPageItems.mockImplementation(async () => {
+      order.push('read');
+      return [];
+    });
+    const update = background.handleUpdateNote({
+      type: 'UPDATE_NOTE', domain: 'example.com', normalisedUrl: 'example.com/a', itemId: 3, note: 'x',
+    });
+    const read = background.handleGetPageItems({ type: 'GET_PAGE_ITEMS', domain: 'example.com', normalisedUrl: 'example.com/a' });
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(order).toEqual([]);
+    releaseUpdate();
+    await Promise.all([update, read]);
+    expect(order).toEqual(['update', 'read']);
+  });
+});

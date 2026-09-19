@@ -176,7 +176,7 @@ describe('content.ts: "add note" toggle + lock (design spec v2 §A)', () => {
     expect(btn.classList.contains('is-on')).toBe(true);
     expect(btn.classList.contains('is-locked')).toBe(false);
     expect(btn.getAttribute('aria-pressed')).toBe('true');
-    expect(btn.getAttribute('aria-label')).toBe('add note (on)');
+    expect(btn.getAttribute('aria-label')).toBe('add note');
   });
 
   test('a second click with no following dblclick cancels add mode after the double-click window', () => {
@@ -210,7 +210,7 @@ describe('content.ts: "add note" toggle + lock (design spec v2 §A)', () => {
     expect(addMode.isAddModeActive()).toBe(true);
     expect(btn.classList.contains('is-on')).toBe(true);
     expect(btn.classList.contains('is-locked')).toBe(true);
-    expect(btn.getAttribute('aria-label')).toBe('add note (locked)');
+    expect(btn.title).toBe('add note (locked) — click to stop');
 
     // The pre-empted timer must not still be pending.
     jest.advanceTimersByTime(1000);
@@ -405,5 +405,88 @@ describe('content.ts: enlarged view wiring (design spec v2 §D)', () => {
     onMessageListener({ type: 'ICON_CLICKED' }, {}, () => {});
     expect(sidebarApi.isEnlargedViewOpen()).toBe(false);
     expect(sidebarApi.isSidebarVisible()).toBe(false);
+  });
+});
+
+describe('content.ts: review fixes', () => {
+  test('a lone click while on (no click just before it) turns add mode off immediately', () => {
+    jest.useFakeTimers();
+    loadContent();
+    activate();
+    const btn = addButton();
+
+    btn.click(); // off -> on
+    jest.advanceTimersByTime(1000); // well past the double-click window
+    btn.click();
+    expect(addMode.isAddModeActive()).toBe(false);
+    expect(btn.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  test('shift+click from off enters add mode already locked', () => {
+    loadContent();
+    activate();
+    const btn = addButton();
+
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true }));
+    expect(addMode.isAddModeActive()).toBe(true);
+    expect(btn.classList.contains('is-locked')).toBe(true);
+  });
+
+  test('shift+Enter while on locks it', () => {
+    loadContent();
+    activate();
+    const btn = addButton();
+
+    btn.click();
+    btn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true }));
+    expect(addMode.isAddModeActive()).toBe(true);
+    expect(btn.classList.contains('is-locked')).toBe(true);
+  });
+
+  test('Esc that ends an IME composition does not exit add mode', () => {
+    loadContent();
+    activate();
+    addButton().click();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true }));
+    expect(addMode.isAddModeActive()).toBe(true);
+  });
+
+  test('opening a note is ignored while the add-mode comment box holds typed text', async () => {
+    pageItems = [makeItem({ id: 7 })];
+    loadContent();
+    activate();
+    await flushMicrotasks();
+
+    addButton().click();
+    placeSelection();
+    const textarea = addModeShadow()!.querySelector('.note-input') as HTMLTextAreaElement;
+    textarea.value = 'half-written';
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+
+    (sidebarShadow().querySelector('button.thumbnail') as HTMLButtonElement).click();
+    expect(sidebarApi.isEnlargedViewOpen()).toBe(false);
+    expect(addMode.isAddModeActive()).toBe(true);
+    expect(textarea.value).toBe('half-written');
+    expect(sidebarShadow().querySelector('.notif-text')!.textContent).toBe('finish or cancel your note first.');
+  });
+
+  test('pagehide flushes the enlarged view\'s pending edit (fire-and-forget)', async () => {
+    pageItems = [makeItem({ id: 7 })];
+    loadContent();
+    activate();
+    await flushMicrotasks();
+    (sidebarShadow().querySelector('button.thumbnail') as HTMLButtonElement).click();
+
+    const ta = sidebarShadow().querySelector('.xp-note-input') as HTMLTextAreaElement;
+    ta.value = 'typed before unload';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    window.dispatchEvent(new Event('pagehide'));
+    window.dispatchEvent(new Event('beforeunload'));
+
+    const updates = (chrome.runtime.sendMessage as jest.Mock).mock.calls
+      .map((c) => c[0])
+      // (Earlier tests' content.ts instances still listen on this window.)
+      .filter((m) => m?.type === 'UPDATE_NOTE' && m.note === 'typed before unload');
+    expect(updates).toHaveLength(1); // beforeunload + pagehide: sent once
   });
 });

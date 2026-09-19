@@ -1091,20 +1091,23 @@ describe('"add note" toggle (design spec v2 §A)', () => {
     expect(btn.classList.contains('is-locked')).toBe(false);
     expect(btn.getAttribute('aria-pressed')).toBe('false');
     expect(btn.getAttribute('aria-label')).toBe('add note');
-    expect(btn.title).toBe('add note');
+    expect(btn.title).toBe('add note — double-click or shift+click to lock');
     expect(btn.querySelector('.btn-label')?.textContent).toBe('add note');
   });
 
-  test('setAddButtonState reflects on/locked in classes, aria-pressed and aria-label/title', () => {
+  test('setAddButtonState reflects on/locked in classes, aria-pressed, title and description — never the label', () => {
     sidebar.initSidebar(makeCallbacks());
     const btn = addButton();
+    const desc = () => shadowRoot().getElementById(btn.getAttribute('aria-describedby')!)!;
+    expect(desc().classList.contains('sr-only')).toBe(true);
 
     sidebar.setAddButtonState('on');
     expect(btn.classList.contains('is-on')).toBe(true);
     expect(btn.classList.contains('is-locked')).toBe(false);
     expect(btn.getAttribute('aria-pressed')).toBe('true');
-    expect(btn.getAttribute('aria-label')).toBe('add note (on)');
-    expect(btn.title).toBe('add note (on)');
+    // Stable name: on/off is aria-pressed alone (no double announcement).
+    expect(btn.getAttribute('aria-label')).toBe('add note');
+    expect(btn.title).toBe('add note — double-click or shift+click to lock');
     // The visible label text never changes — only fill/aria do.
     expect(btn.querySelector('.btn-label')?.textContent).toBe('add note');
 
@@ -1112,7 +1115,9 @@ describe('"add note" toggle (design spec v2 §A)', () => {
     expect(btn.classList.contains('is-on')).toBe(true); // locked keeps the "on" fill
     expect(btn.classList.contains('is-locked')).toBe(true);
     expect(btn.getAttribute('aria-pressed')).toBe('true');
-    expect(btn.getAttribute('aria-label')).toBe('add note (locked)');
+    expect(btn.getAttribute('aria-label')).toBe('add note');
+    expect(btn.title).toBe('add note (locked) — click to stop');
+    expect(desc().textContent).toMatch(/locked/);
 
     sidebar.setAddButtonState('off');
     expect(btn.classList.contains('is-on')).toBe(false);
@@ -1132,6 +1137,29 @@ describe('"add note" toggle (design spec v2 §A)', () => {
 
     btn.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
     expect(callbacks.calls.addDoubleClick).toBe(1);
+  });
+
+  test('shift+click and shift+Enter/Space are the lock gesture too (keyboard-reachable lock)', () => {
+    const callbacks = makeCallbacks();
+    sidebar.initSidebar(callbacks);
+    const btn = addButton();
+
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true }));
+    expect(callbacks.calls.addDoubleClick).toBe(1);
+    expect(callbacks.calls.add).toBe(0);
+
+    for (const key of ['Enter', ' ']) {
+      const e = new KeyboardEvent('keydown', { key, shiftKey: true, bubbles: true, cancelable: true });
+      btn.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(true); // no native click follows
+    }
+    expect(callbacks.calls.addDoubleClick).toBe(3);
+    // Auto-repeat doesn't re-fire; plain Enter is left to the native click.
+    btn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, repeat: true, bubbles: true, cancelable: true }));
+    const plain = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    btn.dispatchEvent(plain);
+    expect(plain.defaultPrevented).toBe(false);
+    expect(callbacks.calls.addDoubleClick).toBe(3);
   });
 
   test('the padlock glyph is only visible once locked, and survives the icon-only narrow width', () => {

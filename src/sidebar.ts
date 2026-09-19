@@ -180,7 +180,8 @@ export interface SidebarCallbacks {
    *  turned into "lock" by onAddDoubleClick below, and this sidebar module
    *  only ever paints whatever state it's told via setAddButtonState(). */
   onAdd: () => void;
-  /** Native browser 'dblclick' on the "add note" button — see onAdd.
+  /** Lock gesture on the "add note" button: native browser 'dblclick',
+   *  shift+click or shift+Enter/Space — see onAdd.
    *  Optional so callers that never toggle add mode (e.g. other modules'
    *  test doubles) don't have to stub a callback they'll never receive. */
   onAddDoubleClick?: () => void;
@@ -734,6 +735,11 @@ const SIDEBAR_CSS = `
   }
   .section-heading[hidden] { display: none !important; }
 
+  .sr-only {
+    position: absolute; width: 1px; height: 1px;
+    margin: -1px; padding: 0; border: 0;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
   .empty-state {
     color: var(--sal-muted);
     font-size: 13px;
@@ -920,6 +926,8 @@ let elResizer: HTMLDivElement | null = null;
 let elLogoImg: HTMLImageElement | null = null;
 let elBtnTheme: HTMLButtonElement | null = null;
 let elBtnAdd: HTMLButtonElement | null = null;
+/** Visually-hidden aria-describedby text for elBtnAdd (lock state/hint). */
+let elAddDesc: HTMLSpanElement | null = null;
 let elBtnExport: HTMLButtonElement | null = null;
 let elBtnImport: HTMLButtonElement | null = null;
 let elBtnClose: HTMLButtonElement | null = null;
@@ -1027,12 +1035,18 @@ function buildDOM(shadow: ShadowRoot): void {
   actionRow.className = 'action-row';
 
   elBtnAdd = makePrimaryButton(ICON_PLUS, 'add note');
+  elBtnAdd.setAttribute('aria-label', 'add note');
+  elBtnAdd.setAttribute('aria-describedby', ADD_BUTTON_DESC_ID);
+  elAddDesc = document.createElement('span');
+  elAddDesc.id = ADD_BUTTON_DESC_ID;
+  elAddDesc.className = 'sr-only';
   elBtnExport = makeSecondaryButton(ICON_EXPORT, 'export feedback');
   elBtnImport = makeSecondaryButton(ICON_IMPORT, 'import feedback');
 
   actionRow.appendChild(elBtnAdd);
   actionRow.appendChild(elBtnExport);
   actionRow.appendChild(elBtnImport);
+  actionRow.appendChild(elAddDesc);
 
   // Notification bar — live region so a screen reader announces errors and
   // warnings that appear without the user having focused anything.
@@ -1157,19 +1171,30 @@ function updateThemeToggleUI(mode: ThemeMode): void {
 /** The "add note" button's three states (design spec v2 §A). */
 export type AddButtonState = 'off' | 'on' | 'locked';
 
-const ADD_BUTTON_LABELS: Record<AddButtonState, string> = {
-  off: 'add note',
-  on: 'add note (on)',
-  locked: 'add note (locked)',
+/** Tooltip per state — also how the lock gesture is discoverable. */
+const ADD_BUTTON_TITLES: Record<AddButtonState, string> = {
+  off: 'add note — double-click or shift+click to lock',
+  on: 'add note — double-click or shift+click to lock',
+  locked: 'add note (locked) — click to stop',
 };
+
+/** Screen-reader description (aria-describedby) per state. The accessible
+ *  name stays "add note" and on/off rides on aria-pressed alone, so a state
+ *  change is announced once, not as a new label plus a new pressed state. */
+const ADD_BUTTON_DESCRIPTIONS: Record<AddButtonState, string> = {
+  off: 'shift+enter to lock',
+  on: 'shift+enter to lock',
+  locked: 'locked: stays on after each note',
+};
+
+const ADD_BUTTON_DESC_ID = 'add-note-desc';
 
 /**
  * Paint the "add note" button for `state` — fill/border (via .is-on),
- * the padlock glyph (via .is-locked), `aria-pressed` and the
- * aria-label/title (design spec v2 §A: "add note" / "add note (on)" /
- * "add note (locked)"). content.ts is the only caller: it owns the real
- * add-mode/lock state and calls this on every transition so the button never
- * drifts from what add mode is actually doing.
+ * the padlock glyph (via .is-locked), `aria-pressed`, the title and the
+ * visually-hidden lock description (design spec v2 §A). content.ts is the
+ * only caller: it owns the real add-mode/lock state and calls this on every
+ * transition so the button never drifts from what add mode is actually doing.
  */
 export function setAddButtonState(state: AddButtonState): void {
   if (!elBtnAdd) return;
@@ -1177,9 +1202,8 @@ export function setAddButtonState(state: AddButtonState): void {
   elBtnAdd.classList.toggle('is-on', isOn);
   elBtnAdd.classList.toggle('is-locked', state === 'locked');
   elBtnAdd.setAttribute('aria-pressed', String(isOn));
-  const label = ADD_BUTTON_LABELS[state];
-  elBtnAdd.setAttribute('aria-label', label);
-  elBtnAdd.title = label;
+  elBtnAdd.title = ADD_BUTTON_TITLES[state];
+  if (elAddDesc) elAddDesc.textContent = ADD_BUTTON_DESCRIPTIONS[state];
 }
 
 /** Swaps the logo asset for the resolved theme (design spec §1: yellow mark
@@ -1227,7 +1251,18 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
 
   elBtnAdd!.addEventListener('click', (e) => {
     e.stopPropagation();
-    callbacksRef?.onAdd();
+    // Shift+click: the single-gesture (and keyboard, below) twin of the
+    // double-click lock.
+    if (e.shiftKey) callbacksRef?.onAddDoubleClick?.();
+    else callbacksRef?.onAdd();
+  });
+  elBtnAdd!.addEventListener('keydown', (e) => {
+    if (!e.shiftKey || (e.key !== 'Enter' && e.key !== ' ')) return;
+    // Shift+Enter / Shift+Space lock too. preventDefault cancels the native
+    // activation, so no plain click follows to toggle it straight back off.
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.repeat) callbacksRef?.onAddDoubleClick?.();
   });
   elBtnAdd!.addEventListener('dblclick', (e) => {
     e.stopPropagation();
@@ -1493,7 +1528,14 @@ function renderItems(items: FeedbackItem[]): void {
   dockMotion?.destroy();
   dockMotion = null;
   renderThumbnailList(elThumbnailList, items, {
-    onOpen: (item) => callbacksRef?.onOpenItem(item),
+    onOpen: (item) => {
+      // A stray activation of the (hidden, inert-to-be) list while the view
+      // is expanding or open — e.g. a native click from a repeated Enter on
+      // the item that opened it — must not reopen/force-close it.
+      const state = enlargedView?.getState();
+      if (state === 'opening' || state === 'open') return;
+      callbacksRef?.onOpenItem(item);
+    },
   });
   syncDockMotion();
 }
@@ -1573,8 +1615,9 @@ function enlargedMount(): EnlargedViewMount | null {
       enlargedDockSuspended = suspended;
       dockMotion?.setSuspended(dockSuspended || enlargedDockSuspended);
     },
-    focusListItem: (id) => {
-      focusThumbnail(id);
+    focusListItem: (id) => focusThumbnail(id),
+    focusFallback: () => {
+      if (visible) elBtnAdd?.focus({ preventScroll: true });
     },
     showBanner: (message) => showError(message),
   };
@@ -1596,11 +1639,11 @@ export function openEnlargedView(itemId: number, callbacks: EnlargedViewCallback
     ...callbacks,
     onClosed: (id) => {
       if (enlargedView === handle) enlargedView = null;
-      if (deferredItems) {
-        const d = deferredItems;
-        deferredItems = null;
-        renderItems(d);
-      }
+      // Dropped, not applied: a refresh that started before the view's own
+      // edits/deletes would repaint over the (correct) list the view just
+      // handed back — a deleted note flashing back in — and wipe the focus
+      // it restored. onClosed re-reads storage anyway (content.ts).
+      deferredItems = null;
       callbacks.onClosed(id);
     },
   });
@@ -1625,6 +1668,12 @@ export function collapseEnlargedView(opts: { immediate?: boolean; force?: boolea
     return true;
   }
   return enlargedView.requestCollapse({ immediate: opts.immediate });
+}
+
+/** Page unload: fire off the enlarged view's pending (non-empty) saves,
+ *  best effort. A no-op when it isn't open. */
+export function flushEnlargedView(): void {
+  enlargedView?.flush();
 }
 
 /** Full teardown: removes the host from the DOM and restores page layout. Not
@@ -1654,6 +1703,7 @@ export function destroySidebar(): void {
   elLogoImg = null;
   elBtnTheme = null;
   elBtnAdd = null;
+  elAddDesc = null;
   elBtnExport = null;
   elBtnImport = null;
   elBtnClose = null;

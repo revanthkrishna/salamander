@@ -289,7 +289,10 @@ export function mapCaptureError(err: unknown): CaptureErrorResponse {
 // Writes are serialised through a single promise chain: read-modify-write on
 // the domain record is not atomic, so two captures resolving at once could
 // otherwise read the same nextItemNumber and collide (or drop one item's
-// append entirely).
+// append entirely). Every other domain-record write (UPDATE_NOTE,
+// DELETE_ITEM, IMPORT_REPLACE) goes through the same chain — storage.ts
+// rewrites the whole record per write, so any two overlapping writes would
+// otherwise clobber each other (last write wins).
 
 let saveQueueTail: Promise<unknown> = Promise.resolve();
 
@@ -332,11 +335,13 @@ export function _resetSaveQueueForTests(): void {
 // Phase 7 — thumbnail list + enlarged modal (§1.5, §3.3)
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Four small, independent read/write handlers on top of storage.ts/imageStore.ts.
-// None of them share saveQueueTail: GET_PAGE_ITEMS/GET_IMAGE are pure reads,
-// and UPDATE_NOTE/DELETE_ITEM mutate a single already-identified item by id
-// rather than allocating a new one, so there is no next-id race to serialise
-// against (unlike SAVE_ITEM's read-allocate-write of the domain counter).
+// Four small read/write handlers on top of storage.ts/imageStore.ts.
+// GET_IMAGE is a pure read; GET_PAGE_ITEMS reads through saveQueueTail so it
+// sees every write sent before it. UPDATE_NOTE/DELETE_ITEM only touch
+// one item, but storage.ts read-modify-writes the *whole* domain record, so
+// they share saveQueueTail with SAVE_ITEM: unserialised, a note edit
+// overlapping a capture in another tab (or a second edit) would write back a
+// stale copy of the record and drop the other change.
 
 const ITEM_LOAD_FAILED_MESSAGE = "couldn't load feedback for this page. try again.";
 const IMAGE_LOAD_FAILED_MESSAGE = "couldn't load screenshot. try again.";
@@ -347,7 +352,9 @@ export async function handleGetPageItems(
   message: GetPageItemsMessage,
 ): Promise<GetPageItemsResponse> {
   try {
-    const items = await getPageItems(message.domain, message.normalisedUrl);
+    // Queued behind pending writes too: the enlarged view flushes its edit
+    // and then (on close) re-reads the list — read-after-write must hold.
+    const items = await enqueueSave(() => getPageItems(message.domain, message.normalisedUrl));
     return { ok: true, items };
   } catch (err) {
     console.warn('[Annotator] could not load page items:', err);
@@ -370,7 +377,7 @@ export async function handleGetImage(message: GetImageMessage): Promise<GetImage
 
 export async function handleUpdateNote(message: UpdateNoteMessage): Promise<UpdateNoteResponse> {
   try {
-    await updateNote(message.domain, message.normalisedUrl, message.itemId, message.note);
+    await enqueueSave(() => updateNote(message.domain, message.normalisedUrl, message.itemId, message.note));
     return { ok: true };
   } catch (err) {
     console.warn('[Annotator] could not save note:', err);
@@ -380,7 +387,7 @@ export async function handleUpdateNote(message: UpdateNoteMessage): Promise<Upda
 
 export async function handleDeleteItem(message: DeleteItemMessage): Promise<DeleteItemResponse> {
   try {
-    await deleteItem(message.domain, message.normalisedUrl, message.itemId);
+    await enqueueSave(() => deleteItem(message.domain, message.normalisedUrl, message.itemId));
     return { ok: true };
   } catch (err) {
     console.warn('[Annotator] could not delete feedback item:', err);
@@ -478,7 +485,7 @@ export async function handleImportReplace(
       meta: { nextItemNumber: maxId + 1, version: STORAGE_VERSION },
       pages,
     };
-    await replaceDomainData(message.domain, domainData);
+    await enqueueSave(() => replaceDomainData(message.domain, domainData));
     return { ok: true };
   } catch (err) {
     console.warn('[Annotator] could not import bundle:', err);

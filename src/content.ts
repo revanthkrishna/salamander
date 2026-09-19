@@ -74,6 +74,10 @@ const EXPORT_ROUND_TRIP_FAILED_MESSAGE = "couldn't export feedback. try again.";
 // worker, etc.) rather than a validation failure §5 already has copy for.
 const IMPORT_ROUND_TRIP_FAILED_MESSAGE = "couldn't import this bundle. try again.";
 
+// Shown when a note is clicked while add mode's comment box holds typed text
+// — opening it would throw that text away.
+const FINISH_NOTE_FIRST_MESSAGE = 'finish or cancel your note first.';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Idempotency guard + runtime init (wrapped in IIFE so we can `return` instead
 // of throwing — a throw here shows as a console error even though it's intentional).
@@ -112,16 +116,19 @@ let started = false;
 let addLocked = false;
 
 /**
- * A click while add mode is already on (unlocked) might be a genuine
- * "toggle off" click, or the *first* of a double-click that the native
- * 'dblclick' event (fired right after) will turn into "lock" instead. The
- * toggle-off is deferred by this much so the dblclick has a chance to
- * pre-empt it — comfortably longer than any OS's double-click timing, so a
- * real double-click is never seen as two single clicks. The *first* click of
- * any click/double-click (off -> on) is never delayed — see
- * handleAddButtonClick.
+ * A click while add mode is already on (unlocked) that follows another click
+ * on the button within this window might be the *second* click of a
+ * double-click that the native 'dblclick' event (fired right after) will
+ * turn into "lock" instead. Only then is the toggle-off deferred by this
+ * much, so the dblclick has a chance to pre-empt it — comfortably longer
+ * than any OS's double-click timing. A deliberate, lone "off" click acts
+ * immediately, and the first click of any pair (off -> on) is never delayed
+ * — see handleAddButtonClick.
  */
 const ADD_DBLCLICK_WINDOW_MS = 400;
+
+/** When the button was last clicked (Date.now()), for the pairing above. */
+let lastAddClickAt = -Infinity;
 
 /** Pending "toggle off" from a single click while on (unlocked); cleared if a
  *  dblclick or another exit path pre-empts it. */
@@ -199,6 +206,9 @@ function handleAddModeCancel(): void {
 
 /** The "add note" button's click handler (sidebar.SidebarCallbacks.onAdd). */
 function handleAddButtonClick(): void {
+  const now = Date.now();
+  const pairedClick = now - lastAddClickAt < ADD_DBLCLICK_WINDOW_MS;
+  lastAddClickAt = now;
   if (!addMode.isAddModeActive()) {
     // Off -> on: act immediately, never delayed (the double-click ambiguity
     // below only ever applies to the *second* click of a pair).
@@ -212,10 +222,14 @@ function handleAddButtonClick(): void {
     exitAddModeFully();
     return;
   }
-  // On, unlocked: this click is either a genuine "turn it off" click, or the
-  // second click of a double-click the browser is about to report — defer
-  // the toggle-off just long enough for that native 'dblclick' (handled
-  // below) to pre-empt it and lock instead.
+  // On, unlocked, and not right after another click: a lone "turn it off".
+  if (!pairedClick) {
+    exitAddModeFully();
+    return;
+  }
+  // Right after another click: possibly the second click of a double-click
+  // the browser is about to report — defer the toggle-off just long enough
+  // for that native 'dblclick' (handled below) to pre-empt it and lock.
   if (pendingAddOffTimer !== null) return;
   pendingAddOffTimer = setTimeout(() => {
     pendingAddOffTimer = null;
@@ -223,13 +237,19 @@ function handleAddButtonClick(): void {
   }, ADD_DBLCLICK_WINDOW_MS);
 }
 
-/** sidebar.SidebarCallbacks.onAddDoubleClick — the native browser 'dblclick'
- *  that follows the click pair handleAddButtonClick already saw. Converts
- *  the pending toggle-off (if any) into "locked on" instead (§A). */
+/** sidebar.SidebarCallbacks.onAddDoubleClick — the lock gesture: the native
+ *  browser 'dblclick' that follows the click pair handleAddButtonClick
+ *  already saw, or a shift+click / shift+Enter / shift+Space. Converts the
+ *  pending toggle-off (if any) into "locked on" instead (§A); from off (the
+ *  shift gestures) it enters add mode already locked. */
 function handleAddButtonDoubleClick(): void {
   clearPendingAddOff();
-  if (!addMode.isAddModeActive() || addLocked) return;
+  if (addLocked) return;
   addLocked = true;
+  if (!addMode.isAddModeActive()) {
+    enterAddMode();
+    return;
+  }
   sidebar.setAddButtonState('locked');
 }
 
@@ -243,6 +263,8 @@ function handleAddButtonDoubleClick(): void {
  *  event from ever reaching a page/document-level listener. */
 function handleGlobalKeyDown(e: KeyboardEvent): void {
   if (e.key !== 'Escape') return;
+  // Esc during IME composition cancels the composition, not add mode.
+  if (e.isComposing || e.keyCode === 229) return;
   if (!addMode.isAddModeActive()) return;
   exitAddModeFully();
 }
@@ -330,13 +352,20 @@ function ensureStarted(): void {
       // Add mode can't coexist with the enlarged view (design spec v2 §D) —
       // and the sidebar's own thumbnails sit above add mode's page blocker
       // (higher z-index), so they're still clickable while add mode is
-      // active. Exit fully first so the button/lock state stays in sync.
+      // active. A comment already being typed wins: the click is ignored
+      // (with a nudge) rather than silently discarding it. Otherwise exit
+      // fully first so the button/lock state stays in sync.
+      if (addMode.hasPendingComment()) {
+        sidebar.showWarning(FINISH_NOTE_FIRST_MESSAGE);
+        return;
+      }
       if (addMode.isAddModeActive()) exitAddModeFully();
       openItemEnlarged(item);
     },
   });
   setupNavigationDetection();
   window.addEventListener('beforeunload', handleBeforeUnload);
+  window.addEventListener('pagehide', handleBeforeUnload);
   // Esc-exits-add-mode (§A) — see handleGlobalKeyDown's doc comment for why
   // this has to be registered once, here, rather than per add-mode session.
   window.addEventListener('keydown', handleGlobalKeyDown, true);
@@ -677,6 +706,13 @@ function handleBeforeUnload(): void {
   // there is nothing to explicitly restore here. If the sidebar was open,
   // it stays recorded as open in chrome.storage.session so background.ts
   // re-injects and re-opens it on the next page (§1.1).
+  //
+  // The one thing that would be lost: typing in the enlarged view still
+  // inside its autosave debounce. Send it now — fire-and-forget (never
+  // blocks unload), never an empty note. Runs on both beforeunload and
+  // pagehide (the only one fired on some navigations, e.g. bfcache); the
+  // second call finds nothing dirty (in-flight saves count as clean).
+  sidebar.flushEnlargedView();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

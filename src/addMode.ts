@@ -199,6 +199,9 @@ const ADD_MODE_CSS = `
     color: var(--sal-text);
     font-family: var(--sal-font-body);
     box-shadow: var(--sal-shadow-pop);
+    /* Same radius as the two rounded children, so the drop shadow follows
+       the merged shape instead of casting a square one. */
+    border-radius: var(--sal-radius-lg);
     /* .visuals inherits pointer-events: none from the host (the host is
        pointer-events: none so the blocker underneath can own page-click
        suppression while non-interactive visuals like the box outline and
@@ -876,6 +879,12 @@ function handleBoundsChange(): void {
 
 export function isAddModeActive(): boolean {
   return mode !== 'idle';
+}
+
+/** True while a selection is placed and its comment box holds typed text —
+ *  work content.ts must not silently throw away (e.g. by opening a note). */
+export function hasPendingComment(): boolean {
+  return mode === 'editing' && !!elTextarea && elTextarea.value.trim() !== '';
 }
 
 /** Hide all add-mode visuals (box outline, resize hit zones, scrim, comment box) for

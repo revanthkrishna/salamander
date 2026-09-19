@@ -730,9 +730,12 @@ describe('add mode', () => {
     const rule = cssRule('.comment-box');
     expect(rule).toMatch(/width:\s*280px/);
     expect(rule).toMatch(/box-shadow:\s*var\(--sal-shadow-pop\)/);
-    // no fill/border/radius of its own — those live on the textarea/footer
+    // no fill/border of its own — those live on the textarea/footer; the
+    // radius only shapes the drop shadow to the merged surface (no square
+    // shadow corners)
     expect(rule).not.toMatch(/background:/);
-    expect(rule).not.toMatch(/border(-radius)?:/);
+    expect(rule).not.toMatch(/border:/);
+    expect(rule).toMatch(/border-radius:\s*var\(--sal-radius-lg\)/);
     expect(addModeOwnCSS()).not.toMatch(/\.comment-box:(hover|focus)/);
     expect(addModeOwnCSS()).not.toMatch(/border-(left|right):/); // no dividers between buttons
   });

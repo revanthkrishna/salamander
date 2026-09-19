@@ -87,6 +87,10 @@ import {
 // ---------------------------------------------------------------------------
 
 export const SAVE_ERROR_MESSAGE = "couldn't save note. try again.";
+/** A save failure for a note other than the one on screen names it. */
+export function saveErrorFor(id: number): string {
+  return `couldn't save note #${id}. try again.`;
+}
 export const DELETE_ERROR_MESSAGE = "couldn't delete item. try again.";
 export const EMPTY_NOTE_MESSAGE = "a note can't be empty. add some text to continue.";
 
@@ -262,9 +266,14 @@ export interface EnlargedViewMount {
   /** Repaint the list from `items` (edits/deletes made in this view). */
   renderList: (items: FeedbackItem[]) => void;
   setDockSuspended: (suspended: boolean) => void;
-  focusListItem: (id: number) => void;
-  /** The sidebar's own error banner — for a save that fails after the note
-   *  has left the screen. */
+  /** Focus the list item for `id`; false if it isn't rendered. */
+  focusListItem: (id: number) => boolean;
+  /** Where focus goes when there's no list item to return to (the last
+   *  note was deleted) — the "add note" button. */
+  focusFallback: () => void;
+  /** The sidebar's own error banner — for a save that fails once the view
+   *  has collapsed (while it's up the list, banner included, is invisible
+   *  and inert, so failures go to the view's own status slot instead). */
   showBanner: (message: string) => void;
 }
 
@@ -279,6 +288,9 @@ export interface EnlargedViewHandle {
    *  navigation, sidebar teardown). Still flushes a non-empty unsaved edit
    *  and fires onClosed. */
   forceClose(): void;
+  /** Best-effort, fire-and-forget save of every pending non-empty edit
+   *  (page unload). Never saves an empty note; never changes the view. */
+  flush(): void;
   /** Silent teardown (no onClosed) — sidebar destroy. */
   destroy(): void;
   setLogoSrc(src: string): void;
@@ -521,6 +533,7 @@ const ICON_DOWN = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE}><path d="M6
 const ICON_CHECK = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE}><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
 
 const TITLE_ID = 'xp-title';
+const STATUS_ID = 'xp-status';
 
 // ---------------------------------------------------------------------------
 // Internals
@@ -586,6 +599,7 @@ export function openEnlargedView(
     getState: () => view.state,
     requestCollapse: (opts) => view.requestCollapse(opts),
     forceClose: () => view.forceClose(),
+    flush: () => view.flushSave(),
     destroy: () => view.finish(false),
     setLogoSrc: (src) => view.setLogoSrc(src),
     relayout: () => view.relayout(),
@@ -632,6 +646,12 @@ class EnlargedView {
   private drafts = new Map<number, string>();
   private saved = new Map<number, string>();
   private saveSeq = new Map<number, number>();
+  /** Value of each note's latest save still awaiting a reply — counts as
+   *  not dirty, so blur-then-navigate doesn't send the same UPDATE twice. */
+  private inflight = new Map<number, string>();
+  /** Notes whose latest save failed. They stay dirty and are retried by the
+   *  next flushSave() (navigate / collapse / unload). */
+  private failed = new Set<number>();
   private listDirty = false;
   private fullImages = new Map<number, string>();
   private fetching = new Set<number>();
@@ -646,6 +666,9 @@ class EnlargedView {
   private hintTimer: Timer | null = null;
   private suspendTimer: Timer | null = null;
   private panelSnapTimer: Timer | null = null;
+  /** The delete step's own timer — never shares settleTimer, which a delete
+   *  during the expand would otherwise overwrite (stranding 'opening'). */
+  private deleteTimer: Timer | null = null;
 
   private deleting = false;
   private collapseAfterDelete = false;
@@ -807,6 +830,7 @@ class EnlargedView {
     this.deleteBtn.addEventListener('click', () => this.deleteCurrent());
     this.statusEl = document.createElement('span');
     this.statusEl.className = 'xp-status';
+    this.statusEl.id = STATUS_ID;
     this.statusEl.setAttribute('role', 'status');
     this.statusEl.setAttribute('aria-live', 'polite');
     this.statusEl.innerHTML = ICON_CHECK;
@@ -1209,6 +1233,7 @@ class EnlargedView {
     this.textarea.value = this.drafts.get(item.id) ?? item.note;
     this.textarea.classList.remove('is-error');
     this.setStatus('none', true);
+    this.surfaceSaveFailure();
   }
 
   private updateRail(): void {
@@ -1303,8 +1328,8 @@ class EnlargedView {
 
     const request = this.callbacks.onDelete(item).catch(() => false);
     const step = new Promise<void>((resolve) => {
-      this.settleTimer = setTimeout(() => {
-        this.settleTimer = null;
+      this.deleteTimer = setTimeout(() => {
+        this.deleteTimer = null;
         resolve();
       }, out);
     });
@@ -1335,6 +1360,8 @@ class EnlargedView {
     this.items = this.items.filter((i) => i.id !== item.id);
     this.drafts.delete(item.id);
     this.saved.delete(item.id);
+    this.inflight.delete(item.id);
+    this.failed.delete(item.id);
     this.listDirty = true;
     if (card) this.removeCard(card);
 
@@ -1374,11 +1401,13 @@ class EnlargedView {
 
   requestCollapse(opts: { immediate?: boolean } = {}): boolean {
     if (this.state === 'closed' || this.state === 'closing') return true;
-    if (this.blockIfEmpty()) return false;
+    // The note being deleted is on its way out — its (possibly empty) text
+    // can't block leaving, so this is checked before the empty lock.
     if (this.deleting && !opts.immediate) {
       this.collapseAfterDelete = true;
       return true;
     }
+    if (!this.deleting && this.blockIfEmpty()) return false;
     this.flushSave();
     if (opts.immediate) {
       this.finish(true);
@@ -1455,10 +1484,12 @@ class EnlargedView {
   }
 
   /** Items as the list should show them: saved text, or a non-empty draft
-   *  that flushSave() is already persisting. */
+   *  that flushSave() is already persisting — never a draft whose save
+   *  failed (the list would silently show text that isn't stored). */
   private itemsForList(): FeedbackItem[] {
     return this.items.map((it) => {
       const d = this.drafts.get(it.id);
+      if (this.unresolvedFailure(it.id)) return it;
       return d !== undefined && d.trim() !== '' ? { ...it, note: d } : it;
     });
   }
@@ -1468,7 +1499,6 @@ class EnlargedView {
    *  skipped (immediate) or the sidebar is being destroyed. */
   finish(notify: boolean): void {
     if (this.state === 'closed') return;
-    const wasClosing = this.state === 'closing';
     this.state = 'closed';
     this.clearChoreoTimers();
     if (this.saveTimer) clearTimeout(this.saveTimer);
@@ -1486,7 +1516,9 @@ class EnlargedView {
     }
 
     this.restoreThumbs();
-    if (notify && this.listDirty && !wasClosing) {
+    // After a collapse this is only still set if a save failed mid-collapse:
+    // the list painted at its t0 then showed that draft as if stored.
+    if (notify && this.listDirty) {
       this.mount.renderList(this.itemsForList());
     }
     this.listDirty = false;
@@ -1507,15 +1539,21 @@ class EnlargedView {
     if (!notify) return;
     const cur = this.items[this.idx];
     const id = cur ? cur.id : null;
-    if (id !== null) this.mount.focusListItem(id);
+    if (id === null || !this.mount.focusListItem(id)) this.mount.focusFallback();
+    // A save that failed and isn't being retried: the list (and its banner)
+    // is visible again, so report it there. Retries still in flight report
+    // themselves when they settle (save()).
+    const lost = [...this.failed].find((f) => this.unresolvedFailure(f));
+    if (lost !== undefined) this.mount.showBanner(saveErrorFor(lost));
     this.callbacks.onClosed(id);
   }
 
   private clearChoreoTimers(): void {
-    for (const t of [this.settleTimer, this.swapTimer, this.suspendTimer, this.panelSnapTimer]) {
+    for (const t of [this.settleTimer, this.swapTimer, this.suspendTimer, this.panelSnapTimer, this.deleteTimer]) {
       if (t) clearTimeout(t);
     }
     this.settleTimer = null;
+    this.deleteTimer = null;
     this.swapTimer = null;
     this.suspendTimer = null;
     this.panelSnapTimer = null;
@@ -1558,17 +1596,26 @@ class EnlargedView {
 
   private isDirty(id: number): boolean {
     const d = this.drafts.get(id);
-    return d !== undefined && d.trim() !== '' && d !== this.saved.get(id);
+    return d !== undefined && d.trim() !== '' && d !== this.saved.get(id) && d !== this.inflight.get(id);
   }
 
-  /** Immediate save of the shown note's pending change (navigate/collapse). */
-  private flushSave(): void {
+  /** A failed save with no retry in flight. */
+  private unresolvedFailure(id: number): boolean {
+    return this.failed.has(id) && !this.inflight.has(id);
+  }
+
+  /** Immediate save of the shown note's pending change, plus a retry of
+   *  every note whose last save failed (navigate / collapse / unload). */
+  flushSave(): void {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
     }
     const id = this.shownId;
     if (id !== null && this.isDirty(id)) this.save(id, false);
+    for (const f of [...this.failed]) {
+      if (f !== id && this.isDirty(f)) this.save(f, false);
+    }
   }
 
   private save(id: number, showHint: boolean): void {
@@ -1577,45 +1624,79 @@ class EnlargedView {
     if (!item || value === undefined || value.trim() === '') return;
     const seq = (this.saveSeq.get(id) ?? 0) + 1;
     this.saveSeq.set(id, seq);
+    this.inflight.set(id, value);
     this.listDirty = true;
     void this.callbacks
       .onSaveNote(item, value)
       .catch(() => false)
       .then((ok) => {
         if (this.saveSeq.get(id) !== seq) return; // superseded by a newer save
-        const onScreen = this.state !== 'closed' && this.shownId === id && this.swapTimer === null;
+        this.inflight.delete(id);
+        // 'closing' counts as off screen: the editor is already fading out.
+        const up = this.state === 'open' || this.state === 'opening';
+        const onScreen = up && this.shownId === id && this.swapTimer === null;
         if (ok) {
           this.saved.set(id, value);
           item.note = value;
-          if (onScreen && showHint && this.statusKind !== 'empty-error') this.setStatus('saved');
-          else if (onScreen && this.statusKind === 'save-error') this.setStatus('none');
+          this.failed.delete(id);
+          if (!up || this.statusKind === 'empty-error') return;
+          if ([...this.failed].some((f) => this.unresolvedFailure(f))) this.surfaceSaveFailure();
+          else if (onScreen && showHint) this.setStatus('saved');
+          else if (this.statusKind === 'save-error') this.setStatus('none');
           return;
         }
-        if (onScreen && this.statusKind !== 'empty-error') this.setStatus('save-error');
-        else if (!onScreen) this.mount.showBanner(SAVE_ERROR_MESSAGE);
+        this.failed.add(id);
+        if (this.state === 'closing') this.listDirty = true;
+        if (this.state === 'closed') this.mount.showBanner(saveErrorFor(id));
+        // Mid-swap, setContent() surfaces it once the new content is in;
+        // mid-collapse, finish() reports it on the (by then visible) list.
+        else if (up && this.swapTimer === null) this.surfaceSaveFailure();
       });
   }
 
-  private setStatus(kind: StatusKind, instant = false): void {
+  /** Show the first unresolved save failure in the status slot — the shown
+   *  note's own, else another note's, by number. Never over the empty-note
+   *  error. */
+  private surfaceSaveFailure(): void {
+    if (this.statusKind === 'empty-error') return;
+    const shown = this.shownId;
+    if (shown !== null && this.unresolvedFailure(shown)) {
+      this.setStatus('save-error');
+      return;
+    }
+    const other = [...this.failed].find((f) => this.unresolvedFailure(f));
+    if (other !== undefined) this.setStatus('save-error', false, saveErrorFor(other));
+  }
+
+  private setStatus(kind: StatusKind, instant = false, message?: string): void {
     if (this.hintTimer) {
       clearTimeout(this.hintTimer);
       this.hintTimer = null;
     }
     const prev = this.statusKind;
     this.statusKind = kind;
+    // The empty-note error is the textarea's validation message.
+    if (kind === 'empty-error') {
+      this.textarea.setAttribute('aria-invalid', 'true');
+      this.textarea.setAttribute('aria-describedby', STATUS_ID);
+    } else {
+      this.textarea.removeAttribute('aria-invalid');
+      this.textarea.removeAttribute('aria-describedby');
+    }
     if (kind === 'none') {
       const dur = instant ? 0 : prev === 'saved' ? T.hintOut : T.errorOut;
       fadeTo(this.statusEl, 0, { duration: dur, curve: ACC });
       return;
     }
     const text =
-      kind === 'saved'
+      message ??
+      (kind === 'saved'
         ? 'saved'
         : kind === 'save-error'
           ? SAVE_ERROR_MESSAGE
           : kind === 'delete-error'
             ? DELETE_ERROR_MESSAGE
-            : EMPTY_NOTE_MESSAGE;
+            : EMPTY_NOTE_MESSAGE);
     this.statusText.textContent = text;
     this.statusEl.title = kind === 'saved' ? '' : text;
     this.statusEl.classList.toggle('is-saved', kind === 'saved');
@@ -1676,6 +1757,20 @@ class EnlargedView {
 
   private onKeydown = (e: KeyboardEvent): void => {
     if (this.state === 'closed' || this.state === 'closing') return;
+    // Keys that belong to an IME composition (Esc cancels it) aren't ours.
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      // Keyboard isolation stops this event at window capture, so no inner
+      // keydown handler (e.g. the list item's, thumbnails.ts) can cancel the
+      // native button activation: a repeat Enter on the still-focused list
+      // item would reopen the view, auto-repeat after focus lands on x would
+      // collapse it. Cancel activation outside the view and on auto-repeat
+      // (the textarea keeps its repeated newlines/spaces).
+      const target = e.composedPath()[0];
+      const inView = target instanceof Node && this.wrapper.contains(target);
+      if (!inView || (e.repeat && target !== this.textarea)) e.preventDefault();
+      return;
+    }
     if (e.key === 'Escape') {
       e.preventDefault();
       this.requestCollapse();
