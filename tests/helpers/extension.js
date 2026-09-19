@@ -30,7 +30,10 @@ const SELECTORS = {
   // Sidebar (src/sidebar.ts)
   sidebarHost: '#annotator-sidebar-host',
   sidebar: '#annotator-sidebar-host .sidebar',
-  btnAdd: '#annotator-sidebar-host button[aria-label="add feedback"]',
+  // aria-label is state-dependent ("add note" / "add note (on)" / "add note
+  // (locked)" — see setAddButtonState() in src/sidebar.ts), so this selects
+  // on the button's stable class instead of the label text.
+  btnAdd: '#annotator-sidebar-host button.btn-primary',
   btnExport: '#annotator-sidebar-host button[aria-label="export feedback"]',
   btnImport: '#annotator-sidebar-host button[aria-label="import feedback"]',
   btnClose: '#annotator-sidebar-host button[aria-label="close sidebar"]',
