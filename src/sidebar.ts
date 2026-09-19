@@ -28,6 +28,8 @@ import { attachDockMotion, DockMotionHandle } from './dockMotion';
 import {
   getThemeCSS,
   registerThemedHost,
+  isThemeModeSettled,
+  whenThemeModeSettled,
   getThemeMode,
   getResolvedTheme,
   cycleThemeMode,
@@ -126,8 +128,9 @@ function applyWidthToPanel(): void {
     // every other width-driven behaviour in this module (drag/keyboard
     // resize, persistence) can assert on it directly, with no layout engine
     // required.
-    elSidebar.classList.toggle('is-narrow', sidebarWidth < NARROW_WIDTH_BREAKPOINT);
-    elSidebar.classList.toggle('is-compact', sidebarWidth < COMPACT_WIDTH_BREAKPOINT);
+    const layout = sidebarLayoutFor(sidebarWidth);
+    elSidebar.classList.toggle('is-narrow', layout.narrow);
+    elSidebar.classList.toggle('is-compact', layout.compact);
   }
   if (elResizer) elResizer.setAttribute('aria-valuenow', String(sidebarWidth));
 }
@@ -238,6 +241,49 @@ function extensionUrl(path: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Responsive layout metrics. The CSS below is generated from these, so the
+// breakpoints and actionRowFits() (and its test) can't drift from what the
+// browser actually lays out.
+// ---------------------------------------------------------------------------
+
+/** .sidebar's border-left (box-sizing: border-box, so it eats into width). */
+const PANEL_BORDER_PX = 1;
+/** Action row side padding: design spec §3.1's 16px, 8px once compact. */
+const ACTION_ROW_PAD_X = 16;
+const ACTION_ROW_PAD_X_COMPACT = 8;
+const ACTION_ROW_GAP = 8;
+/** Every action-row button is 36px tall; the secondaries (and the icon-only
+ *  primary) are 36px square. */
+const ACTION_BUTTON_PX = 36;
+
+/** Width-driven layout classes for a given panel width (pure; applied by
+ *  applyWidthToPanel). */
+export function sidebarLayoutFor(width: number): { narrow: boolean; compact: boolean } {
+  return { narrow: width < NARROW_WIDTH_BREAKPOINT, compact: width < COMPACT_WIDTH_BREAKPOINT };
+}
+
+/** Whether the action row's fixed-size content fits inside a panel of this
+ *  width in the layout sidebarLayoutFor() picks for it — i.e. the
+ *  arithmetic behind the breakpoints. The labelled primary (wide layout) is
+ *  counted at its icon-only size: it has min-width: 0 and an ellipsizing
+ *  label, so it can shrink to that without overflowing. */
+export function actionRowFits(width: number): boolean {
+  const { compact } = sidebarLayoutFor(width);
+  const pad = compact ? ACTION_ROW_PAD_X_COMPACT : ACTION_ROW_PAD_X;
+  const available = width - PANEL_BORDER_PX - pad * 2;
+  const secondaries = ACTION_BUTTON_PX * 2 + ACTION_ROW_GAP;
+  // Compact wraps: the primary takes its own full-width row, so the widest
+  // row is the two secondaries side by side.
+  const needed = compact
+    ? Math.max(ACTION_BUTTON_PX, secondaries)
+    : ACTION_BUTTON_PX + ACTION_ROW_GAP + secondaries;
+  return available >= needed;
+}
+
+/** Above every dock-magnified item (dockMotion.ts writes z-index 0–100). */
+const RESIZER_Z_INDEX = 101;
+
+// ---------------------------------------------------------------------------
 // CSS — Salamander design tokens (src/theme.ts's --sal-* custom properties,
 // design spec §1–§3.1). FOCUS_RING_CSS/PRESS_SCALE_CSS/STATE_TRANSITION_CSS/
 // DISABLED_CSS are the same shared interaction-state snippets modal.ts and
@@ -246,11 +292,17 @@ function extensionUrl(path: string): string {
 
 /** Below this width the wordmark hides and "add note" goes icon-only (design
  *  spec §3.1's "narrow widths" rule). */
-const NARROW_WIDTH_BREAKPOINT = 220;
-/** Below this width the action row wraps to a column and the header sheds
- *  the (purely decorative) logo mark, so the panel never overflows down to
- *  the 100px floor. */
-const COMPACT_WIDTH_BREAKPOINT = 150;
+export const NARROW_WIDTH_BREAKPOINT = 220;
+/** Below this width the action row wraps (primary on its own row) and the
+ *  header sheds the (purely decorative) logo mark, so the panel never
+ *  overflows down to the 100px floor.
+ *
+ *  Derived, not picked: it is the narrowest width at which the *narrow*
+ *  single-row layout (three 36px buttons, two gaps, 16px side padding, the
+ *  panel's 1px left border) still fits — 1 + 16 + 36·3 + 8·2 + 16 = 157px.
+ *  A hand-picked 150 left 150–156px overflowing by up to 7px. */
+export const COMPACT_WIDTH_BREAKPOINT =
+  PANEL_BORDER_PX + ACTION_ROW_PAD_X * 2 + ACTION_BUTTON_PX * 3 + ACTION_ROW_GAP * 2;
 /** How far (px) the note list's scrollport extends out over the page so
  *  dock-magnified items aren't clipped at the panel edge (see .body). Worst
  *  case at the 300px maximum width: 0.12 × 268px of scale + 22px of shift −
@@ -297,7 +349,20 @@ const SIDEBAR_CSS = `
      A 6px hit target so it is actually grabbable, with a 1px hairline that
      is always visible (design spec §3.1) and turns accent on hover/drag/
      focus. role="separator" + tabindex makes it keyboard-operable (arrow
-     keys), which a pure mousedown handle would not be. */
+     keys), which a pure mousedown handle would not be.
+
+     The hit target and the hairline are two sibling elements on purpose,
+     at different heights in .sidebar's stacking context:
+       - .resizer (the hit target) sits above even the most magnified note
+         item (dockMotion.ts writes z-index 0–100 on items), so the handle
+         is grabbable at every moment — a swollen item crossing the panel
+         edge can never cover it. dockMotion.ts treats it as a "hold
+         target", so sweeping across its 6px strip doesn't make the swell
+         dip and re-grow.
+       - .resizer-line (the hairline) sits *below* magnified items at rest,
+         so a swollen thumbnail isn't struck through by a 1px rule, and
+         rises above them only while the handle is actually in use
+         (hover/drag/focus), when the accent line should read. */
   .resizer {
     position: absolute;
     top: 0;
@@ -307,22 +372,26 @@ const SIDEBAR_CSS = `
     background: transparent;
     cursor: ew-resize;
     touch-action: none;
-    z-index: 1;
+    z-index: ${RESIZER_Z_INDEX};
   }
-  .resizer::after {
-    content: '';
+  .resizer:focus-visible { outline: none; ${FOCUS_RING_CSS} }
+  .resizer-line {
     position: absolute;
     top: 0;
     bottom: 0;
     left: 0;
     width: 1px;
     background: var(--sal-line);
+    pointer-events: none;
+    z-index: 1;
     transition: background-color 140ms ease-out;
   }
-  .resizer:hover::after,
-  .resizer.dragging::after,
-  .resizer:focus-visible::after { background: var(--sal-accent); }
-  .resizer:focus-visible { outline: none; }
+  .resizer:hover + .resizer-line,
+  .resizer.dragging + .resizer-line,
+  .resizer:focus-visible + .resizer-line {
+    background: var(--sal-accent);
+    z-index: ${RESIZER_Z_INDEX};
+  }
 
   /* ─── Header: logo + wordmark, theme toggle, close (§3.1) ────────────── */
 
@@ -348,6 +417,11 @@ const SIDEBAR_CSS = `
   /* Purely decorative chrome — shed first, before the header's actual
      controls (theme toggle, close) could ever be squeezed out. */
   .sidebar.is-compact .logo { display: none; }
+
+  /* Pushes the theme toggle + close to the right edge at every width — a
+     no-op while the flexible wordmark is showing, and what keeps them from
+     drifting left once it hides below the narrow breakpoint. */
+  .btn-theme { margin-left: auto; }
 
   .wordmark {
     flex: 1 1 auto;
@@ -393,13 +467,21 @@ const SIDEBAR_CSS = `
     display: flex;
     align-items: center;
     flex-shrink: 0;
-    padding: 4px 16px 16px;
-    gap: 8px;
+    padding: 4px ${ACTION_ROW_PAD_X}px 16px;
+    gap: ${ACTION_ROW_GAP}px;
   }
-  .sidebar.is-compact .action-row { padding-left: 8px; padding-right: 8px; flex-wrap: wrap; }
+  .sidebar.is-compact .action-row {
+    padding-left: ${ACTION_ROW_PAD_X_COMPACT}px;
+    padding-right: ${ACTION_ROW_PAD_X_COMPACT}px;
+    flex-wrap: wrap;
+  }
 
   .btn-primary {
     flex: 1 1 auto;
+    /* Lets the button shrink below its label's width (the label ellipsizes)
+       rather than pushing the icon buttons out of the row, whatever the
+       loaded font's metrics turn out to be. */
+    min-width: 0;
     height: 36px;
     display: flex;
     align-items: center;
@@ -419,10 +501,11 @@ const SIDEBAR_CSS = `
   .btn-primary:focus-visible { ${FOCUS_RING_CSS} outline: none; }
   .btn-primary[disabled] { ${DISABLED_CSS} }
   .btn-primary .icon { width: 16px; height: 16px; flex-shrink: 0; display: inline-flex; }
+  .btn-primary .btn-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .btn-primary .icon svg { width: 100%; height: 100%; display: block; }
   /* Icon-only once the wordmark itself would no longer fit (§3.1). */
   .sidebar.is-narrow .btn-primary .btn-label { display: none; }
-  .sidebar.is-narrow .btn-primary { flex: 0 0 36px; padding: 0; }
+  .sidebar.is-narrow .btn-primary { flex: 0 0 ${ACTION_BUTTON_PX}px; padding: 0; }
   /* At the 100px floor the action row wraps instead: the primary button
      takes its own full-width row so the two icon buttons below always have
      room to sit side by side. */
@@ -505,24 +588,54 @@ const SIDEBAR_CSS = `
     word-break: break-word;
   }
 
+  /* The note list's scroll container.
+
+     A scroll container clips on both axes (overflow-x: visible computes to
+     auto next to overflow-y: auto), so dock magnification (§4) — which
+     swells items up to ~40px past the panel's left edge, plus the note's
+     shadow — gets room the other way: the scrollport itself extends
+     DOCK_BLEED_PX out over the page (negative margin, matching padding, so
+     the content box and list width are unchanged).
+
+     That strip lies over the page, so it must never swallow the page's
+     clicks — and the part inside the panel must behave like a normal
+     scroller (draggable scrollbar, wheel anywhere scrolls the list). The
+     two needs only conflict while something is actually magnified, so the
+     body switches between two states, driven by dockMotion.ts's
+     onBleedChange (see syncDockMotion):
+
+       - at rest (the normal case): clip-path trims the strip back off.
+         clip-path clips hit-testing as well as painting, so the strip is
+         simply not part of the scroller — clicks and wheel there go
+         straight to the page — while everything inside the panel has
+         ordinary pointer events: the scrollbar drags, and wheel over blank
+         areas (padding, below a short list) scrolls the list.
+       - .is-bleeding (an item is magnified or relaxing back): no clip, so
+         swollen items paint un-clipped over the page; the body itself goes
+         pointer-events: none (children take events back) so the strip's
+         empty parts still pass clicks to the page. Wheel over the items
+         still scrolls the body (scroll chaining follows the box tree, not
+         hit-testability). This state only lasts while the pointer is on
+         the list (plus the ~300ms release), and the pointer can't be on
+         the scrollbar *and* the list, so the scrollbar is back to normal
+         by the time anyone reaches for it.
+
+     The at-rest clip-path also makes .body a stacking context, which is
+     harmless: at rest no item carries a z-index. While bleeding there is no
+     clip, so per-item z-indexes compete in .sidebar's context as intended
+     (see .resizer). */
   .body {
     flex: 1 1 auto;
     overflow-y: auto;
-    /* A scroll container clips on both axes (overflow-x: visible computes
-       to auto next to overflow-y: auto), so dock magnification (§4) — which
-       swells items up to ~40px past the panel's left edge, plus the note's
-       shadow — gets room the other way: the scrollport itself extends
-       DOCK_BLEED_PX out over the page (negative margin, matching padding,
-       so the content box and list width are unchanged). That strip must not
-       swallow the page's clicks, so the body is pointer-events: none and
-       only its children take events back; wheel/trackpad scrolling over the
-       list still scrolls the body (scroll chaining follows the box tree,
-       not hit-testability). */
     margin-left: -${DOCK_BLEED_PX}px;
     padding: 12px 0 16px ${DOCK_BLEED_PX}px;
+    clip-path: inset(0 0 0 ${DOCK_BLEED_PX}px);
+  }
+  .body.is-bleeding {
+    clip-path: none;
     pointer-events: none;
   }
-  .body > * { pointer-events: auto; }
+  .body.is-bleeding > * { pointer-events: auto; }
 
   .section-heading {
     margin: 0 16px 12px;
@@ -551,9 +664,9 @@ const SIDEBAR_CSS = `
     overflow: visible;
     /* No isolation here on purpose: the per-item z-index dockMotion.ts
        writes (most magnified on top) has to compete in .sidebar's stacking
-       context so a magnified item also paints over the resizer hairline
-       (z-index 1), while resting items (no z-index) stay under it and the
-       handle stays grabbable. */
+       context so a magnified item paints over the resizer *hairline*
+       (z-index 1) — but never over the resizer's hit target, which sits
+       above every item (RESIZER_Z_INDEX) so the handle stays grabbable. */
   }
   .thumbnail-list[hidden] { display: none !important; }
 
@@ -700,6 +813,13 @@ let elBody: HTMLDivElement | null = null;
  *  rebuilt on every repaint, torn down on close/destroy (see
  *  syncDockMotion). */
 let dockMotion: DockMotionHandle | null = null;
+/** Set by content.ts for the whole of add mode (see
+ *  setDockMagnificationSuspended). Lives here rather than on the handle
+ *  because the handle is rebuilt on every repaint. */
+let dockSuspended = false;
+/** Bumped on every openSidebar/close so a stale theme-settle reveal from an
+ *  earlier open can't unhide a panel that has since been re-hidden. */
+let revealToken = 0;
 let elNotif: HTMLDivElement | null = null;
 let elNotifIcon: HTMLSpanElement | null = null;
 let elNotifText: HTMLSpanElement | null = null;
@@ -741,6 +861,12 @@ function buildDOM(shadow: ShadowRoot): void {
   elResizer.setAttribute('aria-valuemax', String(SIDEBAR_MAX_WIDTH));
   elResizer.setAttribute('aria-valuenow', String(sidebarWidth));
 
+  // Purely visual hairline — a sibling (not ::after) so it can sit below
+  // magnified items while the hit target sits above them (see .resizer).
+  const resizerLine = document.createElement('div');
+  resizerLine.className = 'resizer-line';
+  resizerLine.setAttribute('aria-hidden', 'true');
+
   // ── Header: logo + wordmark, theme toggle, close (design spec §3.1) ──────
   const header = document.createElement('div');
   header.className = 'header';
@@ -756,7 +882,7 @@ function buildDOM(shadow: ShadowRoot): void {
   wordmark.className = 'wordmark';
   wordmark.textContent = 'salamander';
 
-  elBtnTheme = makeGhostButton(THEME_MODE_ICONS.auto, 'theme: auto');
+  elBtnTheme = makeGhostButton(THEME_MODE_ICONS.auto, 'theme: auto', 'btn-theme');
   elBtnClose = makeGhostButton(ICON_CLOSE, 'close sidebar', 'btn-close');
 
   header.appendChild(logo);
@@ -826,6 +952,7 @@ function buildDOM(shadow: ShadowRoot): void {
   elFileInput.style.display = 'none';
 
   elSidebar.appendChild(elResizer);
+  elSidebar.appendChild(resizerLine);
   elSidebar.appendChild(header);
   elSidebar.appendChild(actionRow);
   elSidebar.appendChild(elNotif);
@@ -1079,14 +1206,48 @@ export function openSidebar(): void {
   if (!elSidebar) return;
   elSidebar.hidden = false;
   visible = true;
+  revealWhenThemeSettled();
   applyPageResize();
   syncDockMotion();
+}
+
+/** Longest the panel stays invisible waiting for the persisted theme mode
+ *  (chrome.storage.local is normally a few ms; this only caps a pathological
+ *  read so opening the sidebar can never hang on it). */
+const THEME_REVEAL_TIMEOUT_MS = 150;
+
+/** Avoid a wrong-theme flash on first open: the stored themeMode is read
+ *  asynchronously, so until that first read settles the panel would paint
+ *  in the 'auto' default and then flip. Keep it laid out (the page shrink
+ *  still applies, so nothing jumps) but visibility: hidden until the read
+ *  settles or THEME_REVEAL_TIMEOUT_MS passes, whichever is first. Every
+ *  later open is instant: the read has long since settled. */
+function revealWhenThemeSettled(): void {
+  const token = ++revealToken;
+  if (!elSidebar || isThemeModeSettled()) {
+    if (elSidebar) elSidebar.style.visibility = '';
+    return;
+  }
+  elSidebar.style.visibility = 'hidden';
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const reveal = () => {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+    if (token !== revealToken || !elSidebar) return;
+    elSidebar.style.visibility = '';
+  };
+  timer = setTimeout(reveal, THEME_REVEAL_TIMEOUT_MS);
+  void whenThemeModeSettled().then(reveal);
 }
 
 /** Hide the sidebar and restore the page's original layout exactly as it was
  *  before openSidebar() ran. Safe to call when already closed. */
 export function closeSidebar(): void {
-  if (elSidebar) elSidebar.hidden = true;
+  revealToken++;
+  if (elSidebar) {
+    elSidebar.hidden = true;
+    elSidebar.style.visibility = '';
+  }
   visible = false;
   syncDockMotion();
   clearMessage();
@@ -1149,17 +1310,51 @@ export function setThumbnails(items: FeedbackItem[]): void {
   syncDockMotion();
 }
 
+/** Move keyboard focus to the thumbnail for item `id`, if it is currently
+ *  rendered. content.ts calls this after the enlarged modal closes (and the
+ *  list has been repainted) so focus returns to where it came from rather
+ *  than falling back to <body>. Returns false if there's no such item (e.g.
+ *  it was just deleted). */
+export function focusThumbnail(id: number): boolean {
+  if (!visible || !elThumbnailList) return false;
+  const btn = elThumbnailList.querySelector<HTMLButtonElement>(`button.thumbnail[data-item-id="${id}"]`);
+  if (!btn) return false;
+  btn.focus();
+  return true;
+}
+
 /** Keep exactly one dock-motion layer alive while the sidebar is visible and
  *  showing items, and none otherwise (so a closed sidebar holds no rAF,
  *  listeners or matchMedia subscription). */
 function syncDockMotion(): void {
   const wanted = visible && !!elThumbnailList && !elThumbnailList.hidden && elThumbnailList.children.length > 0;
   if (wanted && !dockMotion && elThumbnailList) {
-    dockMotion = attachDockMotion(elThumbnailList, { scrollContainer: elBody });
+    dockMotion = attachDockMotion(elThumbnailList, {
+      scrollContainer: elBody,
+      // See .body's CSS: the scroller only paints (and stops taking pointer
+      // events) over the page while something is actually magnified.
+      onBleedChange: (bleeding) => elBody?.classList.toggle('is-bleeding', bleeding),
+      holdTargets: elResizer ? [elResizer] : [],
+    });
+    if (dockSuspended) dockMotion.setSuspended(true);
   } else if (!wanted && dockMotion) {
     dockMotion.destroy();
     dockMotion = null;
   }
+}
+
+/**
+ * Suspend (true) / resume (false) the note list's dock magnification.
+ * content.ts suspends it for the whole of add mode: magnified items grow out
+ * past the panel's left edge over the page, and add mode's screenshot is of
+ * the page — so nothing of ours may bleed there while a selection is being
+ * made or captured. Suspending snaps the list back to rest instantly (no
+ * release animation, no pending frame), and the flag survives list repaints
+ * and close/reopen until it is lifted.
+ */
+export function setDockMagnificationSuspended(suspended: boolean): void {
+  dockSuspended = suspended;
+  dockMotion?.setSuspended(suspended);
 }
 
 /** Full teardown: removes the host from the DOM and restores page layout. Not
@@ -1198,6 +1393,8 @@ export function destroySidebar(): void {
   elCountdownBar = null;
   callbacksRef = null;
   visible = false;
+  dockSuspended = false;
+  revealToken++;
   // Hard reset, not a soft close: the next initSidebar() re-reads the
   // persisted width from scratch, so in-memory width state must not leak
   // across a teardown.

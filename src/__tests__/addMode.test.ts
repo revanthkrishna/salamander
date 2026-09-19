@@ -8,6 +8,7 @@
 // rendering. Real-site visual verification is Phase 10's Playwright suite.
 
 import * as addMode from '../addMode';
+import * as sidebar from '../sidebar';
 import { getSidebarWidth } from '../sidebar';
 import { getThemeCSS } from '../theme';
 
@@ -808,5 +809,52 @@ describe('add mode', () => {
     expect(top).toBeGreaterThanOrEqual(0);
     expect(left).toBeLessThanOrEqual(Math.max(0, bounds.width));
     expect(top).toBeLessThanOrEqual(Math.max(0, bounds.height));
+  });
+
+  // ── sidebar widened during add mode ──────────────────────────────────────
+
+  describe('sidebar width changing mid-selection', () => {
+    afterEach(() => {
+      sidebar.destroySidebar();
+      document.documentElement.style.cssText = '';
+    });
+
+    test('widening the sidebar re-clamps a box placed flush right (shifted, size kept)', () => {
+      sidebar.initSidebar({ onAdd() {}, onExport() {}, onImportFile() {}, onClose() {}, onOpenItem() {} });
+      sidebar.setSidebarWidth(200);
+      sidebar.openSidebar();
+      addMode.startAddMode(makeCallbacks());
+      // Flush against the (then) right edge of the selectable area: 1200 − 200.
+      drag(blocker(), 800, 100, 1000, 300);
+      expect(addMode._boxForTests()).toEqual({ x: 800, y: 100, width: 200, height: 200 });
+
+      sidebar.setSidebarWidth(300); // dispatches a synthetic resize while open
+      expect(addMode._boxForTests()).toEqual({ x: 700, y: 100, width: 200, height: 200 });
+      expect(boxEl().style.left).toBe('700px');
+      expect(getHost()!.style.width).toBe('900px');
+    });
+
+    test('a box wider than the new bounds is shrunk to fit, and narrowing leaves it alone', () => {
+      sidebar.initSidebar({ onAdd() {}, onExport() {}, onImportFile() {}, onClose() {}, onOpenItem() {} });
+      sidebar.setSidebarWidth(100);
+      sidebar.openSidebar();
+      setViewport(400, 800);
+      addMode.startAddMode(makeCallbacks());
+      drag(blocker(), 0, 0, 300, 100); // full width of the 300px selectable area
+      expect(addMode._boxForTests().width).toBe(300);
+
+      sidebar.setSidebarWidth(250);
+      expect(addMode._boxForTests()).toEqual({ x: 0, y: 0, width: 150, height: 100 });
+
+      sidebar.setSidebarWidth(100);
+      expect(addMode._boxForTests()).toEqual({ x: 0, y: 0, width: 150, height: 100 });
+    });
+
+    test('stops listening once add mode exits', () => {
+      addMode.startAddMode(makeCallbacks());
+      addMode.exitAddMode();
+      expect(() => window.dispatchEvent(new Event('resize'))).not.toThrow();
+      expect(getHost()).toBeNull();
+    });
   });
 });

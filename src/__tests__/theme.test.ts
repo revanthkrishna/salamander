@@ -24,6 +24,8 @@ import {
   DARK_THEME,
   RADII,
   _resetThemeStateForTests,
+  isThemeModeSettled,
+  whenThemeModeSettled,
 } from '../theme';
 
 /** Minimal `matchMedia('(prefers-color-scheme: dark)')` stand-in. Returns a
@@ -305,5 +307,84 @@ describe('ensureFontsLoaded', () => {
     const second = ensureFontsLoaded();
     expect(second).toBe(first);
     await first;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Own-write echoes (rapid toggling must not flicker) and the first-read settle
+// ---------------------------------------------------------------------------
+
+describe('own-write echo suppression', () => {
+  function listener(): (changes: any, areaName: string) => void {
+    return (chrome.storage.onChanged.addListener as jest.Mock).mock.calls[0][0];
+  }
+  const echo = (oldValue: string | undefined, newValue: string) =>
+    listener()({ themeMode: { oldValue, newValue } }, 'local');
+
+  test('rapid toggling: late echoes of this tab\'s own writes never revert the mode', () => {
+    expect(getThemeMode()).toBe('auto');
+    const spy = jest.fn();
+    subscribeThemeChange(spy);
+
+    cycleThemeMode(); // light
+    cycleThemeMode(); // dark
+    expect(getThemeMode()).toBe('dark');
+    spy.mockClear();
+
+    // Echoes arrive afterwards, in write order.
+    echo(undefined, 'light');
+    expect(getThemeMode()).toBe('dark');
+    echo('light', 'dark');
+    expect(getThemeMode()).toBe('dark');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  test('a genuine change from another tab still syncs, before or after our echoes', () => {
+    expect(getThemeMode()).toBe('auto');
+    setThemeMode('light');
+
+    echo('light', 'dark'); // another tab — we never wrote 'dark'
+    expect(getThemeMode()).toBe('dark');
+
+    echo(undefined, 'light'); // our (late) echo: ignored, not a revert
+    expect(getThemeMode()).toBe('dark');
+
+    echo('dark', 'light'); // the other tab again, now with a value we once wrote
+    expect(getThemeMode()).toBe('light');
+  });
+
+  test('a write that leaves storage unchanged is not queued, so it can\'t mask a later genuine change', () => {
+    chrome.storage.local.set({ themeMode: 'light' });
+    expect(getThemeMode()).toBe('light'); // loaded from storage
+
+    setThemeMode('light'); // no-op for storage: Chrome fires no onChanged
+    echo('light', 'dark'); // another tab
+    expect(getThemeMode()).toBe('dark');
+    echo('dark', 'light'); // another tab — must not be mistaken for our echo
+    expect(getThemeMode()).toBe('light');
+  });
+});
+
+describe('initial read settle', () => {
+  test('settles once the stored mode arrives, and a slow read never overrides a fresh local choice', async () => {
+    let deliver: ((r: Record<string, unknown>) => void) | null = null;
+    (chrome.storage.local.get as jest.Mock).mockImplementation((_k: unknown, cb: (r: Record<string, unknown>) => void) => {
+      deliver = cb;
+    });
+    expect(isThemeModeSettled()).toBe(false);
+    const settled = whenThemeModeSettled();
+
+    setThemeMode('light'); // user picks before the read lands
+    deliver!({ themeMode: 'dark' });
+    await settled;
+
+    expect(isThemeModeSettled()).toBe(true);
+    expect(getThemeMode()).toBe('light');
+  });
+
+  test('settles even when nothing is stored', async () => {
+    expect(getThemeMode()).toBe('auto'); // mock answers synchronously with {}
+    expect(isThemeModeSettled()).toBe(true);
+    await expect(whenThemeModeSettled()).resolves.toBeUndefined();
   });
 });

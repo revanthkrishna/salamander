@@ -93,6 +93,8 @@ function buildThumbnailEl(item: FeedbackItem, callbacks: ThumbnailCallbacks): HT
   btn.type = 'button';
   btn.className = 'thumbnail';
   btn.setAttribute('aria-label', `feedback item ${item.id}`);
+  // Lets sidebar.focusThumbnail() find the item again after a repaint.
+  btn.dataset.itemId = String(item.id);
 
   const imageWrap = document.createElement('div');
   imageWrap.className = 'thumbnail-image-wrap';

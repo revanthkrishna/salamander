@@ -845,3 +845,204 @@ describe('sidebar shell', () => {
     expect(panel.classList.contains('is-narrow')).toBe(true);
   });
 });
+
+describe('sidebar review fixes', () => {
+  afterEach(() => {
+    sidebar.destroySidebar();
+    html().style.cssText = '';
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+    _resetThemeStateForTests();
+  });
+
+  function css(): string {
+    return shadowRoot().querySelector('style')!.textContent ?? '';
+  }
+  /** The first `selector { ... }` rule body in the sidebar's stylesheet. */
+  function cssRule(selector: string): string {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return css().match(new RegExp(`(^|\\n)\\s*${escaped}\\s*\\{[^}]*\\}`))?.[0] ?? '';
+  }
+  function body(): HTMLElement {
+    return shadowRoot().querySelector('.body') as HTMLElement;
+  }
+  function list(): HTMLElement {
+    return shadowRoot().querySelector('.thumbnail-list') as HTMLElement;
+  }
+  function openWithItems(n = 3): void {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+    sidebar.setThumbnails(Array.from({ length: n }, (_, i) => makeItem({ id: i + 1 })));
+  }
+  function hoverList(): void {
+    list().dispatchEvent(new MouseEvent('pointerenter', { clientY: 10 }));
+  }
+
+  // ── #2: the scroller keeps normal pointer events at rest ──────────────────
+
+  test('at rest the note scroller has ordinary pointer events and clip-path trims the over-page strip', () => {
+    openWithItems();
+    const rest = cssRule('.body');
+    expect(rest).toMatch(/clip-path:\s*inset\(0 0 0 72px\)/);
+    expect(rest).toMatch(/margin-left:\s*-72px/);
+    expect(rest).not.toMatch(/pointer-events/);
+    expect(body().classList.contains('is-bleeding')).toBe(false);
+  });
+
+  test('only while an item is magnified does the scroller paint over the page (and go click-through there)', () => {
+    openWithItems();
+    const bleeding = cssRule('.body.is-bleeding');
+    expect(bleeding).toMatch(/clip-path:\s*none/);
+    expect(bleeding).toMatch(/pointer-events:\s*none/);
+    expect(cssRule('.body.is-bleeding > *')).toMatch(/pointer-events:\s*auto/);
+
+    hoverList();
+    expect(body().classList.contains('is-bleeding')).toBe(true);
+
+    // Closing tears the motion layer down and drops the bleed with it.
+    sidebar.closeSidebar();
+    expect(body().classList.contains('is-bleeding')).toBe(false);
+  });
+
+  // ── #1: dock suspension for add mode / capture ─────────────────────────────
+
+  test('setDockMagnificationSuspended stops the list magnifying, and survives repaints until lifted', () => {
+    openWithItems();
+    hoverList();
+    expect(body().classList.contains('is-bleeding')).toBe(true);
+
+    sidebar.setDockMagnificationSuspended(true);
+    // Instantly back to rest: nothing painting over the page any more.
+    expect(body().classList.contains('is-bleeding')).toBe(false);
+    for (const li of Array.from(list().children) as HTMLElement[]) expect(li.style.transform).toBe('');
+
+    hoverList();
+    expect(body().classList.contains('is-bleeding')).toBe(false);
+
+    // A repaint (e.g. after a capture) builds a fresh motion layer — still suspended.
+    sidebar.setThumbnails([makeItem({ id: 7 }), makeItem({ id: 8 })]);
+    hoverList();
+    expect(body().classList.contains('is-bleeding')).toBe(false);
+
+    sidebar.setDockMagnificationSuspended(false);
+    hoverList();
+    expect(body().classList.contains('is-bleeding')).toBe(true);
+  });
+
+  // ── #3: the action row never overflows ─────────────────────────────────────
+
+  test('the breakpoints are derived so the action row fits at every width from 100 to 300px', () => {
+    for (let w = sidebar.SIDEBAR_MIN_WIDTH; w <= sidebar.SIDEBAR_MAX_WIDTH; w++) {
+      expect({ w, fits: sidebar.actionRowFits(w) }).toEqual({ w, fits: true });
+    }
+    // The narrow single row needs 1 (border) + 16·2 (padding) + 36·3 + 8·2 = 157px.
+    expect(sidebar.COMPACT_WIDTH_BREAKPOINT).toBe(157);
+  });
+
+  test('layout classes flip exactly at the boundaries', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const panel = shadowRoot().querySelector('.sidebar') as HTMLElement;
+    const at = (w: number) => {
+      sidebar.setSidebarWidth(w);
+      return { narrow: panel.classList.contains('is-narrow'), compact: panel.classList.contains('is-compact') };
+    };
+    expect(at(100)).toEqual({ narrow: true, compact: true });
+    expect(at(150)).toEqual({ narrow: true, compact: true }); // used to overflow single-row
+    expect(at(156)).toEqual({ narrow: true, compact: true });
+    expect(at(157)).toEqual({ narrow: true, compact: false });
+    expect(at(219)).toEqual({ narrow: true, compact: false });
+    expect(at(220)).toEqual({ narrow: false, compact: false });
+    expect(at(300)).toEqual({ narrow: false, compact: false });
+    for (const w of [100, 150, 156, 157, 219, 220, 300]) {
+      expect(sidebar.sidebarLayoutFor(w)).toEqual(at(w));
+    }
+  });
+
+  test('the labelled primary can shrink (ellipsizing label) instead of pushing the icon buttons out', () => {
+    sidebar.initSidebar(makeCallbacks());
+    expect(cssRule('.btn-primary')).toMatch(/min-width:\s*0/);
+    expect(cssRule('.btn-primary .btn-label')).toMatch(/text-overflow:\s*ellipsis/);
+  });
+
+  // ── #9: header controls stay right-aligned when the wordmark hides ────────
+
+  test('the theme toggle carries margin-left: auto so theme + close stay pinned right', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const theme = shadowRoot().querySelector('.header .btn-theme') as HTMLElement;
+    expect(theme).not.toBeNull();
+    expect(theme.getAttribute('aria-label')).toMatch(/^theme: /);
+    expect(cssRule('.btn-theme')).toMatch(/margin-left:\s*auto/);
+  });
+
+  // ── #6 / #8: resize handle focus ring and stacking ─────────────────────────
+
+  test('the resize handle shows the standard focus ring and sits above magnified items; its hairline sits below them', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const handle = shadowRoot().querySelector('.resizer') as HTMLElement;
+    const line = handle.nextElementSibling as HTMLElement;
+    expect(line.className).toBe('resizer-line');
+    expect(line.getAttribute('aria-hidden')).toBe('true');
+
+    expect(cssRule('.resizer:focus-visible')).toContain('0 0 0 4px var(--sal-focus)');
+
+    // dockMotion.ts writes item z-indexes 0–100.
+    const handleZ = Number(/z-index:\s*(\d+)/.exec(cssRule('.resizer'))![1]);
+    const lineZ = Number(/z-index:\s*(\d+)/.exec(cssRule('.resizer-line'))![1]);
+    expect(handleZ).toBeGreaterThan(100);
+    expect(lineZ).toBeLessThan(100);
+    // …but the accent line rises above items while the handle is in use.
+    expect(css()).toMatch(/\.resizer:focus-visible \+ \.resizer-line \{[^}]*z-index:\s*101/);
+  });
+
+  // ── #5: no wrong-theme flash on first open ─────────────────────────────────
+
+  test('the panel stays invisible until the stored theme mode has loaded, then reveals in the right theme', () => {
+    let deliver: ((r: Record<string, unknown>) => void) | null = null;
+    (chrome.storage.local.get as jest.Mock).mockImplementation((key: unknown, cb: (r: Record<string, unknown>) => void) => {
+      if (key === 'themeMode') deliver = cb;
+      else cb({});
+    });
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+    const panel = shadowRoot().querySelector('.sidebar') as HTMLElement;
+    expect(panel.hidden).toBe(false);
+    expect(panel.style.visibility).toBe('hidden');
+
+    deliver!({ themeMode: 'dark' });
+    return Promise.resolve().then(() => {
+      expect(getHost()!.getAttribute('data-theme')).toBe('dark');
+      expect(panel.style.visibility).toBe('');
+    });
+  });
+
+  test('a storage read that never settles only delays the reveal briefly', () => {
+    jest.useFakeTimers();
+    (chrome.storage.local.get as jest.Mock).mockImplementation((key: unknown, cb: (r: Record<string, unknown>) => void) => {
+      if (key !== 'themeMode') cb({});
+    });
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+    const panel = shadowRoot().querySelector('.sidebar') as HTMLElement;
+    expect(panel.style.visibility).toBe('hidden');
+    jest.advanceTimersByTime(150);
+    expect(panel.style.visibility).toBe('');
+  });
+
+  test('once the theme read has settled, opening is instant', () => {
+    sidebar.initSidebar(makeCallbacks()); // mock storage answers synchronously
+    sidebar.openSidebar();
+    const panel = shadowRoot().querySelector('.sidebar') as HTMLElement;
+    expect(panel.style.visibility).toBe('');
+  });
+
+  // ── #10: focus returns to the thumbnail after the modal ────────────────────
+
+  test('focusThumbnail focuses the rendered item by id, and reports a missing one', () => {
+    openWithItems(3);
+    expect(sidebar.focusThumbnail(2)).toBe(true);
+    const focused = shadowRoot().activeElement as HTMLElement;
+    expect(focused.classList.contains('thumbnail')).toBe(true);
+    expect(focused.getAttribute('aria-label')).toBe('feedback item 2');
+    expect(sidebar.focusThumbnail(99)).toBe(false);
+  });
+});

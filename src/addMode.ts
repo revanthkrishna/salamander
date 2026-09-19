@@ -630,6 +630,19 @@ function renderBox(): void {
   positionComment(bounds);
 }
 
+/** Fit a placed box back inside `bounds`: shifted first (size kept), and
+ *  shrunk only on an axis where it no longer fits at all. */
+function clampBoxToBounds(b: Rect, bounds: { width: number; height: number }): Rect {
+  const width = Math.min(b.width, bounds.width);
+  const height = Math.min(b.height, bounds.height);
+  return {
+    x: clamp(b.x, 0, Math.max(0, bounds.width - width)),
+    y: clamp(b.y, 0, Math.max(0, bounds.height - height)),
+    width,
+    height,
+  };
+}
+
 /** Hit-zone rects for the current box: edge strips EDGE_ZONE thick centred on
  *  the outline (half inside, half outside) and running between the corner
  *  squares; CORNER_ZONE squares centred on each corner. Exported for tests
@@ -822,6 +835,23 @@ export function startAddMode(callbacks: AddModeCallbacks): void {
   elBlocker!.classList.add('placing');
   elBlocker!.addEventListener('mousedown', handleBlockerMouseDown);
   layoutHost(getBounds());
+  window.addEventListener('resize', handleBoundsChange);
+}
+
+/** Keep the selectable area — and a placed selection — inside the bounds
+ *  when they change under add mode: a real viewport resize, or the sidebar
+ *  being widened (sidebar.ts dispatches a synthetic `resize` on every width
+ *  change while open). Without this, a box placed flush right stays where
+ *  it was and ends up under the wider panel, capturing a slice of it. */
+function handleBoundsChange(): void {
+  if (mode === 'idle') return;
+  const bounds = getBounds();
+  if (mode === 'editing') {
+    box = clampBoxToBounds(box, bounds);
+    renderBox();
+  } else {
+    layoutHost(bounds);
+  }
 }
 
 export function isAddModeActive(): boolean {
@@ -856,6 +886,8 @@ export function showOverlayUI(): void {
  *  pipeline later) call it themselves once a successful capture completes. */
 export function exitAddMode(): void {
   if (mode === 'idle') return;
+
+  window.removeEventListener('resize', handleBoundsChange);
 
   document.removeEventListener('mousemove', onResizeMove);
   document.removeEventListener('mouseup', onResizeUp);

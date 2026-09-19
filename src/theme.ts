@@ -283,6 +283,52 @@ let darkModeQuery: MediaQueryList | null = null;
 const themedHosts = new Set<HTMLElement>();
 const listeners = new Set<ThemeChangeListener>();
 
+// ─── Own-write echo suppression ─────────────────────────────────────────────
+// chrome.storage.onChanged fires in *every* context, including the one that
+// made the write — asynchronously, after this tab has already committed the
+// mode locally. Rapid toggling (auto → light → dark) queues two writes; the
+// echo of the first ('light') then lands after the local state has moved on
+// to 'dark' and, treated as another tab's change, reverts it — a visible
+// flicker before the second echo puts it back. So every write this context
+// makes is remembered until its echo arrives, and an echo of our own write
+// is never re-applied (the local state already reflects it, or something
+// newer). Genuine changes from other tabs carry values we have no pending
+// write for, and still sync.
+
+interface PendingWrite {
+  id: number;
+  mode: ThemeMode;
+}
+/** Our writes whose onChanged echo hasn't arrived yet, oldest first. */
+let pendingWrites: PendingWrite[] = [];
+let pendingWriteSeq = 0;
+/** Best knowledge of what chrome.storage.local currently holds for the key
+ *  (from the initial read, our own writes, and onChanged). Chrome doesn't
+ *  fire onChanged for a write that leaves the value unchanged, so such a
+ *  write must not be queued as pending — its echo would never come. */
+let lastKnownStored: ThemeMode | undefined;
+/** Safety net for a write whose echo never arrives anyway (e.g. a racing
+ *  write from another tab made it a no-op): after this long it no longer
+ *  masks a genuine change carrying the same value. */
+const PENDING_ECHO_TTL_MS = 3000;
+
+/** True once a local setThemeMode()/cycleThemeMode() has happened, so a slow
+ *  initial storage read can't snap the user's fresh choice back (mirrors
+ *  sidebar.ts's widthChosenByUser). */
+let modeChosenLocally = false;
+
+// ─── First-read settle tracking (wrong-theme flash on first open) ───────────
+let modeSettled = false;
+let settleResolvers: Array<() => void> = [];
+
+function markModeSettled(): void {
+  if (modeSettled) return;
+  modeSettled = true;
+  const resolvers = settleResolvers;
+  settleResolvers = [];
+  for (const resolve of resolvers) resolve();
+}
+
 function applyThemeToHosts(): void {
   for (const hostEl of themedHosts) hostEl.setAttribute('data-theme', currentResolved);
 }
@@ -300,28 +346,73 @@ function commitMode(mode: ThemeMode): void {
   notifyListeners();
 }
 
+function dropPendingWrite(id: number): void {
+  pendingWrites = pendingWrites.filter((w) => w.id !== id);
+}
+
 function persistMode(mode: ThemeMode): void {
+  let pending: PendingWrite | null = null;
+  if (mode !== lastKnownStored) {
+    pending = { id: ++pendingWriteSeq, mode };
+    pendingWrites.push(pending);
+  }
+  lastKnownStored = mode;
   try {
     chrome?.storage?.local?.set({ [STORAGE_KEY]: mode }, () => {
       // Read lastError so Chrome doesn't log an unchecked-error warning; a
       // failed write only costs the user their theme choice next session.
-      void chrome.runtime?.lastError;
+      const failed = !!chrome.runtime?.lastError;
+      if (!pending) return;
+      const id = pending.id;
+      // A failed write has no echo coming; a successful one should have
+      // been (or be about to be) echoed — expire it either way eventually.
+      if (failed) dropPendingWrite(id);
+      else setTimeout(() => dropPendingWrite(id), PENDING_ECHO_TTL_MS);
     });
   } catch {
     // chrome.storage unavailable (restricted page, torn-down context).
+    if (pending) dropPendingWrite(pending.id);
   }
 }
 
 function loadPersistedMode(): void {
   try {
-    chrome?.storage?.local?.get(STORAGE_KEY, (result) => {
-      if (chrome.runtime?.lastError) return;
-      const stored = result?.[STORAGE_KEY];
-      if (isThemeMode(stored) && stored !== currentMode) commitMode(stored);
+    const local = chrome?.storage?.local;
+    if (!local?.get) {
+      markModeSettled();
+      return;
+    }
+    local.get(STORAGE_KEY, (result) => {
+      try {
+        if (chrome.runtime?.lastError) return;
+        const stored = result?.[STORAGE_KEY];
+        if (!isThemeMode(stored)) return;
+        if (lastKnownStored === undefined) lastKnownStored = stored;
+        // The user already picked a mode in this document — don't snap back.
+        if (modeChosenLocally) return;
+        if (stored !== currentMode) commitMode(stored);
+      } finally {
+        markModeSettled();
+      }
     });
   } catch {
     // chrome.storage unavailable — stay on the 'auto' default.
+    markModeSettled();
   }
+}
+
+/** Handles one chrome.storage.onChanged notification for our key. */
+function handleStorageChange(newValue: unknown): void {
+  if (!isThemeMode(newValue)) return;
+  const idx = pendingWrites.findIndex((w) => w.mode === newValue);
+  if (idx >= 0) {
+    // Echo of our own write. Writes land in order, so anything queued
+    // before it has been superseded (or coalesced away) too.
+    pendingWrites = pendingWrites.slice(idx + 1);
+    return;
+  }
+  lastKnownStored = newValue;
+  if (newValue !== currentMode) commitMode(newValue);
 }
 
 function setupStorageListener(): void {
@@ -330,7 +421,7 @@ function setupStorageListener(): void {
       if (areaName !== 'local') return;
       const change = changes?.[STORAGE_KEY];
       if (!change) return;
-      if (isThemeMode(change.newValue) && change.newValue !== currentMode) commitMode(change.newValue);
+      handleStorageChange(change.newValue);
     });
   } catch {
     // chrome.storage unavailable.
@@ -395,6 +486,7 @@ export function getResolvedTheme(): ResolvedTheme {
  *  fire-and-forget, matching setSidebarWidth's persistSidebarWidth). */
 export function setThemeMode(mode: ThemeMode): void {
   ensureInitialized();
+  modeChosenLocally = true;
   commitMode(mode);
   persistMode(mode);
 }
@@ -407,6 +499,30 @@ export function cycleThemeMode(): ThemeMode {
   const next = CYCLE_ORDER[(CYCLE_ORDER.indexOf(currentMode) + 1) % CYCLE_ORDER.length];
   setThemeMode(next);
   return next;
+}
+
+/** Kick off the persisted-mode read without needing a surface yet. content.ts
+ *  calls this as soon as the content script loads, so the read has usually
+ *  settled long before the sidebar is first built and shown. Idempotent. */
+export function primeThemeMode(): void {
+  ensureInitialized();
+}
+
+/** True once the initial chrome.storage.local read of the theme mode has
+ *  settled (with a value, without one, or failed) — from then on
+ *  getThemeMode()/getResolvedTheme() reflect the user's stored choice. */
+export function isThemeModeSettled(): boolean {
+  ensureInitialized();
+  return modeSettled;
+}
+
+/** Resolves once isThemeModeSettled() is true (immediately if it already
+ *  is). Never rejects; callers that must not block should race it with a
+ *  timeout (sidebar.ts does). */
+export function whenThemeModeSettled(): Promise<void> {
+  ensureInitialized();
+  if (modeSettled) return Promise.resolve();
+  return new Promise((resolve) => settleResolvers.push(resolve));
 }
 
 /** Subscribes to mode/resolved-theme changes from ANY source: a direct
@@ -452,6 +568,12 @@ export function _resetThemeStateForTests(): void {
   themedHosts.clear();
   listeners.clear();
   fontsLoadPromise = null;
+  pendingWrites = [];
+  pendingWriteSeq = 0;
+  lastKnownStored = undefined;
+  modeChosenLocally = false;
+  modeSettled = false;
+  settleResolvers = [];
 }
 
 // ---------------------------------------------------------------------------

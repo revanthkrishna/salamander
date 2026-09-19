@@ -423,6 +423,17 @@ describe('modal', () => {
       expect(footerBar!.querySelector('.delete-btn')).not.toBeNull();
     });
 
+    it('delete is a 36px danger button filling the 36px footer bar', () => {
+      modal.openModal(makeItem(), makeCallbacks());
+      const styleText = shadowRoot().querySelector('style')!.textContent ?? '';
+      const rule = (sel: string) =>
+        styleText.match(new RegExp(`\\n\\s*${sel.replace('.', '\\.')}\\s*\\{[^}]*\\}`))?.[0] ?? '';
+      expect(rule('.delete-btn')).toMatch(/height:\s*36px/);
+      expect(rule('.footer-bar')).toMatch(/height:\s*36px/);
+      // content-box so the 1px divider sits outside the 36px, like the add-mode footer.
+      expect(rule('.footer-bar')).toMatch(/box-sizing:\s*content-box/);
+    });
+
     it('close button keeps its aria-label/title and renders an 18x18 stroked icon', () => {
       modal.openModal(makeItem(), makeCallbacks());
 
@@ -437,3 +448,35 @@ describe('modal', () => {
     });
   });
 });
+
+describe('modal accessibility', () => {
+  afterEach(() => {
+    modal._destroyForTests();
+    sidebar.destroySidebar();
+  });
+
+  it('the dialog is named by its title and the note textarea has a label', () => {
+    modal.openModal(makeItem({ id: 4 }), makeCallbacks());
+    const dialog = shadowRoot().querySelector('[role="dialog"]') as HTMLElement;
+    const labelledBy = dialog.getAttribute('aria-labelledby');
+    expect(labelledBy).toBeTruthy();
+    expect(shadowRoot().getElementById(labelledBy!)!.textContent).toBe('feedback #4');
+    expect(shadowRoot().querySelector('textarea')!.getAttribute('aria-label')).toBe('note');
+  });
+
+  it('moves focus into the dialog (the note) on open', () => {
+    modal.openModal(makeItem(), makeCallbacks());
+    expect(shadowRoot().activeElement).toBe(shadowRoot().querySelector('textarea'));
+  });
+
+  it('tearing down while the note is focused and edited never fires a save', () => {
+    const cbs = makeCallbacks();
+    modal.openModal(makeItem(), cbs);
+    const ta = shadowRoot().querySelector('textarea') as HTMLTextAreaElement;
+    ta.value = 'edited';
+    modal.openModal(makeItem({ id: 2 }), makeCallbacks()); // replaces without saving
+    ta.dispatchEvent(new FocusEvent('blur'));
+    expect(cbs.onSaveNote).not.toHaveBeenCalled();
+  });
+});
+

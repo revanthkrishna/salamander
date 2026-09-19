@@ -202,6 +202,15 @@ export interface DockMotionHandle {
   /** Re-read the cached layout (call after anything moves the items that
    *  the built-in listeners can't see). */
   refresh(): void;
+  /** Suspend (true) or resume (false) pointer/focus-driven magnification.
+   *  Suspending drops every item back to rest *instantly* — no release
+   *  animation, no rAF left pending — so the caller can rely on nothing
+   *  bleeding out over the page from the very next paint (add mode and its
+   *  screenshot capture: a magnified item past the panel edge would land in
+   *  the capture). Pointer/focus tracking continues silently while
+   *  suspended, so resuming with the pointer still over the list swells it
+   *  back in from rest. */
+  setSuspended(suspended: boolean): void;
   /** Remove every listener/observer/rAF and restore the items' styles. */
   destroy(): void;
 }
@@ -210,6 +219,17 @@ export interface DockMotionOptions {
   /** The element that scrolls the list (sidebar.ts's `.body`); scroll
    *  events don't bubble, so it has to be named. */
   scrollContainer?: HTMLElement | null;
+  /** Called with true as soon as any item is about to be transformed, and
+   *  with false once every item is back at rest (identity transform, note
+   *  background hidden). sidebar.ts uses it to let the scroll container
+   *  paint out over the page only while something actually bleeds there. */
+  onBleedChange?: (bleeding: boolean) => void;
+  /** Elements that border the list and sit *above* magnified items (the
+   *  sidebar's resize handle). The pointer crossing from the list onto one
+   *  of these doesn't release the swell — it holds where it was — so a
+   *  sweep across the handle's thin strip doesn't make the list dip and
+   *  re-swell. Entering one from elsewhere never starts magnification. */
+  holdTargets?: readonly HTMLElement[];
 }
 
 interface DockItem {
@@ -299,6 +319,11 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
   let lastTs: number | null = null;
   let animating = false;
   let destroyed = false;
+  let suspended = false;
+  let bleeding = false;
+  /** True while the pointer sits on a hold target it reached from the list. */
+  let holding = false;
+  const holdTargets = options.holdTargets ?? [];
 
   const mql = getReducedMotionQuery();
   let reduced = mql?.matches ?? false;
@@ -328,8 +353,14 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
 
   // ─── Targets ──────────────────────────────────────────────────────────
 
+  function setBleed(next: boolean): void {
+    if (next === bleeding) return;
+    bleeding = next;
+    options.onBleedChange?.(next);
+  }
+
   function retarget(): void {
-    if (reduced || destroyed) return;
+    if (reduced || destroyed || suspended) return;
     let focalY: number | null = null;
     if (pointerY !== null) {
       focalY = pointerY - listTop;
@@ -349,7 +380,10 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
   // ─── Loop ─────────────────────────────────────────────────────────────
 
   function wake(): void {
-    if (rafId !== null || destroyed || reduced) return;
+    if (rafId !== null || destroyed || reduced || suspended) return;
+    // Before the first transform is written, so the scroll container is
+    // already painting over the page by the time anything reaches it.
+    setBleed(true);
     if (!animating) {
       animating = true;
       for (const item of items) item.li.style.willChange = 'transform';
@@ -386,6 +420,9 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
 
   function sleep(): void {
     lastTs = null;
+    // Resting *magnified* (pointer parked on an item) still bleeds; only a
+    // list fully back at identity stops.
+    setBleed(items.some((it) => it.influence.x > 1e-6 || it.note.x > 1e-6));
     if (!animating) return;
     animating = false;
     for (const item of items) item.li.style.willChange = '';
@@ -442,27 +479,49 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
       item.li.style.willChange = '';
       if (item.noteBg) item.noteBg.style.opacity = '';
     }
+    setBleed(false);
   }
 
   // ─── Event wiring ─────────────────────────────────────────────────────
 
   function onPointerEnter(e: PointerEvent): void {
     pointerY = e.clientY;
-    if (reduced) return;
+    holding = false;
+    if (reduced || suspended) {
+      layoutDirty = true;
+      return;
+    }
     measure();
     retarget();
   }
 
   function onPointerMove(e: PointerEvent): void {
     pointerY = e.clientY;
-    if (reduced) return;
+    if (reduced || suspended) return;
     // A repaint swaps in a fresh instance while the pointer may already be
     // inside the list (no pointerenter), so measure lazily on first move.
     if (layoutDirty) measure();
     retarget();
   }
 
-  function onPointerLeave(): void {
+  function isInHoldTarget(target: EventTarget | null): boolean {
+    return target instanceof Node && holdTargets.some((el) => el.contains(target));
+  }
+
+  function onPointerLeave(e: PointerEvent): void {
+    if (pointerY !== null && isInHoldTarget(e.relatedTarget)) {
+      holding = true; // keep pointerY frozen where the pointer left the list
+      return;
+    }
+    pointerY = null;
+    retarget();
+  }
+
+  function onHoldTargetLeave(e: PointerEvent): void {
+    if (!holding) return;
+    holding = false;
+    // Back onto the list: its own pointerenter takes over.
+    if (e.relatedTarget instanceof Node && listEl.contains(e.relatedTarget)) return;
     pointerY = null;
     retarget();
   }
@@ -477,7 +536,7 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
     // Mouse clicks focus the button too; only keyboard focus magnifies, or a
     // clicked item would stay swollen after the pointer leaves.
     focusIndex = idx >= 0 && e.target instanceof Element && isFocusVisible(e.target) ? idx : null;
-    if (reduced) return;
+    if (reduced || suspended) return;
     if (layoutDirty) measure();
     retarget();
   }
@@ -489,7 +548,10 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
   }
 
   function onScroll(): void {
-    if (reduced) return;
+    if (reduced || suspended) {
+      layoutDirty = true;
+      return;
+    }
     if (layoutDirty) measure();
     else measureListTop();
     if (pointerY !== null || focusIndex !== null) retarget();
@@ -497,7 +559,7 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
 
   function onLayoutChange(): void {
     layoutDirty = true;
-    if (reduced) return;
+    if (reduced || suspended) return;
     if (pointerY !== null || focusIndex !== null) {
       measure();
       retarget();
@@ -511,7 +573,7 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
     } else {
       listEl.dataset.dock = 'on';
       layoutDirty = true;
-      if (pointerY !== null || focusIndex !== null) {
+      if (!suspended && (pointerY !== null || focusIndex !== null)) {
         measure();
         retarget();
       }
@@ -529,6 +591,7 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
   listEl.addEventListener('focusin', onFocusIn);
   listEl.addEventListener('focusout', onFocusOut);
   scrollContainer?.addEventListener('scroll', onScroll, { passive: true });
+  for (const el of holdTargets) el.addEventListener('pointerleave', onHoldTargetLeave);
   window.addEventListener('resize', onLayoutChange);
   // Sidebar drags change the width → notes rewrap → heights change; late
   // font loads do the same. Guarded: jsdom has no ResizeObserver.
@@ -542,6 +605,21 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
     refresh(): void {
       onLayoutChange();
     },
+    setSuspended(next: boolean): void {
+      if (destroyed || next === suspended) return;
+      suspended = next;
+      if (suspended) {
+        // Straight to rest: cancels the loop and strips every transform
+        // synchronously (and reports bleed off) — no release animation.
+        resetStyles();
+        return;
+      }
+      layoutDirty = true;
+      if (!reduced && (pointerY !== null || focusIndex !== null)) {
+        measure();
+        retarget();
+      }
+    },
     destroy(): void {
       if (destroyed) return;
       resetStyles();
@@ -552,6 +630,7 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
       listEl.removeEventListener('focusin', onFocusIn);
       listEl.removeEventListener('focusout', onFocusOut);
       scrollContainer?.removeEventListener('scroll', onScroll);
+      for (const el of holdTargets) el.removeEventListener('pointerleave', onHoldTargetLeave);
       window.removeEventListener('resize', onLayoutChange);
       ro?.disconnect();
       mql?.removeEventListener?.('change', onReducedMotionChange);

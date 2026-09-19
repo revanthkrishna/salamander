@@ -68,6 +68,9 @@ import {
  *  explicit value at all rather than relying on DOM order. */
 const MODAL_HOST_Z_INDEX = 2147483647;
 
+/** id of the header title, for the dialog's aria-labelledby. */
+const MODAL_TITLE_ID = 'annotator-modal-title';
+
 export interface ModalCallbacks {
   /** Resolve the full-resolution screenshot for this item, or null if it
    *  could not be loaded — the thumbnail-resolution image stays on screen
@@ -211,18 +214,22 @@ const modalCss = (): string => `
     box-shadow: inset 0 0 0 1px var(--sal-accent);
   }
 
+  /* 36px bar + its 1px divider (content-box, exactly like the add-mode
+     comment box's footer), so the 36px delete button fills it edge to edge. */
   .footer-bar {
+    box-sizing: content-box;
     height: 36px;
     flex-shrink: 0;
     display: flex;
-    align-items: center;
+    align-items: stretch;
     justify-content: space-between;
     gap: 8px;
-    padding: 0 10px;
+    padding: 0 0 0 12px;
     border-top: 1px solid var(--sal-line);
   }
 
   .inline-error {
+    align-self: center;
     font-size: 12px;
     color: var(--sal-danger);
     flex: 1 1 auto;
@@ -233,10 +240,19 @@ const modalCss = (): string => `
   }
   .inline-error[hidden] { display: none !important; }
 
+  /* Danger button (design spec §3.3: 36px) sitting flush in the bar — the
+     "flush in the bar" variant the spec allows, matching the add-mode
+     comment box's flush save/cancel: full bar height, flush against the
+     right and bottom edges, square corners except the bottom-right, which
+     follows the panel radius. No press-scale (shrinking a flush button
+     opens gaps against the bar edges) and an *inset* focus ring (an outer
+     ring would be clipped by the panel's overflow: hidden). */
   .delete-btn {
-    height: 28px;
-    padding: 0 14px;
-    border-radius: var(--sal-radius-md);
+    height: 36px;
+    margin: 0;
+    padding: 0 16px;
+    border-radius: 0 0 calc(var(--sal-radius-lg) - 1px) 0;
+    font-family: inherit;
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
@@ -247,13 +263,10 @@ const modalCss = (): string => `
     ${STATE_TRANSITION_CSS}
   }
   .delete-btn:hover:not(:disabled) { background: var(--sal-danger-hover); }
-  .delete-btn:active:not(:disabled) {
-    background: var(--sal-danger-press);
-    ${PRESS_SCALE_CSS}
-  }
+  .delete-btn:active:not(:disabled) { background: var(--sal-danger-press); }
   .delete-btn:focus-visible {
     outline: none;
-    ${FOCUS_RING_CSS}
+    box-shadow: inset 0 0 0 2px var(--sal-focus);
   }
   .delete-btn:disabled { ${DISABLED_CSS} }
 `;
@@ -319,6 +332,13 @@ export function openModal(item: FeedbackItem, callbacks: ModalCallbacks): void {
   // now never see the event once isolation stops its propagation, so Escape
   // handling moves into the isolation callback instead.
   keyboardIsolation = installKeyboardIsolation(modalHost!, handleKeyDown);
+
+  // Move focus into the dialog (aria-modal promises it's there): the note
+  // is what this modal is for, so start in it. Returning focus on close is
+  // the caller's job (content.ts refocuses the thumbnail after its repaint)
+  // — the opener lives in the sidebar's own closed shadow root, out of
+  // reach from here.
+  elTextarea!.focus({ preventScroll: true });
 }
 
 /** Autosave any pending edit, then tear the modal down and notify the
@@ -360,6 +380,8 @@ function buildDOM(): void {
   elBackdrop.className = 'backdrop';
   elBackdrop.setAttribute('role', 'dialog');
   elBackdrop.setAttribute('aria-modal', 'true');
+  // Named by the "feedback #n" title in the header.
+  elBackdrop.setAttribute('aria-labelledby', MODAL_TITLE_ID);
   elBackdrop.addEventListener('click', (e) => {
     if (e.target === elBackdrop) void closeModal();
   });
@@ -373,6 +395,8 @@ function buildDOM(): void {
 
   elBadge = document.createElement('span');
   elBadge.className = 'item-badge';
+  // Scoped to this closed shadow root, so it can't collide with page ids.
+  elBadge.id = MODAL_TITLE_ID;
 
   elCloseBtn = document.createElement('button');
   elCloseBtn.type = 'button';
@@ -401,6 +425,7 @@ function buildDOM(): void {
   elTextarea = document.createElement('textarea');
   elTextarea.className = 'note-input';
   elTextarea.placeholder = 'add a note...';
+  elTextarea.setAttribute('aria-label', 'note');
   elTextarea.addEventListener('blur', () => void maybeSaveNote());
 
   const footerBar = document.createElement('div');
@@ -480,8 +505,12 @@ function teardown(): void {
   keyboardIsolation = null;
   unregisterThemedHost?.();
   unregisterThemedHost = null;
-  if (modalHost && modalHost.parentNode) modalHost.parentNode.removeChild(modalHost);
+  // Detach state before removing the host: the textarea holds focus, and an
+  // engine that fires blur on removal must not trigger a save from here.
+  const host = modalHost;
   modalHost = null;
+  currentCallbacks = null;
+  if (host && host.parentNode) host.parentNode.removeChild(host);
   elBackdrop = null;
   elBadge = null;
   elCloseBtn = null;

@@ -467,3 +467,125 @@ describe('attachDockMotion', () => {
     dock.destroy(); // idempotent
   });
 });
+
+describe('attachDockMotion — suspension, bleed reporting and hold targets', () => {
+  it('setSuspended(true) snaps a magnified list straight back to rest, with no release animation', () => {
+    const { list, scroller } = makeList(4);
+    const bleed = jest.fn();
+    const dock = attachDockMotion(list, { scrollContainer: scroller, onBleedChange: bleed });
+    const lis = Array.from(list.children) as HTMLElement[];
+
+    pointer(list, 'pointerenter', LIST_TOP + ITEM_H / 2);
+    runFrames(40);
+    expect(scaleOf(lis[0])).toBeGreaterThan(1.1);
+    expect(bleed).toHaveBeenLastCalledWith(true);
+
+    dock.setSuspended(true);
+    // Synchronously at identity — nothing left for a later frame to finish.
+    expect(rafQueue.size).toBe(0);
+    for (const li of lis) {
+      expect(li.style.transform).toBe('');
+      expect(li.style.zIndex).toBe('');
+      expect(li.style.willChange).toBe('');
+    }
+    expect(bleed).toHaveBeenLastCalledWith(false);
+
+    // Pointer input while suspended does nothing visible.
+    pointer(list, 'pointermove', LIST_TOP + 300);
+    list.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    scroller.dispatchEvent(new Event('scroll'));
+    expect(rafQueue.size).toBe(0);
+    for (const li of lis) expect(li.style.transform).toBe('');
+
+    // Resuming with the pointer still over the list swells back in from rest,
+    // centred on where the pointer is *now*.
+    dock.setSuspended(false);
+    expect(rafQueue.size).toBe(1);
+    runFrames(40);
+    expect(scaleOf(lis[1])).toBeGreaterThan(scaleOf(lis[3]));
+    expect(scaleOf(lis[1])).toBeGreaterThan(1.05);
+    dock.destroy();
+  });
+
+  it('a list attached while suspended never magnifies until resumed', () => {
+    const { list, scroller } = makeList(3);
+    const dock = attachDockMotion(list, { scrollContainer: scroller });
+    dock.setSuspended(true);
+    pointer(list, 'pointerenter', LIST_TOP + ITEM_H / 2);
+    pointer(list, 'pointermove', LIST_TOP + ITEM_H / 2 + 5);
+    expect(rafQueue.size).toBe(0);
+    pointer(list, 'pointerleave', LIST_TOP);
+    dock.setSuspended(false);
+    expect(rafQueue.size).toBe(0); // pointer is gone: nothing to swell for
+    dock.destroy();
+  });
+
+  it('reports bleed on as the swell starts and off only once every item is back at identity', () => {
+    const { list, scroller } = makeList(3);
+    const bleed = jest.fn();
+    const dock = attachDockMotion(list, { scrollContainer: scroller, onBleedChange: bleed });
+    const lis = Array.from(list.children) as HTMLElement[];
+
+    pointer(list, 'pointerenter', LIST_TOP + ITEM_H / 2);
+    // Before the first transform is written.
+    expect(bleed).toHaveBeenCalledTimes(1);
+    expect(bleed).toHaveBeenLastCalledWith(true);
+
+    runFrames(60); // settles magnified under a still pointer: still bleeding
+    expect(rafQueue.size).toBe(0);
+    expect(bleed).toHaveBeenCalledTimes(1);
+
+    pointer(list, 'pointerleave', LIST_TOP);
+    flushFrame();
+    expect(bleed).toHaveBeenCalledTimes(1); // still relaxing
+    runFrames(120);
+    expect(rafQueue.size).toBe(0);
+    for (const li of lis) expect(li.style.transform).toBe('');
+    expect(bleed).toHaveBeenCalledTimes(2);
+    expect(bleed).toHaveBeenLastCalledWith(false);
+
+    dock.destroy();
+    expect(bleed).toHaveBeenCalledTimes(2); // already off: no duplicate report
+  });
+
+  it('holds the swell while the pointer crosses a hold target, and releases once it leaves that too', () => {
+    const { list, scroller } = makeList(3);
+    const handle = document.createElement('div');
+    document.body.appendChild(handle);
+    const elsewhere = document.createElement('div');
+    document.body.appendChild(elsewhere);
+    const dock = attachDockMotion(list, { scrollContainer: scroller, holdTargets: [handle] });
+    const lis = Array.from(list.children) as HTMLElement[];
+
+    const leave = (from: Element, to: Element | null) =>
+      from.dispatchEvent(new MouseEvent('pointerleave', { relatedTarget: to }));
+
+    pointer(list, 'pointerenter', LIST_TOP + ITEM_H / 2);
+    runFrames(60);
+    const peak = scaleOf(lis[0]);
+    expect(peak).toBeGreaterThan(1.1);
+
+    // List → handle: held exactly where it was.
+    leave(list, handle);
+    runFrames(30);
+    expect(scaleOf(lis[0])).toBeCloseTo(peak, 4);
+
+    // Handle → back onto the list: still magnified, no dip.
+    leave(handle, lis[0]);
+    runFrames(30);
+    expect(scaleOf(lis[0])).toBeCloseTo(peak, 4);
+
+    // List → handle → somewhere else: released.
+    leave(list, handle);
+    leave(handle, elsewhere);
+    runFrames(120);
+    for (const li of lis) expect(li.style.transform).toBe('');
+
+    // Entering the handle from outside never starts magnification.
+    handle.dispatchEvent(new MouseEvent('pointerenter', { clientY: LIST_TOP + ITEM_H / 2 }));
+    leave(handle, elsewhere);
+    expect(rafQueue.size).toBe(0);
+
+    dock.destroy();
+  });
+});

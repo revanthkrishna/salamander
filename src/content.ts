@@ -43,7 +43,7 @@ import * as sidebar from './sidebar';
 import * as addMode from './addMode';
 import * as capture from './capture';
 import * as modal from './modal';
-import { ensureFontsLoaded } from './theme';
+import { ensureFontsLoaded, primeThemeMode } from './theme';
 import { parseImportBundle } from './import';
 import { FeedbackItem, ImportError, ImportErrorCode, ImportErrorDetails } from './types';
 import {
@@ -92,6 +92,13 @@ if ((window as any).__annotatorActive) {
 let myTabId: number = -1;
 let lastKnownUrl = location.href;
 let started = false;
+
+// Start reading the persisted theme mode now, at script load: ACTIVATE
+// (which builds and shows the sidebar) arrives a message round trip later,
+// by which point the read has normally settled, so the panel's first paint
+// is already in the right theme. sidebar.openSidebar() also holds the panel
+// invisible (briefly, capped) if it hasn't — see revealWhenThemeSettled.
+primeThemeMode();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Message listener
@@ -151,6 +158,13 @@ function ensureStarted(): void {
   sidebar.initSidebar({
     onAdd: () => {
       if (addMode.isAddModeActive()) return;
+      // No dock magnification for the whole of add mode: swollen note items
+      // grow out over the page, which is exactly what add mode selects and
+      // screenshots. Suspending snaps them back to rest instantly (no
+      // release animation that could still be in flight at capture time).
+      // Lifted on both exits: cancel below, and a successful capture in
+      // handleCaptureOk.
+      sidebar.setDockMagnificationSuspended(true);
       addMode.startAddMode({
         onOk: (result) => {
           // Phase 5's capture pipeline (src/capture.ts) owns everything
@@ -161,7 +175,9 @@ function ensureStarted(): void {
           void handleCaptureOk(result);
         },
         onCancel: () => {
-          // Add mode has already torn itself down — nothing left to do.
+          // Add mode has already torn itself down; just hand the list its
+          // magnification back.
+          sidebar.setDockMagnificationSuspended(false);
         },
       });
     },
@@ -203,6 +219,7 @@ async function handleCaptureOk(result: addMode.AddModeResult): Promise<void> {
   }
 
   addMode.exitAddMode();
+  sidebar.setDockMagnificationSuspended(false);
   // Re-read the list for the current URL so the new item shows up.
   void refreshThumbnails();
 }
@@ -473,8 +490,9 @@ function openItemModal(item: FeedbackItem): void {
     onClose: () => {
       // Covers both outcomes: an edited note (preview text changed) and a
       // deletion (item should disappear) — re-reading beats trying to patch
-      // the in-memory list two different ways.
-      void refreshThumbnails();
+      // the in-memory list two different ways. Then hand focus back to the
+      // thumbnail that opened the modal (a no-op if it was just deleted).
+      void refreshThumbnails().then(() => sidebar.focusThumbnail(item.id));
     },
   });
 }
