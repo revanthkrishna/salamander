@@ -16,10 +16,13 @@ import {
   getPageItems,
   updateNote,
   deleteItem,
+  getDomainData,
+  replaceDomainData,
+  STORAGE_VERSION,
 } from './storage';
 import * as imageStore from './imageStore';
 import { exportDomain } from './export';
-import { FeedbackItem, Rect, ViewportSize } from './types';
+import { FeedbackItem, Rect, ViewportSize, DomainData } from './types';
 import {
   ActivateMessage,
   CaptureMessage,
@@ -38,6 +41,10 @@ import {
   DeleteItemResponse,
   ExportMessage,
   ExportResponse,
+  ImportReplaceMessage,
+  ImportReplaceResponse,
+  GetDomainItemCountMessage,
+  GetDomainItemCountResponse,
 } from './messages';
 
 const CONTENT_SCRIPT = 'dist/content.js';
@@ -185,6 +192,14 @@ export function handleRuntimeMessage(
     }
     case 'EXPORT': {
       handleExport(message as ExportMessage).then(sendResponse);
+      return true; // keep the message channel open for the async response
+    }
+    case 'GET_DOMAIN_ITEM_COUNT': {
+      handleGetDomainItemCount(message as GetDomainItemCountMessage).then(sendResponse);
+      return true; // keep the message channel open for the async response
+    }
+    case 'IMPORT_REPLACE': {
+      handleImportReplace(message as ImportReplaceMessage).then(sendResponse);
       return true; // keep the message channel open for the async response
     }
     default:
@@ -381,6 +396,118 @@ export async function handleDeleteItem(message: DeleteItemMessage): Promise<Dele
 
 export async function handleExport(message: ExportMessage): Promise<ExportResponse> {
   return exportDomain(message.domain);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 9 — import (§1.7): the content script (src/import.ts) unzips and
+// validates the whole §5 ladder before anything reaches here — this side's
+// job is the two things only the service worker can do: read how many items
+// a domain currently has (so content.ts can show §5 #10's confirmation
+// *before* asking to replace anything) and the replace-and-persist write
+// itself, including minting a fresh screenshotKey/thumbnailDataUrl per item
+// (gotcha #4 — only this context has OffscreenCanvas).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DOMAIN_COUNT_FAILED_MESSAGE = "couldn't check existing feedback. try again.";
+const IMPORT_FAILED_MESSAGE = "couldn't import this bundle. try again.";
+
+export async function handleGetDomainItemCount(
+  message: GetDomainItemCountMessage,
+): Promise<GetDomainItemCountResponse> {
+  try {
+    const data = await getDomainData(message.domain);
+    const count = data
+      ? Object.values(data.pages).reduce((sum, items) => sum + items.length, 0)
+      : 0;
+    return { ok: true, count };
+  } catch (err) {
+    console.warn('[Annotator] could not read domain item count:', err);
+    return { ok: false, message: DOMAIN_COUNT_FAILED_MESSAGE };
+  }
+}
+
+/**
+ * §1.7's replace-only semantics: discard whatever `message.domain` currently
+ * has and install `message.items` in its place. Ids are preserved verbatim
+ * from the bundle (not re-allocated) — §1.2's "item #7" numbering is meant
+ * to stay meaningful across an export/import round trip, which is exactly
+ * this phase's "done when" bar. Screenshot keys are *not* preserved (the
+ * bundle never carries them — they're an internal storage handle, not
+ * information a human/agent reading feedback.md needs, §1.6): each item gets
+ * a freshly minted key and a freshly rendered thumbnail here, the same two
+ * things a live capture produces.
+ *
+ * If any item fails partway through (a corrupt image the zip's own
+ * screenshot-presence check couldn't catch), the blobs already written for
+ * *this* import are cleaned up before returning — existing domain data is
+ * only touched by the final replaceDomainData call, so a failure here always
+ * leaves the previous data intact rather than half-replaced.
+ */
+export async function handleImportReplace(
+  message: ImportReplaceMessage,
+): Promise<ImportReplaceResponse> {
+  const writtenKeys: string[] = [];
+  try {
+    const pages: Record<string, FeedbackItem[]> = {};
+    let maxId = 0;
+
+    for (const payload of message.items) {
+      const screenshotKey = generateScreenshotKey();
+      const thumbnailDataUrl = await buildThumbnailFromDataUrl(payload.screenshotDataUrl);
+      await imageStore.putImage(screenshotKey, payload.screenshotDataUrl);
+      writtenKeys.push(screenshotKey);
+
+      const item: FeedbackItem = {
+        id: payload.id,
+        pageUrl: payload.pageUrl,
+        normalisedUrl: payload.normalisedUrl,
+        note: payload.note,
+        createdAt: payload.createdAt,
+        selectionRect: payload.selectionRect,
+        viewport: payload.viewport,
+        dpr: payload.dpr,
+        screenshotKey,
+        thumbnailDataUrl,
+        context: payload.context,
+      };
+      pages[item.normalisedUrl] = [...(pages[item.normalisedUrl] ?? []), item];
+      maxId = Math.max(maxId, item.id);
+    }
+
+    const domainData: DomainData = {
+      meta: { nextItemNumber: maxId + 1, version: STORAGE_VERSION },
+      pages,
+    };
+    await replaceDomainData(message.domain, domainData);
+    return { ok: true };
+  } catch (err) {
+    console.warn('[Annotator] could not import bundle:', err);
+    await Promise.all(writtenKeys.map((key) => imageStore.deleteImage(key).catch(() => undefined)));
+    return { ok: false, message: IMPORT_FAILED_MESSAGE };
+  }
+}
+
+/** Decode an imported screenshot and render the same inline-thumbnail shape
+ *  a live capture produces (src/imageStore doesn't store thumbnails — Phase
+ *  1's design call keeps them inline in chrome.storage.local metadata).
+ *  Reuses cropCapture's drawing primitives against the *whole* decoded
+ *  image, since an imported screenshot has no separate "full frame" to crop
+ *  out of — the PNG from the zip already is the crop. */
+async function buildThumbnailFromDataUrl(dataUrl: string): Promise<string> {
+  const bitmap = await createImageBitmap(dataUrlToBlob(dataUrl));
+  try {
+    const size = computeThumbnailSize(bitmap.width, bitmap.height);
+    return await drawCrop(
+      bitmap,
+      { x: 0, y: 0, width: bitmap.width, height: bitmap.height },
+      size.width,
+      size.height,
+      THUMBNAIL_MIME,
+      THUMBNAIL_QUALITY,
+    );
+  } finally {
+    bitmap.close();
+  }
 }
 
 // ---------------------------------------------------------------------------

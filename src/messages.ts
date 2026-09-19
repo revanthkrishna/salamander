@@ -335,6 +335,73 @@ export interface ExportErrorResponse {
 
 export type ExportResponse = ExportSuccessResponse | ExportEmptyResponse | ExportErrorResponse;
 
+// ---------------------------------------------------------------------------
+// Phase 9 — import (§1.7)
+// ---------------------------------------------------------------------------
+//
+// Unzipping the picked file and validating it against §5's ladder happens in
+// the content script (src/import.ts): the File object from the native
+// picker lives in the page's JS world, and none of that validation needs
+// chrome.storage/IndexedDB. Only the last step — actually writing the
+// replacement domain data — needs the service worker (gotcha #1), so this
+// boundary carries the whole validated bundle across in one message rather
+// than one round trip per item. `screenshotDataUrl` is the raw
+// `screenshots/{id}.png` bytes from the zip, re-encoded as a data URL so
+// they survive the JSON-serialised hop (gotcha #2) — the service worker
+// mints a fresh `screenshotKey` and derives `thumbnailDataUrl` from it
+// (gotcha #4: only it has OffscreenCanvas), exactly like a live capture.
+
+/** One imported item, everything a `FeedbackItem` needs except the two
+ *  storage handles the service worker mints at write time. */
+export type ImportItemPayload = Omit<FeedbackItem, 'screenshotKey' | 'thumbnailDataUrl'> & {
+  screenshotDataUrl: string;
+};
+
+/** §1.7's replace-only import: discard whatever is currently stored for
+ *  `domain` and install `items` in its place. The content script has
+ *  already run the full §5 validation ladder and (if needed) shown the §5
+ *  #10 confirmation dialog by the time this is sent. */
+export interface ImportReplaceMessage {
+  type: 'IMPORT_REPLACE';
+  domain: string;
+  items: ImportItemPayload[];
+}
+
+export interface ImportReplaceSuccessResponse {
+  ok: true;
+}
+
+export interface ImportReplaceErrorResponse {
+  ok: false;
+  /** Lowercase, user-facing. */
+  message: string;
+}
+
+export type ImportReplaceResponse = ImportReplaceSuccessResponse | ImportReplaceErrorResponse;
+
+/** §5 #10's confirmation needs to know how many items importing would
+ *  discard *before* the content script can show it — that count lives
+ *  behind the service worker (gotcha #1), hence this small read ahead of
+ *  IMPORT_REPLACE. */
+export interface GetDomainItemCountMessage {
+  type: 'GET_DOMAIN_ITEM_COUNT';
+  domain: string;
+}
+
+export interface GetDomainItemCountSuccessResponse {
+  ok: true;
+  count: number;
+}
+
+export interface GetDomainItemCountErrorResponse {
+  ok: false;
+  message: string;
+}
+
+export type GetDomainItemCountResponse =
+  | GetDomainItemCountSuccessResponse
+  | GetDomainItemCountErrorResponse;
+
 export type ContentToBackgroundMessage =
   | SidebarOpenedMessage
   | SidebarClosedMessage
@@ -344,4 +411,6 @@ export type ContentToBackgroundMessage =
   | GetImageMessage
   | UpdateNoteMessage
   | DeleteItemMessage
-  | ExportMessage;
+  | ExportMessage
+  | ImportReplaceMessage
+  | GetDomainItemCountMessage;

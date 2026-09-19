@@ -43,7 +43,8 @@ import * as sidebar from './sidebar';
 import * as addMode from './addMode';
 import * as capture from './capture';
 import * as modal from './modal';
-import { FeedbackItem } from './types';
+import { parseImportBundle } from './import';
+import { FeedbackItem, ImportError, ImportErrorCode, ImportErrorDetails } from './types';
 import {
   SidebarOpenedMessage,
   SidebarClosedMessage,
@@ -57,12 +58,20 @@ import {
   DeleteItemResponse,
   ExportMessage,
   ExportResponse,
+  ImportReplaceMessage,
+  ImportReplaceResponse,
+  GetDomainItemCountMessage,
+  GetDomainItemCountResponse,
 } from './messages';
 
 // §5 #7's alert text is fixed and verbatim; this is the fallback shown when
 // the export round trip itself fails (a dead service worker, etc.) — not one
 // of the 11 numbered §5 cases, but kept lowercase and in the same tone.
 const EXPORT_ROUND_TRIP_FAILED_MESSAGE = "couldn't export feedback. try again.";
+
+// Fallback shown when the import round trip itself fails (dead service
+// worker, etc.) rather than a validation failure §5 already has copy for.
+const IMPORT_ROUND_TRIP_FAILED_MESSAGE = "couldn't import this bundle. try again.";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Idempotency guard + runtime init (wrapped in IIFE so we can `return` instead
@@ -151,8 +160,8 @@ function ensureStarted(): void {
     onExport: () => {
       void handleExport();
     },
-    onImportFile: (_file: File) => {
-      // Phase 9 wires real bundle import here.
+    onImportFile: (file: File) => {
+      void handleImportFile(file);
     },
     onClose: () => {
       notifyBackground({ type: 'SIDEBAR_CLOSED' });
@@ -326,6 +335,97 @@ async function handleExport(): Promise<void> {
     }
   } finally {
     sidebar.setExportButtonEnabled(true);
+  }
+}
+
+/**
+ * §1.7 — import a `.zip` bundle. src/import.ts owns the whole §5 validation
+ * ladder (unzip, parse, screenshot/duplicate/domain checks); this side's job
+ * is the UI orchestration around it: report a validation failure verbatim,
+ * show the §5 #6 warning if the bundle is newer, ask how many existing items
+ * a replace would discard (§5 #10) and confirm before doing it, then send
+ * the validated bundle to the service worker to actually write. The import
+ * button is disabled for the duration so a second pick can't overlap the
+ * first (mirrors handleExport's setExportButtonEnabled).
+ */
+async function handleImportFile(file: File): Promise<void> {
+  sidebar.setImportButtonEnabled(false);
+  try {
+    const currentDomain = normaliseDomain(location.host);
+
+    let bundle;
+    try {
+      bundle = await parseImportBundle(file, currentDomain);
+    } catch (err) {
+      sidebar.showError(
+        err instanceof ImportError ? importErrorMessage(err.code, err.details) : IMPORT_ROUND_TRIP_FAILED_MESSAGE,
+      );
+      return;
+    }
+
+    if (bundle.versionWarning) {
+      sidebar.showWarning(importErrorMessage('VERSION_MISMATCH'));
+    }
+
+    const countMessage: GetDomainItemCountMessage = {
+      type: 'GET_DOMAIN_ITEM_COUNT',
+      domain: currentDomain,
+    };
+    const countResponse = await sendMessage<GetDomainItemCountResponse>(countMessage);
+    const existingCount = countResponse?.ok ? countResponse.count : 0;
+
+    if (existingCount > 0) {
+      // §5 #10, verbatim.
+      const confirmed = await sidebar.showConfirmDialog(
+        `importing will replace your current ${existingCount} feedback item(s) for this site. this cannot be undone. continue?`,
+      );
+      if (!confirmed) return;
+    }
+
+    const replaceMessage: ImportReplaceMessage = {
+      type: 'IMPORT_REPLACE',
+      domain: currentDomain,
+      items: bundle.items,
+    };
+    const replaceResponse = await sendMessage<ImportReplaceResponse>(replaceMessage);
+    if (!replaceResponse || !replaceResponse.ok) {
+      sidebar.showError(replaceResponse?.message ?? IMPORT_ROUND_TRIP_FAILED_MESSAGE);
+      return;
+    }
+
+    // §1.7: sidebar opens (if not already) showing the current url's items.
+    if (!sidebar.isSidebarVisible()) {
+      openAndReport();
+    } else {
+      void refreshThumbnails();
+    }
+  } finally {
+    sidebar.setImportButtonEnabled(true);
+  }
+}
+
+/** §5's error/warning copy, lowercase and verbatim. The one parameterised
+ *  row (#5, domain mismatch) fills in from `ImportError.details`. */
+function importErrorMessage(code: ImportErrorCode, details?: ImportErrorDetails): string {
+  switch (code) {
+    case 'INVALID_FILE_TYPE':
+      return 'invalid file type. please upload a .zip feedback bundle.';
+    case 'CORRUPT_ARCHIVE':
+      return 'could not read this file — it appears to be corrupted.';
+    case 'MISSING_MANIFEST':
+      return "this doesn't look like a feedback bundle.";
+    case 'MALFORMED_CONTEXT':
+      return "this bundle appears to be corrupted (couldn't read feedback data).";
+    case 'MISSING_SCREENSHOT':
+      return "this file is missing screenshot data and can't be imported.";
+    case 'DOMAIN_MISMATCH':
+      return `this bundle contains feedback for '${details?.fileDomain}', but you're currently on '${details?.currentDomain}'.`;
+    case 'DUPLICATE_IDS':
+      return 'this bundle appears to be corrupted (duplicate item ids).';
+    case 'VERSION_MISMATCH':
+      return 'this bundle was created with a newer version of the extension. some feedback may not display correctly.';
+    default:
+      return IMPORT_ROUND_TRIP_FAILED_MESSAGE;
   }
 }
 

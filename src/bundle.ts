@@ -34,6 +34,19 @@ const SECTION_HEADING_RE = /^## (.+)$/;
 const ITEM_HEADING_RE = /^### item (\d+)$/;
 const IMAGE_LINE_RE = /^!\[\]\(screenshots\/(\d+)\.png\)$/;
 
+/**
+ * Bundle schema version (§5 #6 — "bundle schema version newer than current
+ * extension"). Bumped whenever a change to this file's grammar or the
+ * `Yaml*` mirror types in src/types.ts would make an older importer
+ * misread a newer bundle. Embedded as an HTML comment on the first line of
+ * `feedback.md` (invisible in a rendered markdown viewer, exactly like the
+ * fenced yaml blocks are meant to be inert prose to a human reader) so
+ * Phase 9's importer can compare without touching the human-facing content.
+ */
+export const SCHEMA_VERSION = 1;
+
+const VERSION_COMMENT_RE = /^<!--\s*annotator-schema-version:\s*(\d+)\s*-->\s*$/;
+
 // ---------------------------------------------------------------------------
 // Serialise: DomainData.pages -> feedback.md
 // ---------------------------------------------------------------------------
@@ -50,7 +63,23 @@ export function buildFeedbackMarkdown(pages: Record<string, FeedbackItem[]>): st
     .filter((section) => section.items.length > 0)
     .sort((a, b) => a.items[0].id - b.items[0].id);
 
-  return sections.map(renderSection).join('\n');
+  const versionComment = `<!-- annotator-schema-version: ${SCHEMA_VERSION} -->`;
+  return `${versionComment}\n\n${sections.map(renderSection).join('\n')}`;
+}
+
+/**
+ * Read the schema version stamped on a `feedback.md` (see `SCHEMA_VERSION`
+ * above). Absent entirely (a hand-authored bundle, or one predating this
+ * marker) is treated as version 1 rather than an error — the marker is a
+ * forward-compatibility aid, not a required field (§5's #6 only fires on a
+ * bundle *newer* than this build, never on one that's silent about it).
+ */
+export function parseSchemaVersion(markdown: string): number {
+  for (const line of markdown.split('\n', 5)) {
+    const match = VERSION_COMMENT_RE.exec(line.trim());
+    if (match) return parseInt(match[1], 10);
+  }
+  return 1;
 }
 
 function byId(a: FeedbackItem, b: FeedbackItem): number {
@@ -120,6 +149,81 @@ export function toYamlFeedbackItem(item: FeedbackItem): YamlFeedbackItem {
       },
       ...(ctx.containedElementsTruncated !== undefined
         ? { contained_elements_truncated: ctx.containedElementsTruncated }
+        : {}),
+    },
+  };
+}
+
+/**
+ * Inverse of `toYamlFeedbackItem` (Phase 9): a parsed fence's yaml object
+ * plus the prose note sitting above it -> everything a `FeedbackItem` needs
+ * except `screenshotKey`/`thumbnailDataUrl`. Those two are deliberately not
+ * part of the yaml block (they're internal storage handles, not information
+ * a human/agent reading `feedback.md` needs — §1.6) — src/import.ts asks the
+ * service worker to mint fresh ones at write time, mirroring how the capture
+ * pipeline never lets the content script invent an id or a storage key
+ * either.
+ *
+ * Throws a plain `Error` (not `ImportError` — this module has no opinion on
+ * user-facing copy) if the object is missing a field this shape requires;
+ * src/import.ts maps that to §5 #4b's "corrupted" message.
+ */
+export function fromYamlFeedbackItem(
+  note: string,
+  y: YamlFeedbackItem,
+): Omit<FeedbackItem, 'screenshotKey' | 'thumbnailDataUrl'> {
+  if (
+    !y ||
+    typeof y.id !== 'number' ||
+    typeof y.page_url !== 'string' ||
+    typeof y.normalised_url !== 'string' ||
+    typeof y.created_at !== 'string' ||
+    !y.selection_rect ||
+    !y.viewport ||
+    typeof y.dpr !== 'number' ||
+    !y.context ||
+    !y.context.primary_target ||
+    !y.context.page_meta
+  ) {
+    throw new Error('malformed feedback item yaml block');
+  }
+
+  const ctx = y.context;
+  return {
+    id: y.id,
+    pageUrl: y.page_url,
+    normalisedUrl: y.normalised_url,
+    note,
+    createdAt: y.created_at,
+    selectionRect: { ...y.selection_rect },
+    viewport: { ...y.viewport },
+    dpr: y.dpr,
+    context: {
+      primaryTarget: {
+        cssSelector: ctx.primary_target.css_selector,
+        xpath: ctx.primary_target.xpath,
+        outerHtmlSnippet: ctx.primary_target.outer_html_snippet,
+        truncated: ctx.primary_target.truncated,
+      },
+      containedElements: (ctx.contained_elements ?? []).map((el) => ({
+        tag: el.tag,
+        ...(el.id !== undefined ? { id: el.id } : {}),
+        ...(el.classes !== undefined ? { classes: el.classes } : {}),
+        ...(el.attrs !== undefined ? { attrs: el.attrs } : {}),
+        ...(el.text !== undefined ? { text: el.text } : {}),
+      })),
+      areaText: ctx.area_text ?? '',
+      pageMeta: {
+        url: ctx.page_meta.url,
+        normalisedUrl: ctx.page_meta.normalised_url,
+        title: ctx.page_meta.title,
+        viewport: { ...ctx.page_meta.viewport },
+        dpr: ctx.page_meta.dpr,
+        selectionRect: { ...ctx.page_meta.selection_rect },
+        capturedAt: ctx.page_meta.captured_at,
+      },
+      ...(ctx.contained_elements_truncated !== undefined
+        ? { containedElementsTruncated: ctx.contained_elements_truncated }
         : {}),
     },
   };

@@ -36,7 +36,8 @@ export interface SidebarCallbacks {
   /** "export" header button. No-op for Phase 3 — Phase 8 wires the real zip export. */
   onExport: () => void;
   /** "import" header button, fired once a file is chosen from the native
-   *  picker. No-op for Phase 3 — Phase 9 wires real bundle parsing. */
+   *  picker. content.ts (Phase 9) runs the full §5 validation ladder and the
+   *  confirm-then-replace round trip. */
   onImportFile: (file: File) => void;
   /** "close" header button. Fired *after* the sidebar has already hidden
    *  itself and the page layout has been restored — the caller's only job is
@@ -482,6 +483,15 @@ export function isSidebarVisible(): boolean {
  *  starting (and downloading) before the first finishes. */
 export function setExportButtonEnabled(enabled: boolean): void {
   if (elBtnExport) elBtnExport.disabled = !enabled;
+}
+
+/** Disable/enable the import header button (Phase 9, §1.7). Mirrors
+ *  setExportButtonEnabled: parsing + validating a zip and the confirm-then-
+ *  replace round trip is asynchronous with no other on-screen affordance, so
+ *  content.ts disables this for the duration to prevent a second file pick
+ *  from overlapping the first. */
+export function setImportButtonEnabled(enabled: boolean): void {
+  if (elBtnImport) elBtnImport.disabled = !enabled;
 }
 
 /**
