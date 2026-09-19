@@ -9,9 +9,27 @@
 // re-crop or replace the image.
 //
 // Built on its own closed-shadow-root host attached to document.documentElement
-// (same pattern as sidebar.ts / addMode.ts), so it paints above the sidebar
-// and is immune to page CSS. Only one modal is ever open at a time — a
-// module-level singleton, same shape as sidebar.ts/addMode.ts.
+// (same pattern as sidebar.ts / addMode.ts), so it is immune to page CSS. The
+// host itself carries an explicit z-index (the max 32-bit value) rather than
+// relying on DOM order: a bare `position: fixed` host with no z-index sits in
+// the z-index:auto paint layer, which loses to *any* page element that has
+// its own explicit positive z-index (sticky headers, cookie banners, chat
+// widgets — very common) even though those elements are earlier in the DOM.
+// Shadow DOM does not create an implicit stacking-context boundary; only the
+// host's own CSS does, so this has to be set explicitly (bug: page elements
+// "peeking out" over the modal). The host's z-index (2147483647) is one above
+// the sidebar's own host (2147483645, sidebar.ts) so the two never fight if
+// they ever did overlap — see the backdrop's `right` inset below for why they
+// shouldn't overlap in the first place.
+//
+// The backdrop only ever covers the page's own viewport area, not the
+// sidebar's reserved right-edge strip (§1.1 — the sidebar resizes the page
+// rather than overlaying it, and is meant to stay visible/usable at all
+// times). The modal can only be opened by activating a thumbnail, which only
+// exists while the sidebar is open and showing that strip, so reserving
+// SIDEBAR_WIDTH unconditionally is safe and keeps this module simple (no need
+// to ask sidebar.ts for its current visibility). Only one modal is ever open
+// at a time — a module-level singleton, same shape as sidebar.ts/addMode.ts.
 //
 // Gotcha #1: the full-resolution PNG lives in IndexedDB behind the service
 // worker. This module never touches chrome.runtime itself — the caller
@@ -23,6 +41,11 @@
 // swapped for the full-resolution image once fetchFullImage resolves.
 
 import { FeedbackItem } from './types';
+import { SIDEBAR_WIDTH } from './sidebar';
+
+/** Highest possible z-index — see the file banner for why the host needs an
+ *  explicit value at all rather than relying on DOM order. */
+const MODAL_HOST_Z_INDEX = 2147483647;
 
 export interface ModalCallbacks {
   /** Resolve the full-resolution screenshot for this item, or null if it
@@ -48,13 +71,18 @@ const MODAL_CSS = `
 
   .backdrop {
     position: fixed;
-    inset: 0;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    /* Stop short of the sidebar's own reserved strip (sidebar.ts,
+       SIDEBAR_WIDTH) rather than covering the full viewport — the sidebar
+       must stay visible/usable while the modal is open (§1.1). */
+    right: ${SIDEBAR_WIDTH}px;
     background: rgba(0, 0, 0, 0.72);
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 32px;
-    z-index: 2147483646;
   }
 
   .panel {
@@ -245,7 +273,7 @@ function handleKeyDown(e: KeyboardEvent): void {
 function buildDOM(): void {
   modalHost = document.createElement('div');
   modalHost.id = 'annotator-modal-host';
-  modalHost.style.cssText = 'position: fixed; top: 0; left: 0; width: 0; height: 0;';
+  modalHost.style.cssText = `position: fixed; top: 0; left: 0; width: 0; height: 0; z-index: ${MODAL_HOST_Z_INDEX};`;
   const shadow = modalHost.attachShadow({ mode: 'closed' });
 
   const style = document.createElement('style');

@@ -5,6 +5,8 @@
 // drive it the same way content.ts does, with jest.fn() stand-ins.
 
 import * as modal from '../modal';
+import * as sidebar from '../sidebar';
+import { SIDEBAR_WIDTH } from '../sidebar';
 import { FeedbackItem } from '../types';
 
 // modal.ts uses attachShadow({ mode: 'closed' }), so tests can't query into
@@ -74,6 +76,7 @@ function makeCallbacks(overrides: Partial<modal.ModalCallbacks> = {}): modal.Mod
 describe('modal', () => {
   afterEach(() => {
     modal._destroyForTests();
+    sidebar.destroySidebar();
   });
 
   it('opens a host attached to <html>, shows the thumbnail immediately, badge and note', () => {
@@ -83,6 +86,10 @@ describe('modal', () => {
     expect(host).not.toBeNull();
     expect(host!.parentElement).toBe(document.documentElement);
     expect(modal.isModalOpen()).toBe(true);
+    // Bug 3 regression: a bare `position: fixed` host with no explicit
+    // z-index sits in the z-index:auto paint layer and loses to any page
+    // element with its own explicit positive z-index. The host must set one.
+    expect(Number(host!.style.zIndex)).toBe(2147483647);
 
     const img = shadowRoot().querySelector('img.screenshot') as HTMLImageElement;
     expect(img.getAttribute('src')).toBe('data:image/jpeg;base64,THUMB');
@@ -272,5 +279,42 @@ describe('modal', () => {
     expect(onSaveNoteA).not.toHaveBeenCalled();
     const badge = shadowRoot().querySelector('.item-badge') as HTMLElement;
     expect(badge.textContent).toContain('2');
+  });
+
+  // Bug 3 (z-index) / Bug 4 (sidebar overlap) regression coverage.
+  describe('stacking relative to the page and the sidebar', () => {
+    function makeSidebarCallbacks(): sidebar.SidebarCallbacks {
+      return {
+        onAdd: jest.fn(),
+        onExport: jest.fn(),
+        onImportFile: jest.fn(),
+        onClose: jest.fn(),
+        onOpenItem: jest.fn(),
+      };
+    }
+
+    it("stacks above the sidebar's own host, not just above plain page content", () => {
+      sidebar.initSidebar(makeSidebarCallbacks());
+      modal.openModal(makeItem(), makeCallbacks());
+
+      const sidebarHost = document.getElementById('annotator-sidebar-host');
+      const modalHostEl = getHost();
+      expect(sidebarHost).not.toBeNull();
+      expect(modalHostEl).not.toBeNull();
+
+      const sidebarZ = Number(sidebarHost!.style.zIndex);
+      const modalZ = Number(modalHostEl!.style.zIndex);
+      expect(sidebarZ).toBeGreaterThan(0);
+      expect(modalZ).toBeGreaterThan(sidebarZ);
+    });
+
+    it('reserves the sidebar strip: the backdrop stops at SIDEBAR_WIDTH instead of covering the full viewport', () => {
+      modal.openModal(makeItem(), makeCallbacks());
+
+      const styleText = shadowRoot().querySelector('style')!.textContent ?? '';
+      expect(styleText).toContain(`right: ${SIDEBAR_WIDTH}px`);
+      // Guards against a regression back to a full-bleed `inset: 0` backdrop.
+      expect(styleText).not.toMatch(/\.backdrop\s*\{[^}]*inset:\s*0/);
+    });
   });
 });
