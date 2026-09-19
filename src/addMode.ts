@@ -26,13 +26,16 @@
 // measured against the visible **page content area** — i.e. excluding the
 // sidebar's docked strip on the right (§1.2 step 44.1's guarantee that the
 // sidebar can never fall inside a selection, because it resizes the page
-// rather than overlaying it). Converting that to page-absolute coordinates,
-// device pixels (DPR), and accounting for scroll position is Phase 5's job
-// (REQUIREMENTS §1.3, §6 #5) — this module deliberately stays ignorant of
-// scroll offset and DPR.
+// rather than overlaying it). This module deliberately stays ignorant of
+// scroll offset and DPR: src/capture.ts (Phase 5) adds the scroll offset for
+// the archival page-coordinate rect (§1.4D), and the service worker converts
+// to device pixels for the crop (§1.3, §6 #4/#5). The rect handed to onOk is
+// passed to the capture message unchanged — viewport CSS px is already the
+// right space for cropping a viewport screenshot.
 
 import { Rect } from './types';
 import { SIDEBAR_WIDTH } from './sidebar';
+import { getContentViewportSize } from './capture';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -48,12 +51,12 @@ export interface AddModeCallbacks {
   /**
    * Fired when the user clicks "ok" with a non-empty note. Add mode does
    * *not* exit itself afterward — the box/comment stay alive (buttons
-   * disabled) so a capture pipeline can call hideOverlayUI() around the
-   * actual screenshot call, then either exitAddMode() on success or
-   * showOverlayUI() on failure so the user can retry or cancel (§1.3: a
-   * failed capture must not leave a partial item, but the user should still
-   * be able to act). Until Phase 5 exists, callers should just call
-   * exitAddMode() themselves right after handling this.
+   * disabled) so the capture pipeline (src/capture.ts) can call
+   * hideOverlayUI() around the actual screenshot call, then either
+   * exitAddMode() on success or showOverlayUI() on failure so the user can
+   * retry or cancel (§1.3: a failed capture must not leave a partial item,
+   * but the user should still be able to act). The blocker stays up
+   * throughout, so the page is never clickable mid-capture.
    */
   onOk: (result: AddModeResult) => void;
   /** Fired after cancel has already fully torn down add mode (exitAddMode()
@@ -243,11 +246,20 @@ function clamp(value: number, min: number, max: number): number {
  *  sidebar's docked strip (§1.2 step 44.1 — the sidebar can never fall inside
  *  a selection because the page never renders under it). Add mode is only
  *  ever entered via the sidebar's own "add" button, so the sidebar is always
- *  open while this module is active. */
+ *  open while this module is active.
+ *
+ *  Measured against the *scrollbar-excluded* viewport (Phase 5), not
+ *  `window.innerWidth`: the sidebar panel is `position: fixed; right: 0`, so
+ *  it sits against the inner edge of the document's vertical scrollbar. With
+ *  `innerWidth` (which includes that scrollbar) the clamp lands ~15px to the
+ *  right of where the sidebar actually starts, and a selection dragged flush
+ *  to the right edge captures a sliver of the sidebar itself — exactly the
+ *  "no extension UI in a capture" rule (§6 #2) it exists to uphold. */
 function getBounds(): { width: number; height: number } {
+  const { width, height } = getContentViewportSize();
   return {
-    width: Math.max(0, window.innerWidth - SIDEBAR_WIDTH),
-    height: window.innerHeight,
+    width: Math.max(0, width - SIDEBAR_WIDTH),
+    height,
   };
 }
 

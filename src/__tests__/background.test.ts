@@ -17,7 +17,7 @@
 
 import * as imageStore from '../imageStore';
 import * as storage from '../storage';
-import type { CaptureMessage } from '../messages';
+import type { CaptureMessage, NewFeedbackItem } from '../messages';
 
 jest.mock('../imageStore');
 jest.mock('../storage', () => ({
@@ -25,6 +25,8 @@ jest.mock('../storage', () => ({
   setSidebarOpen: jest.fn().mockResolvedValue(undefined),
   clearSidebarState: jest.fn().mockResolvedValue(undefined),
   cleanupStaleTabKeys: jest.fn().mockResolvedValue(undefined),
+  getNextItemId: jest.fn().mockResolvedValue(1),
+  addItem: jest.fn().mockResolvedValue(undefined),
 }));
 
 type Cb<T> = (result: T) => void;
@@ -46,25 +48,47 @@ class FakeBlob {
 }
 
 class FakeOffscreenCanvas {
-  static lastDrawArgs: unknown[] | null = null;
+  /** Every drawImage() call of the current test, in order: the full-resolution
+   *  crop first, then the downscaled thumbnail. */
+  static drawCalls: unknown[][] = [];
   static shouldFailDraw = false;
+  static lastConvertOptions: unknown = null;
   width: number;
   height: number;
   constructor(width: number, height: number) {
     this.width = width;
     this.height = height;
   }
+  static get lastDrawArgs(): unknown[] | null {
+    return FakeOffscreenCanvas.drawCalls[FakeOffscreenCanvas.drawCalls.length - 1] ?? null;
+  }
+  /** The first drawImage call — the full-resolution crop, which is the one the
+   *  pixel-accuracy assertions care about. */
+  static get cropDrawArgs(): unknown[] | null {
+    return FakeOffscreenCanvas.drawCalls[0] ?? null;
+  }
   getContext() {
     return {
+      imageSmoothingQuality: 'low',
       drawImage: (...args: unknown[]) => {
         if (FakeOffscreenCanvas.shouldFailDraw) throw new Error('draw failed');
-        FakeOffscreenCanvas.lastDrawArgs = args;
+        FakeOffscreenCanvas.drawCalls.push(args);
       },
     };
   }
-  async convertToBlob(): Promise<Blob> {
+  async convertToBlob(options?: unknown): Promise<Blob> {
+    FakeOffscreenCanvas.lastConvertOptions = options;
     return new FakeBlob([1, 2, 3, 4], 'image/png') as unknown as Blob;
   }
+}
+
+/** The decoded capture. Dimensions are settable per-test so the DPR/zoom
+ *  matrix can drive the real crop path, not just the pure helper. */
+const fakeBitmap = { width: 1024, height: 768, close: jest.fn() };
+
+function setCaptureImageSize(width: number, height: number): void {
+  fakeBitmap.width = width;
+  fakeBitmap.height = height;
 }
 
 function installChromeMocks(): void {
@@ -102,7 +126,7 @@ function installChromeMocks(): void {
 
 function installCropGlobals(): void {
   (global as any).OffscreenCanvas = FakeOffscreenCanvas;
-  (global as any).createImageBitmap = jest.fn(async () => ({ close: jest.fn() }));
+  (global as any).createImageBitmap = jest.fn(async () => fakeBitmap);
   (global as any).fetch = jest.fn(async (_url: string) => ({
     blob: async () => new FakeBlob([9, 9, 9], 'image/png') as unknown as Blob,
   }));
@@ -125,13 +149,51 @@ function makeSender(tabId?: number, windowId = 7): chrome.runtime.MessageSender 
   return { tab: { id: tabId, windowId } as chrome.tabs.Tab };
 }
 
+/** A CAPTURE message whose CSS viewport matches the default 1024x768 fake
+ *  capture at dpr 1 — i.e. device px and CSS px are 1:1, so a test that only
+ *  cares about plumbing can assert on the rect it passed in. */
+function makeCaptureMessage(
+  rect: { x: number; y: number; width: number; height: number },
+  overrides: Partial<CaptureMessage> = {},
+): CaptureMessage {
+  return {
+    type: 'CAPTURE',
+    rect,
+    viewport: { width: 1024, height: 768 },
+    contentViewport: { width: 1024, height: 768 },
+    dpr: 1,
+    ...overrides,
+  };
+}
+
+function makeNewItem(): NewFeedbackItem {
+  return {
+    pageUrl: 'https://example.com/a',
+    normalisedUrl: 'example.com/a',
+    note: 'a note',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    selectionRect: { x: 1, y: 2, width: 3, height: 4 },
+    viewport: { width: 1024, height: 768 },
+    dpr: 1,
+    screenshotKey: 'key-1',
+    thumbnailDataUrl: 'data:image/jpeg;base64,AAAA',
+    context: {} as NewFeedbackItem['context'],
+  };
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   (global.chrome as any).runtime.lastError = null;
-  FakeOffscreenCanvas.lastDrawArgs = null;
+  FakeOffscreenCanvas.drawCalls = [];
   FakeOffscreenCanvas.shouldFailDraw = false;
+  FakeOffscreenCanvas.lastConvertOptions = null;
+  setCaptureImageSize(1024, 768);
   background._resetCaptureQueueForTests();
+  background._resetSaveQueueForTests();
   mockedImageStore.putImage.mockResolvedValue(undefined);
+  mockedImageStore.deleteImage.mockResolvedValue(undefined);
+  mockedStorage.getNextItemId.mockResolvedValue(1);
+  mockedStorage.addItem.mockResolvedValue(undefined);
   sendMessageMock.mockImplementation(
     (_tabId: number, _message: unknown, callback?: Cb<{ alive: boolean }>) => {
       callback?.({ alive: true });
@@ -269,11 +331,23 @@ describe('handleRuntimeMessage', () => {
 
   it('dispatches CAPTURE asynchronously and keeps the channel open', async () => {
     const sendResponse = jest.fn();
-    const captureMessage: CaptureMessage = { type: 'CAPTURE', rect: { x: 0, y: 0, width: 10, height: 10 } };
+    const captureMessage = makeCaptureMessage({ x: 0, y: 0, width: 10, height: 10 });
     const keepOpen = background.handleRuntimeMessage(captureMessage, makeSender(3), sendResponse);
     expect(keepOpen).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 0)); // flush the capture's internal awaits
     expect(sendResponse).toHaveBeenCalled();
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: true });
+  });
+
+  it('dispatches SAVE_ITEM asynchronously and keeps the channel open', async () => {
+    const sendResponse = jest.fn();
+    const keepOpen = background.handleRuntimeMessage(
+      { type: 'SAVE_ITEM', domain: 'example.com', item: makeNewItem() },
+      makeSender(3),
+      sendResponse,
+    );
+    expect(keepOpen).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: true });
   });
 });
@@ -284,7 +358,7 @@ describe('handleRuntimeMessage', () => {
 
 describe('handleCapture', () => {
   const rect = { x: 12, y: 34, width: 200, height: 150 };
-  const message: CaptureMessage = { type: 'CAPTURE', rect };
+  const message = makeCaptureMessage(rect);
 
   it('returns CAPTURE_FAILED when the sender has no tab (e.g. from a popup)', async () => {
     const result = await background.handleCapture(message, {});
@@ -299,9 +373,10 @@ describe('handleCapture', () => {
     const result = await background.handleCapture(message, makeSender(5, 77));
 
     expect(captureVisibleTabMock).toHaveBeenCalledWith(77, { format: 'png' }, expect.any(Function));
-    // drawImage(bitmap, sx, sy, sw, sh, dx, dy, dw, dh) — source rect must be
-    // exactly what was requested, destination is the full cropped canvas.
-    expect(FakeOffscreenCanvas.lastDrawArgs).toEqual([
+    // drawImage(bitmap, sx, sy, sw, sh, dx, dy, dw, dh) — at dpr 1 the source
+    // rect must be exactly what was requested, destination is the full
+    // cropped canvas (§1.3: no downscaling of the stored capture).
+    expect(FakeOffscreenCanvas.cropDrawArgs).toEqual([
       expect.anything(),
       rect.x,
       rect.y,
@@ -318,6 +393,35 @@ describe('handleCapture', () => {
       expect(mockedImageStore.putImage).toHaveBeenCalledWith(result.screenshotKey, result.dataUrl);
       expect(result.dataUrl.startsWith('data:image/png;base64,')).toBe(true);
     }
+  });
+
+  it('also renders a downscaled thumbnail from the same decoded bitmap', async () => {
+    // A 2x display: the 200x150 CSS selection is a 400x300 device-px crop,
+    // which is under the 480px thumbnail cap, so the thumbnail is 1:1 too.
+    setCaptureImageSize(2048, 1536);
+    const result = await background.handleCapture(
+      makeCaptureMessage(rect, { dpr: 2 }),
+      makeSender(5, 77),
+    );
+
+    expect(FakeOffscreenCanvas.drawCalls).toHaveLength(2);
+    // Both draws read the same source rect; only the destination differs.
+    expect(FakeOffscreenCanvas.drawCalls[0].slice(1, 5)).toEqual([24, 68, 400, 300]);
+    expect(FakeOffscreenCanvas.drawCalls[1].slice(1, 5)).toEqual([24, 68, 400, 300]);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(typeof result.thumbnailDataUrl).toBe('string');
+  });
+
+  it('downscales an over-large crop for the thumbnail but stores the capture at native size', async () => {
+    setCaptureImageSize(2048, 1536);
+    // 800x600 CSS at dpr 2 => 1600x1200 device px; longest edge capped at 480.
+    await background.handleCapture(
+      makeCaptureMessage({ x: 0, y: 0, width: 800, height: 600 }, { dpr: 2 }),
+      makeSender(5, 77),
+    );
+
+    expect(FakeOffscreenCanvas.drawCalls[0].slice(5)).toEqual([0, 0, 1600, 1200]);
+    expect(FakeOffscreenCanvas.drawCalls[1].slice(5)).toEqual([0, 0, 480, 360]);
   });
 
   it('never creates a partial item when the underlying capture fails (§1.3, §5 #8)', async () => {
@@ -343,6 +447,234 @@ describe('handleCapture', () => {
       message: "couldn't capture a screenshot here. try again.",
     });
     expect(mockedImageStore.putImage).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeDeviceRect — the pixel-critical conversion (§1.3, §6 #4, §6 #5)
+//
+// This is the verification matrix the Phase 5 brief calls for (1x/2x display,
+// 100%/80%/150% zoom, selections at every viewport edge, scrolled pages),
+// expressed against the pure function rather than a real browser: the selection
+// is in viewport CSS px, the capture is in device px, and every case below
+// asserts the exact device rectangle that must be cut out.
+// ---------------------------------------------------------------------------
+
+describe('computeDeviceRect', () => {
+  /** Shorthand: no scrollbar, so both CSS viewport candidates agree. */
+  function convert(
+    rect: { x: number; y: number; width: number; height: number },
+    cssWidth: number,
+    cssHeight: number,
+    dpr: number,
+    imageWidth = Math.round(cssWidth * dpr),
+    imageHeight = Math.round(cssHeight * dpr),
+  ) {
+    return background.computeDeviceRect(
+      rect,
+      { width: cssWidth, height: cssHeight },
+      { width: cssWidth, height: cssHeight },
+      dpr,
+      imageWidth,
+      imageHeight,
+    );
+  }
+
+  const selection = { x: 100, y: 200, width: 300, height: 150 };
+
+  it('is the identity mapping on a 1x display at 100% zoom', () => {
+    expect(convert(selection, 1000, 800, 1)).toEqual(selection);
+  });
+
+  it('scales by 2 on a retina display (§6 #4)', () => {
+    expect(convert(selection, 1000, 800, 2)).toEqual({ x: 200, y: 400, width: 600, height: 300 });
+  });
+
+  it('scales by 3 on a 3x display', () => {
+    expect(convert(selection, 1000, 800, 3)).toEqual({ x: 300, y: 600, width: 900, height: 450 });
+  });
+
+  it('handles 150% browser zoom on a 1x display (§6 #5)', () => {
+    // Chrome folds zoom into devicePixelRatio: a 1280px-wide window at 150%
+    // reports innerWidth 853 (the rounded 1280/1.5) and dpr 1.5.
+    expect(convert(selection, 853, 512, 1.5, 1280, 768)).toEqual({
+      x: 150,
+      y: 300,
+      width: 450,
+      height: 225,
+    });
+  });
+
+  it('handles 80% browser zoom (a fractional scale below 1)', () => {
+    expect(convert(selection, 1600, 1000, 0.8, 1280, 800)).toEqual({
+      x: 80,
+      y: 160,
+      width: 240,
+      height: 120,
+    });
+  });
+
+  it('handles a 2x display at 150% zoom (effective scale 3)', () => {
+    expect(convert(selection, 853, 512, 3, 2560, 1536)).toEqual({
+      x: 300,
+      y: 600,
+      width: 900,
+      height: 450,
+    });
+  });
+
+  it('prefers the scrollbar-inclusive width when the capture includes the scrollbar', () => {
+    // innerWidth 1000, clientWidth 985 (15px scrollbar), image 1000 device px:
+    // dividing by clientWidth would stretch everything by 1.5%.
+    const result = background.computeDeviceRect(
+      { x: 900, y: 0, width: 80, height: 50 },
+      { width: 1000, height: 800 },
+      { width: 985, height: 800 },
+      1,
+      1000,
+      800,
+    );
+    expect(result).toEqual({ x: 900, y: 0, width: 80, height: 50 });
+  });
+
+  it('prefers the scrollbar-exclusive width when the capture omits the scrollbar', () => {
+    const result = background.computeDeviceRect(
+      { x: 900, y: 0, width: 80, height: 50 },
+      { width: 1000, height: 800 },
+      { width: 985, height: 800 },
+      1,
+      985,
+      800,
+    );
+    expect(result).toEqual({ x: 900, y: 0, width: 80, height: 50 });
+  });
+
+  it('lands exactly on the image edge for a selection flush against the viewport edge', () => {
+    // Bottom-right corner selection on a 2x display.
+    expect(convert({ x: 800, y: 700, width: 200, height: 100 }, 1000, 800, 2)).toEqual({
+      x: 1600,
+      y: 1400,
+      width: 400,
+      height: 200,
+    });
+    // Top-left corner.
+    expect(convert({ x: 0, y: 0, width: 20, height: 20 }, 1000, 800, 2)).toEqual({
+      x: 0,
+      y: 0,
+      width: 40,
+      height: 40,
+    });
+  });
+
+  it('clamps a rect that would read past the image instead of sampling transparency', () => {
+    expect(convert({ x: 900, y: 700, width: 300, height: 300 }, 1000, 800, 2)).toEqual({
+      x: 1800,
+      y: 1400,
+      width: 200,
+      height: 200,
+    });
+  });
+
+  it('keeps sub-pixel rects at least one device pixel in each dimension', () => {
+    const result = convert({ x: 10, y: 10, width: 0, height: 0 }, 1000, 800, 1);
+    expect(result.width).toBeGreaterThanOrEqual(1);
+    expect(result.height).toBeGreaterThanOrEqual(1);
+  });
+
+  it('rounds each edge independently so a fractional rect keeps its size', () => {
+    expect(convert({ x: 10.4, y: 10.4, width: 100.2, height: 100.2 }, 1000, 800, 2)).toEqual({
+      x: 21,
+      y: 21,
+      width: 200,
+      height: 200,
+    });
+  });
+
+  it('falls back to devicePixelRatio when the viewport numbers are unusable', () => {
+    expect(
+      background.computeDeviceRect(selection, undefined, undefined, 2, 2000, 1600),
+    ).toEqual({ x: 200, y: 400, width: 600, height: 300 });
+    expect(
+      background.computeDeviceRect(selection, { width: 0, height: 0 }, undefined, 2, 2000, 1600),
+    ).toEqual({ x: 200, y: 400, width: 600, height: 300 });
+  });
+
+  it('falls back to 1:1 when neither the viewport nor the dpr is usable', () => {
+    expect(background.computeDeviceRect(selection, undefined, undefined, 0, 0, 0)).toEqual(
+      selection,
+    );
+  });
+});
+
+describe('computeThumbnailSize', () => {
+  it('leaves a small crop untouched', () => {
+    expect(background.computeThumbnailSize(400, 300)).toEqual({ width: 400, height: 300 });
+  });
+
+  it('caps the longest edge and preserves the aspect ratio', () => {
+    expect(background.computeThumbnailSize(1600, 1200)).toEqual({ width: 480, height: 360 });
+    expect(background.computeThumbnailSize(600, 1200)).toEqual({ width: 240, height: 480 });
+  });
+
+  it('never rounds an extreme aspect ratio down to zero', () => {
+    expect(background.computeThumbnailSize(2000, 3)).toEqual({ width: 480, height: 1 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleSaveItem — id allocation and the no-orphan failure path
+// ---------------------------------------------------------------------------
+
+describe('handleSaveItem', () => {
+  it('assigns the domain-sequential id and stores the item (§1.2)', async () => {
+    mockedStorage.getNextItemId.mockResolvedValue(7);
+    const response = await background.handleSaveItem({
+      type: 'SAVE_ITEM',
+      domain: 'example.com',
+      item: makeNewItem(),
+    });
+
+    expect(response.ok).toBe(true);
+    if (response.ok) expect(response.item.id).toBe(7);
+    expect(mockedStorage.addItem).toHaveBeenCalledWith(
+      'example.com',
+      expect.objectContaining({ id: 7, screenshotKey: 'key-1' }),
+    );
+  });
+
+  it('serialises concurrent saves so two captures cannot share an id', async () => {
+    let next = 1;
+    mockedStorage.getNextItemId.mockImplementation(async () => next);
+    mockedStorage.addItem.mockImplementation(async () => {
+      next += 1;
+    });
+
+    const responses = await Promise.all([
+      background.handleSaveItem({ type: 'SAVE_ITEM', domain: 'example.com', item: makeNewItem() }),
+      background.handleSaveItem({ type: 'SAVE_ITEM', domain: 'example.com', item: makeNewItem() }),
+      background.handleSaveItem({ type: 'SAVE_ITEM', domain: 'example.com', item: makeNewItem() }),
+    ]);
+
+    const ids = responses.map((r) => (r.ok ? r.item.id : -1));
+    expect(ids).toEqual([1, 2, 3]);
+  });
+
+  it('deletes the already-stored blob when the metadata write fails (§1.5, §1.3)', async () => {
+    mockedStorage.addItem.mockRejectedValue(new Error('quota exceeded'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const response = await background.handleSaveItem({
+      type: 'SAVE_ITEM',
+      domain: 'example.com',
+      item: makeNewItem(),
+    });
+
+    expect(response).toEqual({
+      ok: false,
+      message: "couldn't capture a screenshot here. try again.",
+    });
+    expect(mockedImageStore.deleteImage).toHaveBeenCalledWith('key-1');
+    warn.mockRestore();
   });
 });
 

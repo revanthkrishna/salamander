@@ -7,6 +7,12 @@
 // own close button restores the page and tells the service worker so a
 // later reload doesn't bring the sidebar back uninvited (§1.1).
 //
+// Phase 5 wires the sidebar's "add" button all the way through: add mode
+// (src/addMode.ts) produces a selection + note, the capture pipeline
+// (src/capture.ts) turns that into a stored feedback item, and this file
+// decides what happens to add mode and the sidebar on either outcome — see
+// handleCaptureOk below.
+//
 // What survives from Phase 0/2 untouched, per the inventory table:
 //   1. The double-injection idempotency guard.
 //   2. The chrome.runtime message listener shape (PING / ACTIVATE / ICON_CLICKED).
@@ -28,6 +34,7 @@
 import { normaliseUrl } from './urlNorm';
 import * as sidebar from './sidebar';
 import * as addMode from './addMode';
+import * as capture from './capture';
 import { SidebarOpenedMessage, SidebarClosedMessage } from './messages';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -101,14 +108,13 @@ function ensureStarted(): void {
     onAdd: () => {
       if (addMode.isAddModeActive()) return;
       addMode.startAddMode({
-        onOk: (_result) => {
-          // Phase 5 wires the real capture pipeline here: hideOverlayUI(),
-          // message the service worker with the selection rect (converted to
-          // page-absolute device pixels), crop, persist, then either
-          // exitAddMode() on success or showOverlayUI() on failure so the
-          // user can retry or cancel. No capture pipeline exists yet, so for
-          // now we just leave add mode — no feedback item is created.
-          addMode.exitAddMode();
+        onOk: (result) => {
+          // Phase 5's capture pipeline (src/capture.ts) owns everything
+          // between "ok" and a stored item: hiding the overlay for exactly
+          // one painted frame, the screenshot round trip to the service
+          // worker, the §1.4 context, and the write. All this side does is
+          // decide what happens to add mode and the sidebar afterwards.
+          void handleCaptureOk(result);
         },
         onCancel: () => {
           // Add mode has already torn itself down — nothing left to do.
@@ -127,6 +133,34 @@ function ensureStarted(): void {
   });
   setupNavigationDetection();
   window.addEventListener('beforeunload', handleBeforeUnload);
+}
+
+/**
+ * §1.2 step 4: "add mode exits; sidebar restores; a new thumbnail appears at
+ * the bottom of the sidebar list".
+ *
+ * On failure the opposite: add mode stays exactly as the user left it (the
+ * capture pipeline has already restored the hidden overlay and re-enabled
+ * cancel/ok), no item exists anywhere (§1.3, §5 #8), and the reason is shown
+ * in the sidebar's error bar — lowercase, verbatim from §5.
+ */
+async function handleCaptureOk(result: addMode.AddModeResult): Promise<void> {
+  const outcome = await capture.captureAndSave(result, {
+    hide: addMode.hideOverlayUI,
+    show: addMode.showOverlayUI,
+  });
+
+  if (!outcome.ok) {
+    sidebar.showError(outcome.message);
+    return;
+  }
+
+  addMode.exitAddMode();
+  // Re-read the list for the current URL so the new item shows up. Phase 3's
+  // refreshForUrl is still a stub that renders the empty state; Phase 7 turns
+  // it into the real thumbnail list, at which point this call starts painting
+  // the item that was just captured with no further wiring here.
+  sidebar.refreshForUrl(location.href);
 }
 
 function openAndReport(): void {

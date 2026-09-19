@@ -6,15 +6,24 @@
 // service-worker-only — gotcha #3), and sole ownership of IndexedDB via
 // imageStore (gotcha #1 — content scripts never touch it directly).
 
-import { isSidebarOpen, setSidebarOpen, clearSidebarState, cleanupStaleTabKeys } from './storage';
+import {
+  isSidebarOpen,
+  setSidebarOpen,
+  clearSidebarState,
+  cleanupStaleTabKeys,
+  getNextItemId,
+  addItem,
+} from './storage';
 import * as imageStore from './imageStore';
-import { Rect } from './types';
+import { FeedbackItem, Rect, ViewportSize } from './types';
 import {
   ActivateMessage,
   CaptureMessage,
   CaptureErrorResponse,
   CaptureResponse,
   IconClickedMessage,
+  SaveItemMessage,
+  SaveItemResponse,
 } from './messages';
 
 const CONTENT_SCRIPT = 'dist/content.js';
@@ -140,6 +149,10 @@ export function handleRuntimeMessage(
       handleCapture(message as CaptureMessage, sender).then(sendResponse);
       return true; // keep the message channel open for the async response
     }
+    case 'SAVE_ITEM': {
+      handleSaveItem(message as SaveItemMessage).then(sendResponse);
+      return true; // keep the message channel open for the async response
+    }
     default:
       return false; // PING/ACTIVATE/ICON_CLICKED are background->content; not ours to handle
   }
@@ -183,10 +196,10 @@ export async function handleCapture(
 
   try {
     const fullDataUrl = await enqueueCapture(() => captureVisibleTabDataUrl(tab.windowId));
-    const croppedDataUrl = await cropToRect(fullDataUrl, message.rect);
+    const { dataUrl, thumbnailDataUrl } = await cropCapture(fullDataUrl, message);
     const screenshotKey = generateScreenshotKey();
-    await imageStore.putImage(screenshotKey, croppedDataUrl);
-    return { ok: true, screenshotKey, dataUrl: croppedDataUrl };
+    await imageStore.putImage(screenshotKey, dataUrl);
+    return { ok: true, screenshotKey, dataUrl, thumbnailDataUrl };
   } catch (err) {
     return mapCaptureError(err);
   }
@@ -209,6 +222,58 @@ export function mapCaptureError(err: unknown): CaptureErrorResponse {
         ? 'RATE_LIMITED'
         : 'CAPTURE_FAILED';
   return { ok: false, code, message: CAPTURE_ERROR_MESSAGE };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Item persistence (§1.2 step 4) — the second half of the capture round trip
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The content script assembles everything about a feedback item except its id
+// (note, selection rect, viewport/dpr, screenshotKey, §1.4 context) and sends
+// it here. The id is allocated on this side because §1.2 requires it to be
+// sequential across every URL of the domain and the counter lives in
+// chrome.storage.local, which only the service worker touches (gotcha #1).
+//
+// Writes are serialised through a single promise chain: read-modify-write on
+// the domain record is not atomic, so two captures resolving at once could
+// otherwise read the same nextItemNumber and collide (or drop one item's
+// append entirely).
+
+let saveQueueTail: Promise<unknown> = Promise.resolve();
+
+function enqueueSave<T>(fn: () => Promise<T>): Promise<T> {
+  const run = saveQueueTail.then(fn);
+  saveQueueTail = run.catch(() => undefined);
+  return run;
+}
+
+export async function handleSaveItem(message: SaveItemMessage): Promise<SaveItemResponse> {
+  try {
+    const item = await enqueueSave(async () => {
+      const id = await getNextItemId(message.domain);
+      const stored: FeedbackItem = { ...message.item, id };
+      await addItem(message.domain, stored);
+      return stored;
+    });
+    return { ok: true, item };
+  } catch (err) {
+    // The blob was already written by the CAPTURE that preceded this. A failed
+    // metadata write would strand it with nothing referencing it, so drop it
+    // here — §1.5's no-orphan rule applied to the failure path, and §1.3's
+    // "a failed capture creates no partial item".
+    try {
+      await imageStore.deleteImage(message.item.screenshotKey);
+    } catch {
+      // Best effort — the metadata failure is what we report.
+    }
+    console.warn('[Annotator] could not save feedback item:', err);
+    return { ok: false, message: CAPTURE_ERROR_MESSAGE };
+  }
+}
+
+/** Test-only escape hatch: reset the serialised save queue between tests. */
+export function _resetSaveQueueForTests(): void {
+  saveQueueTail = Promise.resolve();
 }
 
 // ---------------------------------------------------------------------------
@@ -263,17 +328,188 @@ function captureVisibleTabDataUrl(windowId: number): Promise<string> {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Crop: service workers have no DOM and no URL.createObjectURL (gotcha #4) —
-// createImageBitmap + OffscreenCanvas is the only route. `rect` is already
-// in device pixels (native DPR, no downscaling — §1.3); the caller (Phase 5)
-// owns converting CSS pixels/scroll/zoom into that space.
+// ═══════════════════════════════════════════════════════════════════════════
+// Crop (⚠ the pixel-critical half of Phase 5)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Service workers have no DOM and no URL.createObjectURL (gotcha #4) —
+// createImageBitmap + OffscreenCanvas is the only route.
+//
+// ── The coordinate problem ────────────────────────────────────────────────
+//
+// The content script measures its selection in viewport-relative CSS pixels
+// (MouseEvent.clientX/clientY). chrome.tabs.captureVisibleTab returns a PNG
+// of that same visible viewport, but in *device* pixels. Three things can
+// make those two spaces differ by a constant factor:
+//
+//   • a high-DPI display   (§6 #4 — devicePixelRatio 2 or 3)
+//   • browser zoom ≠ 100%  (§6 #5 — folded into devicePixelRatio by Chrome:
+//                           zooming to 150% shrinks innerWidth and raises
+//                           devicePixelRatio by the same 1.5)
+//   • the two combined     (2× display at 150% zoom ⇒ effective scale 3)
+//
+// Scroll position is deliberately *not* one of them: both the selection rect
+// and the capture are viewport-relative, so a scrolled page needs no offset
+// at all. (The scroll offset does matter for FeedbackItem.selectionRect,
+// which §1.4D stores in *page* coordinates — the content script adds it there
+// and only there.)
+//
+// ── Why the scale is measured, not assumed ────────────────────────────────
+//
+// In theory imageWidth === innerWidth * devicePixelRatio, so multiplying by
+// devicePixelRatio in the content script would do. In practice innerWidth and
+// innerHeight are integers (the real viewport can be fractional), and Chrome's
+// captured image is not guaranteed to be exactly that product on every
+// platform. Dividing the image's real dimensions by the reported CSS viewport
+// gives the true mapping whatever produced it, and is self-correcting for the
+// rounding.
+//
+// ── ...and why two CSS widths are measured against ────────────────────────
+//
+// "The reported CSS viewport" is ambiguous by exactly the width of a classic
+// scrollbar: window.innerWidth includes it, documentElement.clientWidth does
+// not. Chrome's capture normally *does* contain the scrollbar strip, but that
+// is observed behaviour rather than a documented contract, and picking the
+// wrong divisor skews every coordinate by ~1% of the viewport width — a
+// screenshot that looks plausible and is wrong, which is precisely the failure
+// mode this phase exists to avoid. So both candidate divisors come across the
+// wire and the scale that lands closest to devicePixelRatio wins: correct
+// under either capture behaviour, and a no-op when the page has no scrollbar
+// (the two candidates are then identical). devicePixelRatio itself is the
+// fallback when neither candidate is usable, and 1 the last resort.
+//
+// Only the scale is ever in question, never the origin: classic scrollbars
+// occupy the right and bottom edges in a left-to-right document, so the
+// image's top-left pixel is the CSS viewport's (0, 0) either way. (A
+// right-to-left document puts the vertical scrollbar on the left, which would
+// shift the origin — an accepted limitation, consistent with the rest of the
+// extension's LTR assumptions.)
+//
+// This keeps §1.3 satisfied — the stored PNG is the native-resolution crop,
+// never downscaled — while the separate thumbnail below is what gets shrunk.
 // ---------------------------------------------------------------------------
 
-export async function cropToRect(dataUrl: string, rect: Rect): Promise<string> {
-  const width = Math.max(1, Math.round(rect.width));
-  const height = Math.max(1, Math.round(rect.height));
+/** Longest edge of the inline thumbnail (device px). 480 ≈ 2× the usable
+ *  width of the 320px sidebar, so it stays crisp on a retina display while
+ *  keeping storage.local's per-domain record small enough to read on every
+ *  sidebar refresh. */
+const THUMBNAIL_MAX_EDGE = 480;
 
+/** Thumbnails are JPEG, not PNG: they live inline in chrome.storage.local
+ *  (Phase 1's design call) and that record is read in full every time the
+ *  sidebar refreshes, so size matters more than fidelity here. §1.3's
+ *  "PNG, lossless, native DPR" requirement governs the *stored capture*,
+ *  which is the PNG in IndexedDB and the one that gets exported — not this
+ *  render-only copy. */
+const THUMBNAIL_MIME = 'image/jpeg';
+const THUMBNAIL_QUALITY = 0.75;
+
+export interface CropResult {
+  /** Full-resolution PNG crop — what gets persisted and exported. */
+  dataUrl: string;
+  /** Downscaled JPEG copy for the sidebar list. */
+  thumbnailDataUrl: string;
+}
+
+/**
+ * Convert a CSS-pixel, viewport-relative rect into the device-pixel rect to
+ * cut out of a captured image of `imageWidth` × `imageHeight`.
+ *
+ * Pure and exported so the whole DPR/zoom/edge matrix is unit-testable
+ * without a browser. Edges are rounded independently (rather than rounding
+ * origin and size separately) so a selection that ends exactly at a boundary
+ * still lands on that boundary, and the result is clamped inside the image so
+ * a selection flush against the viewport edge can never ask drawImage for
+ * out-of-bounds source pixels (which would silently render as transparent).
+ */
+export function computeDeviceRect(
+  rect: Rect,
+  viewport: ViewportSize | undefined,
+  contentViewport: ViewportSize | undefined,
+  dpr: number | undefined,
+  imageWidth: number,
+  imageHeight: number,
+): Rect {
+  const scaleX = pickScale(imageWidth, [viewport?.width, contentViewport?.width], dpr);
+  const scaleY = pickScale(imageHeight, [viewport?.height, contentViewport?.height], dpr);
+
+  let left = Math.round(rect.x * scaleX);
+  let top = Math.round(rect.y * scaleY);
+  let right = Math.round((rect.x + rect.width) * scaleX);
+  let bottom = Math.round((rect.y + rect.height) * scaleY);
+
+  // Unknown image dimensions (shouldn't happen with a real decoded bitmap):
+  // skip clamping rather than clamp against a bogus bound.
+  if (imageWidth > 0 && imageHeight > 0) {
+    left = clamp(left, 0, imageWidth - 1);
+    top = clamp(top, 0, imageHeight - 1);
+    right = clamp(right, left + 1, imageWidth);
+    bottom = clamp(bottom, top + 1, imageHeight);
+  } else {
+    right = Math.max(right, left + 1);
+    bottom = Math.max(bottom, top + 1);
+  }
+
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+/**
+ * One axis's CSS-px → device-px scale.
+ *
+ * `cssSizes` are the candidate CSS-space extents of the captured image, in
+ * order of preference (scrollbar-inclusive first, scrollbar-exclusive second —
+ * see the header comment). Each usable one implies a measured scale; the one
+ * nearest `dpr` wins, because `dpr` is a reliable *approximation* of the truth
+ * (exact but for sub-pixel viewport rounding) while a measured scale is exact
+ * but only if it was divided by the right number.
+ */
+function pickScale(
+  imageSize: number,
+  cssSizes: ReadonlyArray<number | undefined>,
+  dpr: number | undefined,
+): number {
+  const fallback = typeof dpr === 'number' && Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
+  if (!(imageSize > 0)) return fallback;
+
+  const measured: number[] = [];
+  for (const cssSize of cssSizes) {
+    if (typeof cssSize !== 'number' || !(cssSize > 0)) continue;
+    const scale = imageSize / cssSize;
+    if (Number.isFinite(scale) && scale > 0) measured.push(scale);
+  }
+  if (measured.length === 0) return fallback;
+  if (!(typeof dpr === 'number' && Number.isFinite(dpr) && dpr > 0)) return measured[0];
+
+  return measured.reduce((best, scale) =>
+    Math.abs(scale - dpr) < Math.abs(best - dpr) ? scale : best,
+  );
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+/** Thumbnail dimensions for a crop of `width`×`height` device px: aspect
+ *  preserved, never upscaled, longest edge capped at THUMBNAIL_MAX_EDGE. */
+export function computeThumbnailSize(
+  width: number,
+  height: number,
+): { width: number; height: number } {
+  const longest = Math.max(width, height);
+  const scale = longest > THUMBNAIL_MAX_EDGE ? THUMBNAIL_MAX_EDGE / longest : 1;
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}
+
+/**
+ * Decode the full-viewport capture once, then draw the same source rectangle
+ * twice: at native size for the stored PNG (§1.3) and downscaled for the
+ * inline thumbnail. Drawing both from the one decoded bitmap avoids
+ * re-decoding the cropped PNG just to shrink it.
+ */
+export async function cropCapture(dataUrl: string, message: CaptureMessage): Promise<CropResult> {
   let bitmap: ImageBitmap;
   try {
     const blob = await (await fetch(dataUrl)).blob();
@@ -283,17 +519,55 @@ export async function cropToRect(dataUrl: string, rect: Rect): Promise<string> {
   }
 
   try {
-    const canvas = new OffscreenCanvas(width, height);
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('no 2d context available for cropping');
-    ctx.drawImage(bitmap, rect.x, rect.y, width, height, 0, 0, width, height);
-    const croppedBlob = await canvas.convertToBlob({ type: 'image/png' });
-    return await blobToDataUrl(croppedBlob);
+    const src = computeDeviceRect(
+      message.rect,
+      message.viewport,
+      message.contentViewport,
+      message.dpr,
+      bitmap.width,
+      bitmap.height,
+    );
+
+    const full = await drawCrop(bitmap, src, src.width, src.height, 'image/png');
+
+    const thumbSize = computeThumbnailSize(src.width, src.height);
+    const thumb = await drawCrop(
+      bitmap,
+      src,
+      thumbSize.width,
+      thumbSize.height,
+      THUMBNAIL_MIME,
+      THUMBNAIL_QUALITY,
+    );
+
+    return { dataUrl: full, thumbnailDataUrl: thumb };
   } catch (err) {
-    throw new CropError(err);
+    throw err instanceof CropError ? err : new CropError(err);
   } finally {
     bitmap.close();
   }
+}
+
+async function drawCrop(
+  bitmap: ImageBitmap,
+  src: Rect,
+  destWidth: number,
+  destHeight: number,
+  mime: string,
+  quality?: number,
+): Promise<string> {
+  const canvas = new OffscreenCanvas(destWidth, destHeight);
+  const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D | null;
+  if (!ctx) throw new CropError(new Error('no 2d context available for cropping'));
+  // Only matters for the thumbnail (the full-resolution crop is 1:1, where
+  // smoothing is a no-op): the default 'low' setting produces visibly aliased
+  // text when a 1000px-wide capture is shrunk to 480.
+  if ('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(bitmap, src.x, src.y, src.width, src.height, 0, 0, destWidth, destHeight);
+  const blob = await canvas.convertToBlob(
+    quality === undefined ? { type: mime } : { type: mime, quality },
+  );
+  return blobToDataUrl(blob);
 }
 
 class CropError extends Error {
