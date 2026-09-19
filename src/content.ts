@@ -13,11 +13,12 @@
 // decides what happens to add mode and the sidebar on either outcome — see
 // handleCaptureOk below.
 //
-// Phase 7 wires the thumbnail list and the enlarged modal (src/thumbnails.ts,
-// src/modal.ts): this file is the message-sending orchestrator for both
-// (same role it already plays for capture/save), fetching a domain's/URL's
-// items via GET_PAGE_ITEMS and handing them to sidebar.setThumbnails(), and
-// supplying modal.ts's fetchFullImage/onSaveNote/onDelete callbacks so that
+// Phase 7 wires the thumbnail list and the enlarged view (src/thumbnails.ts,
+// src/enlargedView.ts — design spec v2 §D, which replaced the old centred
+// modal): this file is the message-sending orchestrator for both (same role
+// it already plays for capture/save), fetching a domain's/URL's items via
+// GET_PAGE_ITEMS and handing them to sidebar.setThumbnails(), and supplying
+// the enlarged view's fetchFullImage/onSaveNote/onDelete callbacks so that
 // pure-DOM module never has to touch chrome.runtime itself.
 //
 // What survives from Phase 0/2 untouched, per the inventory table:
@@ -42,7 +43,6 @@ import { normaliseUrl, normaliseDomain } from './urlNorm';
 import * as sidebar from './sidebar';
 import * as addMode from './addMode';
 import * as capture from './capture';
-import * as modal from './modal';
 import { ensureFontsLoaded, primeThemeMode } from './theme';
 import { parseImportBundle } from './import';
 import { FeedbackItem, ImportError, ImportErrorCode, ImportErrorDetails } from './types';
@@ -139,6 +139,11 @@ function clearPendingAddOff(): void {
  *  add mode" path: the first click off -> on, and locked re-entry after a
  *  successful capture or a per-note cancel. */
 function enterAddMode(): void {
+  // The enlarged view and add mode can never coexist (design spec v2 §D) —
+  // nothing of it may be on screen for add mode's capture. Cancel-then-run
+  // (MOTION_SPEC §13): kill it instantly to its resting closed state, no
+  // half-collapse frame. A no-op when it isn't open.
+  sidebar.collapseEnlargedView({ immediate: true, force: true });
   // No dock magnification for the whole of add mode: swollen note items grow
   // out over the page, which is exactly what add mode selects and
   // screenshots. Suspending snaps them back to rest instantly (no release
@@ -327,7 +332,7 @@ function ensureStarted(): void {
       // (higher z-index), so they're still clickable while add mode is
       // active. Exit fully first so the button/lock state stays in sync.
       if (addMode.isAddModeActive()) exitAddModeFully();
-      openItemModal(item);
+      openItemEnlarged(item);
     },
   });
   setupNavigationDetection();
@@ -380,6 +385,10 @@ function openAndReport(): void {
 function toggleSidebar(): void {
   ensureStarted();
   if (sidebar.isSidebarVisible()) {
+    // Closing the sidebar is a way of leaving the enlarged view, so it obeys
+    // the "a note can never be empty" lock (§D): refused (the view shows its
+    // inline error) until the note has text.
+    if (!sidebar.collapseEnlargedView({ immediate: true })) return;
     // Add mode requires the sidebar (its bounds exclude the docked strip,
     // and its own button reflects add mode's state) — closing the sidebar
     // while it's active would leave a page-covering overlay with no visible
@@ -433,6 +442,8 @@ function handleUrlChange(): void {
   // from under it — exit fully rather than leave a stale overlay (and a
   // button state) pointed at content that's already gone (§A sync).
   if (addMode.isAddModeActive()) exitAddModeFully();
+  // The enlarged view is showing notes of the page we just left.
+  sidebar.collapseEnlargedView({ immediate: true, force: true });
 
   // The sidebar itself (open/closed, and its page-resize) is untouched by
   // navigation — §1.1 requires it to persist across SPA route changes.
@@ -443,7 +454,7 @@ function handleUrlChange(): void {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 7 — thumbnail list + enlarged modal message plumbing
+// Phase 7 — thumbnail list + enlarged view message plumbing
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** chrome.runtime.sendMessage as a promise that never rejects: a dead service
@@ -469,8 +480,8 @@ function sendMessage<TResponse>(message: unknown): Promise<TResponse | undefined
 
 /** Fetch the current URL's feedback items and repaint the sidebar's thumbnail
  *  list (§1.5 — "current URL only"). Called on open, on every SPA navigation,
- *  after a successful capture, and after a modal closes (an edit or a
- *  delete may have changed what should be showing). */
+ *  after a successful capture, and after the enlarged view closes (an edit or
+ *  a delete may have changed what should be showing). */
 async function refreshThumbnails(): Promise<void> {
   const message: GetPageItemsMessage = {
     type: 'GET_PAGE_ITEMS',
@@ -610,45 +621,48 @@ function importErrorMessage(code: ImportErrorCode, details?: ImportErrorDetails)
   }
 }
 
-/** Open the enlarged modal for one thumbnail, wiring its callbacks onto the
- *  GET_IMAGE / UPDATE_NOTE / DELETE_ITEM round trips (modal.ts itself never
- *  touches chrome.runtime — gotcha #1/#3). */
-function openItemModal(item: FeedbackItem): void {
+/** Expand the sidebar into the enlarged view on one note (design spec v2
+ *  §D), wiring its callbacks onto the GET_IMAGE / UPDATE_NOTE / DELETE_ITEM
+ *  round trips (enlargedView.ts itself never touches chrome.runtime — gotcha
+ *  #1/#3). The view navigates between notes itself, so every callback takes
+ *  the note it's acting on. */
+function openItemEnlarged(item: FeedbackItem): void {
   const domain = normaliseDomain(location.host);
 
-  modal.openModal(item, {
-    fetchFullImage: async () => {
-      const getImage: GetImageMessage = { type: 'GET_IMAGE', screenshotKey: item.screenshotKey };
+  sidebar.openEnlargedView(item.id, {
+    fetchFullImage: async (target) => {
+      const getImage: GetImageMessage = { type: 'GET_IMAGE', screenshotKey: target.screenshotKey };
       const response = await sendMessage<GetImageResponse>(getImage);
       return response && response.ok ? response.dataUrl : null;
     },
-    onSaveNote: async (note) => {
+    onSaveNote: async (target, note) => {
       const updateNote: UpdateNoteMessage = {
         type: 'UPDATE_NOTE',
         domain,
-        normalisedUrl: item.normalisedUrl,
-        itemId: item.id,
+        normalisedUrl: target.normalisedUrl,
+        itemId: target.id,
         note,
       };
       const response = await sendMessage<UpdateNoteResponse>(updateNote);
       return response?.ok === true;
     },
-    onDelete: async () => {
+    onDelete: async (target) => {
       const deleteItemMsg: DeleteItemMessage = {
         type: 'DELETE_ITEM',
         domain,
-        normalisedUrl: item.normalisedUrl,
-        itemId: item.id,
+        normalisedUrl: target.normalisedUrl,
+        itemId: target.id,
       };
       const response = await sendMessage<DeleteItemResponse>(deleteItemMsg);
       return response?.ok === true;
     },
-    onClose: () => {
-      // Covers both outcomes: an edited note (preview text changed) and a
-      // deletion (item should disappear) — re-reading beats trying to patch
-      // the in-memory list two different ways. Then hand focus back to the
-      // thumbnail that opened the modal (a no-op if it was just deleted).
-      void refreshThumbnails().then(() => sidebar.focusThumbnail(item.id));
+    onClosed: (currentId) => {
+      // Edits and deletes are already reflected in the list the view handed
+      // back; re-reading storage makes it authoritative. Then hand focus back
+      // to the note that was current (a no-op if every note was deleted).
+      void refreshThumbnails().then(() => {
+        if (currentId !== null) sidebar.focusThumbnail(currentId);
+      });
     },
   });
 }

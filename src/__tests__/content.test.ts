@@ -28,7 +28,7 @@ jest.mock('../capture', () => ({
   captureAndSave: jest.fn(),
 }));
 
-// sidebar.ts/addMode.ts/modal.ts all use closed shadow roots; force 'open'
+// sidebar.ts/addMode.ts use closed shadow roots; force 'open'
 // for the whole file so tests can query into them — same trick
 // sidebar.test.ts uses.
 const originalAttachShadow = HTMLElement.prototype.attachShadow;
@@ -349,5 +349,61 @@ describe('content.ts: "add note" toggle + lock (design spec v2 §A)', () => {
 
     expect(addMode.isAddModeActive()).toBe(false);
     expect(btn.getAttribute('aria-pressed')).toBe('false');
+  });
+});
+
+describe('content.ts: enlarged view wiring (design spec v2 §D)', () => {
+  async function openFirstNote(): Promise<void> {
+    pageItems = [makeItem({ id: 7 }), makeItem({ id: 8, screenshotKey: 'key-8' })];
+    loadContent();
+    activate();
+    await flushMicrotasks();
+    (sidebarShadow().querySelector('button.thumbnail') as HTMLButtonElement).click();
+  }
+
+  test('clicking a note expands the sidebar into the enlarged view', async () => {
+    await openFirstNote();
+    expect(sidebarApi.isEnlargedViewOpen()).toBe(true);
+    expect(sidebarShadow().querySelector('.xp-title')!.textContent).toBe('feedback #7');
+    // The full-resolution image is fetched for the main note.
+    const sent = (chrome.runtime.sendMessage as jest.Mock).mock.calls.map((c) => c[0]);
+    expect(sent).toContainEqual({ type: 'GET_IMAGE', screenshotKey: 'key-1' });
+  });
+
+  test('entering add mode collapses the enlarged view first (instantly)', async () => {
+    await openFirstNote();
+    addButton().click();
+    expect(sidebarApi.isEnlargedViewOpen()).toBe(false);
+    expect(sidebarShadow().querySelector('.enlarged')).toBeNull();
+    expect(addMode.isAddModeActive()).toBe(true);
+  });
+
+  test('autosave and delete go through UPDATE_NOTE / DELETE_ITEM', async () => {
+    await openFirstNote();
+    jest.useFakeTimers();
+    const ta = sidebarShadow().querySelector('.xp-note-input') as HTMLTextAreaElement;
+    ta.value = 'changed';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    jest.advanceTimersByTime(700);
+    (sidebarShadow().querySelector('.xp-delete') as HTMLButtonElement).click();
+    const sent = (chrome.runtime.sendMessage as jest.Mock).mock.calls.map((c) => c[0]);
+    expect(sent).toContainEqual(expect.objectContaining({ type: 'UPDATE_NOTE', itemId: 7, note: 'changed' }));
+    expect(sent).toContainEqual(expect.objectContaining({ type: 'DELETE_ITEM', itemId: 7 }));
+  });
+
+  test('the extension icon cannot close the sidebar while the note is empty', async () => {
+    await openFirstNote();
+    const ta = sidebarShadow().querySelector('.xp-note-input') as HTMLTextAreaElement;
+    ta.value = '';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    onMessageListener({ type: 'ICON_CLICKED' }, {}, () => {});
+    expect(sidebarApi.isSidebarVisible()).toBe(true);
+    expect(sidebarApi.isEnlargedViewOpen()).toBe(true);
+
+    ta.value = 'ok';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    onMessageListener({ type: 'ICON_CLICKED' }, {}, () => {});
+    expect(sidebarApi.isEnlargedViewOpen()).toBe(false);
+    expect(sidebarApi.isSidebarVisible()).toBe(false);
   });
 });

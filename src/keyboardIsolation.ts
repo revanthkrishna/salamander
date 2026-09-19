@@ -6,7 +6,7 @@
 // opens Instagram's own notifications panel instead of typing an "n".
 //
 // Root cause: our textareas live inside a *closed* shadow root
-// (addMode.ts/modal.ts both use `attachShadow({ mode: 'closed' })`). Sites
+// (addMode.ts and the sidebar/enlarged view all use `attachShadow({ mode: 'closed' })`). Sites
 // like Gmail/Instagram/YouTube register global keyboard-shortcut handlers on
 // `document` (bubble-phase `document.addEventListener('keydown', ...)` is the
 // overwhelmingly common pattern). A closed shadow root hides the real focused
@@ -29,7 +29,7 @@
 // selection, etc.) against our actual textarea target. When the target is
 // NOT inside our host, the event passes through completely untouched.
 //
-// Shared by addMode.ts (the add-mode comment box) and modal.ts (the
+// Shared by addMode.ts (the add-mode comment box) and enlargedView.ts (the
 // note-editing textarea) — both have the identical closed-shadow-root
 // architecture and are identically vulnerable. Install only while the
 // respective surface is actually open/focused; never leave this listening

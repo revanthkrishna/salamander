@@ -13,9 +13,14 @@
 // note-list <li> construction (setThumbnails() below just toggles the
 // empty-state/heading and delegates to renderThumbnailList()). It stays
 // chrome.runtime-agnostic throughout — content.ts fetches items/wires
-// callbacks and opens src/modal.ts when onOpenItem fires — with the one
+// callbacks and calls openEnlargedView() when onOpenItem fires — with the one
 // necessary exception of chrome.runtime.getURL() for the theme-dependent logo
 // asset, which is guarded the same way theme.ts guards every chrome.* access.
+//
+// The enlarged view (design spec v2 §D, src/enlargedView.ts) renders inside
+// this same shadow root: it is the sidebar itself growing to ~75% of the
+// viewport, so this module lends it a mount (its shadow root, docked panel
+// and list hooks) and owns its lifetime — see openEnlargedView() below.
 //
 // Design tokens come from src/theme.ts's --sal-* custom properties
 // (getThemeCSS()) rather than any hardcoded palette; registerThemedHost keeps
@@ -25,6 +30,13 @@
 import { FeedbackItem } from './types';
 import { renderThumbnailList, THUMBNAIL_IMAGE_HEIGHT_PX } from './thumbnails';
 import { attachDockMotion, DockMotionHandle } from './dockMotion';
+import {
+  openEnlargedView as openEnlargedViewImpl,
+  ENLARGED_VIEW_CSS,
+  EnlargedViewCallbacks,
+  EnlargedViewHandle,
+  EnlargedViewMount,
+} from './enlargedView';
 import {
   getThemeCSS,
   registerThemedHost,
@@ -47,7 +59,7 @@ import {
 // persisted, so every consumer must read it *live* via getSidebarWidth()
 // rather than importing a constant.
 //
-// The old fixed `SIDEBAR_WIDTH = 320` export is gone on purpose: modal.ts
+// The old fixed `SIDEBAR_WIDTH = 320` export is gone on purpose: the old modal
 // (backdrop inset), addMode.ts (selectable bounds) and the page-resize logic
 // below all sized themselves off it, and a stale copy of the width in any of
 // those places shows up as the sidebar overlapping page UI or a selection
@@ -82,7 +94,7 @@ let sidebarWidth = SIDEBAR_DEFAULT_WIDTH;
 let widthChosenByUser = false;
 
 /** The sidebar's current width in CSS pixels. This is the single source of
- *  truth — modal.ts, addMode.ts and the page-resize logic all call it. */
+ *  truth — enlargedView.ts, addMode.ts and the page-resize logic all call it. */
 export function getSidebarWidth(): number {
   return sidebarWidth;
 }
@@ -96,7 +108,7 @@ export function clampSidebarWidth(px: number): number {
 /**
  * Resize the panel. Updates the panel's own width, the page shrink (if the
  * sidebar is open) and the `--annotator-sidebar-width` custom property that
- * modal.ts's backdrop reads, all in one place.
+ * any shadow tree can read, all in one place.
  *
  * `persist` is false for the live frames of a drag and true once the gesture
  * commits — writing chrome.storage on every mousemove would be pointless I/O.
@@ -184,7 +196,7 @@ export interface SidebarCallbacks {
    *  per-tab "sidebar open" state (§1.1). */
   onClose: () => void;
   /** A thumbnail was activated (click or Enter/Space) — the caller opens the
-   *  enlarged modal (src/modal.ts) for this item (§1.5, §3.3). */
+   *  enlarged view for this item (openEnlargedView(), design spec v2 §D). */
   onOpenItem: (item: FeedbackItem) => void;
 }
 
@@ -326,7 +338,7 @@ const RESIZER_Z_INDEX = 101;
 // ---------------------------------------------------------------------------
 // CSS — Salamander design tokens (src/theme.ts's --sal-* custom properties,
 // design spec §1–§3.1). FOCUS_RING_CSS/PRESS_SCALE_CSS/STATE_TRANSITION_CSS/
-// DISABLED_CSS are the same shared interaction-state snippets modal.ts and
+// DISABLED_CSS are the same shared interaction-state snippets enlargedView.ts and
 // addMode.ts already paste in, so all three surfaces feel identical.
 // ---------------------------------------------------------------------------
 
@@ -924,6 +936,17 @@ let dockMotion: DockMotionHandle | null = null;
  *  setDockMagnificationSuspended). Lives here rather than on the handle
  *  because the handle is rebuilt on every repaint. */
 let dockSuspended = false;
+/** The enlarged view's own suspension, kept separate from add mode's flag so
+ *  neither can lift the other's. */
+let enlargedDockSuspended = false;
+/** The open enlarged view, if any (one at a time). */
+let enlargedView: EnlargedViewHandle | null = null;
+/** Items the list is currently rendering — the enlarged view opens on these. */
+let currentItems: FeedbackItem[] = [];
+/** A list refresh that arrived while the enlarged view was up; applied once
+ *  it has closed (repainting under a live morph would swap the very list
+ *  thumbnails the clones are about to land on). */
+let deferredItems: FeedbackItem[] | null = null;
 /** Bumped on every openSidebar/close so a stale theme-settle reveal from an
  *  earlier open can't unhide a panel that has since been re-hidden. */
 let revealToken = 0;
@@ -948,7 +971,9 @@ function buildDOM(shadow: ShadowRoot): void {
   const style = document.createElement('style');
   // Salamander design tokens (--sal-*) as :host custom properties, prepended
   // ahead of the sidebar's own CSS so every rule below can reference them.
-  style.textContent = getThemeCSS() + '\n' + SIDEBAR_CSS;
+  // One <style> per shadow root: the enlarged view's rules ride along here
+  // since it renders inside this same root.
+  style.textContent = getThemeCSS() + '\n' + SIDEBAR_CSS + '\n' + ENLARGED_VIEW_CSS;
   shadow.appendChild(style);
 
   elSidebar = document.createElement('div');
@@ -1162,6 +1187,7 @@ export function setAddButtonState(state: AddButtonState): void {
 function updateLogoForTheme(resolved: ResolvedTheme): void {
   if (!elLogoImg) return;
   elLogoImg.src = extensionUrl(resolved === 'dark' ? LOGO_PATH_DARK : LOGO_PATH_LIGHT);
+  enlargedView?.setLogoSrc(elLogoImg.src);
 }
 
 // ---------------------------------------------------------------------------
@@ -1191,7 +1217,7 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
   document.documentElement.appendChild(sidebarHost);
   // Keeps `data-theme` on the shadow host in sync with the resolved
   // light/dark theme for the sidebar's whole lifetime (it's never torn down
-  // and rebuilt like modal.ts/addMode.ts, so there's no matching unregister
+  // and rebuilt like addMode.ts, so there's no matching unregister
   // call here).
   registerThemedHost(sidebarHost);
 
@@ -1391,6 +1417,10 @@ function revealWhenThemeSettled(): void {
 /** Hide the sidebar and restore the page's original layout exactly as it was
  *  before openSidebar() ran. Safe to call when already closed. */
 export function closeSidebar(): void {
+  // The enlarged view can't outlive the panel it grew from. Callers that
+  // must honour the empty-note lock (content.ts's toggle) ask
+  // collapseEnlargedView() first; this is the unconditional backstop.
+  enlargedView?.forceClose();
   revealToken++;
   if (elSidebar) {
     elSidebar.hidden = true;
@@ -1430,10 +1460,20 @@ export function setImportButtonEnabled(enabled: boolean): void {
  * capture order). Shows the empty state (§3.1's "no feedback on this page
  * yet") when `items` is empty. content.ts calls this after every
  * GET_PAGE_ITEMS round trip: on open, on SPA navigation, and after a
- * successful capture or a modal close (edit/delete).
+ * successful capture or an enlarged-view close (edit/delete). While the
+ * enlarged view is open the repaint is deferred until it closes.
  */
 export function setThumbnails(items: FeedbackItem[]): void {
+  if (enlargedView) {
+    deferredItems = items;
+    return;
+  }
+  renderItems(items);
+}
+
+function renderItems(items: FeedbackItem[]): void {
   if (!elEmptyState || !elThumbnailList || !elHeading || !callbacksRef) return;
+  currentItems = items.slice();
   if (items.length === 0) {
     elHeading.hidden = true;
     elEmptyState.hidden = false;
@@ -1459,7 +1499,7 @@ export function setThumbnails(items: FeedbackItem[]): void {
 }
 
 /** Move keyboard focus to the thumbnail for item `id`, if it is currently
- *  rendered. content.ts calls this after the enlarged modal closes (and the
+ *  rendered. content.ts calls this after the enlarged view closes (and the
  *  list has been repainted) so focus returns to where it came from rather
  *  than falling back to <body>. Returns false if there's no such item (e.g.
  *  it was just deleted). */
@@ -1484,7 +1524,7 @@ function syncDockMotion(): void {
       onBleedChange: (bleeding) => elBody?.classList.toggle('is-bleeding', bleeding),
       holdTargets: elResizer ? [elResizer] : [],
     });
-    if (dockSuspended) dockMotion.setSuspended(true);
+    if (dockSuspended || enlargedDockSuspended) dockMotion.setSuspended(true);
   } else if (!wanted && dockMotion) {
     dockMotion.destroy();
     dockMotion = null;
@@ -1502,7 +1542,89 @@ function syncDockMotion(): void {
  */
 export function setDockMagnificationSuspended(suspended: boolean): void {
   dockSuspended = suspended;
-  dockMotion?.setSuspended(suspended);
+  dockMotion?.setSuspended(dockSuspended || enlargedDockSuspended);
+}
+
+// ---------------------------------------------------------------------------
+// Enlarged view (design spec v2 §D, src/enlargedView.ts)
+// ---------------------------------------------------------------------------
+
+function enlargedMount(): EnlargedViewMount | null {
+  if (!sidebarHost || !sidebarShadow || !elSidebar) return null;
+  return {
+    host: sidebarHost,
+    shadow: sidebarShadow,
+    sidebarEl: elSidebar,
+    getSidebarWidth: () => sidebarWidth,
+    getListLayout: () => sidebarLayoutFor(sidebarWidth),
+    getLogoSrc: () => elLogoImg?.src ?? '',
+    getListThumb: (id) =>
+      elThumbnailList?.querySelector<HTMLElement>(`button.thumbnail[data-item-id="${id}"] .thumbnail-image-wrap`) ?? null,
+    getListViewport: () => elBody?.getBoundingClientRect() ?? null,
+    centreListOn: (id) => {
+      const li = elThumbnailList?.querySelector(`button.thumbnail[data-item-id="${id}"]`)?.closest('li');
+      if (!li || !elBody) return;
+      const b = elBody.getBoundingClientRect();
+      const r = li.getBoundingClientRect();
+      elBody.scrollTop += r.top + r.height / 2 - (b.top + b.height / 2);
+    },
+    renderList: (items) => renderItems(items),
+    setDockSuspended: (suspended) => {
+      enlargedDockSuspended = suspended;
+      dockMotion?.setSuspended(dockSuspended || enlargedDockSuspended);
+    },
+    focusListItem: (id) => {
+      focusThumbnail(id);
+    },
+    showBanner: (message) => showError(message),
+  };
+}
+
+/**
+ * Expand the sidebar into the enlarged view on item `itemId` (one of the
+ * items the list is showing). Replaces any view already open. Returns false
+ * if the sidebar isn't showing that item.
+ */
+export function openEnlargedView(itemId: number, callbacks: EnlargedViewCallbacks): boolean {
+  if (!visible) return false;
+  enlargedView?.forceClose();
+  const mount = enlargedMount();
+  const index = currentItems.findIndex((i) => i.id === itemId);
+  if (!mount || index < 0) return false;
+  let handle: EnlargedViewHandle | null = null;
+  handle = openEnlargedViewImpl(mount, currentItems, index, {
+    ...callbacks,
+    onClosed: (id) => {
+      if (enlargedView === handle) enlargedView = null;
+      if (deferredItems) {
+        const d = deferredItems;
+        deferredItems = null;
+        renderItems(d);
+      }
+      callbacks.onClosed(id);
+    },
+  });
+  if (handle.getState() !== 'closed') enlargedView = handle;
+  return true;
+}
+
+export function isEnlargedViewOpen(): boolean {
+  return enlargedView !== null;
+}
+
+/**
+ * Collapse the enlarged view, if open. `force` bypasses the empty-note lock
+ * (add mode, navigation); otherwise returns false when the lock refused
+ * (the view is then showing its inline error). `immediate` skips the
+ * animation (e.g. the sidebar is about to close anyway).
+ */
+export function collapseEnlargedView(opts: { immediate?: boolean; force?: boolean } = {}): boolean {
+  if (!enlargedView) return true;
+  if (opts.force) {
+    enlargedView.forceClose();
+    return true;
+  }
+  return enlargedView.requestCollapse({ immediate: opts.immediate });
 }
 
 /** Full teardown: removes the host from the DOM and restores page layout. Not
@@ -1510,6 +1632,11 @@ export function setDockMagnificationSuspended(suspended: boolean): void {
  *  content script stays loaded") — this exists for tests and for a hard reset
  *  if the content script is ever torn down without a page navigation. */
 export function destroySidebar(): void {
+  enlargedView?.destroy();
+  enlargedView = null;
+  deferredItems = null;
+  currentItems = [];
+  enlargedDockSuspended = false;
   dockMotion?.destroy();
   dockMotion = null;
   clearMessage();
@@ -1652,8 +1779,8 @@ export function showConfirmDialog(message: string): Promise<boolean> {
 //
 // Plus one non-layout declaration, `--annotator-sidebar-width: Npx`. Custom
 // properties inherit through shadow boundaries (closed roots included), so
-// setting it on <html> is how modal.ts's backdrop — in its own shadow tree —
-// tracks the live width without any subscription plumbing.
+// setting it on <html> lets any other extension shadow tree track the live
+// width without any subscription plumbing.
 //
 // `margin-right` rather than `width: calc(100% - Npx)`, which was the
 // previous implementation and is subtly worse:
@@ -1788,8 +1915,8 @@ export function showConfirmDialog(message: string): Promise<boolean> {
 // re-measure; ResizeObserver-based layouts already fire on their own.
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** Read by modal.ts's backdrop (it inherits through the shadow boundary) so
- *  the modal never overlaps the sidebar at any width. */
+/** Inherits through shadow boundaries, so other extension surfaces can
+ *  track the sidebar's live width without subscription plumbing. */
 const SIDEBAR_WIDTH_CSS_VAR = '--annotator-sidebar-width';
 
 /** id of the injected backstop stylesheet — see defence 1 in the banner. */
@@ -1798,7 +1925,7 @@ const RESIZE_STYLE_ELEMENT_ID = 'annotator-page-resize';
 let resizeStyleEl: HTMLStyleElement | null = null;
 
 /** Property list + the value each should currently hold. A function, not a
- *  constant: the margin (and the custom property modal.ts reads) track the
+ *  constant: the margin (and the custom property) track the
  *  user's chosen sidebar width. Custom properties are written without
  *  `important` — nothing competes for ours, and some engines drop the
  *  priority on custom properties anyway. */

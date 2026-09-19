@@ -230,8 +230,8 @@ export interface GetPageItemsErrorResponse {
 
 export type GetPageItemsResponse = GetPageItemsSuccessResponse | GetPageItemsErrorResponse;
 
-/** Fetch the full-resolution PNG for one item, for the enlarged modal. The
- *  sidebar list itself never sends this — only opening a modal does. */
+/** Fetch the full-resolution PNG for one item, for the enlarged view. The
+ *  sidebar list itself never sends this — only the enlarged view does. */
 export interface GetImageMessage {
   type: 'GET_IMAGE';
   screenshotKey: string;
@@ -244,7 +244,7 @@ export interface GetImageSuccessResponse {
 
 export interface GetImageErrorResponse {
   ok: false;
-  /** Lowercase, user-facing. Not a §5-numbered case — modal.ts falls back to
+  /** Lowercase, user-facing. Not a §5-numbered case — enlargedView.ts falls back to
    *  the already-on-screen thumbnail rather than surfacing this as a hard
    *  failure, but the copy stays consistent with the rest of the extension's
    *  error tone regardless. */
@@ -253,7 +253,7 @@ export interface GetImageErrorResponse {
 
 export type GetImageResponse = GetImageSuccessResponse | GetImageErrorResponse;
 
-/** Edit a note's text (modal autosave on blur/close, §3.3). */
+/** Edit a note's text (enlarged-view autosave, §3.3). */
 export interface UpdateNoteMessage {
   type: 'UPDATE_NOTE';
   domain: string;

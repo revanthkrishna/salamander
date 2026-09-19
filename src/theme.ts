@@ -1,7 +1,7 @@
 // src/theme.ts
 // Salamander design language — shared foundation (Phase 1 of the redesign).
 //
-// This module owns three things that sidebar.ts, addMode.ts and modal.ts all
+// This module owns three things that sidebar.ts, addMode.ts and enlargedView.ts all
 // need identically, so they live here once instead of being copy-pasted:
 //
 //   1. The light/dark token tables (design spec §1) and a function that turns
@@ -543,7 +543,7 @@ export function subscribeThemeChange(fn: ThemeChangeListener): () => void {
  * `data-theme` attribute kept in sync with the resolved theme for as long as
  * it stays registered — set once immediately, then live on every future
  * mode/OS-preference change. Callers whose host is torn down and rebuilt
- * per-open (modal.ts, addMode.ts) should call the returned unregister
+ * per-open (addMode.ts) should call the returned unregister
  * function from their own teardown so the Set doesn't accumulate dead
  * elements across many open/close cycles.
  */
