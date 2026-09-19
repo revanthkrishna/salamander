@@ -1,10 +1,13 @@
 // src/addMode.ts
 // Phase 4 — the add-mode selection interaction (REQUIREMENTS §1.2, §3.2).
 //
-// Scope: crosshair-cursor click-to-place, a default 200x150 box clamped to
-// the viewport, 8 resize handles (20x20 minimum), a macOS-screenshot-style
-// dimming scrim outside the box, full suppression of page interaction while
-// active, and the attached comment box (textarea / counter / cancel / ok).
+// Scope: crosshair-cursor click-to-place (centered default 200x150 box,
+// clamped to the viewport by shifting) and Figma-style click-and-drag-to-draw
+// (custom-sized box between mousedown and mouseup, 5px movement threshold to
+// distinguish the two), 8 resize handles (20x20 minimum), a
+// macOS-screenshot-style dimming scrim outside the box, full suppression of
+// page interaction while active, and the attached comment box (textarea /
+// counter / cancel / ok).
 //
 // What this module does NOT do: capture a screenshot, talk to the service
 // worker, or build DOM/context data. That is Phase 5 (src/capture.ts) and
@@ -36,6 +39,7 @@
 import { Rect } from './types';
 import { SIDEBAR_WIDTH } from './sidebar';
 import { getContentViewportSize } from './capture';
+import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -71,6 +75,11 @@ export interface AddModeCallbacks {
 const DEFAULT_WIDTH = 200;
 const DEFAULT_HEIGHT = 150;
 const MIN_SIZE = 20;
+/** Movement threshold (mousedown -> current position), in px, that
+ *  distinguishes a "click" (place the centered default-size box) from a
+ *  "drag" (draw a custom-sized box between mousedown and the current/mouseup
+ *  point) — REQUIREMENTS §1.2. */
+const DRAG_THRESHOLD = 5;
 const HANDLE_SIZE = 10;
 const COMMENT_WIDTH = 280;
 const COMMENT_FALLBACK_HEIGHT = 168; // used only before first layout pass
@@ -241,6 +250,14 @@ let elCancelBtn: HTMLButtonElement | null = null;
 let elOkBtn: HTMLButtonElement | null = null;
 
 let activeHandle: HandleKey | null = null;
+let keyboardIsolation: KeyboardIsolationHandle | null = null;
+
+/** Set on mousedown while mode === 'placing', cleared once placement
+ *  finalizes (mouseup). Null whenever no placement gesture is in progress. */
+let placeStart: { x: number; y: number } | null = null;
+/** Whether the in-progress placement gesture has crossed DRAG_THRESHOLD and
+ *  is therefore being treated as a drag-to-draw rather than a click. */
+let placeDragging = false;
 
 // ---------------------------------------------------------------------------
 // Geometry helpers
@@ -271,12 +288,57 @@ function getBounds(): { width: number; height: number } {
   };
 }
 
+/** Click-to-place (no drag): the default-size box is *centered* on the click
+ *  point, then clamped (shifted, not shrunk) independently per axis so it
+ *  always lands fully on-screen — e.g. a click at (20, 20) naively centers
+ *  the 200x150 default to (-80, -55), which clamps to (0, 0). */
 function computeDefaultBox(clickX: number, clickY: number, bounds: { width: number; height: number }): Rect {
   const width = Math.min(DEFAULT_WIDTH, bounds.width);
   const height = Math.min(DEFAULT_HEIGHT, bounds.height);
-  const x = clamp(clickX, 0, Math.max(0, bounds.width - width));
-  const y = clamp(clickY, 0, Math.max(0, bounds.height - height));
+  const x = clamp(clickX - width / 2, 0, Math.max(0, bounds.width - width));
+  const y = clamp(clickY - height / 2, 0, Math.max(0, bounds.height - height));
   return { x, y, width, height };
+}
+
+/** Drag-to-draw: the box is the actual rectangle between the mousedown point
+ *  (`startX`/`startY`, treated as the fixed anchor corner) and the
+ *  current/mouseup point, normalized to work when dragging in any direction.
+ *  Per-edge clamped to the viewport and the 20x20 minimum exactly like
+ *  resizeBox()'s handle-drag logic — the edge nearest the anchor point stays
+ *  fixed while the edge nearest the moving point is clamped against it, so a
+ *  drag that shrinks below MIN_SIZE grows back out from the anchor instead
+ *  of collapsing or crossing over. */
+function computeDragBox(
+  startX: number,
+  startY: number,
+  currentX: number,
+  currentY: number,
+  bounds: { width: number; height: number },
+): Rect {
+  const anchorX = clamp(startX, 0, bounds.width);
+  const anchorY = clamp(startY, 0, bounds.height);
+
+  let left: number;
+  let right: number;
+  if (currentX >= anchorX) {
+    left = anchorX;
+    right = clamp(currentX, left + MIN_SIZE, bounds.width);
+  } else {
+    right = anchorX;
+    left = clamp(currentX, 0, right - MIN_SIZE);
+  }
+
+  let top: number;
+  let bottom: number;
+  if (currentY >= anchorY) {
+    top = anchorY;
+    bottom = clamp(currentY, top + MIN_SIZE, bounds.height);
+  } else {
+    bottom = anchorY;
+    top = clamp(currentY, 0, bottom - MIN_SIZE);
+  }
+
+  return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
 function resizeBox(handle: HandleKey, clientX: number, clientY: number, bounds: { width: number; height: number }): Rect {
@@ -377,10 +439,10 @@ function buildDOM(): void {
   for (const key of HANDLE_KEYS) elVisuals.appendChild(elHandles[key]!);
   // The comment box (textarea + counter + cancel/ok) is deliberately NOT
   // built here. Per REQUIREMENTS §1.2 it must not exist until the user has
-  // placed the box with a click ('placing' -> 'editing'); buildCommentDOM()
-  // is called from handleBlockerClick() for that reason. Building it
-  // eagerly here left it in the DOM at its unset absolute-position default
-  // (top-left of the page) for the entire 'placing' phase.
+  // placed the box (click-to-place or drag-to-draw, 'placing' -> 'editing');
+  // buildCommentDOM() is called from finalizePlacement() for that reason.
+  // Building it eagerly here left it in the DOM at its unset absolute-
+  // position default (top-left of the page) for the entire 'placing' phase.
 
   shadow.appendChild(elBlocker);
   shadow.appendChild(elVisuals);
@@ -389,9 +451,9 @@ function buildDOM(): void {
 }
 
 /** Builds and appends the comment box (textarea / counter / cancel / ok).
- *  Called once, from handleBlockerClick(), the moment the user places the
- *  selection box — never during startAddMode()/buildDOM() (§1.2: the
- *  comment box must not exist before the first placement click). */
+ *  Called once, from finalizePlacement(), the moment the user places the
+ *  selection box (click or drag) — never during startAddMode()/buildDOM()
+ *  (§1.2: the comment box must not exist before the first placement). */
 function buildCommentDOM(): void {
   if (!elVisuals || elComment) return;
 
@@ -433,6 +495,14 @@ function buildCommentDOM(): void {
   elComment.appendChild(footer);
 
   elVisuals.appendChild(elComment);
+
+  // Capture-phase window-level keyboard isolation (see keyboardIsolation.ts)
+  // so keystrokes typed into the comment textarea can't leak to — or be
+  // suppressed by — the host page's own keyboard-shortcut handlers (real
+  // user reports on Gmail/Instagram). Installed only now, once the textarea
+  // actually exists, and released in exitAddMode() — never left running
+  // while add mode is idle or still in the pre-placement 'placing' phase.
+  if (host) keyboardIsolation = installKeyboardIsolation(host);
 }
 
 function layoutHost(bounds: { width: number; height: number }): void {
@@ -520,12 +590,48 @@ function positionComment(bounds: { width: number; height: number }): void {
 // Placement (first click) and resize (handle drag)
 // ---------------------------------------------------------------------------
 
-function handleBlockerClick(e: MouseEvent): void {
+function handleBlockerMouseDown(e: MouseEvent): void {
   if (mode !== 'placing') return; // 'editing': clicking outside the box/comment does nothing (§1.2)
+  if (e.button !== 0) return;
   e.preventDefault();
 
+  placeStart = { x: e.clientX, y: e.clientY };
+  placeDragging = false;
+  document.addEventListener('mousemove', onPlacementMove);
+  document.addEventListener('mouseup', onPlacementUp);
+}
+
+function onPlacementMove(e: MouseEvent): void {
+  if (!placeStart) return;
+
+  const dx = e.clientX - placeStart.x;
+  const dy = e.clientY - placeStart.y;
+  if (!placeDragging && Math.hypot(dx, dy) < DRAG_THRESHOLD) return; // still might resolve as a click
+  placeDragging = true;
+
   const bounds = getBounds();
-  box = computeDefaultBox(e.clientX, e.clientY, bounds);
+  box = computeDragBox(placeStart.x, placeStart.y, e.clientX, e.clientY, bounds);
+  renderBox();
+}
+
+function onPlacementUp(e: MouseEvent): void {
+  document.removeEventListener('mousemove', onPlacementMove);
+  document.removeEventListener('mouseup', onPlacementUp);
+  if (!placeStart) return;
+
+  const bounds = getBounds();
+  box = placeDragging
+    ? computeDragBox(placeStart.x, placeStart.y, e.clientX, e.clientY, bounds)
+    : computeDefaultBox(placeStart.x, placeStart.y, bounds);
+
+  placeStart = null;
+  placeDragging = false;
+  finalizePlacement();
+}
+
+/** Shared tail of both the click-to-place and drag-to-draw paths: switches
+ *  to 'editing', builds/opens the comment box, and focuses its textarea. */
+function finalizePlacement(): void {
   mode = 'editing';
   elBlocker?.classList.remove('placing');
 
@@ -603,7 +709,7 @@ export function startAddMode(callbacks: AddModeCallbacks): void {
 
   buildDOM();
   elBlocker!.classList.add('placing');
-  elBlocker!.addEventListener('click', handleBlockerClick);
+  elBlocker!.addEventListener('mousedown', handleBlockerMouseDown);
   layoutHost(getBounds());
 }
 
@@ -638,6 +744,14 @@ export function exitAddMode(): void {
   document.removeEventListener('mousemove', onResizeMove);
   document.removeEventListener('mouseup', onResizeUp);
   activeHandle = null;
+
+  document.removeEventListener('mousemove', onPlacementMove);
+  document.removeEventListener('mouseup', onPlacementUp);
+  placeStart = null;
+  placeDragging = false;
+
+  keyboardIsolation?.release();
+  keyboardIsolation = null;
 
   if (host && host.parentNode) host.parentNode.removeChild(host);
 

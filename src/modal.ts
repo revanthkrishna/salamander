@@ -42,6 +42,7 @@
 
 import { FeedbackItem } from './types';
 import { SIDEBAR_WIDTH } from './sidebar';
+import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
 
 /** Highest possible z-index — see the file banner for why the host needs an
  *  explicit value at all rather than relying on DOM order. */
@@ -214,6 +215,7 @@ let elDeleteBtn: HTMLButtonElement | null = null;
 let currentItem: FeedbackItem | null = null;
 let currentCallbacks: ModalCallbacks | null = null;
 let lastSavedNote = '';
+let keyboardIsolation: KeyboardIsolationHandle | null = null;
 
 export function isModalOpen(): boolean {
   return modalHost !== null;
@@ -246,7 +248,13 @@ export function openModal(item: FeedbackItem, callbacks: ModalCallbacks): void {
     if (full) elImage.src = full;
   });
 
-  document.addEventListener('keydown', handleKeyDown);
+  // Capture-phase window-level keyboard isolation (see keyboardIsolation.ts)
+  // so keystrokes typed into the note textarea can't leak to — or be
+  // suppressed by — the host page's own keyboard-shortcut handlers. Escape
+  // used to be handled by a plain document-level bubble listener; that would
+  // now never see the event once isolation stops its propagation, so Escape
+  // handling moves into the isolation callback instead.
+  keyboardIsolation = installKeyboardIsolation(modalHost!, handleKeyDown);
 }
 
 /** Autosave any pending edit, then tear the modal down and notify the
@@ -261,7 +269,6 @@ export async function closeModal(): Promise<void> {
 
 function handleKeyDown(e: KeyboardEvent): void {
   if (e.key === 'Escape') {
-    e.stopPropagation();
     void closeModal();
   }
 }
@@ -397,7 +404,8 @@ function showInlineError(message: string | null): void {
 }
 
 function teardown(): void {
-  document.removeEventListener('keydown', handleKeyDown);
+  keyboardIsolation?.release();
+  keyboardIsolation = null;
   if (modalHost && modalHost.parentNode) modalHost.parentNode.removeChild(modalHost);
   modalHost = null;
   elBackdrop = null;

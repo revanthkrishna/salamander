@@ -221,7 +221,16 @@ describe('modal', () => {
     const onClose = jest.fn();
     modal.openModal(makeItem(), makeCallbacks({ onClose }));
 
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    // Escape handling now runs through the same capture-phase keyboard
+    // isolation as every other key (see keyboardIsolation.ts /
+    // keyboardIsolation.test.ts) rather than a bubble-phase document
+    // listener, so the event must actually target something inside the
+    // modal's shadow host — bubbles/composed so it crosses the shadow
+    // boundary the way a real key event would.
+    const textarea = shadowRoot().querySelector('textarea.note-input') as HTMLTextAreaElement;
+    textarea.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, composed: true }),
+    );
     await Promise.resolve();
     await Promise.resolve();
 
@@ -279,6 +288,46 @@ describe('modal', () => {
     expect(onSaveNoteA).not.toHaveBeenCalled();
     const badge = shadowRoot().querySelector('.item-badge') as HTMLElement;
     expect(badge.textContent).toContain('2');
+  });
+
+  // Bug fix regression: keyboard events leaking to the host page (Gmail /
+  // Instagram reports — see keyboardIsolation.ts / keyboardIsolation.test.ts
+  // for the general mechanism proof). These verify modal.ts actually wires
+  // that mechanism up around its note textarea.
+  describe('keyboard isolation for the note textarea', () => {
+    it('a hostile document-level keydown listener never sees keys typed into the note textarea while the modal is open', () => {
+      let hostileFired = false;
+      const hostileHandler = (e: KeyboardEvent) => {
+        hostileFired = true;
+        e.preventDefault();
+      };
+      document.addEventListener('keydown', hostileHandler);
+
+      modal.openModal(makeItem(), makeCallbacks());
+      const textarea = shadowRoot().querySelector('textarea.note-input') as HTMLTextAreaElement;
+
+      const event = new KeyboardEvent('keydown', { key: 'n', bubbles: true, cancelable: true, composed: true });
+      const notCancelled = textarea.dispatchEvent(event);
+
+      expect(hostileFired).toBe(false);
+      expect(event.defaultPrevented).toBe(false);
+      expect(notCancelled).toBe(true);
+
+      document.removeEventListener('keydown', hostileHandler);
+    });
+
+    it('stops isolating once the modal is closed — a subsequent keydown on the page reaches the page again', async () => {
+      modal.openModal(makeItem(), makeCallbacks());
+      await modal.closeModal();
+
+      let hostileFired = false;
+      document.addEventListener('keydown', () => {
+        hostileFired = true;
+      });
+
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', bubbles: true, cancelable: true }));
+      expect(hostileFired).toBe(true);
+    });
   });
 
   // Bug 3 (z-index) / Bug 4 (sidebar overlap) regression coverage.
