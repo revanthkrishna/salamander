@@ -353,3 +353,127 @@ While add mode is active (on or kept on, placing or editing):
 - The "add note" button, its switch, the theme toggle and the close button stay enabled — the user
   must always be able to stop, change theme, or close.
 - Leaving add mode by any path restores everything (dock motion re-attached, opacity, tabindex).
+
+---
+
+# v4 — styling fixes (2026-09-20)
+
+OVERRIDE the sections above where they conflict. Tokens from §1 only; no new colours; all visible
+text lowercase. Where a number is not given, match the surrounding code and keep it defensible.
+
+## I. Add-note group micro states (settled by Q&A; already implemented)
+
+Recorded so the next reader knows these were decisions, not accidents:
+- Hover and press land on the HALF under the pointer, not the group; nothing scales. The group
+  acknowledges a hover with its border (lineStrong) only.
+- The reveal is immediate (160ms), the collapse is delayed by a 250ms grace period so a diagonal
+  path back onto the switch never loses it. Under reduced motion the grace stays, the animation goes.
+- The focus ring hugs the focused half, so it says which half Enter will hit; the group is
+  `overflow: visible` to let it out, and each half rounds its own fill.
+- The switch knob slides and the track crossfades over 150ms on the standard curve. The icon does
+  not react to add mode turning on — the fill change carries it. The "stop" affordance while kept on
+  is the tooltip only.
+- Hover-less pointers (`@media (hover: none)`) always show the switch. No width breakpoint
+  suppresses the reveal; the action row wraps instead.
+- The add button keeps all four corners rounded in every state — the switch reads as an extension
+  emerging from behind it, never as the right half of a split pill.
+- Switch ON = MERGED: the divider goes transparent (never removed — the group must be exactly as
+  wide merged as split), hover/press/focus return to the whole group, it is one tab stop, and a
+  click on either half means "stop" (exits add mode and clears the switch together).
+
+## J. The fixed top section is one bordered block
+
+The divider currently sitting between the header (logo + theme + close) and the action row moves to
+the BOTTOM of the action row. The header and the action row then read as one fixed block above the
+scrolling note list, with a single 1px line under the whole thing. No divider anywhere inside it.
+
+## K. Export + chevron group: hover and press are per half
+
+Same rule as §I's add group: only the half under the pointer takes the hover/press fill, the group
+acknowledges with its border, and the open-menu state keeps its own treatment on the chevron half.
+The press scale stays suppressed while the menu is open (an open menu must not move under the pointer).
+
+## L. Note in the list
+
+- **Padding.** The note text's padding is not uniform today — visibly more above than below, worst
+  in the hover state where the extension background makes the edges legible. Make the text's inset
+  identical on all four sides, in BOTH rest and hover, and make the extension background's bottom
+  edge sit the same distance below the last line as its top sits below the thumbnail. Nothing may
+  move between rest and hover (v2 §B) — only the background appears.
+- **Delete on hover.** On hover or keyboard focus of a list item, a small icon button appears at the
+  TOP-RIGHT of the thumbnail: trash glyph, ~24px, in the §1 icon stroke style. Resting look: surface
+  fill, 1px line border, muted icon; hover: dangerSoft fill with danger icon; press: dangerPress;
+  focus-visible: the standard ring. It fades in with the same timing as the note extension.
+  - It CANNOT be a child of the list item's `<button class="thumbnail">` — nested buttons are
+    invalid HTML and break activation. It is a sibling inside `<li class="thumbnail-item">`,
+    absolutely positioned over the thumbnail's top-right corner.
+  - It must not trigger the item's "open" activation: stop propagation, and keep it out of the
+    thumbnail's own hit area.
+  - It deletes immediately, with no confirmation, exactly like the enlarged view's delete — same
+    DELETE_ITEM path, same error message on failure (`couldn't delete item. try again.`).
+  - Keyboard: reachable by Tab after its own list item; visible whenever it has focus.
+  - It rides the dock magnification with its item (it is inside the transformed `<li>`), and must
+    not disturb dockMotion's hit testing.
+
+## M. Enlarged view
+
+- **Title clipped.** "feedback #12" is cut off at its end. Find the real cause (it is a layout
+  constraint, not a font metric — `.xp-title` is `pointer-events: none` by design, which is not the
+  bug) and fix it so the title renders in full at every panel width.
+- **Counter gone.** Remove the "1/20" counter (`.xp-count`) entirely — element, CSS and tests.
+  The rail's prev/next already communicate position.
+- **Delete moves up.** The delete control leaves the editor's footer extension and becomes an icon
+  button (trash glyph) in the header bar that carries the title, at that bar's right end. Same
+  danger treatment as §L's list delete. Same behaviour and callbacks as today — only its place and
+  its presentation change.
+- **The image is shown at its own size.** No card, no container fill, no border, no letterboxing:
+  the `<img>` alone.
+  - Natural size = the selection's original CSS size, i.e. `item.selectionRect.width/height` (the
+    stored PNG is at `item.dpr`, so its pixel dimensions are NOT the display size).
+  - Clamp: never scale UP past that size; scale down proportionally to fit
+    `max-width` = the panel's content width less the rails and padding, and
+    `max-height` = the viewport less the header bar, the editor and their margins. Keep a sensible
+    `min-width` (~240px) so a tiny selection still leaves a usable header and editor.
+  - The header bar above and the editor below match the image's RENDERED width exactly, so the
+    three read as one column. The column is sized by the image, not the other way round.
+  - The prev/next rail buttons and the close button must NOT move when the image changes size:
+    position them against the panel and centre them vertically, independent of the column.
+  - The FLIP morph from the list thumbnail into this image (v2 §D/§E) must keep working, including
+    the interruptible prev/next carousel — verify, do not assume.
+
+## N. "click or drag to select" shows once per session
+
+The §G tooltip is a first-run hint, not a permanent label: it appears with the preview, and then
+hides for good after ~5s. Once hidden it does not come back for the rest of the page session,
+including in later add-mode sessions. The preview rect itself is unaffected and keeps following the
+cursor. The timer is not persisted (a fresh page load shows it again).
+
+## O. The comment box's footer extension gets the note's border
+
+v2 §C's button bar currently has no border of its own. Give it the same treatment as the note's
+hover extension in v2 §B: a 1px `line` border drawn INSIDE via an inset shadow, so its edges align
+exactly with the text area above it rather than bleeding half a pixel past them.
+
+## P. The switch's own colours (both themes)
+
+Two faults to fix in `.add-switch-track` / `.add-switch-knob`:
+
+1. **Off reads as disabled.** The track is `lineStrong` — a hairline colour, too close to the
+   surface to look like a live control. The off track becomes `muted`, which carries real contrast
+   against the segment in both themes.
+2. **On goes black in dark theme.** The knob is `surface` and the on-track is `onAccent`. `onAccent`
+   is the same dark ink in BOTH themes, but `surface` is near-black in dark — so a dark knob lands
+   on a dark track and the whole control reads as one black blob. (The off state has the same fault
+   in dark theme, for the same reason.)
+
+The fix, which holds in both themes because each pair inverts together or is theme-independent:
+
+| state | segment | track | knob |
+|---|---|---|---|
+| off | surface (+ inset line hairline) | `muted` | `surface` |
+| on  | accent | `onAccent` | `accent` |
+
+Off: `muted` and `surface` invert together, so the knob always contrasts with its track. On: the
+track is dark ink and the knob is the brand yellow in both themes, reading as a yellow knob sitting
+in a lit slot on the yellow segment. Check both themes after the change — this is exactly the class
+of bug that only shows up when you actually look at dark mode.
