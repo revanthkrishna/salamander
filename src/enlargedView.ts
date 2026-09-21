@@ -2,9 +2,19 @@
 // The enlarged view (design spec v2 §D/§E, design/MOTION_SPEC.md) — replaces
 // the old centred modal (src/modal.ts, removed). Clicking a note makes the
 // SIDEBAR ITSELF grow leftward to ~75% of the viewport and become a note
-// viewer/editor: previous-note peek (cut by the panel top), "feedback #n" +
-// "n / total", the large screenshot, the autosaving note editor, next-note
-// peek (cut by the panel bottom), and an x / ↑ / ↓ rail.
+// viewer/editor: previous-note peek (cut by the panel top), a header bar
+// with "feedback #n" and the delete button, the screenshot at its own size,
+// the autosaving note editor, next-note peek (cut by the panel bottom), and
+// an x / ↑ / ↓ rail.
+//
+// The screenshot is shown at the selection's original CSS size (design spec
+// v4 §M) — no card, no fill, no letterboxing — so the main slot IS the
+// rendered <img> box, the header bar and editor take their width from it, and
+// the column is centred between the panel's left edge and the rail. The peeks
+// are 75% of it, so the note in focus is always the biggest thing on screen.
+// That makes the whole column note-dependent: computeGeometry() reruns on
+// every index change. Only the rail is fixed — anchored to the panel and
+// vertically centred, it never moves when the image resizes.
 //
 // ── Where it renders ────────────────────────────────────────────────────────
 // Inside the sidebar's own closed shadow root (sidebar.ts hands this module
@@ -61,7 +71,7 @@
 
 import { FeedbackItem } from './types';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
-import { FOCUS_RING_CSS, PRESS_SCALE_CSS, DISABLED_CSS, RADII } from './theme';
+import { FOCUS_RING_CSS, PRESS_SCALE_CSS, DISABLED_CSS, STATE_TRANSITION_CSS, RADII } from './theme';
 import {
   ACC,
   STD,
@@ -148,16 +158,37 @@ export const T = {
  *  ~38px past the edge at the 300px maximum width). */
 const FRONT_BLEED_PX = 48;
 const FRAME_RADIUS = RADII.md;
-/** Screenshot corner radius once a card sits in the main/peek slot (the
- *  list thumbnail's image has none — its frame's radius clips it). */
-const IMG_RADIUS = RADII.sm;
 /** Textarea (96) + visible part of the tucked extension bar (62 − 14). */
 const EDITOR_HEIGHT = 144;
 const TITLE_BLOCK = 46; // 34px title row + 12px gap
 const RAIL_BTN = 40;
+/** x + ↑ + ↓ stacked: three 40px buttons, an 8px gap between each and the
+ *  extra 8px margin under x. The rail is centred on the panel and never
+ *  moves when the image resizes (design spec v4 §M). */
+const RAIL_HEIGHT = RAIL_BTN * 3 + 8 * 3;
+/** Image → editor gap inside the column. */
+const COLUMN_GAP = 16;
+/** Floor for the header bar / editor width, so a tiny selection still leaves
+ *  a usable title row and note editor (design spec v4 §M). */
+const MIN_COLUMN_W = 240;
+/** A peek card is this fraction of the note in focus, in both dimensions, so
+ *  the focused note is always the biggest thing on the panel (v4 §M, which
+ *  overrides MOTION_SPEC §4's fixed 540×285 — those numbers were written
+ *  against the old fixed 720×380 main slot). */
+const PEEK_SCALE = 0.75;
+/** Breathing room between the column and the rail / the panel's left edge
+ *  once the column has been centred between them. */
+const COLUMN_GUTTER = 20;
+/** Instrument Serif italic overhangs its glyph origin to the LEFT (the
+ *  leading "f" of "feedback" most visibly). The title's box is inset by this
+ *  much and pulled back by the same amount, so the ink has room while the
+ *  text's origin still lands exactly on the column's left edge — the header,
+ *  the image and the editor keep one shared left edge. */
+const TITLE_INK_BLEED = 8;
 
 // ---------------------------------------------------------------------------
-// Geometry (MOTION_SPEC §4 at the 1440×900 reference, scaled responsively)
+// Geometry (MOTION_SPEC §4 at the 1440×900 reference, scaled responsively,
+// with the main slot replaced by the image's own box — design spec v4 §M)
 // ---------------------------------------------------------------------------
 
 export interface EnlargedGeometry {
@@ -166,7 +197,14 @@ export interface EnlargedGeometry {
   panelW: number;
   railRight: number;
   railTop: number;
-  mainRight: number;
+  /** Width of the header bar and the editor: the main image's rendered width,
+   *  floored at MIN_COLUMN_W so a tiny selection still leaves both usable
+   *  (design spec v4 §M). */
+  columnW: number;
+  /** The column's inset from the viewport's right edge. Not a fixed panel
+   *  inset any more — the column is CENTRED between the panel's left edge and
+   *  the rail, so this moves with the image's width (v4 §M). */
+  columnRight: number;
   titleTop: number;
   editorTop: number;
   main: Slot;
@@ -174,61 +212,120 @@ export interface EnlargedGeometry {
   next: Slot;
 }
 
+/** A note's screenshot at its ORIGINAL size — `item.selectionRect`'s CSS
+ *  pixels, not the stored PNG's (which is at `item.dpr`). */
+export interface NaturalSize {
+  w: number;
+  h: number;
+}
+
 /**
- * Pure layout for a `vw`×`vh` viewport. At 1440×900 this reproduces the
- * prototype's slot() numbers exactly (panel 1080, main 720×380 at right 209 /
- * top 198, peeks 540×285 at right 149, tops −201 / 762). Horizontal insets
- * scale with the panel (never below a usable floor, never more than 1.25×),
- * vertical zones with the viewport height; the main slot takes what's left
- * (aspect capped at the reference 720:380) and the peeks stay exactly 75% of
- * it. The panel is 75% of the viewport but at least 560px (or the whole
- * viewport, if narrower) and never narrower than the docked sidebar.
+ * Pure layout for a `vw`×`vh` viewport showing a screenshot of `natural`
+ * CSS size.
+ *
+ * The main slot is the image itself (design spec v4 §M): no card, no fill,
+ * no letterboxing, so the slot IS the rendered `<img>` box — `natural`
+ * scaled DOWN to fit the width between the panel's left edge and the rail and
+ * the height the title row and editor leave over, and never scaled up past
+ * it. The header bar and the editor take the image's width (columnW, floored
+ * at MIN_COLUMN_W), and the whole column is centred BOTH ways in that
+ * content area. The rail is centred on the panel independently of the
+ * column, so it never moves when the image resizes.
+ *
+ * The peeks derive from the note in focus: PEEK_SCALE of the main box in both
+ * dimensions, so the focused note is always the biggest thing on screen and a
+ * main↔peek morph is a pure uniform scale. This overrides MOTION_SPEC §4's
+ * fixed 540×285, which was 75% of the old fixed 720×380 main slot; §M's
+ * image-sized main makes a fixed peek size grow larger than the note the user
+ * is actually looking at. Their right edge stays flush with the rail's (v2
+ * §D). Horizontal insets scale with the panel (never below a usable floor,
+ * never more than 1.25×), the vertical margin with the viewport height. The
+ * panel is 75% of the viewport but at least 560px (or the whole viewport, if
+ * narrower) and never narrower than the docked sidebar.
+ *
+ * `natural` omitted/degenerate (an item with no usable selectionRect) falls
+ * back to the largest 16:9 box that fits — the same aspect aspectOf() falls
+ * back to, so the image still fills its slot exactly.
  */
-export function computeEnlargedGeometry(vw: number, vh: number, sidebarWidth: number): EnlargedGeometry {
+export function computeEnlargedGeometry(
+  vw: number,
+  vh: number,
+  sidebarWidth: number,
+  natural?: NaturalSize | null,
+): EnlargedGeometry {
   const vwRight = Math.max(1, vw);
+  const vhBottom = Math.max(1, vh);
   const panelW = Math.round(Math.min(vwRight, Math.max(0.75 * vwRight, Math.min(560, vwRight), sidebarWidth)));
   const sx = Math.min(panelW / 1080, 1.25);
-  const sy = Math.min(Math.max(vh, 1) / 900, 1.25);
+  const sy = Math.min(vhBottom / 900, 1.25);
 
   const railRight = Math.max(16, Math.round(149 * sx));
   const leftPad = Math.max(20, Math.round(151 * sx));
-  const mainRight = railRight + RAIL_BTN + 20;
-  const mainW = Math.max(160, panelW - leftPad - mainRight);
+  // The column's playground: the panel's left edge on one side, the rail's
+  // left edge on the other. Everything below is sized into it and centred
+  // in it; the rail itself is anchored to the panel and never moves.
+  const contentLeft = vwRight - panelW;
+  const railLeft = vwRight - railRight - RAIL_BTN;
 
-  const topZone = Math.min(190, Math.max(88, Math.round(152 * sy)));
-  const bottomZone = Math.min(200, Math.max(72, Math.round(162 * sy)));
-  const availH = vh - topZone - bottomZone - TITLE_BLOCK - 16 - EDITOR_HEIGHT;
-  const mainH = Math.max(100, Math.min(Math.round((mainW * 380) / 720), availH));
+  // The box the image is fitted into: that content width less its insets, and
+  // the viewport height less the title row, the editor and their margins (§M).
+  const marginV = Math.min(140, Math.max(40, Math.round(96 * sy)));
+  const maxW = Math.max(160, panelW - leftPad - (railRight + RAIL_BTN + COLUMN_GUTTER));
+  const maxH = Math.max(100, vhBottom - 2 * marginV - TITLE_BLOCK - COLUMN_GAP - EDITOR_HEIGHT);
 
-  const titleTop = topZone;
-  const mainTop = topZone + TITLE_BLOCK;
-  const editorTop = mainTop + mainH + 16;
-  const peekW = Math.round(mainW * 0.75);
-  const peekH = Math.round(mainH * 0.75);
-  const mainPad = Math.max(12, Math.min(28, Math.round((mainW * 28) / 720)));
-  const peekPad = Math.round(mainPad * 0.75);
+  const nat = natural && natural.w > 0 && natural.h > 0 ? natural : { w: (16 / 9) * maxH, h: maxH };
+  const fit = Math.min(1, maxW / nat.w, maxH / nat.h);
+  // Width rounds to a whole pixel; the height then follows from the aspect
+  // rather than rounding independently, so the slot's aspect is EXACTLY the
+  // image's and the contain-fit leaves no sub-pixel letterbox band of the
+  // frame's fill showing along an edge (§M: no container fill, no border).
+  const mainW = Math.max(1, Math.round(nat.w * fit));
+  const mainH = Math.max(1, (mainW * nat.h) / nat.w);
 
-  const slotAt = (right: number, top: number, w: number, h: number, pad: number): Slot => ({
-    x: vwRight - right - w,
+  const columnW = Math.max(Math.min(MIN_COLUMN_W, maxW), mainW);
+  const columnH = TITLE_BLOCK + mainH + COLUMN_GAP + EDITOR_HEIGHT;
+  const titleTop = Math.max(16, Math.round((vhBottom - columnH) / 2));
+  const mainTop = titleTop + TITLE_BLOCK;
+  const editorTop = mainTop + mainH + COLUMN_GAP;
+  // Centred horizontally between the panel edge and the rail, clamped so it
+  // can never sit under the rail or outside the panel.
+  const columnX = Math.max(
+    contentLeft,
+    Math.min(railLeft - COLUMN_GUTTER - columnW, Math.round(contentLeft + (railLeft - contentLeft - columnW) / 2)),
+  );
+  const columnRight = vwRight - (columnX + columnW);
+
+  // PEEK_SCALE of the note in focus, in both dimensions: the focused note is
+  // always the larger of the two, and peek ↔ main is a pure uniform scale
+  // with no letterboxing at either end.
+  const peekW = Math.max(1, Math.round(mainW * PEEK_SCALE));
+  const peekH = Math.max(1, (peekW * mainH) / mainW);
+  const peekSlot = (top: number): Slot => ({
+    x: railLeft + RAIL_BTN - peekW, // right edge flush with the rail's (v2 §D)
     y: top,
-    w,
-    h,
-    pad,
-    imgR: IMG_RADIUS,
+    w: peekW,
+    h: peekH,
+    pad: 0,
+    imgR: FRAME_RADIUS,
   });
 
   return {
     vwRight,
     panelW,
     railRight,
-    railTop: topZone,
-    mainRight,
+    railTop: Math.max(16, Math.round((vhBottom - RAIL_HEIGHT) / 2)),
+    columnW,
+    columnRight,
     titleTop,
     editorTop,
-    main: slotAt(mainRight, mainTop, mainW, mainH, mainPad),
+    // The image sits at the column's LEFT edge, so title, image and editor
+    // share one edge even when the floor has made the column wider than a
+    // very small screenshot. pad 0 + the image's own aspect = the frame is
+    // exactly covered: no letterboxing, nothing of the card left to see.
+    main: { x: columnX, y: mainTop, w: mainW, h: mainH, pad: 0, imgR: FRAME_RADIUS },
     // 24px gap + 44px 2-line caption above the title, then the card itself.
-    prev: slotAt(railRight, topZone - 68 - peekH, peekW, peekH, peekPad),
-    next: slotAt(railRight, editorTop + EDITOR_HEIGHT + 24, peekW, peekH, peekPad),
+    prev: peekSlot(titleTop - 68 - peekH),
+    next: peekSlot(editorTop + EDITOR_HEIGHT + 24),
   };
 }
 
@@ -350,25 +447,31 @@ export const ENLARGED_VIEW_CSS = `
     color: var(--sal-text);
   }
 
+  /* Header bar: the title at the left, the delete icon button at the right
+     (design spec v4 §M). applyStageGeometry() gives it a MIN-width, not a
+     width — see there for why the title can no longer be clipped. */
   .xp-head {
     position: absolute;
     height: 34px;
-    display: flex; align-items: baseline; gap: 12px;
-    min-width: 0;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    /* Load-bearing: the title's italic ink deliberately overhangs its box
+       (TITLE_INK_BLEED below) and must not be cut off. */
+    overflow: visible;
   }
+  /* No overflow/min-width of its own: as a nowrap flex item the title's
+     automatic minimum size is its own min-content width, so it never shrinks
+     below its text and never needs to clip or ellipsize it. The padding /
+     negative margin pair gives the italic's left overhang room to paint
+     while leaving the text's origin on the column's left edge, so the
+     header, the image and the editor still share one edge. */
   .xp-title {
-    margin: 0;
+    margin: 0 0 0 -${TITLE_INK_BLEED}px;
+    padding: 0 0 0 ${TITLE_INK_BLEED}px;
     font-family: var(--sal-font-display);
     font-style: italic; font-weight: 400;
     font-size: 28px; line-height: 34px; letter-spacing: -0.01em;
     color: var(--sal-text);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    min-width: 0;
-  }
-  .xp-count {
-    flex-shrink: 0;
-    font-family: var(--sal-font-mono); font-size: 12px;
-    color: var(--sal-muted);
+    white-space: nowrap;
   }
 
   /* Editor — design spec v2 §C's text area + tucked extension bar. */
@@ -398,27 +501,39 @@ export const ENLARGED_VIEW_CSS = `
   .xp-note-input.is-error:hover,
   .xp-note-input.is-error:focus { box-shadow: inset 0 0 0 1px var(--sal-danger); }
 
+  /* Extension bar tucked under the text area. Its 1px line border is drawn
+     INSIDE via an inset shadow (design spec v4 §O, same treatment as the
+     note's hover extension in v2 §B), so its edges line up exactly with the
+     text area's own inset border above instead of bleeding past them. The
+     bar now holds only the status slot, which stays on the right
+     (MOTION_SPEC §10/§11) — delete moved to the header bar (v4 §M). */
   .xp-bar {
     position: relative; z-index: 0;
     height: 62px; margin-top: -14px;
     padding: 22px 8px 8px;
     background: var(--sal-raised);
+    box-shadow: inset 0 0 0 1px var(--sal-line);
     border-radius: 0 0 var(--sal-radius-lg) var(--sal-radius-lg);
-    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    display: flex; align-items: center; justify-content: flex-end; gap: 8px;
   }
+  /* Delete: an icon button at the header bar's right end, with §L's list
+     delete treatment (surface at rest, danger on hover/press). The stage is
+     pointer-events: none, so this opts back in like the editor and rail. */
   .xp-delete {
     flex-shrink: 0;
-    height: 32px; margin: 0; padding: 0 12px;
-    border: none; border-radius: var(--sal-radius-md);
-    background: transparent;
-    color: var(--sal-danger);
-    font-family: var(--sal-font-body); font-size: 13px; font-weight: 600;
+    width: 32px; height: 32px; margin: 0; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--sal-line); border-radius: var(--sal-radius-md);
+    background: var(--sal-surface);
+    color: var(--sal-muted);
     cursor: pointer;
-    transition: background-color 140ms ease-out, transform 80ms ease-out;
+    pointer-events: auto;
+    ${STATE_TRANSITION_CSS}
   }
-  .xp-delete:hover { background: var(--sal-danger-soft); }
-  .xp-delete:active { background: var(--sal-danger-press); ${PRESS_SCALE_CSS} }
+  .xp-delete:hover { background: var(--sal-danger-soft); color: var(--sal-danger); }
+  .xp-delete:active { background: var(--sal-danger-press); color: var(--sal-danger); ${PRESS_SCALE_CSS} }
   .xp-delete:focus-visible { outline: none; ${FOCUS_RING_CSS} }
+  .xp-delete svg { width: 16px; height: 16px; display: block; }
   .xp-status {
     min-width: 0;
     display: flex; align-items: center; gap: 4px;
@@ -531,6 +646,10 @@ const ICON_CLOSE = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE}><path d="M
 const ICON_UP = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE}><path d="M6 15l6-6 6 6"/></svg>`;
 const ICON_DOWN = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE}><path d="M6 9l6 6 6-6"/></svg>`;
 const ICON_CHECK = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE}><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
+const ICON_TRASH =
+  `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE}>` +
+  '<path d="M4 7h16M10 11v6M14 11v6M6.5 7l.8 11.6a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9L17.5 7' +
+  'M9.5 7V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v2"/></svg>';
 
 const TITLE_ID = 'xp-title';
 const STATUS_ID = 'xp-status';
@@ -626,7 +745,6 @@ class EnlargedView {
   private brandWord!: HTMLSpanElement;
   private head!: HTMLDivElement;
   private titleEl!: HTMLHeadingElement;
-  private countEl!: HTMLSpanElement;
   private editor!: HTMLDivElement;
   private textarea!: HTMLTextAreaElement;
   private deleteBtn!: HTMLButtonElement;
@@ -688,8 +806,7 @@ class EnlargedView {
       this.drafts.set(it.id, it.note);
       this.saved.set(it.id, it.note);
     }
-    const vp = viewportSize();
-    this.geo = computeEnlargedGeometry(vp.w, vp.h, mount.getSidebarWidth());
+    this.geo = this.computeGeometry();
     this.mql = reducedMotionQuery();
     this.reduced = this.mql?.matches ?? false;
   }
@@ -707,8 +824,7 @@ class EnlargedView {
     const sources = this.reduced ? new Map<number, Slot>() : this.measureListSlots(this.idx, true);
 
     this.build();
-    this.applyStageGeometry();
-    this.setContent(cur);
+    this.setContent(cur); // also applies the (image-sized) stage geometry
     this.updateRail();
 
     const sb = this.mount.sidebarEl;
@@ -804,14 +920,19 @@ class EnlargedView {
     this.brandWord.textContent = 'salamander';
     this.brand.append(this.brandLogo, this.brandWord);
 
-    // Title row.
+    // Header bar: title + delete (design spec v4 §M).
     this.head = div('xp-head');
     this.titleEl = document.createElement('h2');
     this.titleEl.className = 'xp-title';
     this.titleEl.id = TITLE_ID;
-    this.countEl = document.createElement('span');
-    this.countEl.className = 'xp-count';
-    this.head.append(this.titleEl, this.countEl);
+    this.deleteBtn = document.createElement('button');
+    this.deleteBtn.type = 'button';
+    this.deleteBtn.className = 'xp-delete';
+    this.deleteBtn.innerHTML = ICON_TRASH;
+    this.deleteBtn.setAttribute('aria-label', 'delete note');
+    this.deleteBtn.title = 'delete note';
+    this.deleteBtn.addEventListener('click', () => this.deleteCurrent());
+    this.head.append(this.titleEl, this.deleteBtn);
 
     // Editor.
     this.editor = div('xp-editor');
@@ -822,12 +943,6 @@ class EnlargedView {
     this.textarea.addEventListener('input', this.onInput);
     this.textarea.addEventListener('blur', this.onBlur);
     const bar = div('xp-bar');
-    this.deleteBtn = document.createElement('button');
-    this.deleteBtn.type = 'button';
-    this.deleteBtn.className = 'xp-delete';
-    this.deleteBtn.textContent = 'delete';
-    this.deleteBtn.setAttribute('aria-label', 'delete note');
-    this.deleteBtn.addEventListener('click', () => this.deleteCurrent());
     this.statusEl = document.createElement('span');
     this.statusEl.className = 'xp-status';
     this.statusEl.id = STATUS_ID;
@@ -837,7 +952,7 @@ class EnlargedView {
     this.statusText = document.createElement('span');
     this.statusText.className = 'xp-status-text';
     this.statusEl.appendChild(this.statusText);
-    bar.append(this.deleteBtn, this.statusEl);
+    bar.append(this.statusEl);
     this.editor.append(this.textarea, bar);
 
     // Rail.
@@ -855,11 +970,50 @@ class EnlargedView {
     this.mount.shadow.appendChild(w);
   }
 
+  /** §M's "original size": the selection's own CSS pixels (the stored PNG is
+   *  at `item.dpr`, so its pixel size is NOT its display size). If the card's
+   *  loaded image turned out to disagree with the stored rect, the rect's
+   *  width still wins and the image's aspect supplies the height. */
+  private naturalFor(item: FeedbackItem | undefined): NaturalSize | null {
+    if (!item) return null;
+    const r = item.selectionRect;
+    if (!r || !(r.width > 0) || !(r.height > 0)) return null;
+    const card = this.cards.get(item.id);
+    const aspect = card && card.aspect > 0 ? card.aspect : r.width / r.height;
+    return { w: r.width, h: Math.max(1, r.width / aspect) };
+  }
+
+  private computeGeometry(): EnlargedGeometry {
+    const vp = viewportSize();
+    return computeEnlargedGeometry(
+      vp.w,
+      vp.h,
+      this.mount.getSidebarWidth(),
+      this.naturalFor(this.items[this.idx]),
+    );
+  }
+
+  /** The main slot is the current note's image, so every index change
+   *  reshapes the column. Call before layoutCards() on any navigation. */
+  private recomputeGeometry(): void {
+    this.geo = this.computeGeometry();
+  }
+
   private applyStageGeometry(): void {
     const g = this.geo;
-    const mainW = g.main.w;
-    setBox(this.head, { right: g.mainRight, top: g.titleTop, width: mainW });
-    setBox(this.editor, { right: g.mainRight, top: g.editorTop, width: mainW });
+    // The header bar gets a MIN-width, not a width (design spec v4 §M): with
+    // `right` fixed and `width: auto` it shrink-to-fits, so it matches the
+    // image's rendered width in the normal case and, in the pathological one
+    // where the title plus the delete button are wider than that, grows
+    // LEFTWARD instead of squeezing the title. That — a fixed-width flex line
+    // whose `min-width: 0; overflow: hidden; text-overflow: ellipsis` title
+    // was free to shrink below its own text, with the old "n / total" count
+    // reserving another 40px of it — was what clipped "feedback #12".
+    this.head.style.right = `${g.columnRight}px`;
+    this.head.style.top = `${g.titleTop}px`;
+    this.head.style.width = 'auto';
+    this.head.style.minWidth = `${g.columnW}px`;
+    setBox(this.editor, { right: g.columnRight, top: g.editorTop, width: g.columnW });
     setBox(this.rail, { right: g.railRight, top: g.railTop });
   }
 
@@ -1085,7 +1239,11 @@ class EnlargedView {
       const a = img.naturalWidth / img.naturalHeight;
       if (Math.abs(a - card.aspect) / card.aspect < 0.02) return;
       card.aspect = a;
-      if (!card.morph || tweenProgress(card.morph.tween, now()) >= 1) this.placeCard(card, card.slot);
+      if (card.morph && tweenProgress(card.morph.tween, now()) < 1) return;
+      // The main slot IS the image (v4 §M), so a corrected aspect reshapes
+      // the whole column, not just this card's contain-fit.
+      if (card.role === 'main') this.relayout();
+      else this.placeCard(card, card.slot);
     });
     this.placeCard(card, slot);
     this.cards.set(item.id, card);
@@ -1224,12 +1382,16 @@ class EnlargedView {
       });
   }
 
-  // ─── Content (title / count / editor) ────────────────────────────────────
+  // ─── Content (title / editor) ────────────────────────────────────────────
 
+  /** Swaps the header/editor over to `item`. Also (re)applies the stage
+   *  geometry, since the column is sized by that note's image (v4 §M) — the
+   *  callers all run this while the header/editor are faded out, so the
+   *  resize is never seen. */
   private setContent(item: FeedbackItem): void {
     this.shownId = item.id;
+    this.applyStageGeometry();
     this.titleEl.textContent = `feedback #${item.id}`;
-    this.countEl.textContent = `${this.idx + 1} / ${this.items.length}`;
     this.textarea.value = this.drafts.get(item.id) ?? item.note;
     this.textarea.classList.remove('is-error');
     this.setStatus('none', true);
@@ -1271,6 +1433,7 @@ class EnlargedView {
     this.flushSave();
     this.lastNavDir = dir;
     this.idx = to;
+    this.recomputeGeometry();
     this.updateRail();
     if (this.reduced) {
       this.reducedSwap();
@@ -1375,6 +1538,7 @@ class EnlargedView {
     }
     this.idx = Math.min(oldIdx, this.items.length - 1);
     this.lastNavDir = this.idx < oldIdx ? -1 : 1;
+    this.recomputeGeometry();
     this.updateRail();
     const cur = this.items[this.idx];
     if (this.reduced) {
@@ -1820,8 +1984,7 @@ class EnlargedView {
    *  layout (any in-flight morph lands instantly at its new slot). */
   relayout(): void {
     if (this.state === 'closed' || this.state === 'closing') return;
-    const vp = viewportSize();
-    this.geo = computeEnlargedGeometry(vp.w, vp.h, this.mount.getSidebarWidth());
+    this.recomputeGeometry();
     this.setPanelWidth(this.geo.panelW, 0);
     this.applyStageGeometry();
     for (const card of this.cards.values()) {

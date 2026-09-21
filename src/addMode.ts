@@ -12,7 +12,8 @@
 // attached comment box (textarea / counter / cancel / save), and — while
 // 'placing' and nothing has been drawn yet — a preview of the exact
 // click-to-place box plus a "click or drag to select" tooltip, both
-// following the cursor (design spec §G).
+// following the cursor (design spec §G; the tooltip is a first-run hint
+// that retires itself after ~5s, once per page session — v4 §N).
 //
 // What this module does NOT do: capture a screenshot, talk to the service
 // worker, or build DOM/context data. That is Phase 5 (src/capture.ts) and
@@ -115,6 +116,11 @@ const CORNER_ZONE = 16;
 const PREVIEW_TOOLTIP_TEXT = 'click or drag to select';
 const TOOLTIP_OFFSET_X = 16;
 const TOOLTIP_OFFSET_Y = 20;
+/** How long the tooltip lives (design spec v4 §N): it is a first-run hint,
+ *  not a permanent label — it shows with the preview and is then gone for the
+ *  rest of the page session, later add-mode sessions included. Nothing is
+ *  persisted, so a fresh page load shows it again. */
+const TOOLTIP_LIFETIME = 5000;
 /** Fallback size before the tooltip's first real layout pass (offsetWidth/
  *  Height are 0 in plain jsdom, same rationale as COMMENT_FALLBACK_HEIGHT) \u2014
  *  sized to roughly fit "click or drag to select" at 12px with the padding
@@ -235,7 +241,10 @@ const ADD_MODE_CSS = `
      of the same UI. Position is set 1:1 with the pointer in JS (no
      transition on left/top — only opacity fades, per the motion-design
      skill's rule for pointer-following UI: the tracked position itself
-     never eases or lags, only the appearance/disappearance may). */
+     never eases or lags, only the appearance/disappearance may). It is a
+     first-run hint, so it also fades back OUT after ~5s and never returns
+     for the rest of the page session (v4 §N) — same 120ms opacity
+     transition in both directions. */
   .preview-tooltip {
     position: absolute;
     z-index: 1;
@@ -314,7 +323,11 @@ const ADD_MODE_CSS = `
      amount added back as top padding so the counter/buttons never render
      inside the hidden zone. .footer is a plain block child of .comment-box
      just like .note-input, so both span the same 280px width and their
-     edges line up exactly. */
+     edges line up exactly. Its own 1px line border is drawn INSIDE via an
+     inset shadow (design spec v4 §O, the same treatment as the note's hover
+     extension in v2 §B): a real border would sit outside the padding box and
+     bleed half a pixel past the text area's edges, an inset shadow paints on
+     the element's own edge, so the two line up exactly. */
   .footer {
     position: relative;
     z-index: 0;
@@ -323,6 +336,7 @@ const ADD_MODE_CSS = `
     padding: calc(var(--sal-radius-lg) + 6px) 6px 6px 6px;
     border-radius: 0 0 var(--sal-radius-lg) var(--sal-radius-lg);
     background: var(--sal-raised);
+    box-shadow: inset 0 0 0 1px var(--sal-line);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -428,6 +442,16 @@ let elPreviewTooltip: HTMLDivElement | null = null;
  *  showPreview()/hidePreview() only run their one-time fade-in/instant-hide
  *  transition on an actual state change, not on every mousemove. */
 let previewVisible = false;
+
+/** When the hint's TOOLTIP_LIFETIME is up, as a wall-clock deadline set the
+ *  first time it is ever shown; null until then. A deadline rather than a
+ *  plain "already shown" flag because the hint is allowed to come and go with
+ *  the preview (the pointer wandering onto the sidebar and back) inside that
+ *  one window — it is the window that is once-per-session. Deliberately NOT
+ *  reset by exitAddMode(): module lifetime IS the page session (§N). */
+let tooltipDeadline: number | null = null;
+/** The pending hide, live only while the tooltip is actually on screen. */
+let tooltipTimer: ReturnType<typeof setTimeout> | null = null;
 
 let activeZone: ZoneKey | null = null;
 let keyboardIsolation: KeyboardIsolationHandle | null = null;
@@ -881,14 +905,37 @@ function hidePreview(): void {
   hideTooltip();
 }
 
+/** Shows (and keeps positioned) the first-run hint, unless its once-per-page
+ *  window has already closed (design spec v4 §N). The preview rect itself is
+ *  unaffected by any of this and keeps following the cursor. */
 function showTooltip(cursorX: number, cursorY: number, bounds: { width: number; height: number }): void {
-  if (!elPreviewTooltip) return;
+  if (!elPreviewTooltip || tooltipSpent()) return;
   positionTooltip(cursorX, cursorY, bounds);
   elPreviewTooltip.dataset.visible = 'true';
+  armTooltipTimer();
 }
 
 function hideTooltip(): void {
   if (elPreviewTooltip) delete elPreviewTooltip.dataset.visible;
+  clearTooltipTimer();
+}
+
+function tooltipSpent(): boolean {
+  return tooltipDeadline !== null && Date.now() >= tooltipDeadline;
+}
+
+/** Starts the countdown on the hint's first ever appearance, and re-arms it
+ *  for whatever is left of that window on any later one. */
+function armTooltipTimer(): void {
+  if (tooltipTimer) return;
+  if (tooltipDeadline === null) tooltipDeadline = Date.now() + TOOLTIP_LIFETIME;
+  tooltipTimer = setTimeout(hideTooltip, Math.max(0, tooltipDeadline - Date.now()));
+}
+
+function clearTooltipTimer(): void {
+  if (tooltipTimer === null) return;
+  clearTimeout(tooltipTimer);
+  tooltipTimer = null;
 }
 
 /** Drives the preview while 'placing' and no placement gesture has begun yet
@@ -1144,6 +1191,9 @@ export function exitAddMode(): void {
   document.removeEventListener('mousemove', onPlacementHoverMove);
   document.removeEventListener('mouseout', onPlacementMouseOut);
   previewVisible = false;
+  // The hint's element is about to go; its deadline is page-session state
+  // and deliberately survives (design spec v4 §N).
+  clearTooltipTimer();
 
   document.removeEventListener('mousemove', onResizeMove);
   document.removeEventListener('mouseup', onResizeUp);
@@ -1186,6 +1236,14 @@ export function exitAddMode(): void {
  *  the exported handlers and assert on the resulting geometry. */
 export function _boxForTests(): Rect {
   return { ...box };
+}
+
+/** Test-only: forget that the first-run hint (design spec v4 §N) has been
+ *  shown, so each test starts from a fresh "page session". Production has no
+ *  reason to call this — a real page load reloads the module. */
+export function _resetHintForTests(): void {
+  clearTooltipTimer();
+  tooltipDeadline = null;
 }
 
 /** Test-only: the hit-zone rects computeZoneRects() produces for the current

@@ -113,7 +113,6 @@ const downBtn = () => q<HTMLButtonElement>('.xp-next')!;
 const textarea = () => q<HTMLTextAreaElement>('.xp-note-input')!;
 const status = () => q<HTMLElement>('.xp-status')!;
 const title = () => q('.xp-title')!.textContent;
-const count = () => q('.xp-count')!.textContent;
 const mainCard = () => q<HTMLButtonElement>('.xp-card.is-main');
 const peek = (which: 'prev' | 'next') => q<HTMLButtonElement>(`.xp-card.is-${which}`);
 
@@ -175,30 +174,140 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('geometry + flip math', () => {
-  test('the 1440×900 reference reproduces the prototype slots exactly', () => {
-    const g = computeEnlargedGeometry(1440, 900, 300);
+  /** The panel's content area: its left edge, and the rail's left edge. */
+  function contentSpan(g: ReturnType<typeof computeEnlargedGeometry>, vw: number) {
+    return { left: vw - g.panelW, right: vw - g.railRight - 40 };
+  }
+
+  test('the 1440×900 reference keeps the prototype panel/rail insets and a 720px column', () => {
+    // A selection larger than the panel can show: scaled down to the full
+    // 720px content width, and the column takes that width (v4 §M).
+    const g = computeEnlargedGeometry(1440, 900, 300, { w: 1440, h: 760 });
     expect(g.panelW).toBe(1080);
-    expect(g.main).toMatchObject({ x: 1440 - 209 - 720, y: 198, w: 720, h: 380, pad: 28 });
-    expect(g.prev).toMatchObject({ x: 1440 - 149 - 540, y: -201, w: 540, h: 285 });
-    expect(g.next).toMatchObject({ x: 1440 - 149 - 540, y: 762, w: 540, h: 285 });
     expect(g.railRight).toBe(149);
-    expect(g.titleTop).toBe(152);
-    expect(g.editorTop).toBe(594);
+    expect(g.main).toMatchObject({ w: 720, h: 380, pad: 0 });
+    expect(g.columnW).toBe(720);
+    expect(g.columnRight).toBe(1440 - (g.main.x + 720));
+    // Peeks are 75% of the note in FOCUS, right edge flush with the rail's.
+    expect(g.prev).toMatchObject({ x: 1440 - 149 - 540, w: 540, h: 285 });
+    expect(g.next).toMatchObject({ x: 1440 - 149 - 540, w: 540, h: 285 });
+    // Column (title + image + editor) centred vertically; the rail centred
+    // on the panel independently of it (§M).
+    const columnH = 46 + g.main.h + 16 + 144;
+    expect(g.titleTop).toBe(Math.round((900 - columnH) / 2));
+    expect(g.main.y).toBe(g.titleTop + 46);
+    expect(g.editorTop).toBe(g.main.y + g.main.h + 16);
+    expect(g.railTop).toBe(Math.round((900 - 144) / 2));
   });
 
-  test('peeks stay 75% of main and everything fits a small viewport', () => {
-    const g = computeEnlargedGeometry(700, 520, 300);
+  test('the column is centred between the panel edge and the rail, at every image size', () => {
+    for (const nat of [{ w: 1440, h: 760 }, { w: 267, h: 100 }, { w: 80, h: 60 }, { w: 400, h: 2000 }]) {
+      for (const [vw, vh] of [[1280, 900], [1440, 900], [700, 520]]) {
+        const g = computeEnlargedGeometry(vw, vh, 300, nat);
+        const { left, right } = contentSpan(g, vw);
+        const gapLeft = g.main.x - left;
+        const gapRight = right - (g.main.x + g.columnW);
+        // Equal to within the odd pixel a rounded half-width leaves over.
+        expect(Math.abs(gapLeft - gapRight)).toBeLessThanOrEqual(1);
+        expect(gapLeft).toBeGreaterThanOrEqual(0);
+        expect(gapRight).toBeGreaterThanOrEqual(0);
+      }
+    }
+  });
+
+  test('the 1280×900 repro: a default 267×100 selection sits in the middle of the panel', () => {
+    const g = computeEnlargedGeometry(1280, 900, 300, { w: 267, h: 100 });
+    const { left, right } = contentSpan(g, 1280);
+    expect([left, right]).toEqual([320, 1108]); // panel edge → rail edge
+    expect(g.columnW).toBe(267);
+    expect(g.main).toMatchObject({ x: 581, y: 343, w: 267, h: 100 });
+    // ...not jammed against the rail, where it used to land.
+    expect(g.main.x).toBeLessThan(700);
+  });
+
+  test('everything fits a small viewport, and the peeks stay proportional', () => {
+    const g = computeEnlargedGeometry(700, 520, 300, { w: 1200, h: 900 });
     expect(g.panelW).toBeGreaterThanOrEqual(300);
     expect(g.panelW).toBeLessThanOrEqual(700);
-    expect(g.prev.w).toBe(Math.round(g.main.w * 0.75));
-    expect(g.next.h).toBe(Math.round(g.main.h * 0.75));
+    expect(g.prev.w).toBe(g.next.w);
+    expect(g.prev.h).toBe(g.next.h);
     expect(g.main.x).toBeGreaterThanOrEqual(700 - g.panelW);
-    expect(g.main.h).toBeGreaterThanOrEqual(100);
+    expect(g.main.w).toBeGreaterThan(0);
+    expect(g.main.h).toBeGreaterThan(0);
+    // Scaled down to fit, never up, and proportional.
+    expect(g.main.w).toBeLessThanOrEqual(1200);
+    expect(g.main.w / g.main.h).toBeCloseTo(1200 / 900, 1);
+  });
+
+  test('a peek is always smaller than the note in focus, at every size (§M)', () => {
+    const sizes = [{ w: 1440, h: 760 }, { w: 3000, h: 1000 }, { w: 267, h: 100 }, { w: 80, h: 60 }, { w: 400, h: 2000 }];
+    for (const nat of sizes) {
+      for (const [vw, vh] of [[1280, 900], [1440, 900], [700, 520]]) {
+        const g = computeEnlargedGeometry(vw, vh, 300, nat);
+        for (const peek of [g.prev, g.next]) {
+          expect(peek.w).toBeLessThan(g.main.w);
+          expect(peek.h).toBeLessThan(g.main.h);
+          // 75% in both dimensions = a pure uniform scale, so peek ↔ main
+          // never changes shape and never letterboxes.
+          expect(peek.w / g.main.w).toBeCloseTo(0.75, 1);
+          expect(peek.w / peek.h).toBeCloseTo(g.main.w / g.main.h, 5);
+          expect(peek.pad).toBe(0);
+          // Right edge still flush with the rail's right edge (v2 §D).
+          expect(peek.x + peek.w).toBe(vw - g.railRight);
+        }
+      }
+    }
+  });
+
+  test('the rail does not move when the image size changes (§M)', () => {
+    const wide = computeEnlargedGeometry(1440, 900, 300, { w: 1440, h: 760 });
+    const tiny = computeEnlargedGeometry(1440, 900, 300, { w: 80, h: 60 });
+    expect(tiny.railTop).toBe(wide.railTop);
+    expect(tiny.railRight).toBe(wide.railRight);
+    // The peeks now follow the image, by design — but stay rail-flush.
+    expect(tiny.prev.x + tiny.prev.w).toBe(wide.prev.x + wide.prev.w);
   });
 
   test('panel never narrower than the docked sidebar, never wider than the viewport', () => {
     expect(computeEnlargedGeometry(320, 600, 300).panelW).toBe(320);
     expect(computeEnlargedGeometry(2560, 1440, 300).panelW).toBe(1920);
+  });
+
+  test('the image renders at the selection\'s own CSS size, never scaled up (§M)', () => {
+    // 200×100 fits the 1440×900 panel many times over: shown 1:1, whatever
+    // the PNG's pixel size (dpr) happens to be.
+    const g = computeEnlargedGeometry(1440, 900, 300, { w: 200, h: 100 });
+    expect(g.main.w).toBe(200);
+    expect(g.main.h).toBe(100);
+    // ...and no letterboxing: pad 0 means the contain-fit IS the slot.
+    expect(g.main.pad).toBe(0);
+    expect(containFit(200 / 100, { x: 0, y: 0, w: g.main.w, h: g.main.h })).toEqual({
+      x: 0,
+      y: 0,
+      w: 200,
+      h: 100,
+    });
+    // The header bar / editor keep a usable width even so (§M's ~240 floor),
+    // and the image sits at that column's left edge.
+    expect(g.columnW).toBe(240);
+    expect(g.main.x).toBe(1440 - g.columnRight - 240);
+  });
+
+  test('an over-tall selection is scaled down by height, keeping its aspect (§M)', () => {
+    const g = computeEnlargedGeometry(1440, 900, 300, { w: 400, h: 2000 });
+    expect(g.main.h).toBeLessThan(2000);
+    expect(g.main.w / g.main.h).toBeCloseTo(400 / 2000, 2);
+    // Still leaves room for the title row and the editor inside the viewport.
+    expect(g.titleTop).toBeGreaterThanOrEqual(16);
+    expect(g.editorTop + 144).toBeLessThanOrEqual(900);
+    expect(g.columnW).toBe(Math.max(240, g.main.w));
+  });
+
+  test('a selection wider than the panel is scaled down by width (§M)', () => {
+    const g = computeEnlargedGeometry(1440, 900, 300, { w: 3000, h: 1000 });
+    expect(g.main.w).toBe(720); // the full content width
+    expect(g.main.w / g.main.h).toBeCloseTo(3, 2);
+    expect(g.columnW).toBe(g.main.w);
   });
 
   test('cubic-bezier solver hits its endpoints and std is ease-out-ish', () => {
@@ -242,7 +351,6 @@ describe('open and collapse', () => {
     expect(wrapper()!.getAttribute('role')).toBe('dialog');
     expect(shadow().querySelectorAll('style')).toHaveLength(1);
     expect(title()).toBe('feedback #2');
-    expect(count()).toBe('2 / 3');
     expect(textarea().value).toBe('note 2');
     expect(peek('prev')!.getAttribute('aria-label')).toBe('previous note: feedback #1');
     expect(peek('next')!.getAttribute('aria-label')).toBe('next note: feedback #3');
@@ -366,6 +474,188 @@ describe('open and collapse', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Header bar + the image at its own size (design spec v4 §M)
+// ---------------------------------------------------------------------------
+
+describe('v4 §M — header bar and the image at its own size', () => {
+  function geoFor(natural: { w: number; h: number }) {
+    return computeEnlargedGeometry(window.innerWidth, window.innerHeight, sidebar.getSidebarWidth(), natural);
+  }
+
+  test('the "n / total" counter is gone', () => {
+    setup(3);
+    open(2);
+    expect(q('.xp-count')).toBeNull();
+    expect(q('.xp-head')!.textContent).toBe('feedback #2');
+  });
+
+  test('the title is never clipped: no overflow/ellipsis, and the bar has a min-width not a width', () => {
+    setup(3);
+    open(2);
+    const head = q<HTMLElement>('.xp-head')!;
+    const g = geoFor({ w: 200, h: 100 });
+    expect(head.style.minWidth).toBe(`${g.columnW}px`);
+    expect(head.style.width).toBe('auto');
+    // The rules that were doing the clipping are gone from the stylesheet.
+    const css = shadow().querySelector('style')!.textContent!;
+    const titleRule = css.slice(css.indexOf('.xp-title {'), css.indexOf('.xp-title {') + 400);
+    expect(titleRule).not.toMatch(/text-overflow/);
+    expect(titleRule).not.toMatch(/overflow:\s*hidden/);
+    expect(titleRule).not.toMatch(/min-width:\s*0/);
+    expect(titleRule).toMatch(/white-space:\s*nowrap/);
+  });
+
+  test('the italic\'s left overhang has room, without moving the column\'s left edge', () => {
+    setup(1);
+    open(1);
+    const css = shadow().querySelector('style')!.textContent!;
+    const titleRule = css.slice(css.indexOf('.xp-title {'), css.indexOf('.xp-title {') + 400);
+    // A padding/negative-margin pair of the same size: the box starts left of
+    // the column edge so the 'f' can paint, the text origin stays on it.
+    const pad = /padding:\s*0 0 0 (\d+)px/.exec(titleRule);
+    const margin = /margin:\s*0 0 0 -(\d+)px/.exec(titleRule);
+    expect(pad).not.toBeNull();
+    expect(margin).not.toBeNull();
+    expect(pad![1]).toBe(margin![1]);
+    expect(Number(pad![1])).toBeGreaterThan(0);
+    // ...and nothing on the header bar clips it.
+    const headRule = css.slice(css.indexOf('.xp-head {'), css.indexOf('.xp-head {') + 400);
+    expect(headRule).toMatch(/overflow:\s*visible/);
+  });
+
+  test('the header and the editor are anchored to the centred column, not to a fixed panel inset', () => {
+    setup(1);
+    open(1);
+    const g = geoFor({ w: 200, h: 100 });
+    expect(q<HTMLElement>('.xp-head')!.style.right).toBe(`${g.columnRight}px`);
+    expect(q<HTMLElement>('.xp-editor')!.style.right).toBe(`${g.columnRight}px`);
+    expect(q<HTMLElement>('.xp-rail')!.style.right).toBe(`${g.railRight}px`);
+  });
+
+  test('the peek card stays smaller than the main image after a carousel', () => {
+    setup(2);
+    items[1] = { ...items[1], selectionRect: { x: 0, y: 0, width: 400, height: 200 } };
+    sidebar.setThumbnails(items);
+    open(1);
+    settleOpen();
+    const sizeOf = (el: HTMLElement) => [parseFloat(el.style.width), parseFloat(el.style.height)];
+    const [mw0, mh0] = sizeOf(mainCard()!);
+    const [pw0, ph0] = sizeOf(peek('next')!);
+    expect(pw0).toBeLessThan(mw0);
+    expect(ph0).toBeLessThan(mh0);
+
+    downBtn().click();
+    jest.advanceTimersByTime(T.carousel);
+    const [mw1, mh1] = sizeOf(mainCard()!);
+    const [pw1, ph1] = sizeOf(peek('prev')!);
+    expect([mw1, mh1]).toEqual([400, 200]);
+    expect(pw1).toBeLessThan(mw1);
+    expect(ph1).toBeLessThan(mh1);
+  });
+
+  test('delete is an icon button in the header bar, with the same behaviour', async () => {
+    setup(2);
+    const cbs = open(1);
+    settleOpen();
+    const del = q<HTMLButtonElement>('.xp-delete')!;
+    expect(del.parentElement).toBe(q('.xp-head'));
+    expect(del.getAttribute('aria-label')).toBe('delete note');
+    expect(del.title).toBe('delete note');
+    expect(del.textContent).toBe(''); // icon only
+    expect(del.querySelector('svg')).not.toBeNull();
+    // The editor's extension bar now holds only the status slot.
+    expect(q('.xp-bar')!.children).toHaveLength(1);
+    expect(q('.xp-bar')!.firstElementChild).toBe(status());
+
+    del.click(); // no confirmation, exactly as before
+    jest.advanceTimersByTime(T.deleteStep);
+    await flush();
+    expect(cbs.onDelete).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
+  });
+
+  test('the editor\'s extension bar carries the note\'s 1px line border, drawn inside (v4 §O)', () => {
+    setup(1);
+    open(1);
+    const css = shadow().querySelector('style')!.textContent!;
+    const bar = css.slice(css.indexOf('.xp-bar {'), css.indexOf('.xp-bar {') + 400);
+    expect(bar).toMatch(/box-shadow:\s*inset 0 0 0 1px var\(--sal-line\)/);
+    // The status slot stays on the right now that it is the bar's only child.
+    expect(bar).toMatch(/justify-content:\s*flex-end/);
+  });
+
+  test('the main card is the image box, and the header/editor take its width', () => {
+    setup(1);
+    open(1);
+    const g = geoFor({ w: 200, h: 100 }); // the fixture's selectionRect
+    const card = mainCard()!;
+    // Never scaled up past the selection's own CSS size (the PNG's pixels
+    // are at item.dpr and are NOT the display size).
+    expect(card.style.width).toBe('200px');
+    expect(card.style.height).toBe('100px');
+    // No letterboxing: the <img> fills the card exactly.
+    const img = card.querySelector<HTMLImageElement>('.xp-card-img')!;
+    expect(img.style.left).toBe('0px');
+    expect(img.style.top).toBe('0px');
+    expect(img.style.width).toBe('200px');
+    expect(img.style.height).toBe('100px');
+    expect(q<HTMLElement>('.xp-editor')!.style.width).toBe(`${g.columnW}px`);
+  });
+
+  test('navigating to a differently-sized note re-sizes the column but not the rail', () => {
+    setup(2);
+    items[1] = { ...items[1], selectionRect: { x: 0, y: 0, width: 400, height: 200 } };
+    sidebar.setThumbnails(items);
+    open(1);
+    settleOpen();
+    const railTop = q<HTMLElement>('.xp-rail')!.style.top;
+    const editorW = q<HTMLElement>('.xp-editor')!.style.width;
+
+    downBtn().click();
+    jest.advanceTimersByTime(T.contentOut); // the swap point
+    const card = mainCard()!;
+    expect(card.dataset.itemId).toBe('2');
+    expect(card.style.width).toBe('400px');
+    expect(card.style.height).toBe('200px');
+    expect(q<HTMLElement>('.xp-editor')!.style.width).toBe('400px');
+    expect(q<HTMLElement>('.xp-editor')!.style.width).not.toBe(editorW);
+    // §M: the rail stays put whatever the image does.
+    expect(q<HTMLElement>('.xp-rail')!.style.top).toBe(railTop);
+  });
+
+  test('the FLIP morph still lands on the image box, before and after a carousel', () => {
+    setup(2);
+    items[1] = { ...items[1], selectionRect: { x: 0, y: 0, width: 400, height: 200 } };
+    sidebar.setThumbnails(items);
+    const wrap = shadow().querySelector<HTMLElement>('button.thumbnail[data-item-id="1"] .thumbnail-image-wrap')!;
+    wrap.getBoundingClientRect = () =>
+      ({ left: 740, top: 332, right: 1007, bottom: 432, width: 267, height: 100, x: 740, y: 332, toJSON() {} }) as DOMRect;
+    open(1);
+
+    const frame = mainCard()!.querySelector('.xp-card-frame')!;
+    const morph = animCalls.find((c) => c.el === frame)!;
+    // First maps the card back onto the measured 267×100 list rect — the
+    // scale is now relative to the 200×100 image box, not a fixed slot.
+    expect(morph.keyframes[0].transform).toContain(`scale(${Math.round((267 / 200) * 1e5) / 1e5}, 1)`);
+    expect(morph.keyframes[morph.keyframes.length - 1].transform).toBe('translate(0px, 0px) scale(1, 1)');
+
+    settleOpen();
+    animCalls = [];
+    downBtn().click();
+    const card2 = mainCard()!;
+    expect(card2.dataset.itemId).toBe('2');
+    // Peek slot → the new note's own image box: the carousel retargets from
+    // the live rect and still ends at identity on the new (different) size.
+    const morph2 = animCalls.find((c) => c.el === card2.querySelector('.xp-card-frame'))!;
+    expect(morph2.options.duration).toBe(T.carousel);
+    expect(morph2.keyframes[0].transform).not.toBe('translate(0px, 0px) scale(1, 1)');
+    expect(morph2.keyframes[morph2.keyframes.length - 1].transform).toBe('translate(0px, 0px) scale(1, 1)');
+    jest.advanceTimersByTime(T.carousel);
+    expect(card2.style.width).toBe('400px');
+    expect(card2.style.height).toBe('200px');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Navigation
 // ---------------------------------------------------------------------------
 
@@ -385,7 +675,6 @@ describe('navigation', () => {
     expect(title()).toBe('feedback #1'); // content crossfades: swapped at 120ms
     jest.advanceTimersByTime(T.contentOut);
     expect(title()).toBe('feedback #2');
-    expect(count()).toBe('2 / 3');
 
     downBtn().click();
     jest.advanceTimersByTime(T.carousel);
@@ -621,7 +910,6 @@ describe('delete', () => {
     expect(cbs.onDelete).toHaveBeenCalledWith(expect.objectContaining({ id: 2 }));
     expect(mainCard()!.dataset.itemId).toBe('3');
     expect(title()).toBe('feedback #3');
-    expect(count()).toBe('2 / 2');
     expect(shadow().querySelector('.xp-card[data-item-id="2"]')).toBeNull();
   });
 
@@ -631,7 +919,6 @@ describe('delete', () => {
     settleOpen();
     await del();
     expect(mainCard()!.dataset.itemId).toBe('2');
-    expect(count()).toBe('2 / 2');
   });
 
   test('the only note: collapses back to the (now empty) list', async () => {

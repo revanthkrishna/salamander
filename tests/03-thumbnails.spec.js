@@ -38,7 +38,8 @@ test('clicking a thumbnail expands the sidebar into the enlarged view', async ()
 
   await helper.openThumbnail(page, 0);
   await expect(page.locator(helper.SELECTORS.enlargedTitle)).toHaveText('feedback #1');
-  await expect(page.locator(helper.SELECTORS.enlargedCount)).toHaveText('1 / 1');
+  // The "n / total" counter is gone (design spec v4 §M) — the rail says it.
+  await expect(page.locator('#annotator-sidebar-host .xp-count')).toHaveCount(0);
   await expect(page.locator(helper.SELECTORS.enlargedNoteInput)).toHaveValue('original note');
   await expect(page.locator(helper.SELECTORS.enlargedImage)).toBeVisible();
 });
@@ -80,7 +81,7 @@ test('next / previous move between notes and are disabled at the ends', async ()
 
   await page.locator(helper.SELECTORS.enlargedNext).click();
   await expect(page.locator(helper.SELECTORS.enlargedNoteInput)).toHaveValue('second note');
-  await expect(page.locator(helper.SELECTORS.enlargedCount)).toHaveText('2 / 2');
+  await expect(page.locator(helper.SELECTORS.enlargedTitle)).toHaveText('feedback #2');
   await expect(page.locator(helper.SELECTORS.enlargedNext)).toHaveAttribute('aria-disabled', 'true');
 
   await page.locator(helper.SELECTORS.enlargedPrev).click();

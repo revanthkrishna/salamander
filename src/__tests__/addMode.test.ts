@@ -227,6 +227,9 @@ describe('add mode', () => {
 
   afterEach(() => {
     addMode.exitAddMode();
+    // The first-run hint's window is page-session state (design spec v4 §N),
+    // so every test has to start from a fresh "page load".
+    addMode._resetHintForTests();
   });
 
   // ── lifecycle / structure ─────────────────────────────────────────────────
@@ -509,6 +512,90 @@ describe('add mode', () => {
 
     place(blocker(), 300, 200);
     expect(tooltip.dataset.visible).toBeUndefined();
+  });
+
+  // ── the hint shows once per page session (design spec v4 §N) ─────────────
+
+  test('the tooltip retires itself after ~5s, while the preview keeps following the cursor', () => {
+    jest.useFakeTimers();
+    try {
+      addMode.startAddMode(makeCallbacks());
+      const tooltip = previewTooltipEl();
+      mousemove(300, 200);
+      expect(tooltip.dataset.visible).toBe('true');
+
+      jest.advanceTimersByTime(4999);
+      expect(tooltip.dataset.visible).toBe('true');
+      jest.advanceTimersByTime(1);
+      expect(tooltip.dataset.visible).toBeUndefined();
+
+      // The preview rect itself is unaffected — it still tracks the cursor.
+      mousemove(500, 300);
+      expect(tooltip.dataset.visible).toBeUndefined();
+      expect(visualsEl().dataset.preview).toBe('true');
+      const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
+      const expected = expectedDefaultBox(500, 300, bounds);
+      expect(boxEl().style.left).toBe(`${expected.x}px`);
+      expect(boxEl().style.top).toBe(`${expected.y}px`);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('once retired the tooltip never comes back, not even in a later add-mode session', () => {
+    jest.useFakeTimers();
+    try {
+      addMode.startAddMode(makeCallbacks());
+      mousemove(300, 200);
+      jest.advanceTimersByTime(5000);
+      expect(previewTooltipEl().dataset.visible).toBeUndefined();
+
+      addMode.exitAddMode();
+      addMode.startAddMode(makeCallbacks());
+      mousemove(300, 200);
+      expect(previewTooltipEl().dataset.visible).toBeUndefined();
+      // Still a working preview, just no hint.
+      expect(visualsEl().dataset.preview).toBe('true');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('inside its window the tooltip may come and go with the preview, and still retires on time', () => {
+    jest.useFakeTimers();
+    try {
+      addMode.startAddMode(makeCallbacks());
+      const tooltip = previewTooltipEl();
+      const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
+
+      mousemove(300, 200);
+      expect(tooltip.dataset.visible).toBe('true');
+
+      jest.advanceTimersByTime(2000);
+      mousemove(bounds.width + 10, 200); // onto the sidebar: preview + hint go
+      expect(tooltip.dataset.visible).toBeUndefined();
+
+      jest.advanceTimersByTime(1000);
+      mousemove(300, 200); // back inside, still inside the 5s window
+      expect(tooltip.dataset.visible).toBe('true');
+
+      jest.advanceTimersByTime(2000); // 5s since it first appeared
+      expect(tooltip.dataset.visible).toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('exiting add mode leaves no hint timer behind to fire on a detached element', () => {
+    jest.useFakeTimers();
+    try {
+      addMode.startAddMode(makeCallbacks());
+      mousemove(300, 200);
+      addMode.exitAddMode();
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test('the tooltip flips to stay clamped within the viewport near the bottom-right edge', () => {
@@ -921,6 +1008,15 @@ describe('add mode', () => {
     expect(footer).toMatch(/background:\s*var\(--sal-raised\)/);
     expect(footer).toMatch(/border-radius:\s*0 0 var\(--sal-radius-lg\) var\(--sal-radius-lg\)/);
     expect(footer).not.toMatch(/border-top:/); // hidden under the textarea — no divider needed
+  });
+
+  test('the footer extension carries the note\'s 1px line border, drawn inside (v4 §O)', () => {
+    addMode.startAddMode(makeCallbacks());
+    const footer = cssRule('.footer');
+    expect(footer).toMatch(/box-shadow:\s*inset 0 0 0 1px var\(--sal-line\)/);
+    // Drawn inside, not as a real border that would bleed past the text
+    // area's edges above it.
+    expect(footer).not.toMatch(/(^|[^-])border:\s*1px/);
   });
 
   test('textarea is its own bordered surface: line border at rest, lineStrong on hover, accent on focus (colour change only)', () => {
