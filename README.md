@@ -102,7 +102,7 @@ The extension is built across 21 TypeScript modules (~10,600 lines):
 
 **Context capture** (`src/contextCapture.ts`) — DOM walk at capture time: deepest-common-ancestor element, ≤15 descendant elements, flat area text, page metadata — all capped at 2KB.
 
-**Import/Export** (`src/import.ts`, `src/export.ts`, `src/bundle.ts`) — `.zip` bundles with `screenshots/{id}.png` and single `feedback.md` containing markdown prose + embedded YAML context blocks.
+**Import/Export** (`src/import.ts`, `src/export.ts`, `src/bundle/`) — `.zip` bundles with `screenshots/{id}.png` and single `feedback.md` containing markdown prose + embedded YAML context blocks.
 
 **Thumbnails & enlarged view** (`src/thumbnails.ts`, `src/dockMotion.ts`, `src/enlargedView.ts`, `src/flip.ts`) — the note list with dock-style hover, and the enlarged view where the sidebar expands to review, navigate, edit (autosave) and delete notes.
 
