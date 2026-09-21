@@ -78,6 +78,20 @@ The annotator is a Chrome extension that captures visual feedback from webpages.
    - Clears on browser restart
    - Enables sidebar persistence across F5 without explicit user action
 
+**Storage boundary** — which context may touch which store:
+
+- **Feedback data and blobs only through the service worker.** Domain records, items and the
+  per-tab session state (`src/storage.ts`) and screenshot PNGs (`src/imageStore.ts`) are read and
+  written by `src/background.ts` alone; a content script reaches them only over `chrome.runtime`
+  messages (`src/messages.ts`). This is what keeps the serialised write queue, id allocation and the
+  no-orphan rules in one place, and keeps IndexedDB in the extension origin rather than the page's.
+- **UI preferences may be accessed directly from either context.** `themeMode` (`src/theme.ts`) and
+  `sidebarWidth` (`src/sidebar.ts`) live in `chrome.storage.local` and are read/written by the content
+  script itself: they are not domain data, they need no serialisation against item writes, and a
+  message round trip for a 5-byte preference would only add a wrong-theme/wrong-width flash on open.
+  A future preference of the same kind (e.g. which connection is selected) follows this rule; anything
+  keyed by domain or item does not.
+
 **Context capture** (`src/contextCapture.ts`)
 - Called at capture time; runs in content script (pure DOM walk, no IDB/storage access)
 - Deepest-common-ancestor (DCA) of selection rect → primary target (CSS selector + XPath + ≤1KB outerHTML snippet)

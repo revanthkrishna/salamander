@@ -6,10 +6,15 @@
 // sequential across every URL of a domain (§1.2), tracked via
 // DomainMeta.nextItemNumber.
 //
-// Cross-cutting gotcha #1: this module (and imageStore.ts) is only ever
-// imported by the service worker. Content scripts never touch
-// chrome.storage.local/session or IndexedDB directly — they go through
-// chrome.runtime messages (src/messages.ts, Phase 2).
+// Cross-cutting gotcha #1 — the storage boundary (TECH_DESIGN.md "Storage
+// boundary"): this module (and imageStore.ts) is only ever imported by the
+// service worker. Feedback data (domain records, items, screenshot blobs)
+// and the per-tab session state are reached from a content script only
+// through chrome.runtime messages (src/messages.ts). The one sanctioned
+// exception is UI *preferences* — `themeMode` (theme.ts) and `sidebarWidth`
+// (sidebar.ts) — which the content script reads and writes in
+// chrome.storage.local directly: they are not domain data, a round trip
+// for them would be silly, and nothing here ever touches those keys.
 
 import { DomainData, DomainMeta, FeedbackItem } from './types';
 import * as imageStore from './imageStore';
