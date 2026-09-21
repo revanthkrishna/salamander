@@ -1192,7 +1192,7 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     expect(addButton().getAttribute('aria-label')).toBe('add note (on)');
     expect(addSwitch().getAttribute('aria-checked')).toBe('false');
 
-    sidebar.setAddButtonState('locked');
+    sidebar.setAddButtonState('kept-on');
     expect(group().classList.contains('is-on')).toBe(true);
     expect(group().classList.contains('is-switch-on')).toBe(true);
     expect(addButton().getAttribute('aria-pressed')).toBe('true');
@@ -1209,7 +1209,7 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
 
   test('no padlock glyph survives anywhere', () => {
     sidebar.initSidebar(makeCallbacks());
-    sidebar.setAddButtonState('locked');
+    sidebar.setAddButtonState('kept-on');
     expect(shadowRoot().querySelector('.icon-lock')).toBeNull();
     expect(css()).not.toMatch(/icon-lock/);
     expect(group().classList.contains('is-locked')).toBe(false);
@@ -1227,7 +1227,7 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     // While on, the halves are merged and the switch stops reporting its own
     // value — see "clicking either half of the merged control stops
     // everything" below.
-    sidebar.setAddButtonState('locked');
+    sidebar.setAddButtonState('kept-on');
     addSwitch().click();
     expect(cb.calls.addSwitch).toEqual([true]);
     expect(cb.calls.add).toBe(1);
@@ -1369,7 +1369,7 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
 
     // One tab stop while merged: the button half carries it.
     const sw = shadowRoot().querySelector('.add-switch') as HTMLButtonElement;
-    sidebar.setAddButtonState('locked');
+    sidebar.setAddButtonState('kept-on');
     expect(sw.getAttribute('tabindex')).toBe('-1');
     expect(sw.getAttribute('aria-checked')).toBe('true');
     sidebar.setAddButtonState('on');
@@ -1390,7 +1390,7 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     // Switch on (merged): a click on the switch half is a click on the
     // button — content.ts's add handler exits add mode and clears the switch
     // together, which reporting `false` here would not do.
-    sidebar.setAddButtonState('locked');
+    sidebar.setAddButtonState('kept-on');
     sw.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     expect(cb.calls.addSwitch).toEqual([true]);
     expect(cb.calls.add).toBe(1);

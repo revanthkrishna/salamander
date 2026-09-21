@@ -1444,10 +1444,6 @@ let enlargedDockSuspended = false;
 let enlargedView: EnlargedViewHandle | null = null;
 /** Items the list is currently rendering — the enlarged view opens on these. */
 let currentItems: FeedbackItem[] = [];
-/** A list refresh that arrived while the enlarged view was up; applied once
- *  it has closed (repainting under a live morph would swap the very list
- *  thumbnails the clones are about to land on). */
-let deferredItems: FeedbackItem[] | null = null;
 /** Bumped on every openSidebar/close so a stale theme-settle reveal from an
  *  earlier open can't unhide a panel that has since been re-hidden. */
 let revealToken = 0;
@@ -1715,11 +1711,10 @@ function updateThemeToggleUI(mode: ThemeMode): void {
   elBtnTheme.title = label;
 }
 
-/** The "add note" control's three states. The three values are unchanged
- *  from design spec v2 §A (every content.ts exit path already calls this with
- *  one of them), but 'locked' no longer means "a padlock glyph": per v3 §A2
- *  it paints button-on **and** switch-on. */
-export type AddButtonState = 'off' | 'on' | 'locked';
+/** The "add note" control's three states (design spec v3 §A2). 'kept-on'
+ *  paints button-on **and** switch-on — it was 'locked' while v2 §A's
+ *  padlock existed; the glyph went in v3 and the name followed. */
+export type AddButtonState = 'off' | 'on' | 'kept-on';
 
 /** aria-label + title per state (§A2). The label is state-dependent here
  *  rather than fixed because the button is icon-only — with no visible text,
@@ -1727,7 +1722,7 @@ export type AddButtonState = 'off' | 'on' | 'locked';
 const ADD_BUTTON_LABELS: Record<AddButtonState, string> = {
   off: 'add note',
   on: 'add note (on)',
-  locked: 'add note (kept on)',
+  'kept-on': 'add note (kept on)',
 };
 
 /** Screen-reader description (aria-describedby) per state: what the switch
@@ -1735,7 +1730,7 @@ const ADD_BUTTON_LABELS: Record<AddButtonState, string> = {
 const ADD_BUTTON_DESCRIPTIONS: Record<AddButtonState, string> = {
   off: 'shift+enter keeps add mode on',
   on: 'shift+enter keeps add mode on',
-  locked: 'kept on: stays on after each note',
+  'kept-on': 'kept on: stays on after each note',
 };
 
 const ADD_BUTTON_DESC_ID = 'add-note-desc';
@@ -1748,7 +1743,7 @@ const ADD_SWITCH_LABEL = 'keep add mode on';
  * Paint the "add note" group for `state` (design spec v3 §A2):
  *   - 'off'    group neutral, `aria-pressed="false"`, switch off
  *   - 'on'     group accent, `aria-pressed="true"`, switch off
- *   - 'locked' group accent, `aria-pressed="true"`, switch ON (and therefore
+ *   - 'kept-on' group accent, `aria-pressed="true"`, switch ON (and therefore
  *              visible in every state, not just on hover/focus)
  *
  * content.ts is the only caller: it owns the real add-mode/switch state and
@@ -1758,7 +1753,7 @@ const ADD_SWITCH_LABEL = 'keep add mode on';
 export function setAddButtonState(state: AddButtonState): void {
   if (!elBtnAdd || !elAddGroup) return;
   const isOn = state !== 'off';
-  const keepOn = state === 'locked';
+  const keepOn = state === 'kept-on';
   elAddGroup.classList.toggle('is-on', isOn);
   elAddGroup.classList.toggle('is-switch-on', keepOn);
   elBtnAdd.setAttribute('aria-pressed', String(isOn));
@@ -1948,7 +1943,7 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
   });
 
   // "add note" starts off (design spec v3 §A2) — content.ts moves it to
-  // on/locked as the real add-mode state changes. The switch does not
+  // on/kept-on as the real add-mode state changes. The switch does not
   // persist: it resets to off per page session, like the old lock.
   setAddButtonState('off');
 
@@ -2291,10 +2286,12 @@ function applyListHold(): void {
  * enlarged view is open the repaint is deferred until it closes.
  */
 export function setThumbnails(items: FeedbackItem[]): void {
-  if (enlargedView) {
-    deferredItems = items;
-    return;
-  }
+  // Dropped, not deferred, while the enlarged view is up: repainting under
+  // a live morph would swap the very list thumbnails the clones are about
+  // to land on, and a refresh that started before the view's own edits/
+  // deletes would repaint over the (correct) list the view hands back on
+  // close. onClosed re-reads storage anyway (content.ts).
+  if (enlargedView) return;
   renderItems(items);
 }
 
@@ -2446,11 +2443,6 @@ export function openEnlargedView(itemId: number, callbacks: EnlargedViewCallback
     ...callbacks,
     onClosed: (id) => {
       if (enlargedView === handle) enlargedView = null;
-      // Dropped, not applied: a refresh that started before the view's own
-      // edits/deletes would repaint over the (correct) list the view just
-      // handed back — a deleted note flashing back in — and wipe the focus
-      // it restored. onClosed re-reads storage anyway (content.ts).
-      deferredItems = null;
       callbacks.onClosed(id);
     },
   });
@@ -2490,7 +2482,6 @@ export function flushEnlargedView(): void {
 export function destroySidebar(): void {
   enlargedView?.destroy();
   enlargedView = null;
-  deferredItems = null;
   currentItems = [];
   enlargedDockSuspended = false;
   dockMotion?.destroy();

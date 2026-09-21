@@ -58,8 +58,9 @@ export function importReplaceConfirmMessage(existingCount: number): string {
   return `importing will replace your current ${existingCount} feedback item(s) for this site. this cannot be undone. continue?`;
 }
 
-/** §5's error/warning copy, lowercase and verbatim. The one parameterised
- *  row (#5, domain mismatch) fills in from `ImportError.details`. */
+/** §5's error copy, lowercase and verbatim. The one parameterised row
+ *  (#5, domain mismatch) fills in from `ImportError.details`; the #6
+ *  version warning is IMPORT_VERSION_WARNING_MESSAGE above. */
 export function importErrorMessage(code: ImportErrorCode, details?: ImportErrorDetails): string {
   switch (code) {
     case 'INVALID_FILE_TYPE':
@@ -76,8 +77,6 @@ export function importErrorMessage(code: ImportErrorCode, details?: ImportErrorD
       return `this bundle contains feedback for '${details?.fileDomain}', but you're currently on '${details?.currentDomain}'.`;
     case 'DUPLICATE_IDS':
       return 'this bundle appears to be corrupted (duplicate item ids).';
-    case 'VERSION_MISMATCH':
-      return IMPORT_VERSION_WARNING_MESSAGE;
     default:
       return IMPORT_FAILED_MESSAGE;
   }

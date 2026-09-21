@@ -169,11 +169,13 @@ export interface DomainIndex {
 // belong to, per format version: src/bundle/v1.ts.
 
 // ---------------------------------------------------------------------------
-// Import errors (REQUIREMENTS §5 — 11 cases; only the 🔴 error rows and the
-// 🟡 version-mismatch warning need a code here. §5 #7 and #8 are export/capture
-// errors handled inline where they occur, not through the import ladder. §5 #9
-// is a page-injection failure, not an import error. §5 #10 is a confirmation,
-// not an error — handled via ImportCallbacks.showConfirm.)
+// Import errors (REQUIREMENTS §5 — 11 cases; only the 🔴 error rows need a
+// code here. The 🟡 version-mismatch warning (#6) is not an error: import
+// proceeds, so it is `ParsedImportBundle.versionWarning`, not a member of
+// this union. §5 #7 and #8 are export/capture errors handled inline where
+// they occur, not through the import ladder. §5 #9 is a page-injection
+// failure, not an import error. §5 #10 is a confirmation, not an error —
+// handled via the sidebar's confirm dialog.)
 // ---------------------------------------------------------------------------
 
 export type ImportErrorCode =
@@ -183,8 +185,7 @@ export type ImportErrorCode =
   | 'MALFORMED_CONTEXT'      // §5 #4b — fenced yaml block missing/malformed
   | 'MISSING_SCREENSHOT'     // §5 #4 — referenced screenshot not in the zip
   | 'DOMAIN_MISMATCH'        // §5 #5
-  | 'DUPLICATE_IDS'          // §5 #11
-  | 'VERSION_MISMATCH';      // §5 #6 — warning only; import still proceeds
+  | 'DUPLICATE_IDS';         // §5 #11
 
 export interface ImportErrorDetails {
   fileDomain?: string;

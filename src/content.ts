@@ -45,6 +45,7 @@ import {
   EXPORT_FAILED_MESSAGE,
   FINISH_NOTE_FIRST_MESSAGE,
   IMPORT_FAILED_MESSAGE,
+  IMPORT_VERSION_WARNING_MESSAGE,
   NOTHING_TO_EXPORT_MESSAGE,
   importErrorMessage,
   importReplaceConfirmMessage,
@@ -88,8 +89,8 @@ let started = false;
 //
 // The sidebar's "add note" control is an icon-only button with a "keep add
 // mode on" switch attached to it, and this module is the only thing that ever
-// moves it between its three painted states (off / on / locked — where
-// 'locked' now means button-on *and* switch-on), so the control's visuals
+// moves it between its three painted states (off / on / kept-on — button-on
+// *and* switch-on), so the control's visuals
 // (sidebar.setAddButtonState) can never drift from addMode.isAddModeActive()'s
 // real state. Every one of add mode's exit paths (capture success/failure,
 // cancel, Esc, sidebar close, SPA navigation, opening the enlarged view)
@@ -102,7 +103,7 @@ let started = false;
  *  successful capture and each per-note cancel, until a click on the button,
  *  a flick of the switch, or Esc ends it (§A2). Deliberately not persisted —
  *  it resets to off per page session, like the v2 lock it replaces. */
-let addLocked = false;
+let addKeptOn = false;
 
 /**
  * A click while add mode is already on (switch off) that follows another click
@@ -131,7 +132,7 @@ function clearPendingAddOff(): void {
 }
 
 /** Enter add mode (fresh placement) and paint the control for whatever
- *  addLocked currently is — the single entry point for every "start/restart
+ *  addKeptOn currently is — the single entry point for every "start/restart
  *  add mode" path: the first click off -> on, flicking the switch on from
  *  off, and re-entry while the switch is on after a successful capture or a
  *  per-note cancel. */
@@ -158,7 +159,7 @@ function enterAddMode(): void {
     },
     onCancel: handleAddModeCancel,
   });
-  sidebar.setAddButtonState(addLocked ? 'locked' : 'on');
+  sidebar.setAddButtonState(addKeptOn ? 'kept-on' : 'on');
 }
 
 /** Common tail of every full exit: turn the switch off, take the sidebar off
@@ -167,7 +168,7 @@ function enterAddMode(): void {
  *  still need to call addMode.exitAddMode() do so first (see
  *  exitAddModeFully). */
 function finishAddMode(): void {
-  addLocked = false;
+  addKeptOn = false;
   sidebar.setAddModeHold(false);
   sidebar.setAddButtonState('off');
 }
@@ -191,7 +192,7 @@ function exitAddModeFully(): void {
  *  re-enter immediately rather than falling all the way to "off" (§A2). */
 function handleAddModeCancel(): void {
   clearPendingAddOff();
-  if (addLocked) {
+  if (addKeptOn) {
     enterAddMode();
     return;
   }
@@ -209,7 +210,7 @@ function handleAddButtonClick(): void {
     enterAddMode();
     return;
   }
-  if (addLocked) {
+  if (addKeptOn) {
     // A single click while the switch is on exits add mode AND turns the
     // switch off (§A2) — one click to stop everything. No dblclick
     // disambiguation needed: there is no intermediate state to fall back to.
@@ -257,8 +258,8 @@ function handleAddSwitchChange(on: boolean): void {
 
 function setAddSwitch(on: boolean): void {
   clearPendingAddOff();
-  if (on === addLocked && addMode.isAddModeActive()) return;
-  addLocked = on;
+  if (on === addKeptOn && addMode.isAddModeActive()) return;
+  addKeptOn = on;
   if (on && !addMode.isAddModeActive()) {
     enterAddMode();
     return;
@@ -268,7 +269,7 @@ function setAddSwitch(on: boolean): void {
     finishAddMode();
     return;
   }
-  sidebar.setAddButtonState(on ? 'locked' : 'on');
+  sidebar.setAddButtonState(on ? 'kept-on' : 'on');
 }
 
 /** Esc always exits add mode and turns the switch off (§A2), regardless of
@@ -421,7 +422,7 @@ async function handleCaptureOk(result: addMode.AddModeResult): Promise<void> {
   }
 
   addMode.exitAddMode();
-  if (addLocked) {
+  if (addKeptOn) {
     enterAddMode();
   } else {
     finishAddMode();
@@ -611,7 +612,7 @@ async function handleImportFile(file: File): Promise<void> {
     }
 
     if (bundle.versionWarning) {
-      sidebar.showWarning(importErrorMessage('VERSION_MISMATCH'));
+      sidebar.showWarning(IMPORT_VERSION_WARNING_MESSAGE);
     }
 
     const countMessage: GetDomainItemCountMessage = {

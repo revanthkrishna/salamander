@@ -1,5 +1,5 @@
-// content.ts orchestrates the "add note" off/on/locked state machine (design
-// spec v2 §A) on top of the real sidebar.ts + addMode.ts modules, and is
+// content.ts orchestrates the "add note" off/on/kept-on state machine (design
+// spec v3 §A2) on top of the real sidebar.ts + addMode.ts modules, and is
 // responsible for keeping the sidebar's button in sync with the real
 // add-mode state on every exit path. content.ts itself is a private IIFE
 // with no exported handlers — everything here drives it exactly the way the
