@@ -1268,10 +1268,17 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     expect(css()).not.toMatch(/\.add-group:hover\s*\{/);
     expect(css()).not.toMatch(/\.add-group:active\s*\{/);
     expect(cssRule('.add-group')).not.toMatch(/scale\(0\.97\)/);
-    // Each half's own border reacts with it, so the hovered half is outlined
-    // as well as filled.
-    expect(cssRule('.btn-add:hover')).toMatch(/border-color:\s*var\(--sal-line-strong\)/);
-    expect(cssRule('.add-switch:hover')).toMatch(/border-color:\s*var\(--sal-line-strong\)/);
+    // The OUTLINE reacts as one: a hover anywhere lights BOTH halves'
+    // borders, so the control is never half-outlined. Lighting only the
+    // hovered half left the switch (bordered on three sides) highlighted
+    // while the junction and the whole button stayed at the resting colour.
+    const outline = cssRule(
+      '.add-group:hover .btn-add,\n  .add-group:hover .add-switch,\n  .add-group:active .btn-add,\n  .add-group:active .add-switch',
+    );
+    expect(outline).toMatch(/border-color:\s*var\(--sal-line-strong\)/);
+    // ...while the FILL stays on the hovered half alone.
+    expect(cssRule('.btn-add:hover')).not.toMatch(/border-color:/);
+    expect(cssRule('.add-switch:hover')).not.toMatch(/border-color:/);
 
     // Each half takes its own fill, in both the off and the yellow group.
     expect(cssRule('.btn-add:hover')).toMatch(/background:\s*var\(--sal-hover\)/);

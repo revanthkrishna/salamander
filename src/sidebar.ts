@@ -685,8 +685,19 @@ const SIDEBAR_CSS = `
   }
   /* Per-half hover/press (§A2 micro states), in both the off and the on
      (yellow) group — the .is-on rules outrank the bare ones by specificity. */
-  .btn-add:hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
-  .btn-add:active { background: var(--sal-press); border-color: var(--sal-line-strong); }
+  /* The OUTLINE reacts as one, the fill does not: a hover anywhere in the
+     group lights both halves' borders, while only the half under the pointer
+     takes the fill. Lighting just the hovered half's border leaves the
+     control half-outlined — most obviously on the switch, whose border is
+     only three sides, so the junction and the whole button stayed at the
+     resting colour and the highlight appeared to stop part-way round the
+     shape. */
+  .add-group:hover .btn-add,
+  .add-group:hover .add-switch,
+  .add-group:active .btn-add,
+  .add-group:active .add-switch { border-color: var(--sal-line-strong); }
+  .btn-add:hover { background: var(--sal-hover); }
+  .btn-add:active { background: var(--sal-press); }
   .add-group.is-on .btn-add { background: var(--sal-accent); border-color: transparent; }
   .add-group.is-on .btn-add:hover { background: var(--sal-accent-hover); }
   .add-group.is-on .btn-add:active { background: var(--sal-accent-press); }
@@ -745,8 +756,8 @@ const SIDEBAR_CSS = `
       background-color 150ms ${EASE_STD} 0s,
       border-color 150ms ${EASE_STD} 0s;
   }
-  .add-switch:hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
-  .add-switch:active { background: var(--sal-press); border-color: var(--sal-line-strong); }
+  .add-switch:hover { background: var(--sal-hover); }
+  .add-switch:active { background: var(--sal-press); }
   .add-switch:focus-visible { ${FOCUS_RING_CSS} outline: none; }
   .add-group.is-disabled .add-switch:hover,
   .add-group.is-disabled .add-switch:active {
@@ -867,6 +878,12 @@ const SIDEBAR_CSS = `
      mousedown and mouseup so the click never landed on it. */
   .export-group:has(> button:hover) { border-color: var(--sal-line-strong); }
   .export-group:has(> button:active) { border-color: var(--sal-line-strong); }
+  /* The divider is part of that outline, so it lights with it — otherwise
+     the box's edge goes strong while the line down its middle stays at the
+     resting colour, which reads as a half-finished highlight (the same fault
+     the add group had). */
+  .export-group:has(> button:hover) .btn-menu,
+  .export-group:has(> button:active) .btn-menu { border-left-color: var(--sal-line-strong); }
   /* The press scale stays on the group (scaling one half alone would tear
      the group's border), and is suppressed while the menu is open — for the
      same reason as above, an open menu must not move under the pointer. */
@@ -882,6 +899,8 @@ const SIDEBAR_CSS = `
   .export-group.is-disabled .btn-export:active,
   .export-group.is-disabled .btn-menu:hover,
   .export-group.is-disabled .btn-menu:active { background: transparent; }
+  .export-group.is-disabled:has(> button:hover) .btn-menu,
+  .export-group.is-disabled:has(> button:active) .btn-menu { border-left-color: var(--sal-line); }
 
   .btn-export {
     width: ${ACTION_BUTTON_PX}px;
