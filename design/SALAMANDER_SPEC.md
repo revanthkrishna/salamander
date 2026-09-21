@@ -59,16 +59,20 @@ Logo: `icons/logo-button.svg` (yellow, 42×24 viewBox) in dark theme; a black co
 
 States: regular · hover · press · focus-visible (keyboard) · disabled.
 - focus ring (all controls unless noted): `box-shadow: 0 0 0 2px {bg}, 0 0 0 4px {focus}` — only on `:focus-visible`.
-- press: `transform: scale(0.97)` plus the press fill.
+- press: the press fill, and NOTHING else — no scale, no movement, in any control on any surface.
+  (A press scale moved the half of a two-half control that was not being pressed, and on the export
+  group it slid the open menu out from under the pointer between mousedown and mouseup so the click
+  landed on the panel instead of the menu item. Per-half scaling is no answer either: it tears the
+  border the two halves share. `PRESS_SCALE_CSS` is retired from `src/theme.ts` so it cannot return.)
 - disabled: `opacity: 0.4; cursor: default`, no hover/press.
-- transitions: 120–160ms ease-out on background/border/colour; transform press 80ms.
+- transitions: 120–160ms ease-out on background/border/colour.
 
 | control | regular | hover | press | focus-visible |
 |---|---|---|---|---|
-| primary (add note) | accent fill, onAccent text, 600 | accentHover | accentPress + scale | accent + ring |
-| secondary (text/icon, e.g. export/import) | surface fill, 1px line border, text | hover fill, lineStrong border | press fill, lineStrong, scale | ring |
+| primary (add note) | accent fill, onAccent text, 600 | accentHover | accentPress | accent + ring |
+| secondary (text/icon, e.g. export/import) | surface fill, 1px line border, text | hover fill, lineStrong border | press fill, lineStrong | ring |
 | ghost (close, theme toggle) | transparent, muted | hover fill, text colour | press fill, text colour | ring, text colour |
-| danger (modal delete) | dangerSoft fill, danger text 600 | dangerHover | dangerPress + scale | ring |
+| danger (modal delete) | dangerSoft fill, danger text 600 | dangerHover | dangerPress | ring |
 | save (text button inside comment box) | transparent, accentInk, 700 | accent fill, onAccent | accentPress fill, onAccent | accent fill, onAccent + inset 2px focus ring |
 | cancel (text button inside comment box) | transparent, muted, 500 | hover fill, text | press fill | inset ring |
 | save disabled (empty note) | muted text, opacity .5 | — | — | — |
@@ -148,7 +152,7 @@ perfect — make sound styling decisions where they're rough, stay within the to
 
 ## A. "add note" is a toggle (with lock)
 - Off (not in add mode): secondary styling (surface fill, 1px line border, text colour, 500).
-  Hover = accentHover fill, press = accentPress + scale(.97). On (in add mode): accent fill, onAccent,
+  Hover = accentHover fill, press = accentPress (no scale — §2). On (in add mode): accent fill, onAccent,
   600; hover/press same as off. Focus-visible: standard ring over the current fill. Disabled: .4 opacity.
   `aria-pressed` reflects on/off.
 - Single click toggles add mode on/off (clicking while on exits add mode = cancel).
@@ -249,10 +253,10 @@ fill and the border; the two buttons inside are transparent and borderless. Grou
 |---|---|---|---|
 | off, regular | 1px line | surface | text |
 | off, hover | 1px lineStrong | hover | text |
-| off, press | 1px lineStrong | press + `scale(.97)` | text |
+| off, press | 1px lineStrong | press | text |
 | on (add mode active) | none | accent | onAccent |
 | on, hover | none | accentHover | onAccent |
-| on, press | none | accentPress + `scale(.97)` | onAccent |
+| on, press | none | accentPress | onAccent |
 | disabled | 1px line | surface, `.4` opacity | text |
 
 Off hover/press use the SECONDARY fills (hover/press), never yellow — yellow means "add mode is on".
@@ -307,7 +311,7 @@ is then shown only when it is on.
 The action row's right-hand side is ONE group: `position: relative; inline-flex; height: 36px;`
 `border-radius: md`, `overflow: visible`, 1px line border, surface fill — same hover/press/focus/
 disabled treatment as the secondary button it replaces (hover: lineStrong + hover fill; press:
-lineStrong + press + `scale(.97)`).
+lineStrong + press fill, no scale — §2).
 
 - export half: `width: 36px`, transparent, `border-radius: 9px 0 0 9px`, 16px export icon
   (`M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14`), `aria-label`/`title` "export feedback".
@@ -364,8 +368,10 @@ text lowercase. Where a number is not given, match the surrounding code and keep
 ## I. Add-note group micro states (settled by Q&A; already implemented)
 
 Recorded so the next reader knows these were decisions, not accidents:
-- Hover and press land on the HALF under the pointer, not the group; nothing scales. The group
-  acknowledges a hover with its border (lineStrong) only.
+- The FILL lands on the half under the pointer; the OUTLINE reacts as one. A hover or press
+  anywhere lights every border in the control — both halves of the add group, and the export
+  group's divider as well as its box — because lighting only the hovered half leaves the control
+  half-outlined (worst on the switch, which is bordered on three sides). Nothing scales (§2).
 - The reveal is immediate (160ms), the collapse is delayed by a 250ms grace period so a diagonal
   path back onto the switch never loses it. Under reduced motion the grace stays, the animation goes.
 - The focus ring hugs the focused half, so it says which half Enter will hit; the group is
@@ -389,9 +395,9 @@ scrolling note list, with a single 1px line under the whole thing. No divider an
 
 ## K. Export + chevron group: hover and press are per half
 
-Same rule as §I's add group: only the half under the pointer takes the hover/press fill, the group
-acknowledges with its border, and the open-menu state keeps its own treatment on the chevron half.
-The press scale stays suppressed while the menu is open (an open menu must not move under the pointer).
+Same rule as §I's add group: only the half under the pointer takes the hover/press fill, the whole
+outline (the box AND the divider between the halves) lights with it, and the open-menu state keeps
+its own treatment on the chevron half. Nothing scales on press — §2.
 
 ## L. Note in the list
 
@@ -631,16 +637,3 @@ highlight looks clipped where the curve falls away. Reaching one radius back clo
 The collapsed state must zero the segment's border-width AND its negative margin: under the global
 `box-sizing: border-box` a `width: 0` box cannot shrink below its own border, so a leftover 1px
 would re-create the stray hairline and the 39px group.
-
-## W. No press scale, anywhere (2026-09-21)
-
-OVERRIDES §2's "press: `transform: scale(0.97)` plus the press fill", its state table, §A2's rows
-and every other mention of a press scale in this document. **A press changes the fill of the control
-under the pointer and nothing else** — no scale, no movement, in any control in any surface.
-
-`PRESS_SCALE_CSS` is retired from `src/theme.ts` rather than left unused, so it cannot creep back.
-
-Why: on a two-half control (the add group, the export + chevron group) scaling the box moved the
-half that was NOT being pressed, and on the export group it slid the open menu out from under the
-pointer between mousedown and mouseup, so the click landed on the panel instead of the menu item.
-Per-half scaling is not an option either — it tears the shared border between the halves.
