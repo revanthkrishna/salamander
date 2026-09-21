@@ -78,19 +78,6 @@ export async function deleteImage(key: string): Promise<void> {
   });
 }
 
-/** Delete every stored image. Used by import's replace-only semantics
- *  (§1.7) when discarding a domain's prior data wholesale. */
-export async function clearAllImages(): Promise<void> {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    tx.objectStore(STORE_NAME).clear();
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
-  });
-}
-
 /** Test-only escape hatch: force a fresh connection on the next call.
  *  Production code never needs this — the module-level cache is intentional. */
 export function _resetConnectionForTests(): void {

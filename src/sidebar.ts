@@ -250,8 +250,7 @@ const ICON_IMPORT = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS
 
 const ICON_CLOSE = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M6 6l12 12M18 6L6 18"/></svg>`;
 
-/** Default error-bar icon. Exported so later phases can pass their own to
- *  showError()/showWarning() while still having the default to fall back on. */
+/** Default error-bar icon. */
 export const ICON_ERROR = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>`;
 
 /** Default warning-bar icon. */
@@ -1496,6 +1495,9 @@ let notifTimer: ReturnType<typeof setTimeout> | null = null;
  *  (the theme toggle's icon/label and the logo swap both depend on it). Set
  *  in initSidebar, called from destroySidebar. */
 let unsubscribeThemeChange: (() => void) | null = null;
+/** Drops this host from theme.ts's themed-host set; set in initSidebar,
+ *  called from destroySidebar so a torn-down host is not kept alive there. */
+let unregisterThemedHost: (() => void) | null = null;
 
 // ---------------------------------------------------------------------------
 // DOM construction
@@ -1840,10 +1842,10 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
   sidebarShadow = sidebarHost.attachShadow({ mode: 'closed' });
   document.documentElement.appendChild(sidebarHost);
   // Keeps `data-theme` on the shadow host in sync with the resolved
-  // light/dark theme for the sidebar's whole lifetime (it's never torn down
-  // and rebuilt like addMode.ts, so there's no matching unregister
-  // call here).
-  registerThemedHost(sidebarHost);
+  // light/dark theme for the sidebar's whole lifetime. In production the
+  // host is never torn down (close only hides it), so the unregister is only
+  // ever reached by destroySidebar().
+  unregisterThemedHost = registerThemedHost(sidebarHost);
 
   buildDOM(sidebarShadow);
 
@@ -2154,8 +2156,9 @@ function onResizerKeyDown(e: KeyboardEvent): void {
   setSidebarWidth(next, { persist: true });
 }
 
-/** True once initSidebar() has built the host — content.ts uses this to avoid
- *  toggling a sidebar that was never constructed. */
+/** True once initSidebar() has built the host. Production code never asks
+ *  (initSidebar is idempotent and every entry point calls it first); this is
+ *  the tests' probe for construction/teardown. */
 export function isSidebarInitialised(): boolean {
   return sidebarHost !== null;
 }
@@ -2415,8 +2418,8 @@ function syncDockMotion(): void {
  * there while a selection is being made or captured. Suspending snaps the
  * list back to rest instantly (no release animation, no pending frame), and
  * the flag survives list repaints and close/reopen until it is lifted.
- * Exported separately so a caller can suspend magnification *without* the
- * rest of the hold.
+ * Exported for the tests, which suspend magnification *without* the rest of
+ * the hold; production callers go through setAddModeHold().
  */
 export function setDockMagnificationSuspended(suspended: boolean): void {
   dockSuspended = suspended;
@@ -2530,6 +2533,8 @@ export function destroySidebar(): void {
   restorePageResize();
   unsubscribeThemeChange?.();
   unsubscribeThemeChange = null;
+  unregisterThemedHost?.();
+  unregisterThemedHost = null;
   document.removeEventListener('pointerdown', onDocumentPointerDown, true);
   sidebarShadow?.removeEventListener('pointerdown', onShadowPointerDown, true);
   if (sidebarHost && sidebarHost.parentNode) {
@@ -2587,10 +2592,9 @@ export function showError(message: string): void {
   showNotif('error', message, ICON_ERROR);
 }
 
-/** Show the warning bar inside the sidebar. Auto-clears after 8s. Pass
- *  `customIcon` to swap the default exclamation for this one message. */
-export function showWarning(message: string, customIcon?: string): void {
-  showNotif('warning', message, customIcon ?? ICON_WARNING);
+/** Show the warning bar inside the sidebar. Auto-clears after 8s. */
+export function showWarning(message: string): void {
+  showNotif('warning', message, ICON_WARNING);
 }
 
 function showNotif(kind: 'error' | 'warning', message: string, icon: string): void {

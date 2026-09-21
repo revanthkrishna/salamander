@@ -6,7 +6,7 @@
 // module loads. setup.ts's base mock (chrome.storage/.tabs.query/.runtime)
 // is already installed globally by the time this file runs; the additional
 // surfaces Phase 2 needs (action, scripting, tabs.sendMessage/onUpdated/
-// onRemoved/captureVisibleTab, runtime.onMessage/onStartup) are layered on
+// onRemoved/captureVisibleTab, runtime.onMessage) are layered on
 // here, then the module is `require`'d so the extra mocks are in place
 // first — a static top-of-file `import` would run before that setup.
 //
@@ -24,7 +24,6 @@ jest.mock('../storage', () => ({
   isSidebarOpen: jest.fn(),
   setSidebarOpen: jest.fn().mockResolvedValue(undefined),
   clearSidebarState: jest.fn().mockResolvedValue(undefined),
-  cleanupStaleTabKeys: jest.fn().mockResolvedValue(undefined),
   getNextItemId: jest.fn().mockResolvedValue(1),
   addItem: jest.fn().mockResolvedValue(undefined),
   getPageItems: jest.fn().mockResolvedValue([]),
@@ -123,7 +122,6 @@ function installChromeMocks(): void {
     ...(c.runtime ?? {}),
     lastError: null,
     onMessage: { addListener: jest.fn() },
-    onStartup: { addListener: jest.fn() },
   };
 }
 
@@ -302,20 +300,13 @@ describe('handleTabUpdated', () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleTabRemoved / handleStartup
+// handleTabRemoved
 // ---------------------------------------------------------------------------
 
 describe('handleTabRemoved', () => {
   it('clears sidebar session state for the closed tab', () => {
     background.handleTabRemoved(42);
     expect(mockedStorage.clearSidebarState).toHaveBeenCalledWith(42);
-  });
-});
-
-describe('handleStartup', () => {
-  it('runs the legacy activeTab cleanup', async () => {
-    await background.handleStartup();
-    expect(mockedStorage.cleanupStaleTabKeys).toHaveBeenCalled();
   });
 });
 

@@ -182,6 +182,15 @@ describe('chrome.storage.onChanged sync', () => {
     expect(spy).toHaveBeenCalledWith('dark', 'dark');
   });
 
+  test('a full state reset removes the listener it registered', () => {
+    expect(getThemeMode()).toBe('auto');
+    const listener = getRegisteredListener();
+
+    _resetThemeStateForTests();
+
+    expect(chrome.storage.onChanged.removeListener).toHaveBeenCalledWith(listener);
+  });
+
   test('changes in a different storage area, or to an unrelated key, are ignored', () => {
     expect(getThemeMode()).toBe('auto');
     const listener = getRegisteredListener();

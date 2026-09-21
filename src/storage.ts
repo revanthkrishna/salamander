@@ -173,9 +173,8 @@ export async function replaceDomainData(domain: string, data: DomainData): Promi
 // §1.1 decision: chrome.storage.session (not .local) — survives a full page
 // reload (content script re-injected, needs to know to re-show the sidebar)
 // but clears on browser restart, which is the right lifetime for "is the
-// sidebar open" and replaces v1's chrome.storage.local `activeTab:{tabId}`
-// key (see the legacy tab-active helpers below, still used by
-// src/background.ts until Phase 2 rewires it onto this API).
+// sidebar open". (v1 kept this in chrome.storage.local under an
+// `activeTab:{tabId}` key; nothing writes or reads those keys any more.)
 
 function sidebarSessionKey(tabId: number): string {
   return `sidebarOpen:${tabId}`;
@@ -214,48 +213,4 @@ export async function isSidebarOpen(tabId: number): Promise<boolean> {
 /** Clear a tab's sidebar state — called on explicit close and on tab removal. */
 export async function clearSidebarState(tabId: number): Promise<void> {
   await sessionRemove(sidebarSessionKey(tabId));
-}
-
-// ---------------------------------------------------------------------------
-// Legacy v1 tab-active helpers (chrome.storage.local `activeTab:{tabId}`)
-// ---------------------------------------------------------------------------
-// TODO(Phase 2): src/background.ts still calls these three. Phase 2 owns
-// background.ts and should switch it onto setSidebarOpen/isSidebarOpen/
-// clearSidebarState above and delete this block — kept here only so Phase 1
-// doesn't have to reach into background.ts's re-inject/cleanup flow to keep
-// the build green.
-
-export async function setTabActive(tabId: number): Promise<void> {
-  await storageSet({ [`activeTab:${tabId}`]: true });
-}
-
-export async function removeTabActive(tabId: number): Promise<void> {
-  await storageRemove(`activeTab:${tabId}`);
-}
-
-export async function isTabActive(tabId: number): Promise<boolean> {
-  const key = `activeTab:${tabId}`;
-  const result = await storageGet(key);
-  return result[key] === true;
-}
-
-/**
- * Startup cleanup: remove stale activeTab keys for tabs that no longer exist.
- * Called from the background service worker on chrome.runtime.onStartup.
- */
-export async function cleanupStaleTabKeys(): Promise<void> {
-  const tabs = await new Promise<chrome.tabs.Tab[]>((resolve) =>
-    chrome.tabs.query({}, resolve)
-  );
-  const liveIds = new Set(tabs.map((t) => t.id));
-
-  const all = await storageGet(null);
-
-  const staleKeys = Object.keys(all)
-    .filter((k) => k.startsWith('activeTab:'))
-    .filter((k) => !liveIds.has(parseInt(k.split(':')[1])));
-
-  if (staleKeys.length > 0) {
-    await storageRemove(staleKeys);
-  }
 }

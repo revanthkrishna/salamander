@@ -10,7 +10,6 @@ import {
   isSidebarOpen,
   setSidebarOpen,
   clearSidebarState,
-  cleanupStaleTabKeys,
   getNextItemId,
   addItem,
   getPageItems,
@@ -132,18 +131,6 @@ export function handleTabRemoved(tabId: number): void {
 }
 
 chrome.tabs.onRemoved.addListener(handleTabRemoved);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Startup cleanup: remove stale legacy activeTab keys. Kept until Phase 3
-// migrates content.ts's init() off storage.ts's legacy setTabActive() call
-// (see storage.ts's TODO comment) — harmless no-op once that lands.
-// ─────────────────────────────────────────────────────────────────────────────
-
-export async function handleStartup(): Promise<void> {
-  await cleanupStaleTabKeys();
-}
-
-chrome.runtime.onStartup.addListener(handleStartup);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Runtime messages from content scripts: sidebar state + screenshot capture

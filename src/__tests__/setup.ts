@@ -134,6 +134,7 @@ function makeStorageAreaMock(data: Record<string, unknown>) {
     },
     onChanged: {
       addListener: jest.fn(),
+      removeListener: jest.fn(),
     },
   },
   tabs: {

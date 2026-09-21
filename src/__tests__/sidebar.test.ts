@@ -761,6 +761,19 @@ describe('sidebar shell', () => {
     expect(html().style.color).toBe('green');
   });
 
+  test('destroySidebar unregisters the host from the theme feed', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const host = getHost()!;
+    const before = host.getAttribute('data-theme');
+
+    sidebar.destroySidebar();
+    setThemeMode(before === 'dark' ? 'light' : 'dark');
+
+    // A registered host would have been repainted by the mode change; the
+    // torn-down one is no longer in theme.ts's set.
+    expect(host.getAttribute('data-theme')).toBe(before);
+  });
+
   // ── notifications (carried over from toolbar.ts) ─────────────────────────
 
   test('showError renders the message verbatim and auto-clears after 8s', () => {
@@ -780,7 +793,7 @@ describe('sidebar shell', () => {
     expect(text.textContent).toBe('');
   });
 
-  test('showWarning uses the warning styling and a swappable icon', () => {
+  test('showWarning uses the warning styling and the warning icon', () => {
     sidebar.initSidebar(makeCallbacks());
 
     sidebar.showWarning('this bundle was created with a newer version of the extension.');
@@ -792,8 +805,10 @@ describe('sidebar shell', () => {
     expect(sidebar.ICON_WARNING).toContain('M12 7.5v5.5');
     expect(icon.innerHTML).toContain('M12 7.5v5.5');
 
-    sidebar.showWarning('custom', '<svg id="custom-icon"></svg>');
-    expect(icon.innerHTML).toContain('custom-icon');
+    // An error after a warning swaps back to the error icon.
+    sidebar.showError('an error');
+    expect(notif.classList.contains('warning')).toBe(false);
+    expect(icon.innerHTML).toContain('M9 9l6 6');
   });
 
   test('a second message replaces the first instead of stacking', () => {

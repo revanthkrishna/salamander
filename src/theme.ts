@@ -148,11 +148,11 @@ export const DARK_THEME: ThemeTokens = {
  *  Rounded rectangles everywhere — never pill shapes. */
 export const RADII = { sm: 6, md: 10, lg: 14 } as const;
 
-/** `chrome.runtime.getURL`-relative paths of the bundled webfont files,
- *  exported so other tooling (e.g. a build check) can verify they exist
- *  without duplicating the list. Matches manifest.json's
- *  web_accessible_resources entry (`fonts/*.woff2`). */
-export const FONT_ASSET_PATHS = [
+/** `chrome.runtime.getURL`-relative paths of the bundled webfont files —
+ *  the type source for FontSpec.path below, so a typo in FONT_SPECS is a
+ *  compile error. Matches manifest.json's web_accessible_resources entry
+ *  (`fonts/*.woff2`). */
+const FONT_ASSET_PATHS = [
   'fonts/instrument-serif-latin-400-normal.woff2',
   'fonts/instrument-serif-latin-400-italic.woff2',
   'fonts/instrument-sans-latin-400-normal.woff2',
@@ -418,17 +418,35 @@ function handleStorageChange(newValue: unknown): void {
   if (newValue !== currentMode) commitMode(newValue);
 }
 
+/** The one chrome.storage.onChanged listener this context registers, kept so
+ *  a full state reset can remove it rather than leave it firing into stale
+ *  module state. */
+let storageListener: ((changes: Record<string, chrome.storage.StorageChange>, areaName: string) => void) | null =
+  null;
+
 function setupStorageListener(): void {
   try {
-    chrome?.storage?.onChanged?.addListener((changes, areaName) => {
+    storageListener = (changes, areaName) => {
       if (areaName !== 'local') return;
       const change = changes?.[STORAGE_KEY];
       if (!change) return;
       handleStorageChange(change.newValue);
-    });
+    };
+    chrome?.storage?.onChanged?.addListener(storageListener);
   } catch {
     // chrome.storage unavailable.
+    storageListener = null;
   }
+}
+
+function teardownStorageListener(): void {
+  if (!storageListener) return;
+  try {
+    chrome?.storage?.onChanged?.removeListener?.(storageListener);
+  } catch {
+    // chrome.storage unavailable — nothing was registered.
+  }
+  storageListener = null;
 }
 
 function setupMatchMediaListener(): void {
@@ -564,6 +582,7 @@ export function registerThemedHost(hostEl: HTMLElement): () => void {
  *  import's defaults. Mirrors modal.ts's `_destroyForTests` pattern so
  *  theme.test.ts doesn't need `jest.resetModules()` between cases. */
 export function _resetThemeStateForTests(): void {
+  teardownStorageListener();
   currentMode = 'auto';
   currentResolved = resolveTheme(currentMode);
   initialized = false;
