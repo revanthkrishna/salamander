@@ -2001,23 +2001,26 @@ describe('note-in-list hover extension (design spec v2 §B)', () => {
     const note = cssRule('.thumbnail-note');
     // Same padding/position at rest as in hover — no separate hover variant
     // of this rule exists; only .thumbnail-note-bg's opacity changes.
-    expect(note).toMatch(/padding:\s*10px;/);
+    expect(note).toMatch(/padding:\s*10px 10px 0;/);
     expect(css()).not.toMatch(/\.thumbnail:hover \.thumbnail-note\s*\{[^}]*padding/);
   });
 
   test("the note's inset is the same on all four sides, top and bottom included (design spec v4 §L)", () => {
     sidebar.initSidebar(makeCallbacks());
-    // One shorthand value, so the four sides cannot drift apart. It used to
-    // be `8px 10px` — and the wrap's own 8px margin-top fell INSIDE the
-    // extension background (whose visible top edge is the thumbnail's bottom
-    // edge), so the text sat 16px below the thumbnail and 8px above the
-    // background's bottom: visibly more above than below.
-    const inset = /padding:\s*(\d+)px;/.exec(cssRule('.thumbnail-note'))?.[1];
-    expect(inset).toBe('10');
+    // Three sides are the note's own padding; the fourth is the WRAP's
+    // bottom padding, and it has to be. This element clips its clamped
+    // overflow at its padding box, so a bottom padding here gives the
+    // fourth line somewhere to paint and it shows as a half-line sliced
+    // through under the ellipsis. A bottom margin here is no good either:
+    // it collapses through the wrap and takes the background's inset with it.
+    const note = /padding:\s*(\d+)px\s+(\d+)px\s+(\d+)/.exec(cssRule('.thumbnail-note'));
+    expect(note?.slice(1)).toEqual(['10', '10', '0']);
+    const wrapPad = /padding-bottom:\s*(\d+)px/.exec(cssRule('.thumbnail-note-wrap'))?.[1];
+    expect(wrapPad).toBe('10');
 
-    // With the gap gone, the background's own box is exactly the note's
-    // padding box at the bottom (`bottom: 0`) and is hidden under the
-    // thumbnail at the top — so both visible edges sit `inset` from the text.
+    // The background's box is the wrap's padding box at the bottom
+    // (`bottom: 0`) and is hidden under the thumbnail at the top — so both
+    // visible edges sit the same 10px from the text.
     expect(cssRule('.thumbnail-note-wrap')).not.toMatch(/margin-top/);
     expect(cssRule('.thumbnail-note-bg')).toMatch(/bottom:\s*0/);
   });
@@ -2089,8 +2092,8 @@ describe('note-in-list hover delete (design spec v4 §L)', () => {
     expect(rule).toMatch(/right:\s*8px/);
     // .thumbnail-image-wrap carries z-index 1; this overlays it.
     expect(rule).toMatch(/z-index:\s*2/);
-    expect(rule).toMatch(/width:\s*24px/);
-    expect(rule).toMatch(/height:\s*24px/);
+    expect(rule).toMatch(/width:\s*32px/);
+    expect(rule).toMatch(/height:\s*32px/);
     // Inside the <li> dockMotion.ts transforms, so it magnifies with its item.
     expect(cssRule('.thumbnail-item')).toMatch(/transform-origin:\s*right center/);
   });
@@ -2124,7 +2127,7 @@ describe('note-in-list hover delete (design spec v4 §L)', () => {
     expect(rest).toMatch(/opacity 140ms ease-out/);
 
     expect(css()).toMatch(
-      /\.thumbnail-item:hover \.thumbnail-delete,\s*\.thumbnail-item:focus-within \.thumbnail-delete \{[^}]*opacity:\s*1/,
+      /\.thumbnail-item:hover \.thumbnail-delete,\s*\.thumbnail-item:has\(:focus-visible\) \.thumbnail-delete \{[^}]*opacity:\s*1/,
     );
     // Visible whenever it has focus (§L), so the ring never paints on an
     // invisible control.

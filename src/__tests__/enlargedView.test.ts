@@ -187,9 +187,9 @@ describe('geometry + flip math (design spec v5 §R)', () => {
     // The rail sits 20px off the VIEWPORT's right edge, not a scaled panel
     // inset, and the block reserves the same column width on BOTH sides.
     expect(g.railRight).toBe(20);
-    expect(g.columnW).toBe(1080 - 2 * (20 + 40 + 20));
-    expect(g.main).toMatchObject({ x: 440, w: 920, pad: 0 });
-    expect(g.columnRight).toBe(80);
+    expect(g.columnW).toBe(1080 - 2 * (20 + 36 + 20));
+    expect(g.main).toMatchObject({ x: 436, w: 928, pad: 0 });
+    expect(g.columnRight).toBe(76);
     // Block (title + image + textarea) centred vertically; the editor is the
     // textarea alone now that v5 §R took the bar away (96, not 144).
     const blockH = 46 + g.main.h + 16 + 96;
@@ -197,7 +197,8 @@ describe('geometry + flip math (design spec v5 §R)', () => {
     expect(g.main.y).toBe(g.titleTop + 46);
     expect(g.editorTop).toBe(g.main.y + g.main.h + 16);
     // The rail is centred on the viewport, independently of all of it.
-    expect(g.railTop).toBe(Math.round((900 - 144) / 2));
+    // Its height is three 36px buttons and the 8px gaps between/after them.
+    expect(g.railTop).toBe(Math.round((900 - (36 * 3 + 8 * 3)) / 2));
   });
 
   test('the block is centred in the sheet, horizontally and vertically, at every image size', () => {
@@ -226,7 +227,7 @@ describe('geometry + flip math (design spec v5 §R)', () => {
     expect(g.titleTop).toBe(321);
     expect(g.editorTop).toBe(483);
     expect(g.railRight).toBe(20);
-    expect(g.railTop).toBe(378);
+    expect(g.railTop).toBe(384);
     // Both peeks: 0.75 of their own 267x100, pushed the same distance right
     // of the block's centre x (800) because they are the same size.
     expect(g.prev.w).toBe(200);
@@ -391,7 +392,7 @@ describe('geometry + flip math (design spec v5 §R)', () => {
 
   test('a selection wider than the panel is scaled down by width (§M)', () => {
     const g = computeEnlargedGeometry(1440, 900, 300, nat(3000, 1000));
-    expect(g.main.w).toBe(920); // the sheet less both rail reserves
+    expect(g.main.w).toBe(928); // the sheet less both rail reserves
     expect(g.main.w / g.main.h).toBeCloseTo(3, 2);
     expect(g.columnW).toBe(g.main.w);
   });

@@ -158,7 +158,7 @@ const FRAME_RADIUS = RADII.md;
  *  out of flow, so it reserves no height while idle. */
 const EDITOR_HEIGHT = 96;
 const TITLE_BLOCK = 46; // 34px title row + 12px gap
-const RAIL_BTN = 40;
+const RAIL_BTN = 36;
 /** x + ↑ + ↓ stacked: three 40px buttons, an 8px gap between each and the
  *  extra 8px margin under x. */
 const RAIL_HEIGHT = RAIL_BTN * 3 + 8 * 3;

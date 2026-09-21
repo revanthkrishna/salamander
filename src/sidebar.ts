@@ -298,6 +298,14 @@ export const DEFAULT_THUMBNAIL_BOX_SIZE: { width: number; height: number } = {
   height: THUMBNAIL_IMAGE_HEIGHT_PX,
 };
 
+/** Gap between note rows in the list. */
+const THUMBNAIL_LIST_GAP_PX = 16;
+/** Removing a note: fade, then collapse the row and the gap under it, so the
+ *  list closes up instead of the note vanishing mid-list (v4 §L). */
+const ITEM_REMOVE_FADE_MS = 140;
+const ITEM_REMOVE_COLLAPSE_MS = 180;
+const ITEM_REMOVE_TOTAL_MS = ITEM_REMOVE_FADE_MS - 40 + ITEM_REMOVE_COLLAPSE_MS;
+
 /** Action row side padding (design spec §3.1). One value at every width now
  *  that §V's minimum guarantees the row fits — there is no compact layout to
  *  tighten it for. */
@@ -1137,7 +1145,7 @@ const SIDEBAR_CSS = `
     padding: 0 ${THUMBNAIL_LIST_PAD_X}px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: ${THUMBNAIL_LIST_GAP_PX}px;
     overflow: visible;
     /* No isolation here on purpose: the per-item z-index dockMotion.ts
        writes (most magnified on top) has to compete in .sidebar's stacking
@@ -1156,6 +1164,23 @@ const SIDEBAR_CSS = `
   .thumbnail-item {
     position: relative;
     transform-origin: right center;
+  }
+  /* Removal (v4 §L): the row fades, then collapses its own height and one
+     list gap so the notes below slide up rather than jumping. The starting
+     max-height is written inline first (a transition out of "none" does not
+     run) and the negative margin swallows the flex gap the zero-height row
+     would otherwise still contribute. No transform here: dockMotion.ts owns
+     this element's transform, and the two would fight. */
+  .thumbnail-item.is-removing {
+    opacity: 0;
+    max-height: 0 !important;
+    margin-bottom: -${THUMBNAIL_LIST_GAP_PX}px;
+    overflow: hidden;
+    pointer-events: none;
+    transition:
+      opacity ${ITEM_REMOVE_FADE_MS}ms ${EASE_ACC},
+      max-height ${ITEM_REMOVE_COLLAPSE_MS}ms ${EASE_STD} ${ITEM_REMOVE_FADE_MS - 40}ms,
+      margin-bottom ${ITEM_REMOVE_COLLAPSE_MS}ms ${EASE_STD} ${ITEM_REMOVE_FADE_MS - 40}ms;
   }
 
   /* ─── Note list items (design spec §3.1/§4) ───────────────────────────
@@ -1232,6 +1257,14 @@ const SIDEBAR_CSS = `
   .thumbnail-note-wrap {
     display: block;
     position: relative;
+    /* The note's bottom inset (§L). It cannot live on .thumbnail-note: that
+       element clips its own clamped overflow at its padding box, so a bottom
+       padding there shows a sliced fourth line under the ellipsis — and a
+       bottom MARGIN there would collapse straight through this block and
+       take the background's inset with it. Here it is inside the padding box
+       .thumbnail-note-bg is positioned against, so the background still sits
+       NOTE_INSET_PX below the last line. */
+    padding-bottom: ${NOTE_INSET_PX}px;
   }
   /* The note's hover/focus "extension" (design spec v2 §B): a separate layer
      so it can fade on opacity alone, exactly as before — dockMotion.ts still
@@ -1256,8 +1289,9 @@ const SIDEBAR_CSS = `
        (which is now also the wrap's top edge, §L) — far enough that the
        rounded top corners are hidden behind .thumbnail-image-wrap's higher
        z-index and opaque fill. Its visible top edge is therefore the
-       thumbnail's, and "bottom: 0" is the note's own bottom padding edge, so
-       the background sits NOTE_INSET_PX from the text at both ends. */
+       thumbnail's, and "bottom: 0" is the wrap's padding edge, one
+       NOTE_INSET_PX below the last line, so the background sits the same
+       distance from the text at both ends. */
     top: calc(-1 * var(--sal-radius-md));
     bottom: 0;
     border-radius: 0 0 var(--sal-radius-md) var(--sal-radius-md);
@@ -1277,14 +1311,21 @@ const SIDEBAR_CSS = `
   .thumbnail-note {
     position: relative;
     margin: 0;
-    /* Uniform on all four sides (§L) — the whole of the note's inset, in
-       both rest and hover. */
-    padding: ${NOTE_INSET_PX}px;
+    /* The inset is uniform on all four sides (§L), but only three of them
+       are here: overflow clips at the PADDING box, so a bottom padding gives
+       the clamped fourth line somewhere to paint and it shows as a half-line
+       sliced through under the ellipsis. With none, the clip lands exactly on
+       the third line. The fourth side is .thumbnail-note-wrap's
+       padding-bottom (a margin here would collapse through it). */
+    padding: ${NOTE_INSET_PX}px ${NOTE_INSET_PX}px 0;
     max-width: 100%;
     border-radius: var(--sal-radius-md);
     background: transparent;
     font-size: 13px;
-    line-height: 1.4;
+    /* Integer, not 1.4: the clamp below cuts at a whole number of lines, but
+       a fractional line box rounds up and leaves a 1-2px sliver of the
+       fourth line showing under the ellipsis. */
+    line-height: 18px;
     color: var(--sal-text);
     word-break: break-word;
     /* Clamp to 3 lines (§3.1) rather than letting long notes push the list
@@ -1327,15 +1368,18 @@ const SIDEBAR_CSS = `
     right: 8px;
     /* Above .thumbnail-image-wrap's z-index: 1, which is what it overlays. */
     z-index: 2;
-    width: 24px;
-    height: 24px;
+    /* 32px — the "small" button size (the close and theme buttons here, and
+       the enlarged view's delete). There are two sizes in this UI and no
+       others: small 32, medium 36 (the action row). */
+    width: 32px;
+    height: 32px;
     margin: 0;
     padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     border: 1px solid var(--sal-line);
-    border-radius: var(--sal-radius-sm);
+    border-radius: var(--sal-radius-md);
     background: var(--sal-surface);
     color: var(--sal-muted);
     cursor: pointer;
@@ -1346,10 +1390,10 @@ const SIDEBAR_CSS = `
        the first rather than add to it. */
     ${STATE_TRANSITION_CSS.replace(/;$/, ', opacity 140ms ease-out;')}
   }
-  .thumbnail-delete .icon { width: 14px; height: 14px; display: inline-flex; }
+  .thumbnail-delete .icon { width: 16px; height: 16px; display: inline-flex; }
   .thumbnail-delete .icon svg { width: 100%; height: 100%; display: block; }
   .thumbnail-item:hover .thumbnail-delete,
-  .thumbnail-item:focus-within .thumbnail-delete {
+  .thumbnail-item:has(:focus-visible) .thumbnail-delete {
     opacity: 1;
     pointer-events: auto;
   }
@@ -2266,6 +2310,50 @@ export function setAddModeHold(hold: boolean): void {
  *  thumbnail itself: it is a second real button in the same <li>, so it
  *  needs the same treatment or add mode would leave a live "delete" one Tab
  *  away from a held list. */
+/**
+ * Play a note row's removal, returning a promise that resolves when it has
+ * finished — the caller then tells content.ts to actually delete, so the
+ * repaint that follows lands on a list that has already closed the gap.
+ *
+ * Returns null when there is nothing to animate (reduced motion, or a row
+ * with no box: a detached list, and every jsdom test). The caller deletes
+ * synchronously in that case rather than deferring by a microtask for an
+ * animation that was never going to run.
+ *
+ * Resolves on a timer as well as `transitionend`, so a dropped event can
+ * never strand the delete.
+ */
+function playItemRemoval(itemId: number): Promise<void> | null {
+  const li = elThumbnailList
+    ?.querySelector<HTMLElement>(`button.thumbnail[data-item-id="${itemId}"]`)
+    ?.closest<HTMLElement>('.thumbnail-item');
+  if (!li) return null;
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) return null;
+  const height = li.getBoundingClientRect().height;
+  if (height <= 0) return null;
+
+  // A transition out of max-height: none does not run, so pin the row's
+  // current height first and let the browser see it before the class lands.
+  li.style.maxHeight = `${height}px`;
+  void li.offsetHeight;
+  li.classList.add('is-removing');
+
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (): void => {
+      if (done) return;
+      done = true;
+      li.removeEventListener('transitionend', onEnd);
+      resolve();
+    };
+    const onEnd = (e: TransitionEvent): void => {
+      if (e.target === li && e.propertyName === 'max-height') finish();
+    };
+    li.addEventListener('transitionend', onEnd);
+    setTimeout(finish, ITEM_REMOVE_TOTAL_MS + 60);
+  });
+}
+
 function applyListHold(): void {
   if (!elThumbnailList) return;
   const held = elThumbnailList.querySelectorAll<HTMLButtonElement>('button.thumbnail, button.thumbnail-delete');
@@ -2333,7 +2421,12 @@ function renderItems(items: FeedbackItem[]): void {
       if (addModeHold) return;
       const state = enlargedView?.getState();
       if (state === 'opening' || state === 'open') return;
-      callbacksRef?.onDeleteItem?.(item);
+      const removal = playItemRemoval(item.id);
+      if (!removal) {
+        callbacksRef?.onDeleteItem?.(item);
+        return;
+      }
+      void removal.then(() => callbacksRef?.onDeleteItem?.(item));
     },
   });
   // A fresh list starts with default tabindexes — re-assert the §H hold if
