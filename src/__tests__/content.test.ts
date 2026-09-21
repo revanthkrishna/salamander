@@ -188,7 +188,10 @@ describe('content.ts: "add note" toggle + "keep on" switch (design spec v3 §A2)
     expect(addGroup().classList.contains('is-on')).toBe(true);
     expect(addGroup().classList.contains('is-switch-on')).toBe(false);
     expect(btn.getAttribute('aria-pressed')).toBe('true');
-    expect(btn.getAttribute('aria-label')).toBe('add note (on)');
+    // The NAME stays put (aria-pressed announces the state); the tooltip is
+    // what says what a click will do now.
+    expect(btn.getAttribute('aria-label')).toBe('add note');
+    expect(btn.title).toBe('cancel note');
   });
 
   test('a second click with no following dblclick cancels add mode after the double-click window', () => {
@@ -222,7 +225,8 @@ describe('content.ts: "add note" toggle + "keep on" switch (design spec v3 §A2)
     expect(addMode.isAddModeActive()).toBe(true);
     expect(addGroup().classList.contains('is-on')).toBe(true);
     expect(addGroup().classList.contains('is-switch-on')).toBe(true);
-    expect(btn.getAttribute('aria-label')).toBe('add note (kept on)');
+    expect(btn.getAttribute('aria-label')).toBe('add note');
+    expect(btn.title).toBe('stop adding notes');
     expect(addSwitch().getAttribute('aria-checked')).toBe('true');
 
     // The pre-empted timer must not still be pending.
@@ -373,7 +377,8 @@ describe('content.ts: "add note" toggle + "keep on" switch (design spec v3 §A2)
     expect(addGroup().classList.contains('is-on')).toBe(true);
     expect(addGroup().classList.contains('is-switch-on')).toBe(true);
     expect(addSwitch().getAttribute('aria-checked')).toBe('true');
-    expect(addButton().getAttribute('aria-label')).toBe('add note (kept on)');
+    expect(addButton().getAttribute('aria-label')).toBe('add note');
+    expect(addButton().title).toBe('stop adding notes');
   });
 
   test('clicking the merged control (either half) stops everything', () => {

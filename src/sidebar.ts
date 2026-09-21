@@ -1604,8 +1604,8 @@ function buildDOM(shadow: ShadowRoot): void {
   elAddSwitch.className = 'add-switch';
   elAddSwitch.setAttribute('role', 'switch');
   elAddSwitch.setAttribute('aria-checked', 'false');
-  elAddSwitch.setAttribute('aria-label', ADD_SWITCH_LABEL);
-  elAddSwitch.title = ADD_SWITCH_LABEL;
+  elAddSwitch.setAttribute('aria-label', ADD_SWITCH_NAME);
+  elAddSwitch.title = ADD_SWITCH_TITLES.off;
   const switchTrack = document.createElement('span');
   switchTrack.className = 'add-switch-track';
   switchTrack.setAttribute('aria-hidden', 'true');
@@ -1789,10 +1789,19 @@ export type AddButtonState = 'off' | 'on' | 'kept-on';
 /** aria-label + title per state (§A2). The label is state-dependent here
  *  rather than fixed because the button is icon-only — with no visible text,
  *  the accessible name is the only place "on"/"kept on" can be read out. */
-const ADD_BUTTON_LABELS: Record<AddButtonState, string> = {
+/** The button's accessible name. Deliberately does NOT change with the
+ *  state: this is a toggle, and aria-pressed is what announces on/off. A
+ *  name that changed as well would have the state said twice, and in two
+ *  different vocabularies. */
+const ADD_BUTTON_NAME = 'add note';
+
+/** The visible tooltip, which DOES change — it says what the click will do
+ *  right now. Merged (kept-on) the two halves are one button, so this and
+ *  ADD_SWITCH_TITLES.on are deliberately the same sentence. */
+const ADD_BUTTON_TITLES: Record<AddButtonState, string> = {
   off: 'add note',
-  on: 'add note (on)',
-  'kept-on': 'add note (kept on)',
+  on: 'cancel note',
+  'kept-on': 'stop adding notes',
 };
 
 /** Screen-reader description (aria-describedby) per state: what the switch
@@ -1805,9 +1814,16 @@ const ADD_BUTTON_DESCRIPTIONS: Record<AddButtonState, string> = {
 
 const ADD_BUTTON_DESC_ID = 'add-note-desc';
 
-/** The switch's own accessible name/tooltip (§A2) — fixed, since its state
- *  is carried by aria-checked. */
-const ADD_SWITCH_LABEL = 'keep add mode on';
+/** The switch's accessible name (§A2) — fixed, since role="switch" carries
+ *  its state in aria-checked. */
+const ADD_SWITCH_NAME = 'keep add mode on';
+
+/** Its visible tooltip, which says what flicking it does. On, the halves
+ *  are one button and this matches ADD_BUTTON_TITLES['kept-on']. */
+const ADD_SWITCH_TITLES = {
+  off: 'keep adding notes',
+  on: 'stop adding notes',
+} as const;
 
 /**
  * Paint the "add note" group for `state` (design spec v3 §A2):
@@ -1827,8 +1843,9 @@ export function setAddButtonState(state: AddButtonState): void {
   elAddGroup.classList.toggle('is-on', isOn);
   elAddGroup.classList.toggle('is-switch-on', keepOn);
   elBtnAdd.setAttribute('aria-pressed', String(isOn));
-  elBtnAdd.setAttribute('aria-label', ADD_BUTTON_LABELS[state]);
-  elBtnAdd.title = ADD_BUTTON_LABELS[state];
+  elBtnAdd.setAttribute('aria-label', ADD_BUTTON_NAME);
+  elBtnAdd.title = ADD_BUTTON_TITLES[state];
+  if (elAddSwitch) elAddSwitch.title = keepOn ? ADD_SWITCH_TITLES.on : ADD_SWITCH_TITLES.off;
   elAddSwitch?.setAttribute('aria-checked', String(keepOn));
   // Merged: while the switch is on the group is one button, so it is one tab
   // stop too — the button half carries it, and both halves do the same thing

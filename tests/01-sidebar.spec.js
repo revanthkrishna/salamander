@@ -33,7 +33,7 @@ test('clicking the icon opens the sidebar, docked right, with the header/action-
   // row into two groups — "add note" (icon-only) with a "keep add mode on"
   // switch, and export with a chevron whose menu holds "import".
   // export/close keep a fixed aria-label; the add button's is state-dependent
-  // ("add note" / "add note (on)" / "add note (kept on)"), so its selector
+  // (the tooltip changes with the state, the aria-label does not), so its selector
   // targets the stable .btn-add class instead (see SELECTORS.btnAdd).
   const page = await context.newPage();
   await page.goto(fileServer.baseUrl);

@@ -1175,8 +1175,15 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     expect(addButton().textContent).toBe('');
     expect(addSwitch().getAttribute('role')).toBe('switch');
     expect(addSwitch().getAttribute('aria-checked')).toBe('false');
+    // Fixed name (role="switch" + aria-checked carry the state), action
+    // tooltip. Merged, the tooltip matches the button's: one control.
     expect(addSwitch().getAttribute('aria-label')).toBe('keep add mode on');
-    expect(addSwitch().title).toBe('keep add mode on');
+    expect(addSwitch().title).toBe('keep adding notes');
+    sidebar.setAddButtonState('kept-on');
+    expect(addSwitch().title).toBe('stop adding notes');
+    expect(addButton().title).toBe('stop adding notes');
+    expect(addSwitch().getAttribute('aria-label')).toBe('keep add mode on');
+    sidebar.setAddButtonState('off');
   });
 
   test('setAddButtonState keeps its three values; "locked" now paints button-on + switch-on', () => {
@@ -1189,14 +1196,16 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     expect(group().classList.contains('is-switch-on')).toBe(false);
     expect(addButton().getAttribute('aria-pressed')).toBe('true');
     // Icon-only, so the state has to ride on the accessible name.
-    expect(addButton().getAttribute('aria-label')).toBe('add note (on)');
+    expect(addButton().getAttribute('aria-label')).toBe('add note');
+    expect(addButton().title).toBe('cancel note');
     expect(addSwitch().getAttribute('aria-checked')).toBe('false');
 
     sidebar.setAddButtonState('kept-on');
     expect(group().classList.contains('is-on')).toBe(true);
     expect(group().classList.contains('is-switch-on')).toBe(true);
     expect(addButton().getAttribute('aria-pressed')).toBe('true');
-    expect(addButton().getAttribute('aria-label')).toBe('add note (kept on)');
+    expect(addButton().getAttribute('aria-label')).toBe('add note');
+    expect(addButton().title).toBe('stop adding notes');
     expect(addSwitch().getAttribute('aria-checked')).toBe('true');
     expect(desc().textContent).toMatch(/kept on/);
 

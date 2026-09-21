@@ -649,3 +649,22 @@ Three sizes, and no others:
 | 36 | the action row: the add-note group and the export + chevron group |
 
 Icons stay 16px in all three (17px for the add button's comment glyph, 18px for close).
+
+## Y. The add-note group's labels (2026-09-21)
+
+The TOOLTIP says what a click will do now; the ACCESSIBLE NAME does not change.
+
+| state | button tooltip | switch tooltip |
+|---|---|---|
+| off | add note | keep adding notes |
+| on (switch off) | cancel note | keep adding notes |
+| on + switch on (merged) | stop adding notes | stop adding notes |
+
+Merged, the two halves are one button and deliberately share one sentence.
+
+The names stay fixed — `add note` on the button, `keep add mode on` on the switch — because
+`aria-pressed` and `aria-checked` are what announce the state. A name that changed with the state
+would have it said twice, in two vocabularies.
+
+"add mode" stays out of the visible copy: it is a term from this spec and the code, and appears
+nowhere else in the UI.
