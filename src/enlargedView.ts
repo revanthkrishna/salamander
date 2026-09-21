@@ -77,8 +77,12 @@
 
 import { FeedbackItem } from './types';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
-// The project's one trash glyph (design spec v5 §S) — the note list's.
-import { ICON_TRASH } from './thumbnails';
+import { AutosaveController } from './autosave';
+// ICON_TRASH is the project's one trash glyph (design spec v5 §S) — the same
+// one the note list's hover delete draws.
+import { ICON_ARROW_DOWN, ICON_ARROW_UP, ICON_COLLAPSE, ICON_TRASH } from './icons';
+import { DELETE_ERROR_MESSAGE, EMPTY_NOTE_MESSAGE, SAVE_ERROR_MESSAGE, saveErrorFor } from './copy';
+import { cancelAnimationFrameSafe, reducedMotionQuery, requestAnimationFrameSafe } from './dom';
 import { FOCUS_RING_CSS, DISABLED_CSS, STATE_TRANSITION_CSS, RADII } from './theme';
 import {
   ACC,
@@ -98,19 +102,6 @@ import {
   trackedValue,
   tweenProgress,
 } from './flip';
-
-// ---------------------------------------------------------------------------
-// Copy (lowercase UI, §3.4). The save/delete failures are the old modal's
-// strings, byte-exact.
-// ---------------------------------------------------------------------------
-
-export const SAVE_ERROR_MESSAGE = "couldn't save note. try again.";
-/** A save failure for a note other than the one on screen names it. */
-export function saveErrorFor(id: number): string {
-  return `couldn't save note #${id}. try again.`;
-}
-export const DELETE_ERROR_MESSAGE = "couldn't delete item. try again.";
-export const EMPTY_NOTE_MESSAGE = "a note can't be empty. add some text to continue.";
 
 // ---------------------------------------------------------------------------
 // Timing (MOTION_SPEC §5–§12). Durations in ms.
@@ -659,12 +650,22 @@ export const ENLARGED_VIEW_CSS = `
     transform-origin: 0 0;
   }
   .xp-card:focus-visible .xp-card-frame { ${FOCUS_RING_CSS} }
-  .xp-card-img {
+  /* The media box: the contain-fit of the screenshot into the frame, and
+     the element the morph's second track transforms (flip.ts). The <img>
+     fills it; a future overlay (an annotation layer) is its sibling and
+     rides the same transform for free. overflow + the radius here clip
+     exactly as the radius on the <img> alone used to. */
+  .xp-card-media {
     position: absolute;
     display: block;
+    overflow: hidden;
+    transform-origin: 0 0;
+  }
+  .xp-card-img {
+    display: block;
+    width: 100%; height: 100%;
     max-width: none;
     object-fit: contain;
-    transform-origin: 0 0;
   }
   .xp-card-badge {
     position: absolute; top: 8px; left: 8px;
@@ -680,24 +681,6 @@ export const ENLARGED_VIEW_CSS = `
     .xp-note-input { transition: none; }
   }
 `;
-
-// ---------------------------------------------------------------------------
-// Icons (1.8px stroke, round caps/joins — design spec §1)
-// ---------------------------------------------------------------------------
-
-const STROKE =
-  'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
-  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
-/** "collapse the panel to the right" (design spec v5 §U): a rounded panel
- *  outline, a divider three-quarters across, and a chevron pointing right in
- *  the larger left area. It replaces the × — the aria-label and title still
- *  say "exit enlarged view", which is what carries the meaning to AT. */
-const ICON_COLLAPSE =
-  `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE}>` +
-  '<rect x="3" y="4" width="18" height="16" rx="2.5"/>' +
-  '<path d="M15.5 4v16M8 9.5l3 2.5-3 2.5"/></svg>';
-const ICON_UP = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE}><path d="M6 15l6-6 6 6"/></svg>`;
-const ICON_DOWN = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE}><path d="M6 9l6 6 6-6"/></svg>`;
 
 const TITLE_ID = 'xp-title';
 const STATUS_ID = 'xp-status';
@@ -886,6 +869,9 @@ interface Card {
   el: HTMLButtonElement;
   lift: HTMLElement;
   frame: HTMLElement;
+  /** Holds the <img> (and, later, anything drawn over it); carries the
+   *  contain-fit box and the morph's image track. */
+  media: HTMLElement;
   img: HTMLImageElement;
   badge: HTMLElement;
   role: Role | 'gone';
@@ -898,17 +884,6 @@ interface Card {
 }
 
 type Timer = ReturnType<typeof setTimeout>;
-
-const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
-
-function reducedMotionQuery(): MediaQueryList | null {
-  try {
-    if (typeof window.matchMedia !== 'function') return null;
-    return window.matchMedia(REDUCED_MOTION_QUERY) ?? null;
-  } catch {
-    return null;
-  }
-}
 
 function viewportSize(): { w: number; h: number } {
   const de = document.documentElement;
@@ -979,15 +954,11 @@ class EnlargedView {
   // Notes
   /** id of the note whose content (title/editor) is on screen. */
   private shownId: number | null = null;
-  private drafts = new Map<number, string>();
-  private saved = new Map<number, string>();
-  private saveSeq = new Map<number, number>();
-  /** Value of each note's latest save still awaiting a reply — counts as
-   *  not dirty, so blur-then-navigate doesn't send the same UPDATE twice. */
-  private inflight = new Map<number, string>();
-  /** Notes whose latest save failed. They stay dirty and are retried by the
-   *  next flushSave() (navigate / collapse / unload). */
-  private failed = new Set<number>();
+  /** Draft / stored / in-flight / failed tracking for the note text
+   *  (src/autosave.ts). The note-specific policy — an empty note is never
+   *  saved; what a settled save does to the status slot, the banner and
+   *  the list — sits on top of it in the Autosave section below. */
+  private autosave: AutosaveController<string>;
   private listDirty = false;
   private fullImages = new Map<number, string>();
   private fetching = new Set<number>();
@@ -998,7 +969,6 @@ class EnlargedView {
   // Timers
   private settleTimer: Timer | null = null;
   private swapTimer: Timer | null = null;
-  private saveTimer: Timer | null = null;
   private suspendTimer: Timer | null = null;
   private panelSnapTimer: Timer | null = null;
   /** The delete step's own timer — never shares settleTimer, which a delete
@@ -1023,10 +993,16 @@ class EnlargedView {
   ) {
     this.items = items.map((it) => ({ ...it }));
     this.idx = Math.max(0, Math.min(index, this.items.length - 1));
-    for (const it of this.items) {
-      this.drafts.set(it.id, it.note);
-      this.saved.set(it.id, it.note);
-    }
+    this.autosave = new AutosaveController<string>({
+      debounceMs: T.autosave,
+      equals: (a, b) => a === b,
+      // Never autosave an empty note — the last non-empty text stays stored.
+      savable: (value) => value.trim() !== '',
+      save: this.saveNote,
+      onSaveStarted: this.onSaveStarted,
+      onSettled: this.onSaveSettled,
+    });
+    for (const it of this.items) this.autosave.seed(it.id, it.note);
     this.geo = this.computeGeometry();
     this.mql = reducedMotionQuery();
     this.reduced = this.mql?.matches ?? false;
@@ -1180,8 +1156,8 @@ class EnlargedView {
     // Rail.
     this.rail = div('xp-rail');
     this.btnExit = railButton(ICON_COLLAPSE, 'exit enlarged view', 'exit enlarged view (esc)', 'xp-exit');
-    this.btnUp = railButton(ICON_UP, 'previous note', 'previous note (↑)', 'xp-prev');
-    this.btnDown = railButton(ICON_DOWN, 'next note', 'next note (↓)', 'xp-next');
+    this.btnUp = railButton(ICON_ARROW_UP, 'previous note', 'previous note (↑)', 'xp-prev');
+    this.btnDown = railButton(ICON_ARROW_DOWN, 'next note', 'next note (↓)', 'xp-next');
     this.btnExit.addEventListener('click', () => void this.requestCollapse());
     this.btnUp.addEventListener('click', () => this.go(-1));
     this.btnDown.addEventListener('click', () => this.go(1));
@@ -1405,6 +1381,8 @@ class EnlargedView {
     lift.className = 'xp-card-lift';
     const frame = document.createElement('span');
     frame.className = 'xp-card-frame';
+    const media = document.createElement('span');
+    media.className = 'xp-card-media';
     const img = document.createElement('img');
     img.className = 'xp-card-img';
     img.alt = '';
@@ -1414,7 +1392,8 @@ class EnlargedView {
     badge.className = 'xp-card-badge';
     badge.textContent = String(item.id);
     badge.setAttribute('aria-hidden', 'true');
-    frame.appendChild(img);
+    media.appendChild(img);
+    frame.appendChild(media);
     lift.append(frame, badge);
     el.append(lift);
 
@@ -1423,6 +1402,7 @@ class EnlargedView {
       el,
       lift,
       frame,
+      media,
       img,
       badge,
       role: 'gone',
@@ -1469,12 +1449,12 @@ class EnlargedView {
     s.width = `${slot.w}px`;
     s.height = `${slot.h}px`;
     const ib = containFit(card.aspect, insetBox({ x: 0, y: 0, w: slot.w, h: slot.h }, slot.pad));
-    const is = card.img.style;
-    is.left = `${ib.x}px`;
-    is.top = `${ib.y}px`;
-    is.width = `${ib.w}px`;
-    is.height = `${ib.h}px`;
-    is.borderRadius = `${slot.imgR}px`;
+    const ms = card.media.style;
+    ms.left = `${ib.x}px`;
+    ms.top = `${ib.y}px`;
+    ms.width = `${ib.w}px`;
+    ms.height = `${ib.h}px`;
+    ms.borderRadius = `${slot.imgR}px`;
   }
 
   private morphCard(card: Card, from: Slot, to: Slot, duration: number): void {
@@ -1484,7 +1464,7 @@ class EnlargedView {
     const opts: KeyframeAnimationOptions = { duration, easing: 'linear' };
     const anims = [
       animateEl(card.frame, kf.frame, opts),
-      animateEl(card.img, kf.img, opts),
+      animateEl(card.media, kf.media, opts),
       animateEl(card.badge, kf.badge, opts),
     ].filter((a): a is Animation => a !== null);
     card.morph = { tween: { from, to, start: now(), delay: 0, duration, ease: STD.fn }, anims };
@@ -1591,7 +1571,7 @@ class EnlargedView {
     this.shownId = item.id;
     this.applyStageGeometry();
     this.titleEl.textContent = `feedback #${item.id}`;
-    this.textarea.value = this.drafts.get(item.id) ?? item.note;
+    this.textarea.value = this.autosave.draft(item.id) ?? item.note;
     this.textarea.classList.remove('is-error');
     this.setStatus('none', true);
     this.surfaceSaveFailure();
@@ -1666,10 +1646,7 @@ class EnlargedView {
     if (!item) return;
     const card = this.cards.get(item.id);
     this.deleting = true;
-    if (this.saveTimer && this.shownId === item.id) {
-      clearTimeout(this.saveTimer);
-      this.saveTimer = null;
-    }
+    if (this.shownId === item.id) this.autosave.cancelPending(item.id);
     this.textarea.classList.remove('is-error');
     this.setStatus('none', true);
 
@@ -1720,10 +1697,7 @@ class EnlargedView {
   private applyDeletion(item: FeedbackItem, card: Card | undefined): void {
     const oldIdx = this.idx;
     this.items = this.items.filter((i) => i.id !== item.id);
-    this.drafts.delete(item.id);
-    this.saved.delete(item.id);
-    this.inflight.delete(item.id);
-    this.failed.delete(item.id);
+    this.autosave.forget(item.id);
     this.listDirty = true;
     if (card) this.removeCard(card);
 
@@ -1850,8 +1824,8 @@ class EnlargedView {
    *  failed (the list would silently show text that isn't stored). */
   private itemsForList(): FeedbackItem[] {
     return this.items.map((it) => {
-      const d = this.drafts.get(it.id);
-      if (this.unresolvedFailure(it.id)) return it;
+      const d = this.autosave.draft(it.id);
+      if (this.autosave.unresolvedFailure(it.id)) return it;
       return d !== undefined && d.trim() !== '' ? { ...it, note: d } : it;
     });
   }
@@ -1863,8 +1837,7 @@ class EnlargedView {
     if (this.state === 'closed') return;
     this.state = 'closed';
     this.clearChoreoTimers();
-    if (this.saveTimer) clearTimeout(this.saveTimer);
-    this.saveTimer = null;
+    this.autosave.dispose();
     this.shakeAnim?.cancel();
     this.shakeAnim = null;
     if (this.resizeRaf !== null) cancelAnimationFrameSafe(this.resizeRaf);
@@ -1907,7 +1880,7 @@ class EnlargedView {
     // A save that failed and isn't being retried: the list (and its banner)
     // is visible again, so report it there. Retries still in flight report
     // themselves when they settle (save()).
-    const lost = [...this.failed].find((f) => this.unresolvedFailure(f));
+    const lost = this.autosave.firstUnresolvedFailure();
     if (lost !== undefined) this.mount.showBanner(saveErrorFor(lost));
     this.callbacks.onClosed(id);
   }
@@ -1924,14 +1897,19 @@ class EnlargedView {
   }
 
   // ─── Autosave (MOTION_SPEC §10) ───────────────────────────────────────────
+  //
+  // The draft / stored / in-flight / failed / sequence bookkeeping is
+  // src/autosave.ts's AutosaveController (one instance for the note text;
+  // a second per-item field would be a second instance). What is here is
+  // the note's own policy: never save an empty note, and what a settled
+  // save does to the status slot, the sidebar banner and the list.
 
   private onInput = (): void => {
     const id = this.shownId;
     if (id === null) return;
     const value = this.textarea.value;
-    this.drafts.set(id, value);
-    if (this.saveTimer) clearTimeout(this.saveTimer);
-    this.saveTimer = null;
+    this.autosave.setDraft(id, value);
+    this.autosave.cancelPending();
     if (value.trim() === '') {
       // Never autosave an empty note — the last non-empty text stays stored.
       if (this.statusKind === 'save-error') this.setStatus('none');
@@ -1939,82 +1917,55 @@ class EnlargedView {
     }
     if (this.statusKind === 'empty-error') this.clearEmptyError();
     else if (this.statusKind === 'save-error' || this.statusKind === 'delete-error') this.setStatus('none');
-    this.saveTimer = setTimeout(() => {
-      this.saveTimer = null;
-      this.save(id);
-    }, T.autosave);
+    this.autosave.schedule(id);
   };
 
   private onBlur = (): void => {
     if (this.state === 'closed') return;
     const id = this.shownId;
     if (id === null) return;
-    if (this.saveTimer) {
-      clearTimeout(this.saveTimer);
-      this.saveTimer = null;
-    }
-    if (this.isDirty(id)) this.save(id);
+    this.autosave.cancelPending();
+    if (this.autosave.isDirty(id)) this.autosave.saveNow(id);
   };
-
-  private isDirty(id: number): boolean {
-    const d = this.drafts.get(id);
-    return d !== undefined && d.trim() !== '' && d !== this.saved.get(id) && d !== this.inflight.get(id);
-  }
-
-  /** A failed save with no retry in flight. */
-  private unresolvedFailure(id: number): boolean {
-    return this.failed.has(id) && !this.inflight.has(id);
-  }
 
   /** Immediate save of the shown note's pending change, plus a retry of
    *  every note whose last save failed (navigate / collapse / unload). */
   flushSave(): void {
-    if (this.saveTimer) {
-      clearTimeout(this.saveTimer);
-      this.saveTimer = null;
-    }
-    const id = this.shownId;
-    if (id !== null && this.isDirty(id)) this.save(id);
-    for (const f of [...this.failed]) {
-      if (f !== id && this.isDirty(f)) this.save(f);
-    }
+    this.autosave.flush(this.shownId);
   }
 
-  private save(id: number): void {
+  /** AutosaveOptions.save — the UPDATE round trip, via content.ts. Every id
+   *  with a draft is in `items` (a deleted note is forgotten first), so the
+   *  lookup cannot miss. */
+  private saveNote = (id: number, value: string): Promise<boolean> => {
     const item = this.items.find((i) => i.id === id);
-    const value = this.drafts.get(id);
-    if (!item || value === undefined || value.trim() === '') return;
-    const seq = (this.saveSeq.get(id) ?? 0) + 1;
-    this.saveSeq.set(id, seq);
-    this.inflight.set(id, value);
+    if (!item) return Promise.resolve(false);
+    return this.callbacks.onSaveNote(item, value);
+  };
+
+  private onSaveStarted = (): void => {
     this.listDirty = true;
-    void this.callbacks
-      .onSaveNote(item, value)
-      .catch(() => false)
-      .then((ok) => {
-        if (this.saveSeq.get(id) !== seq) return; // superseded by a newer save
-        this.inflight.delete(id);
-        // 'closing' counts as off screen: the editor is already fading out.
-        const up = this.state === 'open' || this.state === 'opening';
-        if (ok) {
-          this.saved.set(id, value);
-          item.note = value;
-          this.failed.delete(id);
-          // A success says nothing at all now (v5 §R): it only clears a
-          // failure this note was still showing, or surfaces another note's.
-          if (!up || this.statusKind === 'empty-error') return;
-          if ([...this.failed].some((f) => this.unresolvedFailure(f))) this.surfaceSaveFailure();
-          else if (this.statusKind === 'save-error') this.setStatus('none');
-          return;
-        }
-        this.failed.add(id);
-        if (this.state === 'closing') this.listDirty = true;
-        if (this.state === 'closed') this.mount.showBanner(saveErrorFor(id));
-        // Mid-swap, setContent() surfaces it once the new content is in;
-        // mid-collapse, finish() reports it on the (by then visible) list.
-        else if (up && this.swapTimer === null) this.surfaceSaveFailure();
-      });
-  }
+  };
+
+  private onSaveSettled = (id: number, value: string, ok: boolean): void => {
+    // 'closing' counts as off screen: the editor is already fading out.
+    const up = this.state === 'open' || this.state === 'opening';
+    if (ok) {
+      const item = this.items.find((i) => i.id === id);
+      if (item) item.note = value;
+      // A success says nothing at all now (v5 §R): it only clears a
+      // failure this note was still showing, or surfaces another note's.
+      if (!up || this.statusKind === 'empty-error') return;
+      if (this.autosave.hasUnresolvedFailure()) this.surfaceSaveFailure();
+      else if (this.statusKind === 'save-error') this.setStatus('none');
+      return;
+    }
+    if (this.state === 'closing') this.listDirty = true;
+    if (this.state === 'closed') this.mount.showBanner(saveErrorFor(id));
+    // Mid-swap, setContent() surfaces it once the new content is in;
+    // mid-collapse, finish() reports it on the (by then visible) list.
+    else if (up && this.swapTimer === null) this.surfaceSaveFailure();
+  };
 
   /** Show the first unresolved save failure in the status slot — the shown
    *  note's own, else another note's, by number. Never over the empty-note
@@ -2022,11 +1973,11 @@ class EnlargedView {
   private surfaceSaveFailure(): void {
     if (this.statusKind === 'empty-error') return;
     const shown = this.shownId;
-    if (shown !== null && this.unresolvedFailure(shown)) {
+    if (shown !== null && this.autosave.unresolvedFailure(shown)) {
       this.setStatus('save-error');
       return;
     }
-    const other = [...this.failed].find((f) => this.unresolvedFailure(f));
+    const other = this.autosave.firstUnresolvedFailure();
     if (other !== undefined) this.setStatus('save-error', false, saveErrorFor(other));
   }
 
@@ -2064,7 +2015,7 @@ class EnlargedView {
   private blockIfEmpty(): boolean {
     const id = this.shownId;
     if (id === null || this.state === 'closing' || this.state === 'closed') return false;
-    const draft = this.drafts.get(id) ?? '';
+    const draft = this.autosave.draft(id) ?? '';
     if (draft.trim() !== '') return false;
     const first = this.statusKind !== 'empty-error';
     this.textarea.classList.add('is-error');
@@ -2206,14 +2157,4 @@ function setBox(el: HTMLElement, box: { right: number; top: number; width?: numb
   el.style.right = `${box.right}px`;
   el.style.top = `${box.top}px`;
   if (box.width !== undefined) el.style.width = `${box.width}px`;
-}
-
-function requestAnimationFrameSafe(cb: () => void): number {
-  if (typeof window.requestAnimationFrame === 'function') return window.requestAnimationFrame(() => cb());
-  return setTimeout(cb, 16) as unknown as number;
-}
-
-function cancelAnimationFrameSafe(id: number): void {
-  if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(id);
-  else clearTimeout(id as unknown as Timer);
 }

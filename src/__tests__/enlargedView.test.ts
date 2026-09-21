@@ -13,15 +13,12 @@ import {
   arcPush,
   arcRadius,
   computeEnlargedGeometry,
-  EMPTY_NOTE_MESSAGE,
-  SAVE_ERROR_MESSAGE,
-  DELETE_ERROR_MESSAGE,
   PEEK_REVEAL_PX,
   PEEK_SCALE,
-  saveErrorFor,
   T,
   EnlargedViewCallbacks,
 } from '../enlargedView';
+import { DELETE_ERROR_MESSAGE, EMPTY_NOTE_MESSAGE, SAVE_ERROR_MESSAGE, saveErrorFor } from '../copy';
 import { containFit, cubicBezier, morphKeyframes, STD } from '../flip';
 
 const originalAttachShadow = HTMLElement.prototype.attachShadow;
@@ -416,12 +413,12 @@ describe('geometry + flip math (design spec v5 §R)', () => {
     const kf = morphKeyframes(from, to, 2, STD.fn, 10, 10);
     expect(kf.frame[0].transform).toBe(`translate(589px, -48px) scale(${Math.round((267 / 720) * 1e5) / 1e5}, ${Math.round((100 / 380) * 1e5) / 1e5})`);
     expect(kf.frame[10].transform).toBe('translate(0px, 0px) scale(1, 1)');
-    expect(kf.img[10].transform).toBe('translate(0px, 0px) scale(1, 1)');
+    expect(kf.media[10].transform).toBe('translate(0px, 0px) scale(1, 1)');
     // On-screen image scale = child scale × frame scale must be equal on x/y.
     const parse = (t: string) => t.match(/scale\(([^,]+), ([^)]+)\)/)!.slice(1).map(Number);
     for (let i = 0; i <= 10; i++) {
       const [fx, fy] = parse(kf.frame[i].transform as string);
-      const [ix, iy] = parse(kf.img[i].transform as string);
+      const [ix, iy] = parse(kf.media[i].transform as string);
       expect(fx * ix).toBeCloseTo(fy * iy, 3);
     }
   });
@@ -711,6 +708,7 @@ describe('v4 §M / v5 §R — the header bar, the image at its own size, the she
     expect([...peek('prev')!.querySelectorAll('*')].map((e) => e.className)).toEqual([
       'xp-card-lift',
       'xp-card-frame',
+      'xp-card-media',
       'xp-card-img',
       'xp-card-badge',
     ]);
@@ -727,12 +725,14 @@ describe('v4 §M / v5 §R — the header bar, the image at its own size, the she
     // are at item.dpr and are NOT the display size).
     expect(card.style.width).toBe('200px');
     expect(card.style.height).toBe('100px');
-    // No letterboxing: the <img> fills the card exactly.
-    const img = card.querySelector<HTMLImageElement>('.xp-card-img')!;
-    expect(img.style.left).toBe('0px');
-    expect(img.style.top).toBe('0px');
-    expect(img.style.width).toBe('200px');
-    expect(img.style.height).toBe('100px');
+    // No letterboxing: the media box (which the <img> fills at 100%) is
+    // the card exactly.
+    const media = card.querySelector<HTMLElement>('.xp-card-media')!;
+    expect(media.style.left).toBe('0px');
+    expect(media.style.top).toBe('0px');
+    expect(media.style.width).toBe('200px');
+    expect(media.style.height).toBe('100px');
+    expect(media.querySelector('.xp-card-img')).not.toBeNull();
     expect(q<HTMLElement>('.xp-editor')!.style.width).toBe(`${g.columnW}px`);
   });
 

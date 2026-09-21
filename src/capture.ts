@@ -1,5 +1,5 @@
 // src/capture.ts
-// Phase 5 — the capture pipeline's content-script half (REQUIREMENTS §1.2
+// The capture pipeline's content-script half (REQUIREMENTS §1.2
 // step 4, §1.3, §1.4D, §5 #8).
 //
 // One user gesture ("ok" in add mode) becomes: read the page's geometry →
@@ -74,13 +74,9 @@ import type { AddModeResult } from './addMode';
 import type { CapturedContext, FeedbackItem, Rect, ViewportSize } from './types';
 import { captureContext } from './contextCapture';
 import { normaliseDomain, normaliseUrl } from './urlNorm';
-import type {
-  CaptureMessage,
-  CaptureResponse,
-  NewFeedbackItem,
-  SaveItemMessage,
-  SaveItemResponse,
-} from './messages';
+import { CAPTURE_FAILED_MESSAGE } from './copy';
+import { send } from './rpc';
+import type { CaptureMessage, NewFeedbackItem, SaveItemMessage } from './messages';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -97,11 +93,6 @@ export interface OverlayControls {
 export type CaptureOutcome =
   | { ok: true; item: FeedbackItem }
   | { ok: false; message: string };
-
-/** §5 #8, verbatim and lowercase (§3.4). The service worker sends this same
- *  string back for its own failures; this copy covers the failures that happen
- *  before/without a round trip. */
-export const CAPTURE_FAILED_MESSAGE = "couldn't capture a screenshot here. try again.";
 
 /** How long to wait for the post-hide paint before giving up on the frame
  *  clock. requestAnimationFrame is throttled to a standstill in a backgrounded
@@ -197,30 +188,6 @@ export function waitForNextPaint(timeoutMs: number = PAINT_TIMEOUT_MS): Promise<
 }
 
 // ---------------------------------------------------------------------------
-// Messaging helpers
-// ---------------------------------------------------------------------------
-
-/** chrome.runtime.sendMessage as a promise that never rejects: a dead service
- *  worker or a torn-down port surfaces as `undefined`, which every caller
- *  already has to treat as a failure anyway. */
-function sendMessage<TResponse>(message: unknown): Promise<TResponse | undefined> {
-  return new Promise((resolve) => {
-    try {
-      chrome.runtime.sendMessage(message, (response: TResponse | undefined) => {
-        if (chrome.runtime.lastError) {
-          resolve(undefined);
-          return;
-        }
-        resolve(response);
-      });
-    } catch {
-      // Extension context invalidated (e.g. reloaded while the page stayed open).
-      resolve(undefined);
-    }
-  });
-}
-
-// ---------------------------------------------------------------------------
 // The pipeline
 // ---------------------------------------------------------------------------
 
@@ -279,7 +246,7 @@ export async function captureAndSave(
     // the blocker stays up for that whole window, which is the right trade:
     // a brief pause beats either a captured overlay or Chrome's opaque
     // rate-limit error.
-    const captured = await sendMessage<CaptureResponse>(captureMessage);
+    const captured = await send(captureMessage);
     if (!captured || !captured.ok) {
       overlay.show();
       return { ok: false, message: captured?.message ?? CAPTURE_FAILED_MESSAGE };
@@ -303,7 +270,7 @@ export async function captureAndSave(
       domain: normaliseDomain(location.host),
       item: newItem,
     };
-    const saved = await sendMessage<SaveItemResponse>(saveMessage);
+    const saved = await send(saveMessage);
     if (!saved || !saved.ok) {
       overlay.show();
       return { ok: false, message: saved?.message ?? CAPTURE_FAILED_MESSAGE };

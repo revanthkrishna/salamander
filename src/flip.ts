@@ -120,6 +120,10 @@ export function lerp(a: number, b: number, p: number): number {
   return a + (b - a) * p;
 }
 
+export function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
 // ---------------------------------------------------------------------------
 // Geometry
 // ---------------------------------------------------------------------------
@@ -174,7 +178,10 @@ export function containFit(aspect: number, b: Box): Box {
 
 export interface MorphKeyframes {
   frame: Keyframe[];
-  img: Keyframe[];
+  /** The media box (the screenshot's contain-fit inside the frame, plus
+   *  anything drawn over it): counter-transformed through the frame's own
+   *  non-uniform scale so the image never squashes. */
+  media: Keyframe[];
   /** Translate-only: follows the frame's top-left corner (number badge). */
   badge: Keyframe[];
 }
@@ -183,9 +190,9 @@ export interface MorphKeyframes {
  * Sampled FLIP keyframes for one card travelling `from` → `to` (viewport
  * px). The card's layout box is assumed to already sit at `to` (Last);
  * every keyframe maps it back to the eased intermediate rect. Elements are
- * expected to use `transform-origin: 0 0`, and the image's layout box to be
- * the contain-fit of `aspect` into `to` inset by `to.pad`, relative to the
- * frame's top-left.
+ * expected to use `transform-origin: 0 0`, and the media box's layout box to
+ * be the contain-fit of `aspect` into `to` inset by `to.pad`, relative to
+ * the frame's top-left.
  */
 export function morphKeyframes(
   from: Slot,
@@ -195,7 +202,7 @@ export function morphKeyframes(
   steps: number,
   frameRadius: number,
 ): MorphKeyframes {
-  const out: MorphKeyframes = { frame: [], img: [], badge: [] };
+  const out: MorphKeyframes = { frame: [], media: [], badge: [] };
   const lastImg = containFit(aspect, insetBox({ x: 0, y: 0, w: to.w, h: to.h }, to.pad));
   const n = Math.max(1, Math.round(steps));
   for (let i = 0; i <= n; i++) {
@@ -219,7 +226,7 @@ export function morphKeyframes(
     const scy = d.h / lastImg.h / sfy;
     const tcx = (d.x - to.x - tfx) / sfx - lastImg.x;
     const tcy = (d.y - to.y - tfy) / sfy - lastImg.y;
-    out.img.push({
+    out.media.push({
       offset,
       transform: `translate(${r3(tcx)}px, ${r3(tcy)}px) scale(${r5(scx)}, ${r5(scy)})`,
       borderRadius: `${r3(s.imgR / ds)}px`,

@@ -46,9 +46,9 @@ The annotator is a Chrome extension that captures visual feedback from webpages.
 
 **Add mode** (`src/addMode.ts`)
 - Entered by clicking add button
-- Crosshair cursor, click-to-place default 200×150px box (clamped to viewport)
-- 8 resize handles (minimum 20×20px), 4-way dimming scrim (macOS style)
-- Comment box (textarea, 1000-char counter, cancel/ok buttons) with auto-flip positioning (below → above → side)
+- Crosshair cursor; click-to-place a default box the size of the sidebar's thumbnail box (267×100 at the default sidebar width — `DEFAULT_THUMBNAIL_BOX_SIZE`, so a default capture fills its thumbnail exactly), clamped to the viewport; or drag-to-draw a custom size. While placing, a preview of the default box follows the cursor
+- Resize from any edge or corner through invisible hit zones — no visible handles (minimum 20×20px); a dimming scrim with a rounded hole for the selection (macOS style)
+- Comment box (textarea, 1000-char counter, cancel/save buttons — save disabled while the trimmed note is empty) with auto-flip positioning (below → above → side)
 - Suppresses all page interaction while active
 
 **Capture pipeline** (`src/capture.ts`)
@@ -63,11 +63,19 @@ The annotator is a Chrome extension that captures visual feedback from webpages.
 
 **Three-tier persistence** (cross-cutting gotcha #1):
 
-1. **`chrome.storage.local`** (metadata) — domain-keyed `DomainData` records:
+1. **`chrome.storage.local`** (metadata) — one small index per domain plus one key per item
+   (schema version 2):
    ```
-   { domain: { meta: { nextItemNumber, version }, pages: { normalisedUrl: FeedbackItem[] } } }
+   domain:{domain}    → { meta: { nextItemNumber, version }, pages: { normalisedUrl: id[] } }
+   item:{domain}:{id} → FeedbackItem   (thumbnail data-URL inline)
    ```
-   Includes inline thumbnail data-URLs so sidebar list renders without IndexedDB round trips (Phase 1 design call)
+   Each item carries its own inline thumbnail data-URL, so the sidebar list still paints from one round
+   trip (index read + one multi-key get) without touching IndexedDB — but a note autosave rewrites only
+   that item's key, not every item of the domain. Consumers never see the split: `storage.getDomainData`
+   assembles the in-memory `DomainData` (`pages: { normalisedUrl: FeedbackItem[] }`) and the write
+   primitives split it again. There is no migration path from an older stored shape — no build with
+   one was ever released — but every index carries a `version` stamp so a future change has something
+   to branch on.
 
 2. **IndexedDB** (blobs, extension origin) — full-resolution PNGs indexed by `screenshotKey`, owned exclusively by service worker
    - Content script can't see IndexedDB; all access goes through background messages
@@ -77,6 +85,20 @@ The annotator is a Chrome extension that captures visual feedback from webpages.
    - Survives page reloads within a session
    - Clears on browser restart
    - Enables sidebar persistence across F5 without explicit user action
+
+**Storage boundary** — which context may touch which store:
+
+- **Feedback data and blobs only through the service worker.** Domain records, items and the
+  per-tab session state (`src/storage.ts`) and screenshot PNGs (`src/imageStore.ts`) are read and
+  written by `src/background.ts` alone; a content script reaches them only over `chrome.runtime`
+  messages (`src/messages.ts`). This is what keeps the serialised write queue, id allocation and the
+  no-orphan rules in one place, and keeps IndexedDB in the extension origin rather than the page's.
+- **UI preferences may be accessed directly from either context.** `themeMode` (`src/theme.ts`) and
+  `sidebarWidth` (`src/sidebar.ts`) live in `chrome.storage.local` and are read/written by the content
+  script itself: they are not domain data, they need no serialisation against item writes, and a
+  message round trip for a 5-byte preference would only add a wrong-theme/wrong-width flash on open.
+  A future preference of the same kind (e.g. which connection is selected) follows this rule; anything
+  keyed by domain or item does not.
 
 **Context capture** (`src/contextCapture.ts`)
 - Called at capture time; runs in content script (pure DOM walk, no IDB/storage access)
@@ -110,25 +132,34 @@ The annotator is a Chrome extension that captures visual feedback from webpages.
 
 | File | Lines | Role |
 |---|---|---|
-| `src/background.ts` | 868 | Service worker: injection, capture relay, storage ownership |
-| `src/sidebar.ts` | ~2770 | Right-docked sidebar shell, page resize, add-note toggle + "keep on" switch, export/chevron menu, hosts the enlarged view |
-| `src/content.ts` | ~700 | Content script entry: injection guard, message listener, SPA nav detection |
-| `src/addMode.ts` | ~960 | Selection box, dimming scrim, comment box, add mode lifecycle |
-| `src/capture.ts` | 318 | Capture pipeline: hide UI, capture, crop, restore, exit |
+| `src/background.ts` | 823 | Service worker: injection, capture relay, the message handler table, storage ownership |
+| `src/sidebar.ts` | 2983 | Right-docked sidebar shell, page resize, add-note toggle + "keep on" switch, export/chevron menu, hosts the enlarged view |
+| `src/content.ts` | 734 | Content script entry: injection guard, message listener, SPA nav detection, message orchestration |
+| `src/addMode.ts` | 1249 | Selection box, resize hit zones, dimming scrim, comment box, cursor preview + hint, add mode lifecycle |
+| `src/capture.ts` | 285 | Capture pipeline: hide UI, capture, crop, restore, exit |
 | `src/contextCapture.ts` | 426 | DOM context extraction: DCA, contained elements, area text, size governance |
-| `src/import.ts` | 172 | Import validation ladder (13 cases), file picker, confirmation dialog |
-| `src/export.ts` | 111 | Export coordinator (assembly happens in bundle.ts + background) |
-| `src/bundle.ts` | 341 | Markdown serialization + YAML schema definition (shared by export/import) |
-| `src/imageStore.ts` | 98 | IndexedDB wrapper: CRUD for PNG blobs, cropping to thumbnail |
-| `src/enlargedView.ts` | ~1800 | Enlarged view: expanding sidebar note viewer/editor, autosave, carousel |
-| `src/flip.ts` | ~360 | FLIP / shared-element animation helpers |
-| `src/dockMotion.ts` | ~640 | Dock-style spring magnification for the note list |
-| `src/theme.ts` | ~650 | Design tokens, light/dark/auto theme, bundled font loading |
-| `src/thumbnails.ts` | 97 | Thumbnail list rendering |
-| `src/storage.ts` | 261 | `chrome.storage.local` wrappers: domain CRUD, item CRUD, session state |
-| `src/messages.ts` | 416 | Typed message union (documentation + types) |
-| `src/types.ts` | 237 | Data model: FeedbackItem, CapturedContext, YAML mirror types |
-| `src/selectorBuilder.ts` | 342 | CSS selector + XPath generation (lifted from Phase 6) |
+| `src/import.ts` | 149 | Import validation ladder (§5's 13 cases) over the versioned bundle reader |
+| `src/export.ts` | 86 | Export coordinator: zip assembly + `chrome.downloads` |
+| `src/bundle/index.ts` | 74 | `feedback.md`: current-version writer + the reader that dispatches on the schema stamp |
+| `src/bundle/v1.ts` | 380 | Frozen schema-v1 grammar, yaml mirror types, codecs and parser |
+| `src/bundle/version.ts` | 38 | The line-1 schema-version stamp and its reader |
+| `src/imageStore.ts` | 85 | IndexedDB wrapper: CRUD for PNG data-URLs |
+| `src/enlargedView.ts` | 2160 | Enlarged view: expanding sidebar note viewer/editor, carousel, scroll lock |
+| `src/autosave.ts` | 179 | Debounced per-item autosave controller (draft / in-flight / failed / sequence tracking) |
+| `src/flip.ts` | 364 | FLIP / shared-element animation helpers |
+| `src/dockMotion.ts` | 628 | Dock-style spring magnification for the note list |
+| `src/theme.ts` | 676 | Design tokens, light/dark/auto theme, bundled font loading |
+| `src/thumbnails.ts` | 209 | Thumbnail list rendering |
+| `src/keyboardIsolation.ts` | 94 | Capture-phase keyboard isolation for the extension's surfaces |
+| `src/storage.ts` | 350 | `chrome.storage.local` layout (per-domain index + per-item keys), domain/item CRUD, session state |
+| `src/messages.ts` | 485 | Typed message contract, `MessageMap`, handler types |
+| `src/rpc.ts` | 35 | The content script's typed `send()` |
+| `src/types.ts` | 203 | Data model: FeedbackItem, ItemPatch, CapturedContext, DomainData / DomainIndex, import errors |
+| `src/copy.ts` | 83 | Every user-facing string, once |
+| `src/dataUrl.ts` | 96 | data-URL ↔ bytes / Blob codecs (CSP-safe: no `fetch`) |
+| `src/icons.ts` | 88 | The stroke icon set |
+| `src/dom.ts` | 39 | Reduced-motion query, rAF with fallback |
+| `src/selectorBuilder.ts` | 341 | CSS selector + XPath generation (lifted from v1's fingerprint.ts) |
 | `src/urlNorm.ts` | 125 | URL normalization (v1's rules, unchanged) |
 | `src/wordlist.ts` | 1507 | Dictionary for classifier (semantic vs. generated class names) |
 

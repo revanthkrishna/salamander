@@ -1,11 +1,10 @@
-// Phase 8 — bundle.ts: feedback.md serialisation, the shared section/fence
-// grammar, and the round-trip contract Phase 9's importer builds on.
+// src/bundle — the current-version feedback.md writer, the v1 grammar's
+// parser and the round-trip contract the importer builds on. The frozen v1
+// text fixture has its own file (bundleV1.test.ts); this one exercises the
+// codec pair against generated input.
 
-import {
-  buildFeedbackMarkdown,
-  parseFeedbackMarkdown,
-  toYamlFeedbackItem,
-} from '../bundle';
+import { buildFeedbackMarkdown, decodeFeedbackMarkdown } from '../bundle';
+import { parseFeedbackMarkdown, toYamlFeedbackItem } from '../bundle/v1';
 import { FeedbackItem } from '../types';
 
 function makeItem(overrides: Partial<FeedbackItem> = {}): FeedbackItem {
@@ -170,6 +169,44 @@ describe('round trip: buildFeedbackMarkdown -> parseFeedbackMarkdown', () => {
     const md = buildFeedbackMarkdown({ [item.normalisedUrl]: [item] });
     const sections = parseFeedbackMarkdown(md);
     expect(sections[0].items[0].note).toBe('');
+  });
+});
+
+describe('decodeFeedbackMarkdown (the versioned reader)', () => {
+  test('reads a current-version file back to the in-memory item shape, minus the storage handles', () => {
+    const item = makeItem({ note: 'line one\n\nline three' });
+    const decoded = decodeFeedbackMarkdown(buildFeedbackMarkdown({ [item.normalisedUrl]: [item] }));
+
+    expect(decoded.version).toBe(1);
+    expect(decoded.versionWarning).toBe(false);
+    const { screenshotKey: _k, thumbnailDataUrl: _t, ...expected } = item;
+    expect(decoded.items).toEqual([expected]);
+  });
+
+  test('a file with no version stamp is read as version 1', () => {
+    const item = makeItem();
+    const md = buildFeedbackMarkdown({ [item.normalisedUrl]: [item] }).replace(/^<!--.*-->\n\n/, '');
+    expect(md.startsWith('## ')).toBe(true);
+    const decoded = decodeFeedbackMarkdown(md);
+    expect(decoded.version).toBe(1);
+    expect(decoded.items.map((i) => i.id)).toEqual([1]);
+  });
+
+  test('a newer version is read best-effort with the newest codec and flagged', () => {
+    const item = makeItem();
+    const md = buildFeedbackMarkdown({ [item.normalisedUrl]: [item] }).replace(
+      'annotator-schema-version: 1',
+      'annotator-schema-version: 99',
+    );
+    const decoded = decodeFeedbackMarkdown(md);
+    expect(decoded.version).toBe(99);
+    expect(decoded.versionWarning).toBe(true);
+    expect(decoded.items).toHaveLength(1);
+  });
+
+  test('throws a plain Error for a fence missing a required field', () => {
+    const md = '## https://example.com/page\n\n### item 1\n\n![](screenshots/1.png)\n\nnote\n\n```yaml\nid: 1\n```\n';
+    expect(() => decodeFeedbackMarkdown(md)).toThrow(Error);
   });
 });
 

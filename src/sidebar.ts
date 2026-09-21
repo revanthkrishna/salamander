@@ -31,6 +31,19 @@ import { FeedbackItem } from './types';
 import { renderThumbnailList, THUMBNAIL_IMAGE_HEIGHT_PX } from './thumbnails';
 import { attachDockMotion, DockMotionHandle } from './dockMotion';
 import {
+  ICON_CHEVRON_DOWN,
+  ICON_CHEVRON_UP,
+  ICON_CLOSE,
+  ICON_COMMENT,
+  ICON_ERROR,
+  ICON_EXPORT,
+  ICON_IMPORT,
+  ICON_THEME_AUTO,
+  ICON_THEME_DARK,
+  ICON_THEME_LIGHT,
+  ICON_WARNING,
+} from './icons';
+import {
   openEnlargedView as openEnlargedViewImpl,
   ENLARGED_VIEW_CSS,
   EnlargedViewCallbacks,
@@ -193,11 +206,11 @@ export interface SidebarCallbacks {
    *  Optional so callers that never toggle add mode (e.g. other modules'
    *  test doubles) don't have to stub a callback they'll never receive. */
   onAddDoubleClick?: () => void;
-  /** "export" header button. No-op for Phase 3 — Phase 8 wires the real zip export. */
+  /** "export" header button — content.ts runs the EXPORT round trip. */
   onExport: () => void;
   /** "import" — now the one item of the export group's chevron menu (design
    *  spec v3 §C2) — fired once a file is chosen from the native picker.
-   *  content.ts (Phase 9) runs the full §5 validation ladder and the
+   *  content.ts runs the full §5 validation ladder and the
    *  confirm-then-replace round trip. */
   onImportFile: (file: File) => void;
   /** "close" header button. Fired *after* the sidebar has already hidden
@@ -217,55 +230,9 @@ export interface SidebarCallbacks {
 }
 
 // ---------------------------------------------------------------------------
-// Inline currentColor SVG icons — 1.8px stroke, round caps/joins (design
-// spec §1's icon language). Fill-based icons are gone with the v1 palette.
+// Icons come from src/icons.ts (design spec §1's stroke language); this
+// module only maps the theme modes onto their glyphs.
 // ---------------------------------------------------------------------------
-
-/** Shared attributes for every stroke icon — kept as one string so a change
- *  to the stroke language (weight, cap style) only has to happen once. */
-const STROKE_ICON_ATTRS =
-  'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
-  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
-
-/** "add note" (design spec v3 §A2): a comment bubble rather than the v2 plus,
- *  because the button is now icon-only — a bare plus reads as "add anything",
- *  a bubble reads as "add a note". Rendered at 17px inside the 36px half. */
-const ICON_COMMENT = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M20 14a2 2 0 0 1-2 2H8.5L4 19.5V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/></svg>`;
-
-/** Chevron for the export group's menu half (design spec v3 §C2) — 12px at a
- *  heavier 2px stroke so it still reads at that size, and drawn as two
- *  variants rather than a rotation so the open/closed arrow is the exact path
- *  the spec names. */
-const CHEVRON_ICON_ATTRS =
-  'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
-  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
-
-const ICON_CHEVRON_DOWN = `<svg xmlns="http://www.w3.org/2000/svg" ${CHEVRON_ICON_ATTRS}><path d="M6 9l6 6 6-6"/></svg>`;
-
-const ICON_CHEVRON_UP = `<svg xmlns="http://www.w3.org/2000/svg" ${CHEVRON_ICON_ATTRS}><path d="M6 15l6-6 6 6"/></svg>`;
-
-const ICON_EXPORT = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14"/></svg>`;
-
-const ICON_IMPORT = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M5 19h14"/></svg>`;
-
-const ICON_CLOSE = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M6 6l12 12M18 6L6 18"/></svg>`;
-
-/** Default error-bar icon. Exported so later phases can pass their own to
- *  showError()/showWarning() while still having the default to fall back on. */
-export const ICON_ERROR = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>`;
-
-/** Default warning-bar icon. */
-export const ICON_WARNING = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg>`;
-
-// ─── Theme toggle icons (design spec §3.4: sun / moon / half-circle) ────────
-
-const ICON_THEME_LIGHT = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5.6 5.6 4.2 4.2M19.8 19.8l-1.4-1.4M5.6 18.4 4.2 19.8M19.8 4.2l-1.4 1.4"/></svg>`;
-
-const ICON_THEME_DARK = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5Z"/></svg>`;
-
-/** "auto" — a half-filled circle rather than a third distinct glyph, so it
- *  reads as "in between" light and dark at a glance. */
-const ICON_THEME_AUTO = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none"/></svg>`;
 
 const THEME_MODE_ICONS: Record<ThemeMode, string> = {
   auto: ICON_THEME_AUTO,
@@ -1477,10 +1444,6 @@ let enlargedDockSuspended = false;
 let enlargedView: EnlargedViewHandle | null = null;
 /** Items the list is currently rendering — the enlarged view opens on these. */
 let currentItems: FeedbackItem[] = [];
-/** A list refresh that arrived while the enlarged view was up; applied once
- *  it has closed (repainting under a live morph would swap the very list
- *  thumbnails the clones are about to land on). */
-let deferredItems: FeedbackItem[] | null = null;
 /** Bumped on every openSidebar/close so a stale theme-settle reveal from an
  *  earlier open can't unhide a panel that has since been re-hidden. */
 let revealToken = 0;
@@ -1496,6 +1459,9 @@ let notifTimer: ReturnType<typeof setTimeout> | null = null;
  *  (the theme toggle's icon/label and the logo swap both depend on it). Set
  *  in initSidebar, called from destroySidebar. */
 let unsubscribeThemeChange: (() => void) | null = null;
+/** Drops this host from theme.ts's themed-host set; set in initSidebar,
+ *  called from destroySidebar so a torn-down host is not kept alive there. */
+let unregisterThemedHost: (() => void) | null = null;
 
 // ---------------------------------------------------------------------------
 // DOM construction
@@ -1745,11 +1711,10 @@ function updateThemeToggleUI(mode: ThemeMode): void {
   elBtnTheme.title = label;
 }
 
-/** The "add note" control's three states. The three values are unchanged
- *  from design spec v2 §A (every content.ts exit path already calls this with
- *  one of them), but 'locked' no longer means "a padlock glyph": per v3 §A2
- *  it paints button-on **and** switch-on. */
-export type AddButtonState = 'off' | 'on' | 'locked';
+/** The "add note" control's three states (design spec v3 §A2). 'kept-on'
+ *  paints button-on **and** switch-on — it was 'locked' while v2 §A's
+ *  padlock existed; the glyph went in v3 and the name followed. */
+export type AddButtonState = 'off' | 'on' | 'kept-on';
 
 /** aria-label + title per state (§A2). The label is state-dependent here
  *  rather than fixed because the button is icon-only — with no visible text,
@@ -1757,7 +1722,7 @@ export type AddButtonState = 'off' | 'on' | 'locked';
 const ADD_BUTTON_LABELS: Record<AddButtonState, string> = {
   off: 'add note',
   on: 'add note (on)',
-  locked: 'add note (kept on)',
+  'kept-on': 'add note (kept on)',
 };
 
 /** Screen-reader description (aria-describedby) per state: what the switch
@@ -1765,7 +1730,7 @@ const ADD_BUTTON_LABELS: Record<AddButtonState, string> = {
 const ADD_BUTTON_DESCRIPTIONS: Record<AddButtonState, string> = {
   off: 'shift+enter keeps add mode on',
   on: 'shift+enter keeps add mode on',
-  locked: 'kept on: stays on after each note',
+  'kept-on': 'kept on: stays on after each note',
 };
 
 const ADD_BUTTON_DESC_ID = 'add-note-desc';
@@ -1778,7 +1743,7 @@ const ADD_SWITCH_LABEL = 'keep add mode on';
  * Paint the "add note" group for `state` (design spec v3 §A2):
  *   - 'off'    group neutral, `aria-pressed="false"`, switch off
  *   - 'on'     group accent, `aria-pressed="true"`, switch off
- *   - 'locked' group accent, `aria-pressed="true"`, switch ON (and therefore
+ *   - 'kept-on' group accent, `aria-pressed="true"`, switch ON (and therefore
  *              visible in every state, not just on hover/focus)
  *
  * content.ts is the only caller: it owns the real add-mode/switch state and
@@ -1788,7 +1753,7 @@ const ADD_SWITCH_LABEL = 'keep add mode on';
 export function setAddButtonState(state: AddButtonState): void {
   if (!elBtnAdd || !elAddGroup) return;
   const isOn = state !== 'off';
-  const keepOn = state === 'locked';
+  const keepOn = state === 'kept-on';
   elAddGroup.classList.toggle('is-on', isOn);
   elAddGroup.classList.toggle('is-switch-on', keepOn);
   elBtnAdd.setAttribute('aria-pressed', String(isOn));
@@ -1840,10 +1805,10 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
   sidebarShadow = sidebarHost.attachShadow({ mode: 'closed' });
   document.documentElement.appendChild(sidebarHost);
   // Keeps `data-theme` on the shadow host in sync with the resolved
-  // light/dark theme for the sidebar's whole lifetime (it's never torn down
-  // and rebuilt like addMode.ts, so there's no matching unregister
-  // call here).
-  registerThemedHost(sidebarHost);
+  // light/dark theme for the sidebar's whole lifetime. In production the
+  // host is never torn down (close only hides it), so the unregister is only
+  // ever reached by destroySidebar().
+  unregisterThemedHost = registerThemedHost(sidebarHost);
 
   buildDOM(sidebarShadow);
 
@@ -1978,7 +1943,7 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
   });
 
   // "add note" starts off (design spec v3 §A2) — content.ts moves it to
-  // on/locked as the real add-mode state changes. The switch does not
+  // on/kept-on as the real add-mode state changes. The switch does not
   // persist: it resets to off per page session, like the old lock.
   setAddButtonState('off');
 
@@ -2154,8 +2119,9 @@ function onResizerKeyDown(e: KeyboardEvent): void {
   setSidebarWidth(next, { persist: true });
 }
 
-/** True once initSidebar() has built the host — content.ts uses this to avoid
- *  toggling a sidebar that was never constructed. */
+/** True once initSidebar() has built the host. Production code never asks
+ *  (initSidebar is idempotent and every entry point calls it first); this is
+ *  the tests' probe for construction/teardown. */
 export function isSidebarInitialised(): boolean {
   return sidebarHost !== null;
 }
@@ -2226,7 +2192,7 @@ export function isSidebarVisible(): boolean {
   return visible;
 }
 
-/** Disable/enable the export header button (Phase 8, §1.6). Assembling a
+/** Disable/enable the export header button (§1.6). Assembling a
  *  multi-URL zip is an async round trip with no other on-screen affordance,
  *  so content.ts disables this for the duration to prevent a second export
  *  starting (and downloading) before the first finishes. */
@@ -2235,7 +2201,7 @@ export function setExportButtonEnabled(enabled: boolean): void {
   syncActionAvailability();
 }
 
-/** Disable/enable the import header button (Phase 9, §1.7). Mirrors
+/** Disable/enable the import header button (§1.7). Mirrors
  *  setExportButtonEnabled: parsing + validating a zip and the confirm-then-
  *  replace round trip is asynchronous with no other on-screen affordance, so
  *  content.ts disables this for the duration to prevent a second file pick
@@ -2320,10 +2286,12 @@ function applyListHold(): void {
  * enlarged view is open the repaint is deferred until it closes.
  */
 export function setThumbnails(items: FeedbackItem[]): void {
-  if (enlargedView) {
-    deferredItems = items;
-    return;
-  }
+  // Dropped, not deferred, while the enlarged view is up: repainting under
+  // a live morph would swap the very list thumbnails the clones are about
+  // to land on, and a refresh that started before the view's own edits/
+  // deletes would repaint over the (correct) list the view hands back on
+  // close. onClosed re-reads storage anyway (content.ts).
+  if (enlargedView) return;
   renderItems(items);
 }
 
@@ -2415,8 +2383,8 @@ function syncDockMotion(): void {
  * there while a selection is being made or captured. Suspending snaps the
  * list back to rest instantly (no release animation, no pending frame), and
  * the flag survives list repaints and close/reopen until it is lifted.
- * Exported separately so a caller can suspend magnification *without* the
- * rest of the hold.
+ * Exported for the tests, which suspend magnification *without* the rest of
+ * the hold; production callers go through setAddModeHold().
  */
 export function setDockMagnificationSuspended(suspended: boolean): void {
   dockSuspended = suspended;
@@ -2475,11 +2443,6 @@ export function openEnlargedView(itemId: number, callbacks: EnlargedViewCallback
     ...callbacks,
     onClosed: (id) => {
       if (enlargedView === handle) enlargedView = null;
-      // Dropped, not applied: a refresh that started before the view's own
-      // edits/deletes would repaint over the (correct) list the view just
-      // handed back — a deleted note flashing back in — and wipe the focus
-      // it restored. onClosed re-reads storage anyway (content.ts).
-      deferredItems = null;
       callbacks.onClosed(id);
     },
   });
@@ -2519,7 +2482,6 @@ export function flushEnlargedView(): void {
 export function destroySidebar(): void {
   enlargedView?.destroy();
   enlargedView = null;
-  deferredItems = null;
   currentItems = [];
   enlargedDockSuspended = false;
   dockMotion?.destroy();
@@ -2530,6 +2492,8 @@ export function destroySidebar(): void {
   restorePageResize();
   unsubscribeThemeChange?.();
   unsubscribeThemeChange = null;
+  unregisterThemedHost?.();
+  unregisterThemedHost = null;
   document.removeEventListener('pointerdown', onDocumentPointerDown, true);
   sidebarShadow?.removeEventListener('pointerdown', onShadowPointerDown, true);
   if (sidebarHost && sidebarHost.parentNode) {
@@ -2587,10 +2551,9 @@ export function showError(message: string): void {
   showNotif('error', message, ICON_ERROR);
 }
 
-/** Show the warning bar inside the sidebar. Auto-clears after 8s. Pass
- *  `customIcon` to swap the default exclamation for this one message. */
-export function showWarning(message: string, customIcon?: string): void {
-  showNotif('warning', message, customIcon ?? ICON_WARNING);
+/** Show the warning bar inside the sidebar. Auto-clears after 8s. */
+export function showWarning(message: string): void {
+  showNotif('warning', message, ICON_WARNING);
 }
 
 function showNotif(kind: 'error' | 'warning', message: string, icon: string): void {
@@ -2648,13 +2611,13 @@ function stopCountdownAnim(): void {
 }
 
 /** Native browser confirm — kept lowercase per §3.4. Async-shaped because
- *  Phase 9's import flow awaits it and may later swap in a styled dialog. */
+ *  the import flow awaits it and may later swap in a styled dialog. */
 export function showConfirmDialog(message: string): Promise<boolean> {
   return Promise.resolve(window.confirm(message));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PAGE RESIZE — the hard part of Phase 3 (DEVELOPMENT_PLAN.md §Phase 3)
+// PAGE RESIZE
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // Goal (§1.1, §3.1): the sidebar must *shrink the page's usable width* rather

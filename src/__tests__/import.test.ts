@@ -1,4 +1,4 @@
-// Phase 9 — import.ts: the §5 validation ladder (§1.7), tested against
+// import.ts: the §5 validation ladder (§1.7), tested against
 // purpose-built fixture bundles built the same way src/export.ts assembles a
 // real one (fflate zipSync + bundle.ts's buildFeedbackMarkdown/
 // toYamlFeedbackItem), so these tests exercise the real grammar rather than
@@ -6,7 +6,8 @@
 
 import { zipSync, strToU8 } from 'fflate';
 import { parseImportBundle } from '../import';
-import { buildFeedbackMarkdown, toYamlFeedbackItem, SCHEMA_VERSION } from '../bundle';
+import { buildFeedbackMarkdown, SCHEMA_VERSION } from '../bundle';
+import { toYamlFeedbackItem } from '../bundle/v1';
 import { ImportError, FeedbackItem } from '../types';
 
 // jsdom's File (like its Blob) has no arrayBuffer() implementation — a

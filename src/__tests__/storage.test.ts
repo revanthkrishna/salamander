@@ -1,9 +1,13 @@
-// Phase 1: storage layer tests — domain CRUD, orphan-blob prevention, id
+// Storage layer tests — domain CRUD, orphan-blob prevention, id
 // monotonicity across URLs, and sidebar session-state round trip.
 
 import {
   addItem,
   deleteItem,
+  splitDomainData,
+  assembleDomainData,
+  STORAGE_VERSION,
+  updateItem,
   updateNote,
   getPageItems,
   getNextItemId,
@@ -102,6 +106,35 @@ describe('storage.ts — domain/item CRUD', () => {
     const items = await getPageItems(DOMAIN, a.normalisedUrl);
     expect(items.find((i) => i.id === 1)!.note).toBe('note text');
     expect(items.find((i) => i.id === 2)!.note).toBe('edited note');
+  });
+
+  test('updateItem applies a patch to the targeted item only and reports it was found', async () => {
+    const a = makeItem({ id: 1 });
+    const b = makeItem({ id: 2 });
+    await seedImage(a.screenshotKey);
+    await seedImage(b.screenshotKey);
+    await addItem(DOMAIN, a);
+    await addItem(DOMAIN, b);
+
+    await expect(updateItem(DOMAIN, a.normalisedUrl, 2, { note: 'patched' })).resolves.toBe(true);
+
+    const items = await getPageItems(DOMAIN, a.normalisedUrl);
+    expect(items.find((i) => i.id === 1)).toEqual(a);
+    expect(items.find((i) => i.id === 2)).toEqual({ ...b, note: 'patched' });
+  });
+
+  test('updateItem reports false and writes nothing for a missing domain, URL or item', async () => {
+    const item = makeItem({ id: 1 });
+    await seedImage(item.screenshotKey);
+    await addItem(DOMAIN, item);
+    (chrome.storage.local.set as jest.Mock).mockClear();
+
+    await expect(updateItem('nope.example', item.normalisedUrl, 1, { note: 'x' })).resolves.toBe(false);
+    await expect(updateItem(DOMAIN, 'https://example.com/other', 1, { note: 'x' })).resolves.toBe(false);
+    await expect(updateItem(DOMAIN, item.normalisedUrl, 999, { note: 'x' })).resolves.toBe(false);
+
+    expect(chrome.storage.local.set).not.toHaveBeenCalled();
+    expect((await getPageItems(DOMAIN, item.normalisedUrl))[0].note).toBe('note text');
   });
 
   test('updateNote is a no-op for an item that does not exist', async () => {
@@ -216,6 +249,174 @@ describe('storage.ts — domain/item CRUD', () => {
     expect((await getDomainData('fresh.example'))!.pages[incoming.normalisedUrl]).toEqual([
       incoming,
     ]);
+  });
+});
+
+describe('storage.ts — the split layout (schema version 2)', () => {
+  const URL_A = 'https://example.com/a';
+  const URL_B = 'https://example.com/b';
+
+  /** Every chrome.storage.local.set call's keys since the last mockClear. */
+  function setCalls(): string[][] {
+    return (chrome.storage.local.set as jest.Mock).mock.calls.map((c) => Object.keys(c[0]).sort());
+  }
+  function getCalls(): Array<string | string[] | null> {
+    return (chrome.storage.local.get as jest.Mock).mock.calls.map((c) => c[0]);
+  }
+  async function rawStorage(): Promise<Record<string, unknown>> {
+    return new Promise((resolve) => chrome.storage.local.get(null, resolve));
+  }
+
+  test('addItem writes the item under its own key and the index under the domain key, in one set', async () => {
+    const item = makeItem({ id: 1, normalisedUrl: URL_A });
+    await seedImage(item.screenshotKey);
+    (chrome.storage.local.set as jest.Mock).mockClear();
+
+    await addItem(DOMAIN, item);
+
+    expect(setCalls()).toEqual([[`domain:${DOMAIN}`, `item:${DOMAIN}:1`]]);
+    const raw = await rawStorage();
+    expect(raw[`item:${DOMAIN}:1`]).toEqual(item);
+    expect(raw[`domain:${DOMAIN}`]).toEqual({
+      meta: { nextItemNumber: 2, version: STORAGE_VERSION },
+      pages: { [URL_A]: [1] },
+    });
+  });
+
+  test('updateItem rewrites only the item key — the index and other items are untouched', async () => {
+    const a = makeItem({ id: 1, normalisedUrl: URL_A });
+    const b = makeItem({ id: 2, normalisedUrl: URL_A });
+    await seedImage(a.screenshotKey);
+    await seedImage(b.screenshotKey);
+    await addItem(DOMAIN, a);
+    await addItem(DOMAIN, b);
+    (chrome.storage.local.set as jest.Mock).mockClear();
+
+    await updateItem(DOMAIN, URL_A, 2, { note: 'patched' });
+
+    expect(setCalls()).toEqual([[`item:${DOMAIN}:2`]]);
+    const raw = await rawStorage();
+    expect((raw[`item:${DOMAIN}:2`] as FeedbackItem).note).toBe('patched');
+    expect(raw[`item:${DOMAIN}:1`]).toEqual(a);
+  });
+
+  test('getPageItems reads the index and only that URL\'s item keys', async () => {
+    const a = makeItem({ id: 1, normalisedUrl: URL_A });
+    const b = makeItem({ id: 2, normalisedUrl: URL_B });
+    const c = makeItem({ id: 3, normalisedUrl: URL_A });
+    for (const it of [a, b, c]) {
+      await seedImage(it.screenshotKey);
+      await addItem(DOMAIN, it);
+    }
+    (chrome.storage.local.get as jest.Mock).mockClear();
+
+    expect(await getPageItems(DOMAIN, URL_A)).toEqual([a, c]);
+
+    expect(getCalls()).toEqual([`domain:${DOMAIN}`, [`item:${DOMAIN}:1`, `item:${DOMAIN}:3`]]);
+  });
+
+  test('getPageItems skips an id whose item key is missing (a torn write) rather than returning a hole', async () => {
+    const a = makeItem({ id: 1, normalisedUrl: URL_A });
+    await seedImage(a.screenshotKey);
+    await addItem(DOMAIN, a);
+    await new Promise<void>((resolve) => chrome.storage.local.set({
+      [`domain:${DOMAIN}`]: { meta: { nextItemNumber: 3, version: STORAGE_VERSION }, pages: { [URL_A]: [1, 2] } },
+    }, resolve));
+
+    expect(await getPageItems(DOMAIN, URL_A)).toEqual([a]);
+    expect((await getDomainData(DOMAIN))!.pages[URL_A]).toEqual([a]);
+  });
+
+  test('deleteItem drops the item key and its blob, and the URL from the index once it is empty', async () => {
+    const a = makeItem({ id: 1, normalisedUrl: URL_A });
+    await seedImage(a.screenshotKey);
+    await addItem(DOMAIN, a);
+
+    await deleteItem(DOMAIN, URL_A, 1);
+
+    const raw = await rawStorage();
+    expect(raw[`item:${DOMAIN}:1`]).toBeUndefined();
+    expect((raw[`domain:${DOMAIN}`] as { pages: unknown }).pages).toEqual({});
+    expect(await imageStore.getImage(a.screenshotKey)).toBeNull();
+  });
+
+  test('replaceDomainData removes the item keys the new record no longer references', async () => {
+    const old1 = makeItem({ id: 1, screenshotKey: 'old-1' });
+    const old2 = makeItem({ id: 2, screenshotKey: 'old-2' });
+    await seedImage('old-1');
+    await seedImage('old-2');
+    await addItem(DOMAIN, old1);
+    await addItem(DOMAIN, old2);
+
+    const incoming = makeItem({ id: 2, screenshotKey: 'new-2' });
+    await seedImage('new-2');
+    await replaceDomainData(DOMAIN, {
+      meta: { nextItemNumber: 3, version: 1 }, // a stale version in the input is not written through
+      pages: { [incoming.normalisedUrl]: [incoming] },
+    });
+
+    const raw = await rawStorage();
+    expect(Object.keys(raw).sort()).toEqual([`domain:${DOMAIN}`, `item:${DOMAIN}:2`]);
+    expect(raw[`item:${DOMAIN}:2`]).toEqual(incoming);
+    expect((raw[`domain:${DOMAIN}`] as { meta: unknown }).meta).toEqual({ nextItemNumber: 3, version: STORAGE_VERSION });
+    expect(await imageStore.getImage('old-1')).toBeNull();
+    expect(await imageStore.getImage('old-2')).toBeNull();
+  });
+
+  test('deleteDomainData removes the index and every item key', async () => {
+    const a = makeItem({ id: 1, normalisedUrl: URL_A });
+    const b = makeItem({ id: 2, normalisedUrl: URL_B });
+    await seedImage(a.screenshotKey);
+    await seedImage(b.screenshotKey);
+    await addItem(DOMAIN, a);
+    await addItem(DOMAIN, b);
+
+    await deleteDomainData(DOMAIN);
+
+    expect(await rawStorage()).toEqual({});
+  });
+
+  test('splitDomainData / assembleDomainData are inverses', () => {
+    const a = makeItem({ id: 1, normalisedUrl: URL_A });
+    const b = makeItem({ id: 2, normalisedUrl: URL_B });
+    const c = makeItem({ id: 3, normalisedUrl: URL_A });
+    const data = { meta: { nextItemNumber: 4, version: STORAGE_VERSION }, pages: { [URL_A]: [a, c], [URL_B]: [b] } };
+
+    const split = splitDomainData(DOMAIN, data);
+    const index = split[`domain:${DOMAIN}`] as Parameters<typeof assembleDomainData>[1];
+    expect(index).toEqual({ meta: data.meta, pages: { [URL_A]: [1, 3], [URL_B]: [2] } });
+    expect(assembleDomainData(DOMAIN, index, split)).toEqual(data);
+  });
+});
+
+describe('storage.ts — the version stamp', () => {
+  test('STORAGE_VERSION is what a fresh record is stamped with', async () => {
+    const item = makeItem({ id: 1 });
+    await seedImage(item.screenshotKey);
+    await addItem(DOMAIN, item);
+    expect((await getDomainData(DOMAIN))!.meta.version).toBe(STORAGE_VERSION);
+    expect(STORAGE_VERSION).toBe(2);
+  });
+
+  test('nothing branches on the stamp: there is no migration path to an older shape', async () => {
+    // No build with an older stored layout was ever released, so a record
+    // stamped with anything at all is read as an index as-is. This test is
+    // the reminder that adding a branch here is a deliberate act.
+    const stamped = {
+      meta: { nextItemNumber: 2, version: 99 },
+      pages: { 'https://example.com/a': [1] },
+    };
+    await new Promise<void>((resolve) =>
+      chrome.storage.local.set({ [`domain:${DOMAIN}`]: stamped }, resolve),
+    );
+    const item = makeItem({ id: 1, normalisedUrl: 'https://example.com/a' });
+    await new Promise<void>((resolve) =>
+      chrome.storage.local.set({ [`item:${DOMAIN}:1`]: item }, resolve),
+    );
+    (chrome.storage.local.set as jest.Mock).mockClear();
+
+    expect(await getPageItems(DOMAIN, 'https://example.com/a')).toEqual([item]);
+    expect(chrome.storage.local.set).not.toHaveBeenCalled();
   });
 });
 

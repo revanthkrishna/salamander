@@ -1,12 +1,12 @@
-// Phase 2: service worker tests — injection/lifecycle handlers, sidebar
+// Service worker tests — injection/lifecycle handlers, sidebar
 // session-state wiring, and the throttled capture-and-crop pipeline.
 //
 // background.ts registers its listeners (chrome.action.onClicked etc.) at
 // *import* time, so every chrome.* surface it touches must exist before the
 // module loads. setup.ts's base mock (chrome.storage/.tabs.query/.runtime)
 // is already installed globally by the time this file runs; the additional
-// surfaces Phase 2 needs (action, scripting, tabs.sendMessage/onUpdated/
-// onRemoved/captureVisibleTab, runtime.onMessage/onStartup) are layered on
+// surfaces background.ts needs (action, scripting, tabs.sendMessage/onUpdated/
+// onRemoved/captureVisibleTab, runtime.onMessage) are layered on
 // here, then the module is `require`'d so the extra mocks are in place
 // first — a static top-of-file `import` would run before that setup.
 //
@@ -24,10 +24,10 @@ jest.mock('../storage', () => ({
   isSidebarOpen: jest.fn(),
   setSidebarOpen: jest.fn().mockResolvedValue(undefined),
   clearSidebarState: jest.fn().mockResolvedValue(undefined),
-  cleanupStaleTabKeys: jest.fn().mockResolvedValue(undefined),
   getNextItemId: jest.fn().mockResolvedValue(1),
   addItem: jest.fn().mockResolvedValue(undefined),
   getPageItems: jest.fn().mockResolvedValue([]),
+  updateItem: jest.fn().mockResolvedValue(true),
   updateNote: jest.fn().mockResolvedValue(undefined),
   deleteItem: jest.fn().mockResolvedValue(undefined),
 }));
@@ -123,7 +123,6 @@ function installChromeMocks(): void {
     ...(c.runtime ?? {}),
     lastError: null,
     onMessage: { addListener: jest.fn() },
-    onStartup: { addListener: jest.fn() },
   };
 }
 
@@ -214,6 +213,7 @@ beforeEach(() => {
   mockedStorage.getNextItemId.mockResolvedValue(1);
   mockedStorage.addItem.mockResolvedValue(undefined);
   mockedStorage.getPageItems.mockResolvedValue([]);
+  mockedStorage.updateItem.mockResolvedValue(true);
   mockedStorage.updateNote.mockResolvedValue(undefined);
   mockedStorage.deleteItem.mockResolvedValue(undefined);
   sendMessageMock.mockImplementation(
@@ -302,20 +302,13 @@ describe('handleTabUpdated', () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleTabRemoved / handleStartup
+// handleTabRemoved
 // ---------------------------------------------------------------------------
 
 describe('handleTabRemoved', () => {
   it('clears sidebar session state for the closed tab', () => {
     background.handleTabRemoved(42);
     expect(mockedStorage.clearSidebarState).toHaveBeenCalledWith(42);
-  });
-});
-
-describe('handleStartup', () => {
-  it('runs the legacy activeTab cleanup', async () => {
-    await background.handleStartup();
-    expect(mockedStorage.cleanupStaleTabKeys).toHaveBeenCalled();
   });
 });
 
@@ -396,6 +389,18 @@ describe('handleRuntimeMessage', () => {
     expect(keepOpen).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(sendResponse.mock.calls[0][0]).toEqual({ ok: true, dataUrl: 'data:image/png;base64,ZnVsbA==' });
+  });
+
+  it('dispatches UPDATE_ITEM asynchronously and keeps the channel open', async () => {
+    const sendResponse = jest.fn();
+    const keepOpen = background.handleRuntimeMessage(
+      { type: 'UPDATE_ITEM', domain: 'example.com', normalisedUrl: 'example.com/a', itemId: 1, patch: { note: 'edited' } },
+      makeSender(3),
+      sendResponse,
+    );
+    expect(keepOpen).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sendResponse.mock.calls[0][0]).toEqual({ ok: true });
   });
 
   it('dispatches UPDATE_NOTE asynchronously and keeps the channel open', async () => {
@@ -540,7 +545,7 @@ describe('handleCapture', () => {
 // ---------------------------------------------------------------------------
 // computeDeviceRect — the pixel-critical conversion (§1.3, §6 #4, §6 #5)
 //
-// This is the verification matrix the Phase 5 brief calls for (1x/2x display,
+// This is the crop's verification matrix (1x/2x display,
 // 100%/80%/150% zoom, selections at every viewport edge, scrolled pages),
 // expressed against the pure function rather than a real browser: the selection
 // is in viewport CSS px, the capture is in device px, and every case below
@@ -709,56 +714,6 @@ describe('computeThumbnailSize', () => {
 });
 
 // ---------------------------------------------------------------------------
-// dataUrlToBlob — the CSP-safe replacement for fetch(dataUrl)
-// ---------------------------------------------------------------------------
-
-describe('dataUrlToBlob', () => {
-  /** jsdom's Blob has no arrayBuffer()/text() and jsdom has no Response, but
-   *  it does have a working FileReader — enough to read the bytes back out. */
-  function bytesOf(blob: Blob): Promise<number[]> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(Array.from(new Uint8Array(reader.result as ArrayBuffer)));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsArrayBuffer(blob);
-    });
-  }
-
-  async function textOf(blob: Blob): Promise<string> {
-    return String.fromCharCode(...(await bytesOf(blob)));
-  }
-
-  it('decodes a base64 png into bytes, preserving the mime type', async () => {
-    const blob = background.dataUrlToBlob('data:image/png;base64,AAECAw==');
-    expect(blob.type).toBe('image/png');
-    expect(await bytesOf(blob)).toEqual([0, 1, 2, 3]);
-  });
-
-  it('keeps every byte value intact across the 0x80 boundary', async () => {
-    const source = [0, 127, 128, 200, 255];
-    const base64 = Buffer.from(source).toString('base64');
-    const blob = background.dataUrlToBlob(`data:image/png;base64,${base64}`);
-    expect(await bytesOf(blob)).toEqual(source);
-  });
-
-  it('handles a percent-encoded (non-base64) data url', async () => {
-    const blob = background.dataUrlToBlob('data:image/svg+xml,%3Csvg%3E');
-    expect(blob.type).toBe('image/svg+xml');
-    expect(await textOf(blob)).toBe('<svg>');
-  });
-
-  it('defaults the mime type when the header omits it', () => {
-    expect(background.dataUrlToBlob('data:;base64,AAA=').type).toBe('image/png');
-  });
-
-  it('rejects anything that is not a data url', () => {
-    expect(() => background.dataUrlToBlob('https://example.com/a.png')).toThrow(/data url/);
-    expect(() => background.dataUrlToBlob('data:image/png;base64')).toThrow(/data url/);
-    expect(() => background.dataUrlToBlob('' as unknown as string)).toThrow(/data url/);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // handleSaveItem — id allocation and the no-orphan failure path
 // ---------------------------------------------------------------------------
 
@@ -890,7 +845,7 @@ describe('enqueueCapture throttle', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase 7 handlers — thumbnail list + enlarged modal (§1.5, §3.3)
+// Thumbnail list + enlarged view handlers (§1.5, §3.3)
 // ---------------------------------------------------------------------------
 
 describe('handleGetPageItems', () => {
@@ -952,6 +907,71 @@ describe('handleGetImage', () => {
 
     expect(response).toEqual({ ok: false, message: "couldn't load screenshot. try again." });
     warn.mockRestore();
+  });
+});
+
+describe('handleUpdateItem', () => {
+  it('forwards the patch to storage.ts\'s updateItem and reports success', async () => {
+    const response = await background.handleUpdateItem({
+      type: 'UPDATE_ITEM',
+      domain: 'example.com',
+      normalisedUrl: 'example.com/a',
+      itemId: 3,
+      patch: { note: 'edited note' },
+    });
+
+    expect(mockedStorage.updateItem).toHaveBeenCalledWith('example.com', 'example.com/a', 3, { note: 'edited note' });
+    expect(response).toEqual({ ok: true });
+  });
+
+  it('maps a write failure to the same lowercase error as UPDATE_NOTE', async () => {
+    mockedStorage.updateItem.mockRejectedValue(new Error('quota exceeded'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const response = await background.handleUpdateItem({
+      type: 'UPDATE_ITEM',
+      domain: 'example.com',
+      normalisedUrl: 'example.com/a',
+      itemId: 3,
+      patch: { note: 'edited note' },
+    });
+
+    expect(response).toEqual({ ok: false, message: "couldn't save note. try again." });
+    warn.mockRestore();
+  });
+
+  it('shares the save queue with SAVE_ITEM (no overlapping read-modify-write)', async () => {
+    const order: string[] = [];
+    let releaseAdd!: () => void;
+    mockedStorage.addItem.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          order.push('add:start');
+          releaseAdd = () => {
+            order.push('add:end');
+            resolve();
+          };
+        }),
+    );
+    mockedStorage.updateItem.mockImplementation(async () => {
+      order.push('update');
+      return true;
+    });
+
+    const save = background.handleSaveItem({ type: 'SAVE_ITEM', domain: 'example.com', item: makeNewItem() });
+    const update = background.handleUpdateItem({
+      type: 'UPDATE_ITEM',
+      domain: 'example.com',
+      normalisedUrl: 'example.com/a',
+      itemId: 3,
+      patch: { note: 'edited' },
+    });
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(order).toEqual(['add:start']);
+
+    releaseAdd();
+    await Promise.all([save, update]);
+    expect(order).toEqual(['add:start', 'add:end', 'update']);
   });
 });
 

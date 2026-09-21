@@ -1,43 +1,36 @@
 // src/content.ts
 // Content script main entry.
 //
-// Phase 3 rebuilds the sidebar shell (src/sidebar.ts) on top of the Phase 0
-// stub and wires it up to real UI: ACTIVATE / ICON_CLICKED open and toggle
-// it, SPA navigation refreshes its (currently empty) thumbnail list, and its
-// own close button restores the page and tells the service worker so a
-// later reload doesn't bring the sidebar back uninvited (§1.1).
+// Wires the sidebar shell (src/sidebar.ts) to the runtime: ACTIVATE /
+// ICON_CLICKED open and toggle it, SPA navigation refreshes its thumbnail
+// list, and its own close button restores the page and tells the service
+// worker so a later reload doesn't bring the sidebar back uninvited (§1.1).
 //
-// Phase 5 wires the sidebar's "add" button all the way through: add mode
+// Wires the sidebar's "add" button all the way through: add mode
 // (src/addMode.ts) produces a selection + note, the capture pipeline
 // (src/capture.ts) turns that into a stored feedback item, and this file
 // decides what happens to add mode and the sidebar on either outcome — see
 // handleCaptureOk below.
 //
-// Phase 7 wires the thumbnail list and the enlarged view (src/thumbnails.ts,
-// src/enlargedView.ts — design spec v2 §D, which replaced the old centred
-// modal): this file is the message-sending orchestrator for both (same role
-// it already plays for capture/save), fetching a domain's/URL's items via
-// GET_PAGE_ITEMS and handing them to sidebar.setThumbnails(), and supplying
-// the enlarged view's fetchFullImage/onSaveNote/onDelete callbacks so that
-// pure-DOM module never has to touch chrome.runtime itself.
+// Wires the thumbnail list and the enlarged view (src/thumbnails.ts,
+// src/enlargedView.ts — design spec v2 §D): this file is the message-sending
+// orchestrator for both (the same role it plays for capture/save), fetching
+// a domain's/URL's items via GET_PAGE_ITEMS and handing them to
+// sidebar.setThumbnails(), and supplying the enlarged view's
+// fetchFullImage/onSaveNote/onDelete callbacks so that pure-DOM module never
+// has to touch chrome.runtime itself.
 //
-// What survives from Phase 0/2 untouched, per the inventory table:
-//   1. The double-injection idempotency guard.
-//   2. The chrome.runtime message listener shape (PING / ACTIVATE / ICON_CLICKED).
-//   3. SPA navigation detection (history.pushState/replaceState patching +
-//      popstate/hashchange + debounce).
-//   4. Teardown on beforeunload.
+// Also here: the double-injection idempotency guard, the chrome.runtime
+// message listener (PING / ACTIVATE / ICON_CLICKED), SPA navigation
+// detection (history.pushState/replaceState patching + popstate/hashchange
+// + debounce), and teardown on beforeunload.
 //
-// What Phase 3 removes: the legacy `setTabActive` call. That was a Phase 0
-// placeholder standing in for real sidebar-open persistence; the real
-// mechanism is chrome.storage.session, keyed by tab id (§1.1), which is only
-// reachable from the extension context (service worker) — a content script
-// has no direct access to chrome.storage.session by default. So instead of
-// writing that state itself, the content script *tells* the background
+// The "sidebar open" state is deliberately not written from here: it lives
+// in chrome.storage.session, keyed by tab id (§1.1), which is only reachable
+// from the extension context. So the content script *tells* the background
 // script when the sidebar opens/closes (SIDEBAR_OPENED / SIDEBAR_CLOSED,
-// src/messages.ts), and background.ts (Phase 2) is the one that actually
-// persists it and decides whether to re-inject + re-ACTIVATE on a later
-// full-page reload.
+// src/messages.ts), and background.ts persists it and decides whether to
+// re-inject + re-ACTIVATE on a later full-page reload.
 
 import { normaliseUrl, normaliseDomain } from './urlNorm';
 import * as sidebar from './sidebar';
@@ -45,41 +38,31 @@ import * as addMode from './addMode';
 import * as capture from './capture';
 import { ensureFontsLoaded, primeThemeMode } from './theme';
 import { parseImportBundle } from './import';
-// The list's hover delete (design spec v4 §L) reuses the enlarged view's
-// failure copy rather than declaring a second string for the same event.
-import { DELETE_ERROR_MESSAGE } from './enlargedView';
-import { FeedbackItem, ImportError, ImportErrorCode, ImportErrorDetails } from './types';
+import {
+  // The list's hover delete (design spec v4 §L) shares the enlarged view's
+  // failure copy rather than declaring a second string for the same event.
+  DELETE_ERROR_MESSAGE,
+  EXPORT_FAILED_MESSAGE,
+  FINISH_NOTE_FIRST_MESSAGE,
+  IMPORT_FAILED_MESSAGE,
+  IMPORT_VERSION_WARNING_MESSAGE,
+  NOTHING_TO_EXPORT_MESSAGE,
+  importErrorMessage,
+  importReplaceConfirmMessage,
+} from './copy';
+import { FeedbackItem, ImportError } from './types';
+import { send } from './rpc';
 import {
   SidebarOpenedMessage,
   SidebarClosedMessage,
   GetPageItemsMessage,
-  GetPageItemsResponse,
   GetImageMessage,
-  GetImageResponse,
-  UpdateNoteMessage,
-  UpdateNoteResponse,
+  UpdateItemMessage,
   DeleteItemMessage,
-  DeleteItemResponse,
   ExportMessage,
-  ExportResponse,
   ImportReplaceMessage,
-  ImportReplaceResponse,
   GetDomainItemCountMessage,
-  GetDomainItemCountResponse,
 } from './messages';
-
-// §5 #7's alert text is fixed and verbatim; this is the fallback shown when
-// the export round trip itself fails (a dead service worker, etc.) — not one
-// of the 11 numbered §5 cases, but kept lowercase and in the same tone.
-const EXPORT_ROUND_TRIP_FAILED_MESSAGE = "couldn't export feedback. try again.";
-
-// Fallback shown when the import round trip itself fails (dead service
-// worker, etc.) rather than a validation failure §5 already has copy for.
-const IMPORT_ROUND_TRIP_FAILED_MESSAGE = "couldn't import this bundle. try again.";
-
-// Shown when a note is clicked while add mode's comment box holds typed text
-// — opening it would throw that text away.
-const FINISH_NOTE_FIRST_MESSAGE = 'finish or cancel your note first.';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Idempotency guard + runtime init (wrapped in IIFE so we can `return` instead
@@ -106,8 +89,8 @@ let started = false;
 //
 // The sidebar's "add note" control is an icon-only button with a "keep add
 // mode on" switch attached to it, and this module is the only thing that ever
-// moves it between its three painted states (off / on / locked — where
-// 'locked' now means button-on *and* switch-on), so the control's visuals
+// moves it between its three painted states (off / on / kept-on — button-on
+// *and* switch-on), so the control's visuals
 // (sidebar.setAddButtonState) can never drift from addMode.isAddModeActive()'s
 // real state. Every one of add mode's exit paths (capture success/failure,
 // cancel, Esc, sidebar close, SPA navigation, opening the enlarged view)
@@ -120,7 +103,7 @@ let started = false;
  *  successful capture and each per-note cancel, until a click on the button,
  *  a flick of the switch, or Esc ends it (§A2). Deliberately not persisted —
  *  it resets to off per page session, like the v2 lock it replaces. */
-let addLocked = false;
+let addKeptOn = false;
 
 /**
  * A click while add mode is already on (switch off) that follows another click
@@ -149,7 +132,7 @@ function clearPendingAddOff(): void {
 }
 
 /** Enter add mode (fresh placement) and paint the control for whatever
- *  addLocked currently is — the single entry point for every "start/restart
+ *  addKeptOn currently is — the single entry point for every "start/restart
  *  add mode" path: the first click off -> on, flicking the switch on from
  *  off, and re-entry while the switch is on after a successful capture or a
  *  per-note cancel. */
@@ -169,14 +152,14 @@ function enterAddMode(): void {
   sidebar.setAddModeHold(true);
   addMode.startAddMode({
     onOk: (result) => {
-      // Phase 5's capture pipeline (src/capture.ts) owns everything between
+      // The capture pipeline (src/capture.ts) owns everything between
       // "ok" and a stored item; this side only decides what happens to add
       // mode/the sidebar afterwards (handleCaptureOk below).
       void handleCaptureOk(result);
     },
     onCancel: handleAddModeCancel,
   });
-  sidebar.setAddButtonState(addLocked ? 'locked' : 'on');
+  sidebar.setAddButtonState(addKeptOn ? 'kept-on' : 'on');
 }
 
 /** Common tail of every full exit: turn the switch off, take the sidebar off
@@ -185,7 +168,7 @@ function enterAddMode(): void {
  *  still need to call addMode.exitAddMode() do so first (see
  *  exitAddModeFully). */
 function finishAddMode(): void {
-  addLocked = false;
+  addKeptOn = false;
   sidebar.setAddModeHold(false);
   sidebar.setAddButtonState('off');
 }
@@ -209,7 +192,7 @@ function exitAddModeFully(): void {
  *  re-enter immediately rather than falling all the way to "off" (§A2). */
 function handleAddModeCancel(): void {
   clearPendingAddOff();
-  if (addLocked) {
+  if (addKeptOn) {
     enterAddMode();
     return;
   }
@@ -227,7 +210,7 @@ function handleAddButtonClick(): void {
     enterAddMode();
     return;
   }
-  if (addLocked) {
+  if (addKeptOn) {
     // A single click while the switch is on exits add mode AND turns the
     // switch off (§A2) — one click to stop everything. No dblclick
     // disambiguation needed: there is no intermediate state to fall back to.
@@ -275,8 +258,8 @@ function handleAddSwitchChange(on: boolean): void {
 
 function setAddSwitch(on: boolean): void {
   clearPendingAddOff();
-  if (on === addLocked && addMode.isAddModeActive()) return;
-  addLocked = on;
+  if (on === addKeptOn && addMode.isAddModeActive()) return;
+  addKeptOn = on;
   if (on && !addMode.isAddModeActive()) {
     enterAddMode();
     return;
@@ -286,7 +269,7 @@ function setAddSwitch(on: boolean): void {
     finishAddMode();
     return;
   }
-  sidebar.setAddButtonState(on ? 'locked' : 'on');
+  sidebar.setAddButtonState(on ? 'kept-on' : 'on');
 }
 
 /** Esc always exits add mode and turns the switch off (§A2), regardless of
@@ -439,7 +422,7 @@ async function handleCaptureOk(result: addMode.AddModeResult): Promise<void> {
   }
 
   addMode.exitAddMode();
-  if (addLocked) {
+  if (addKeptOn) {
     enterAddMode();
   } else {
     finishAddMode();
@@ -474,13 +457,11 @@ function toggleSidebar(): void {
   }
 }
 
+/** Fire-and-forget: the background/service worker not being reachable is
+ *  not actionable here — the persisted "sidebar open" state simply won't
+ *  update this time. */
 function notifyBackground(message: SidebarOpenedMessage | SidebarClosedMessage): void {
-  chrome.runtime.sendMessage(message, () => {
-    if (chrome.runtime.lastError) {
-      // Background/service worker not reachable — nothing actionable here;
-      // the persisted "sidebar open" state simply won't update this time.
-    }
-  });
+  void send(message);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -527,29 +508,8 @@ function handleUrlChange(): void {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 7 — thumbnail list + enlarged view message plumbing
+// Thumbnail list + enlarged view message plumbing
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** chrome.runtime.sendMessage as a promise that never rejects: a dead service
- *  worker or a torn-down port surfaces as `undefined`, which every caller
- *  here already has to treat as a failure. Mirrors capture.ts's private
- *  helper of the same shape. */
-function sendMessage<TResponse>(message: unknown): Promise<TResponse | undefined> {
-  return new Promise((resolve) => {
-    try {
-      chrome.runtime.sendMessage(message, (response: TResponse | undefined) => {
-        if (chrome.runtime.lastError) {
-          resolve(undefined);
-          return;
-        }
-        resolve(response);
-      });
-    } catch {
-      // Extension context invalidated (e.g. reloaded while the page stayed open).
-      resolve(undefined);
-    }
-  });
-}
 
 /** Fetch the current URL's feedback items and repaint the sidebar's thumbnail
  *  list (§1.5 — "current URL only"). Called on open, on every SPA navigation,
@@ -561,7 +521,7 @@ async function refreshThumbnails(): Promise<void> {
     domain: normaliseDomain(location.host),
     normalisedUrl: normaliseUrl(location.href),
   };
-  const response = await sendMessage<GetPageItemsResponse>(message);
+  const response = await send(message);
   if (!response || !response.ok) {
     sidebar.setThumbnails([]);
     if (response && !response.ok) sidebar.showError(response.message);
@@ -585,7 +545,7 @@ async function handleDeleteItem(item: FeedbackItem): Promise<void> {
     normalisedUrl: item.normalisedUrl,
     itemId: item.id,
   };
-  const response = await sendMessage<DeleteItemResponse>(message);
+  const response = await send(message);
   if (response?.ok !== true) {
     sidebar.showError(DELETE_ERROR_MESSAGE);
     return;
@@ -609,14 +569,14 @@ async function handleExport(): Promise<void> {
       type: 'EXPORT',
       domain: normaliseDomain(location.host),
     };
-    const response = await sendMessage<ExportResponse>(message);
+    const response = await send(message);
     if (!response) {
-      sidebar.showError(EXPORT_ROUND_TRIP_FAILED_MESSAGE);
+      sidebar.showError(EXPORT_FAILED_MESSAGE);
       return;
     }
     if (!response.ok) {
       if (response.code === 'EMPTY') {
-        alert('nothing to export'); // §5 #7, verbatim
+        alert(NOTHING_TO_EXPORT_MESSAGE); // §5 #7, verbatim
       } else {
         sidebar.showError(response.message);
       }
@@ -646,27 +606,25 @@ async function handleImportFile(file: File): Promise<void> {
       bundle = await parseImportBundle(file, currentDomain);
     } catch (err) {
       sidebar.showError(
-        err instanceof ImportError ? importErrorMessage(err.code, err.details) : IMPORT_ROUND_TRIP_FAILED_MESSAGE,
+        err instanceof ImportError ? importErrorMessage(err.code, err.details) : IMPORT_FAILED_MESSAGE,
       );
       return;
     }
 
     if (bundle.versionWarning) {
-      sidebar.showWarning(importErrorMessage('VERSION_MISMATCH'));
+      sidebar.showWarning(IMPORT_VERSION_WARNING_MESSAGE);
     }
 
     const countMessage: GetDomainItemCountMessage = {
       type: 'GET_DOMAIN_ITEM_COUNT',
       domain: currentDomain,
     };
-    const countResponse = await sendMessage<GetDomainItemCountResponse>(countMessage);
+    const countResponse = await send(countMessage);
     const existingCount = countResponse?.ok ? countResponse.count : 0;
 
     if (existingCount > 0) {
       // §5 #10, verbatim.
-      const confirmed = await sidebar.showConfirmDialog(
-        `importing will replace your current ${existingCount} feedback item(s) for this site. this cannot be undone. continue?`,
-      );
+      const confirmed = await sidebar.showConfirmDialog(importReplaceConfirmMessage(existingCount));
       if (!confirmed) return;
     }
 
@@ -675,9 +633,9 @@ async function handleImportFile(file: File): Promise<void> {
       domain: currentDomain,
       items: bundle.items,
     };
-    const replaceResponse = await sendMessage<ImportReplaceResponse>(replaceMessage);
+    const replaceResponse = await send(replaceMessage);
     if (!replaceResponse || !replaceResponse.ok) {
-      sidebar.showError(replaceResponse?.message ?? IMPORT_ROUND_TRIP_FAILED_MESSAGE);
+      sidebar.showError(replaceResponse?.message ?? IMPORT_FAILED_MESSAGE);
       return;
     }
 
@@ -692,33 +650,8 @@ async function handleImportFile(file: File): Promise<void> {
   }
 }
 
-/** §5's error/warning copy, lowercase and verbatim. The one parameterised
- *  row (#5, domain mismatch) fills in from `ImportError.details`. */
-function importErrorMessage(code: ImportErrorCode, details?: ImportErrorDetails): string {
-  switch (code) {
-    case 'INVALID_FILE_TYPE':
-      return 'invalid file type. please upload a .zip feedback bundle.';
-    case 'CORRUPT_ARCHIVE':
-      return 'could not read this file — it appears to be corrupted.';
-    case 'MISSING_MANIFEST':
-      return "this doesn't look like a feedback bundle.";
-    case 'MALFORMED_CONTEXT':
-      return "this bundle appears to be corrupted (couldn't read feedback data).";
-    case 'MISSING_SCREENSHOT':
-      return "this file is missing screenshot data and can't be imported.";
-    case 'DOMAIN_MISMATCH':
-      return `this bundle contains feedback for '${details?.fileDomain}', but you're currently on '${details?.currentDomain}'.`;
-    case 'DUPLICATE_IDS':
-      return 'this bundle appears to be corrupted (duplicate item ids).';
-    case 'VERSION_MISMATCH':
-      return 'this bundle was created with a newer version of the extension. some feedback may not display correctly.';
-    default:
-      return IMPORT_ROUND_TRIP_FAILED_MESSAGE;
-  }
-}
-
 /** Expand the sidebar into the enlarged view on one note (design spec v2
- *  §D), wiring its callbacks onto the GET_IMAGE / UPDATE_NOTE / DELETE_ITEM
+ *  §D), wiring its callbacks onto the GET_IMAGE / UPDATE_ITEM / DELETE_ITEM
  *  round trips (enlargedView.ts itself never touches chrome.runtime — gotcha
  *  #1/#3). The view navigates between notes itself, so every callback takes
  *  the note it's acting on. */
@@ -728,18 +661,18 @@ function openItemEnlarged(item: FeedbackItem): void {
   sidebar.openEnlargedView(item.id, {
     fetchFullImage: async (target) => {
       const getImage: GetImageMessage = { type: 'GET_IMAGE', screenshotKey: target.screenshotKey };
-      const response = await sendMessage<GetImageResponse>(getImage);
+      const response = await send(getImage);
       return response && response.ok ? response.dataUrl : null;
     },
     onSaveNote: async (target, note) => {
-      const updateNote: UpdateNoteMessage = {
-        type: 'UPDATE_NOTE',
+      const updateItem: UpdateItemMessage = {
+        type: 'UPDATE_ITEM',
         domain,
         normalisedUrl: target.normalisedUrl,
         itemId: target.id,
-        note,
+        patch: { note },
       };
-      const response = await sendMessage<UpdateNoteResponse>(updateNote);
+      const response = await send(updateItem);
       return response?.ok === true;
     },
     onDelete: async (target) => {
@@ -749,7 +682,7 @@ function openItemEnlarged(item: FeedbackItem): void {
         normalisedUrl: target.normalisedUrl,
         itemId: target.id,
       };
-      const response = await sendMessage<DeleteItemResponse>(deleteItemMsg);
+      const response = await send(deleteItemMsg);
       return response?.ok === true;
     },
     onClosed: (currentId) => {

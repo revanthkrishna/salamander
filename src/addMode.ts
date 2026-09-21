@@ -1,5 +1,5 @@
 // src/addMode.ts
-// Phase 4 — the add-mode selection interaction (REQUIREMENTS §1.2, §3.2),
+// The add-mode selection interaction (REQUIREMENTS §1.2, §3.2),
 // restyled to the Salamander design language (design spec §3.2).
 //
 // Scope: crosshair-cursor click-to-place (centered default box sized to match
@@ -16,15 +16,14 @@
 // that retires itself after ~5s, once per page session — v4 §N).
 //
 // What this module does NOT do: capture a screenshot, talk to the service
-// worker, or build DOM/context data. That is Phase 5 (src/capture.ts) and
-// Phase 6 (src/contextCapture.ts, already built) — this module only produces
-// a selection rect + note text via AddModeCallbacks.onOk, and exposes
-// hideOverlayUI()/showOverlayUI() for Phase 5 to wrap around the actual
+// worker, or build DOM/context data. That is src/capture.ts and
+// src/contextCapture.ts — this module only produces a selection rect +
+// note text via AddModeCallbacks.onOk, and exposes
+// hideOverlayUI()/showOverlayUI() for the capture pipeline to wrap around the actual
 // capture call so none of this UI ever appears in the screenshot (§1.2 step
 // 44.1).
 //
-// Positioning note (conceptual reuse only, per DEVELOPMENT_PLAN.md Phase 4 —
-// "all code is new"): the comment box's below -> above -> side flip logic is
+// Positioning note (conceptual reuse only — all code is new): the comment box's below -> above -> side flip logic is
 // the same overflow-candidate-list idea as v1's deleted annotationMode.ts
 // positionPopover() (git history, commit 869d09d), adapted from "flip around
 // a point" to "flip around a rect", with a final unconditional clamp added so
@@ -36,7 +35,7 @@
 // sidebar's docked strip on the right (§1.2 step 44.1's guarantee that the
 // sidebar can never fall inside a selection, because it resizes the page
 // rather than overlaying it). This module deliberately stays ignorant of
-// scroll offset and DPR: src/capture.ts (Phase 5) adds the scroll offset for
+// scroll offset and DPR: src/capture.ts adds the scroll offset for
 // the archival page-coordinate rect (§1.4D), and the service worker converts
 // to device pixels for the crop (§1.3, §6 #4/#5). The rect handed to onOk is
 // passed to the capture message unchanged — viewport CSS px is already the
@@ -45,6 +44,7 @@
 import { Rect } from './types';
 import { getSidebarWidth, DEFAULT_THUMBNAIL_BOX_SIZE } from './sidebar';
 import { getContentViewportSize } from './capture';
+import { clamp } from './flip';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
 import { DISABLED_CSS, FOCUS_RING_CSS, getThemeCSS, registerThemedHost, STATE_TRANSITION_CSS } from './theme';
 
@@ -468,17 +468,13 @@ let placeDragging = false;
 // Geometry helpers
 // ---------------------------------------------------------------------------
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
 /** The selectable area: full viewport height, full viewport width minus the
  *  sidebar's docked strip (§1.2 step 44.1 — the sidebar can never fall inside
  *  a selection because the page never renders under it). Add mode is only
  *  ever entered via the sidebar's own "add" button, so the sidebar is always
  *  open while this module is active.
  *
- *  Measured against the *scrollbar-excluded* viewport (Phase 5), not
+ *  Measured against the *scrollbar-excluded* viewport, not
  *  `window.innerWidth`: the sidebar panel is `position: fixed; right: 0`, so
  *  it sits against the inner edge of the document's vertical scrollbar. With
  *  `innerWidth` (which includes that scrollbar) the clamp lands ~15px to the
@@ -1160,8 +1156,8 @@ export function hasPendingComment(): boolean {
 /** Hide all add-mode visuals (box outline, resize hit zones, scrim, comment box) for
  *  the single frame of a screenshot capture (§1.2 step 44.1). The page-click
  *  blocker stays up — add mode is still logically active, just invisible.
- *  Safe to call when nothing has been placed yet, though Phase 5 only ever
- *  calls this once a "save" click has fired. */
+ *  Safe to call when nothing has been placed yet, though the capture
+ *  pipeline only ever calls this once a "save" click has fired. */
 export function hideOverlayUI(): void {
   if (elVisuals) elVisuals.dataset.hidden = 'true';
 }
@@ -1181,8 +1177,8 @@ export function showOverlayUI(): void {
 }
 
 /** Full teardown: removes all add-mode DOM/listeners and returns to idle.
- *  Called internally by cancel; callers (content.ts today, Phase 5's capture
- *  pipeline later) call it themselves once a successful capture completes. */
+ *  Called internally by cancel; content.ts calls it itself once a
+ *  successful capture completes. */
 export function exitAddMode(): void {
   if (mode === 'idle') return;
 

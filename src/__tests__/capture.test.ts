@@ -1,4 +1,4 @@
-// Phase 5: capture pipeline (content-script half) — src/capture.ts.
+// Capture pipeline (content-script half) — src/capture.ts.
 //
 // Covers the three things that can silently produce a wrong screenshot or a
 // half-written item, none of which need a real browser to pin down:
@@ -11,6 +11,7 @@
 //      item (§1.3, §5 #8).
 
 import * as capture from '../capture';
+import { CAPTURE_FAILED_MESSAGE } from '../copy';
 import type { AddModeResult } from '../addMode';
 
 jest.mock('../contextCapture', () => ({
@@ -297,7 +298,7 @@ describe('captureAndSave', () => {
 
     const outcome = await capture.captureAndSave(selection, overlay);
 
-    expect(outcome).toEqual({ ok: false, message: capture.CAPTURE_FAILED_MESSAGE });
+    expect(outcome).toEqual({ ok: false, message: CAPTURE_FAILED_MESSAGE });
     expect(overlay.show).toHaveBeenCalled();
   });
 
@@ -309,7 +310,7 @@ describe('captureAndSave', () => {
 
     const outcome = await capture.captureAndSave(selection, overlay);
 
-    expect(outcome).toEqual({ ok: false, message: capture.CAPTURE_FAILED_MESSAGE });
+    expect(outcome).toEqual({ ok: false, message: CAPTURE_FAILED_MESSAGE });
     expect(overlay.hide).not.toHaveBeenCalled();
     expect(sendMessageMock).not.toHaveBeenCalled();
     warn.mockRestore();

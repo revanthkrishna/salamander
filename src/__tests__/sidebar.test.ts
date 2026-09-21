@@ -1,4 +1,4 @@
-// Phase 3: sidebar shell tests — DOM structure, open/close visibility, the
+// Sidebar shell tests — DOM structure, open/close visibility, the
 // page-resize strategy applied to <html> (its exact application, its
 // re-assertion when a page wipes it, and its per-property restoration), the
 // four header buttons' wiring, and the notification primitives carried over
@@ -7,11 +7,12 @@
 // jsdom has no layout engine, so these verify the *mechanism* — which inline
 // declarations land on document.documentElement, how they are restored, what
 // the observer does — not actual pixel reflow. Whether the shrink looks right
-// on a real site is REQUIREMENTS §1.1/§3.1's manual check (DEVELOPMENT_PLAN.md
-// Phase 3 asks for 5+ real sites), and Phase 10's Playwright suite.
+// on a real site is REQUIREMENTS §1.1/§3.1's manual check (5+ real sites),
+// and the Playwright suite.
 
 import * as sidebar from '../sidebar';
 import { FeedbackItem } from '../types';
+import { ICON_WARNING } from '../icons';
 import { _resetThemeStateForTests, setThemeMode } from '../theme';
 
 function getHost(): HTMLElement | null {
@@ -610,7 +611,7 @@ describe('sidebar shell', () => {
     expect(cb.calls.close).toBe(1);
   });
 
-  test('add and export buttons invoke their callbacks (still no-ops of their own — Phases 4/8 fill them in)', () => {
+  test('add and export buttons invoke their callbacks', () => {
     const cb = makeCallbacks();
     sidebar.initSidebar(cb);
     (shadowRoot().querySelector('.btn-add') as HTMLButtonElement).click();
@@ -761,6 +762,19 @@ describe('sidebar shell', () => {
     expect(html().style.color).toBe('green');
   });
 
+  test('destroySidebar unregisters the host from the theme feed', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const host = getHost()!;
+    const before = host.getAttribute('data-theme');
+
+    sidebar.destroySidebar();
+    setThemeMode(before === 'dark' ? 'light' : 'dark');
+
+    // A registered host would have been repainted by the mode change; the
+    // torn-down one is no longer in theme.ts's set.
+    expect(host.getAttribute('data-theme')).toBe(before);
+  });
+
   // ── notifications (carried over from toolbar.ts) ─────────────────────────
 
   test('showError renders the message verbatim and auto-clears after 8s', () => {
@@ -780,7 +794,7 @@ describe('sidebar shell', () => {
     expect(text.textContent).toBe('');
   });
 
-  test('showWarning uses the warning styling and a swappable icon', () => {
+  test('showWarning uses the warning styling and the warning icon', () => {
     sidebar.initSidebar(makeCallbacks());
 
     sidebar.showWarning('this bundle was created with a newer version of the extension.');
@@ -789,11 +803,13 @@ describe('sidebar shell', () => {
     expect(notif.classList.contains('warning')).toBe(true);
     // Compared by a distinctive path fragment rather than the whole string:
     // innerHTML round-trips `<path/>` back out as `<path></path>`.
-    expect(sidebar.ICON_WARNING).toContain('M12 7.5v5.5');
+    expect(ICON_WARNING).toContain('M12 7.5v5.5');
     expect(icon.innerHTML).toContain('M12 7.5v5.5');
 
-    sidebar.showWarning('custom', '<svg id="custom-icon"></svg>');
-    expect(icon.innerHTML).toContain('custom-icon');
+    // An error after a warning swaps back to the error icon.
+    sidebar.showError('an error');
+    expect(notif.classList.contains('warning')).toBe(false);
+    expect(icon.innerHTML).toContain('M9 9l6 6');
   });
 
   test('a second message replaces the first instead of stacking', () => {
@@ -1176,7 +1192,7 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     expect(addButton().getAttribute('aria-label')).toBe('add note (on)');
     expect(addSwitch().getAttribute('aria-checked')).toBe('false');
 
-    sidebar.setAddButtonState('locked');
+    sidebar.setAddButtonState('kept-on');
     expect(group().classList.contains('is-on')).toBe(true);
     expect(group().classList.contains('is-switch-on')).toBe(true);
     expect(addButton().getAttribute('aria-pressed')).toBe('true');
@@ -1193,7 +1209,7 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
 
   test('no padlock glyph survives anywhere', () => {
     sidebar.initSidebar(makeCallbacks());
-    sidebar.setAddButtonState('locked');
+    sidebar.setAddButtonState('kept-on');
     expect(shadowRoot().querySelector('.icon-lock')).toBeNull();
     expect(css()).not.toMatch(/icon-lock/);
     expect(group().classList.contains('is-locked')).toBe(false);
@@ -1211,7 +1227,7 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     // While on, the halves are merged and the switch stops reporting its own
     // value — see "clicking either half of the merged control stops
     // everything" below.
-    sidebar.setAddButtonState('locked');
+    sidebar.setAddButtonState('kept-on');
     addSwitch().click();
     expect(cb.calls.addSwitch).toEqual([true]);
     expect(cb.calls.add).toBe(1);
@@ -1353,7 +1369,7 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
 
     // One tab stop while merged: the button half carries it.
     const sw = shadowRoot().querySelector('.add-switch') as HTMLButtonElement;
-    sidebar.setAddButtonState('locked');
+    sidebar.setAddButtonState('kept-on');
     expect(sw.getAttribute('tabindex')).toBe('-1');
     expect(sw.getAttribute('aria-checked')).toBe('true');
     sidebar.setAddButtonState('on');
@@ -1374,7 +1390,7 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     // Switch on (merged): a click on the switch half is a click on the
     // button — content.ts's add handler exits add mode and clears the switch
     // together, which reporting `false` here would not do.
-    sidebar.setAddButtonState('locked');
+    sidebar.setAddButtonState('kept-on');
     sw.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     expect(cb.calls.addSwitch).toEqual([true]);
     expect(cb.calls.add).toBe(1);

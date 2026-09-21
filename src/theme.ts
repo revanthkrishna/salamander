@@ -1,5 +1,5 @@
 // src/theme.ts
-// Salamander design language — shared foundation (Phase 1 of the redesign).
+// Salamander design language — shared foundation.
 //
 // This module owns three things that sidebar.ts, addMode.ts and enlargedView.ts all
 // need identically, so they live here once instead of being copy-pasted:
@@ -148,11 +148,11 @@ export const DARK_THEME: ThemeTokens = {
  *  Rounded rectangles everywhere — never pill shapes. */
 export const RADII = { sm: 6, md: 10, lg: 14 } as const;
 
-/** `chrome.runtime.getURL`-relative paths of the bundled webfont files,
- *  exported so other tooling (e.g. a build check) can verify they exist
- *  without duplicating the list. Matches manifest.json's
- *  web_accessible_resources entry (`fonts/*.woff2`). */
-export const FONT_ASSET_PATHS = [
+/** `chrome.runtime.getURL`-relative paths of the bundled webfont files —
+ *  the type source for FontSpec.path below, so a typo in FONT_SPECS is a
+ *  compile error. Matches manifest.json's web_accessible_resources entry
+ *  (`fonts/*.woff2`). */
+const FONT_ASSET_PATHS = [
   'fonts/instrument-serif-latin-400-normal.woff2',
   'fonts/instrument-serif-latin-400-italic.woff2',
   'fonts/instrument-sans-latin-400-normal.woff2',
@@ -188,7 +188,7 @@ const RADII_CSS = `  --sal-radius-sm: ${RADII.sm}px;\n  --sal-radius-md: ${RADII
 
 /**
  * Returns the `:host { --sal-*: ...; }` / `:host([data-theme="dark"]) { ... }`
- * custom-property block described in Phase 1's brief. Callers prepend this
+ * custom-property block (design spec §1's tokens). Callers prepend this
  * (as its own `<style>` node, or concatenated into their existing one) inside
  * a closed shadow root, then use `var(--sal-bg)` etc. everywhere instead of
  * hard-coded colours. Light values live on the bare `:host` selector so a
@@ -418,17 +418,35 @@ function handleStorageChange(newValue: unknown): void {
   if (newValue !== currentMode) commitMode(newValue);
 }
 
+/** The one chrome.storage.onChanged listener this context registers, kept so
+ *  a full state reset can remove it rather than leave it firing into stale
+ *  module state. */
+let storageListener: ((changes: Record<string, chrome.storage.StorageChange>, areaName: string) => void) | null =
+  null;
+
 function setupStorageListener(): void {
   try {
-    chrome?.storage?.onChanged?.addListener((changes, areaName) => {
+    storageListener = (changes, areaName) => {
       if (areaName !== 'local') return;
       const change = changes?.[STORAGE_KEY];
       if (!change) return;
       handleStorageChange(change.newValue);
-    });
+    };
+    chrome?.storage?.onChanged?.addListener(storageListener);
   } catch {
     // chrome.storage unavailable.
+    storageListener = null;
   }
+}
+
+function teardownStorageListener(): void {
+  if (!storageListener) return;
+  try {
+    chrome?.storage?.onChanged?.removeListener?.(storageListener);
+  } catch {
+    // chrome.storage unavailable — nothing was registered.
+  }
+  storageListener = null;
 }
 
 function setupMatchMediaListener(): void {
@@ -564,6 +582,7 @@ export function registerThemedHost(hostEl: HTMLElement): () => void {
  *  import's defaults. Mirrors modal.ts's `_destroyForTests` pattern so
  *  theme.test.ts doesn't need `jest.resetModules()` between cases. */
 export function _resetThemeStateForTests(): void {
+  teardownStorageListener();
   currentMode = 'auto';
   currentResolved = resolveTheme(currentMode);
   initialized = false;

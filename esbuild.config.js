@@ -14,7 +14,11 @@ const buildOptions = {
   target: ['chrome100'],
   format: 'iife',
   sourcemap: true,
-  minify: false,
+  // content.js is injected into every page the sidebar opens on and
+  // re-injected on every full reload while it is open (background.ts's
+  // handleTabUpdated), so its parse/memory cost lands on the host page. Minify
+  // both bundles; the sourcemaps keep them debuggable.
+  minify: true,
   external: [],
 };
 

@@ -1,4 +1,4 @@
-// Phase 1 (Salamander design language) — src/theme.ts unit tests.
+// Salamander design language — src/theme.ts unit tests.
 //
 // Covers the two things sidebar.ts/addMode.ts/modal.ts will lean on in later
 // phases: theme *mode* resolution/persistence/sync (auto/light/dark, driven
@@ -180,6 +180,15 @@ describe('chrome.storage.onChanged sync', () => {
     expect(getThemeMode()).toBe('dark');
     expect(getResolvedTheme()).toBe('dark');
     expect(spy).toHaveBeenCalledWith('dark', 'dark');
+  });
+
+  test('a full state reset removes the listener it registered', () => {
+    expect(getThemeMode()).toBe('auto');
+    const listener = getRegisteredListener();
+
+    _resetThemeStateForTests();
+
+    expect(chrome.storage.onChanged.removeListener).toHaveBeenCalledWith(listener);
   });
 
   test('changes in a different storage area, or to an unrelated key, are ignored', () => {

@@ -1,14 +1,13 @@
-// Phase 2: the typed chrome.runtime message contract between the service
-// worker (src/background.ts) and the content script (src/content.ts). Both
-// sides import this file — it is the single source of truth for what can
-// cross the extension-context boundary, and it grows as later phases add
-// their own message types.
+// The typed chrome.runtime message contract between the service worker
+// (src/background.ts) and the content script (src/content.ts). Both sides
+// import this file — it is the single source of truth for what can cross
+// the extension-context boundary.
 //
 // Cross-cutting gotcha #2: chrome.runtime messaging is JSON-serialised —
 // Blob/File/ArrayBuffer do not survive. Every payload below is plain JSON;
 // images cross as data-URL strings.
 
-import { FeedbackItem, Rect, ViewportSize } from './types';
+import { FeedbackItem, ItemPatch, Rect, ViewportSize } from './types';
 
 // ---------------------------------------------------------------------------
 // Background -> content script
@@ -67,8 +66,7 @@ export interface SidebarClosedMessage {
 /**
  * Ask the service worker to capture the visible tab and crop it to `rect`.
  *
- * ── Coordinate contract (Phase 5 changed this; Phase 2 originally specified
- *    a pre-multiplied device-pixel rect) ─────────────────────────────────────
+ * ── Coordinate contract (NOT a pre-multiplied device-pixel rect) ───────────
  *
  * `rect` is in **viewport-relative CSS pixels** — exactly the space
  * `MouseEvent.clientX/clientY` live in, so no scroll offset is ever added:
@@ -102,11 +100,11 @@ export interface SidebarClosedMessage {
  * classic scrollbars sit on the right/bottom edges in LTR, so the image's
  * top-left is the CSS viewport's top-left either way.)
  *
- * The handler (Phase 2, extended in Phase 5) owns the mechanical half:
+ * The handler (background.ts) owns the mechanical half:
  * throttle so the ~2/sec capture rate limit (§2, §6 #8) is never hit,
  * capture, convert + crop, downscale a thumbnail, and persist the
  * full-resolution PNG via imageStore. It does *not* assemble the
- * FeedbackItem — that needs context data (Phase 6) and the note (Phase 4),
+ * FeedbackItem — that needs the captured context and the note,
  * and arrives separately as SaveItemMessage below.
  */
 export interface CaptureMessage {
@@ -129,18 +127,18 @@ export type CaptureErrorCode = 'RATE_LIMITED' | 'CAPTURE_FAILED' | 'CROP_FAILED'
 
 export interface CaptureSuccessResponse {
   ok: true;
-  /** Key into imageStore.ts (Phase 1) — the cropped PNG is already persisted
+  /** Key into imageStore.ts — the cropped PNG is already persisted
    *  there by the time this response is sent.
    *
-   *  Phase 2 also returned the full-resolution crop inline as a data URL;
-   *  Phase 5 dropped it. Nothing on the content-script side consumed it (the
-   *  sidebar list paints from `thumbnailDataUrl`, and Phase 7's modal will
-   *  fetch the full image by key), while every capture paid for serialising a
-   *  multi-megabyte base64 string across the boundary — gotcha #2's cost, for
-   *  a value that was thrown away on arrival. */
+   *  The full-resolution crop deliberately does NOT come back inline as a
+   *  data URL (it once did). Nothing on the content-script side consumes it
+   *  (the sidebar list paints from `thumbnailDataUrl`, and the enlarged view
+   *  fetches the full image by key), while every capture would pay for
+   *  serialising a multi-megabyte base64 string across the boundary —
+   *  gotcha #2's cost, for a value thrown away on arrival. */
   screenshotKey: string;
   /** A downscaled copy of the crop, for FeedbackItem.thumbnailDataUrl
-   *  (the Phase 1 design call: thumbnails live inline in storage.local so the
+   *  (by design, thumbnails live inline in storage.local so the
    *  sidebar list paints from one read). Produced in the service worker
    *  because that is where OffscreenCanvas and the decoded bitmap already
    *  are — gotcha #4. */
@@ -166,7 +164,7 @@ export type CaptureResponse = CaptureSuccessResponse | CaptureErrorResponse;
 export type NewFeedbackItem = Omit<FeedbackItem, 'id'>;
 
 /**
- * Persist a captured item (Phase 5). Sent immediately after a successful
+ * Persist a captured item. Sent immediately after a successful
  * CaptureMessage — `item.screenshotKey` is the key that capture returned, so
  * the blob is already in IndexedDB by the time this arrives. If the metadata
  * write fails, the handler deletes that blob again rather than leaving it
@@ -196,11 +194,11 @@ export interface SaveItemErrorResponse {
 export type SaveItemResponse = SaveItemSuccessResponse | SaveItemErrorResponse;
 
 // ---------------------------------------------------------------------------
-// Phase 7 — thumbnail list + enlarged modal (§1.5, §3.3)
+// Thumbnail list + enlarged view (§1.5, §3.3)
 // ---------------------------------------------------------------------------
 //
 // The sidebar's thumbnail list paints entirely from FeedbackItem.thumbnailDataUrl
-// (Phase 1's inline-thumbnail design call), which already lives in
+// (the inline-thumbnail design call — types.ts), which already lives in
 // chrome.storage.local — so GetPageItemsMessage is the only round trip the
 // list needs. The modal additionally wants the full-resolution PNG, which
 // lives in IndexedDB behind the service worker (gotcha #1), hence the
@@ -253,7 +251,33 @@ export interface GetImageErrorResponse {
 
 export type GetImageResponse = GetImageSuccessResponse | GetImageErrorResponse;
 
-/** Edit a note's text (enlarged-view autosave, §3.3). */
+/** Apply a partial update to one stored item (enlarged-view autosave, §3.3).
+ *  `patch` is an ItemPatch (src/types.ts), the single declaration of which
+ *  fields are mutable — a new per-item field (an annotations document, say)
+ *  travels through this same message rather than a new one. */
+export interface UpdateItemMessage {
+  type: 'UPDATE_ITEM';
+  domain: string;
+  normalisedUrl: string;
+  itemId: number;
+  patch: ItemPatch;
+}
+
+export interface UpdateItemSuccessResponse {
+  ok: true;
+}
+
+export interface UpdateItemErrorResponse {
+  ok: false;
+  message: string;
+}
+
+export type UpdateItemResponse = UpdateItemSuccessResponse | UpdateItemErrorResponse;
+
+/** The note-only predecessor of UpdateItemMessage: `{ note }` as a flat
+ *  field instead of a patch. Nothing in the content script sends it any
+ *  more; the handler stays as a thin alias of UPDATE_ITEM so an older
+ *  content script still on a page keeps saving. */
 export interface UpdateNoteMessage {
   type: 'UPDATE_NOTE';
   domain: string;
@@ -262,16 +286,7 @@ export interface UpdateNoteMessage {
   note: string;
 }
 
-export interface UpdateNoteSuccessResponse {
-  ok: true;
-}
-
-export interface UpdateNoteErrorResponse {
-  ok: false;
-  message: string;
-}
-
-export type UpdateNoteResponse = UpdateNoteSuccessResponse | UpdateNoteErrorResponse;
+export type UpdateNoteResponse = UpdateItemResponse;
 
 /** Delete a feedback item and its screenshot blob (§1.5 — immediate, no
  *  confirmation, no orphaned image). */
@@ -294,7 +309,7 @@ export interface DeleteItemErrorResponse {
 export type DeleteItemResponse = DeleteItemSuccessResponse | DeleteItemErrorResponse;
 
 // ---------------------------------------------------------------------------
-// Phase 8 — export (§1.6)
+// Export (§1.6)
 // ---------------------------------------------------------------------------
 //
 // The zip is assembled and downloaded entirely inside the service worker
@@ -336,7 +351,7 @@ export interface ExportErrorResponse {
 export type ExportResponse = ExportSuccessResponse | ExportEmptyResponse | ExportErrorResponse;
 
 // ---------------------------------------------------------------------------
-// Phase 9 — import (§1.7)
+// Import (§1.7)
 // ---------------------------------------------------------------------------
 //
 // Unzipping the picked file and validating it against §5's ladder happens in
@@ -409,8 +424,62 @@ export type ContentToBackgroundMessage =
   | SaveItemMessage
   | GetPageItemsMessage
   | GetImageMessage
+  | UpdateItemMessage
   | UpdateNoteMessage
   | DeleteItemMessage
   | ExportMessage
   | ImportReplaceMessage
   | GetDomainItemCountMessage;
+
+// ---------------------------------------------------------------------------
+// The request map — what makes the channel typed at both ends
+// ---------------------------------------------------------------------------
+//
+// One entry per content->background message: `[request, response]`. The
+// content script's `send()` (src/rpc.ts) derives its return type from the
+// request it is given, and the service worker's handler table
+// (background.ts) is declared over these keys, so a new member of
+// ContentToBackgroundMessage without an entry here, or an entry without a
+// handler, is a compile error rather than a message that silently goes
+// unanswered. `void` marks the two fire-and-forget notifications, which
+// have no response at all.
+
+export interface MessageMap {
+  SIDEBAR_OPENED: [SidebarOpenedMessage, void];
+  SIDEBAR_CLOSED: [SidebarClosedMessage, void];
+  CAPTURE: [CaptureMessage, CaptureResponse];
+  SAVE_ITEM: [SaveItemMessage, SaveItemResponse];
+  GET_PAGE_ITEMS: [GetPageItemsMessage, GetPageItemsResponse];
+  GET_IMAGE: [GetImageMessage, GetImageResponse];
+  UPDATE_ITEM: [UpdateItemMessage, UpdateItemResponse];
+  UPDATE_NOTE: [UpdateNoteMessage, UpdateNoteResponse];
+  DELETE_ITEM: [DeleteItemMessage, DeleteItemResponse];
+  EXPORT: [ExportMessage, ExportResponse];
+  IMPORT_REPLACE: [ImportReplaceMessage, ImportReplaceResponse];
+  GET_DOMAIN_ITEM_COUNT: [GetDomainItemCountMessage, GetDomainItemCountResponse];
+}
+
+export type MessageType = keyof MessageMap;
+export type RequestOf<K extends MessageType> = MessageMap[K][0];
+export type ResponseOf<K extends MessageType> = MessageMap[K][1];
+
+/** The response for a given request type, looked up by its `type` literal. */
+export type ResponseFor<M extends ContentToBackgroundMessage> = ResponseOf<M['type']>;
+
+/**
+ * One service-worker handler. A message with a response returns it as a
+ * promise (the channel is held open until it settles); a notification
+ * handler returns nothing and the channel closes at once.
+ */
+export type MessageHandler<K extends MessageType> = ResponseOf<K> extends void
+  ? (message: RequestOf<K>, sender: chrome.runtime.MessageSender) => void
+  : (message: RequestOf<K>, sender: chrome.runtime.MessageSender) => Promise<ResponseOf<K>>;
+
+/** The complete handler table — every key of MessageMap, no extras. */
+export type MessageHandlers = { [K in MessageType]: MessageHandler<K> };
+
+// Compile-time guard: MessageMap's keys and ContentToBackgroundMessage's
+// `type` literals must be the same set, in both directions.
+type MapKeysCoverUnion = [ContentToBackgroundMessage['type']] extends [MessageType] ? true : never;
+type UnionCoversMapKeys = [MessageType] extends [ContentToBackgroundMessage['type']] ? true : never;
+export const MESSAGE_MAP_IS_COMPLETE: MapKeysCoverUnion & UnionCoversMapKeys = true;

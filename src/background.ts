@@ -1,4 +1,4 @@
-// Background service worker for the screenshot-based Annotator (Phase 2).
+// Background service worker for the screenshot-based Annotator.
 //
 // Owns everything that can only run in the extension context: content-script
 // injection/lifecycle, per-tab sidebar state (chrome.storage.session, §1.1),
@@ -10,10 +10,10 @@ import {
   isSidebarOpen,
   setSidebarOpen,
   clearSidebarState,
-  cleanupStaleTabKeys,
   getNextItemId,
   addItem,
   getPageItems,
+  updateItem,
   updateNote,
   deleteItem,
   getDomainData,
@@ -22,6 +22,16 @@ import {
 } from './storage';
 import * as imageStore from './imageStore';
 import { exportDomain } from './export';
+import { dataUrlToBlob, blobToDataUrl } from './dataUrl';
+import {
+  CAPTURE_FAILED_MESSAGE,
+  ITEM_LOAD_FAILED_MESSAGE,
+  IMAGE_LOAD_FAILED_MESSAGE,
+  SAVE_ERROR_MESSAGE,
+  DELETE_ERROR_MESSAGE,
+  DOMAIN_COUNT_FAILED_MESSAGE,
+  IMPORT_FAILED_MESSAGE,
+} from './copy';
 import { FeedbackItem, Rect, ViewportSize, DomainData } from './types';
 import {
   ActivateMessage,
@@ -35,6 +45,8 @@ import {
   GetPageItemsResponse,
   GetImageMessage,
   GetImageResponse,
+  UpdateItemMessage,
+  UpdateItemResponse,
   UpdateNoteMessage,
   UpdateNoteResponse,
   DeleteItemMessage,
@@ -45,6 +57,8 @@ import {
   ImportReplaceResponse,
   GetDomainItemCountMessage,
   GetDomainItemCountResponse,
+  MessageHandlers,
+  MessageType,
 } from './messages';
 
 const CONTENT_SCRIPT = 'dist/content.js';
@@ -63,7 +77,7 @@ export async function handleActionClicked(tab: chrome.tabs.Tab): Promise<void> {
   if (!isAlive) {
     // Content script not present — inject it. The freshly-injected script
     // opens its own sidebar and reports back via SIDEBAR_OPENED once it's
-    // up (Phase 3) — background's job here stops at getting it running.
+    // up — background's job here stops at getting it running.
     try {
       await chrome.scripting.executeScript({
         target: { tabId },
@@ -134,77 +148,62 @@ export function handleTabRemoved(tabId: number): void {
 chrome.tabs.onRemoved.addListener(handleTabRemoved);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Startup cleanup: remove stale legacy activeTab keys. Kept until Phase 3
-// migrates content.ts's init() off storage.ts's legacy setTabActive() call
-// (see storage.ts's TODO comment) — harmless no-op once that lands.
-// ─────────────────────────────────────────────────────────────────────────────
-
-export async function handleStartup(): Promise<void> {
-  await cleanupStaleTabKeys();
-}
-
-chrome.runtime.onStartup.addListener(handleStartup);
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Runtime messages from content scripts: sidebar state + screenshot capture
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * One handler per content->background message type, declared over
+ * messages.ts's MessageMap so the table fails to compile when a message is
+ * added without a handler (or a handler answers with the wrong shape). The
+ * two notifications return nothing; every other entry returns the promise
+ * of its response.
+ */
+const handlers: MessageHandlers = {
+  SIDEBAR_OPENED: (_message, sender) => {
+    const tabId = sender.tab?.id;
+    if (tabId !== undefined) void setSidebarOpen(tabId);
+  },
+  SIDEBAR_CLOSED: (_message, sender) => {
+    const tabId = sender.tab?.id;
+    if (tabId !== undefined) void clearSidebarState(tabId);
+  },
+  CAPTURE: (message, sender) => handleCapture(message, sender),
+  SAVE_ITEM: (message) => handleSaveItem(message),
+  GET_PAGE_ITEMS: (message) => handleGetPageItems(message),
+  GET_IMAGE: (message) => handleGetImage(message),
+  UPDATE_ITEM: (message) => handleUpdateItem(message),
+  UPDATE_NOTE: (message) => handleUpdateNote(message),
+  DELETE_ITEM: (message) => handleDeleteItem(message),
+  EXPORT: (message) => handleExport(message),
+  GET_DOMAIN_ITEM_COUNT: (message) => handleGetDomainItemCount(message),
+  IMPORT_REPLACE: (message) => handleImportReplace(message),
+};
+
+function isKnownMessageType(type: unknown): type is MessageType {
+  return typeof type === 'string' && Object.prototype.hasOwnProperty.call(handlers, type);
+}
+
+/** chrome.runtime.onMessage listener. Returns true to keep the channel open
+ *  for an async response, false for a notification or a message that isn't
+ *  ours (PING/ACTIVATE/ICON_CLICKED are background->content). */
 export function handleRuntimeMessage(
   message: unknown,
   sender: chrome.runtime.MessageSender,
   sendResponse: (response?: unknown) => void,
 ): boolean {
-  const type = (message as { type?: string } | null | undefined)?.type;
-  switch (type) {
-    case 'SIDEBAR_OPENED': {
-      const tabId = sender.tab?.id;
-      if (tabId !== undefined) void setSidebarOpen(tabId);
-      return false;
-    }
-    case 'SIDEBAR_CLOSED': {
-      const tabId = sender.tab?.id;
-      if (tabId !== undefined) void clearSidebarState(tabId);
-      return false;
-    }
-    case 'CAPTURE': {
-      handleCapture(message as CaptureMessage, sender).then(sendResponse);
-      return true; // keep the message channel open for the async response
-    }
-    case 'SAVE_ITEM': {
-      handleSaveItem(message as SaveItemMessage).then(sendResponse);
-      return true; // keep the message channel open for the async response
-    }
-    case 'GET_PAGE_ITEMS': {
-      handleGetPageItems(message as GetPageItemsMessage).then(sendResponse);
-      return true; // keep the message channel open for the async response
-    }
-    case 'GET_IMAGE': {
-      handleGetImage(message as GetImageMessage).then(sendResponse);
-      return true; // keep the message channel open for the async response
-    }
-    case 'UPDATE_NOTE': {
-      handleUpdateNote(message as UpdateNoteMessage).then(sendResponse);
-      return true; // keep the message channel open for the async response
-    }
-    case 'DELETE_ITEM': {
-      handleDeleteItem(message as DeleteItemMessage).then(sendResponse);
-      return true; // keep the message channel open for the async response
-    }
-    case 'EXPORT': {
-      handleExport(message as ExportMessage).then(sendResponse);
-      return true; // keep the message channel open for the async response
-    }
-    case 'GET_DOMAIN_ITEM_COUNT': {
-      handleGetDomainItemCount(message as GetDomainItemCountMessage).then(sendResponse);
-      return true; // keep the message channel open for the async response
-    }
-    case 'IMPORT_REPLACE': {
-      handleImportReplace(message as ImportReplaceMessage).then(sendResponse);
-      return true; // keep the message channel open for the async response
-    }
-    default:
-      return false; // PING/ACTIVATE/ICON_CLICKED are background->content; not ours to handle
-  }
+  const type = (message as { type?: unknown } | null | undefined)?.type;
+  if (!isKnownMessageType(type)) return false;
+  // The table is exhaustive by type, so the message's shape is fixed by the
+  // key it was looked up under; the widening here is the runtime boundary's
+  // one unavoidable cast.
+  const handler = handlers[type] as (
+    message: unknown,
+    sender: chrome.runtime.MessageSender,
+  ) => Promise<unknown> | void;
+  const result = handler(message, sender);
+  if (!result) return false;
+  void result.then(sendResponse);
+  return true;
 }
 
 chrome.runtime.onMessage.addListener(handleRuntimeMessage);
@@ -232,15 +231,13 @@ function pingContentScript(tabId: number): Promise<boolean> {
 // Capture relay (§1.2 step 2, §1.3, §2, §6 #8)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CAPTURE_ERROR_MESSAGE = "couldn't capture a screenshot here. try again."; // §5 #8, verbatim, lowercase
-
 export async function handleCapture(
   message: CaptureMessage,
   sender: chrome.runtime.MessageSender,
 ): Promise<CaptureResponse> {
   const tab = sender.tab;
   if (!tab || tab.id === undefined) {
-    return { ok: false, code: 'CAPTURE_FAILED', message: CAPTURE_ERROR_MESSAGE };
+    return { ok: false, code: 'CAPTURE_FAILED', message: CAPTURE_FAILED_MESSAGE };
   }
 
   try {
@@ -273,7 +270,7 @@ export function mapCaptureError(err: unknown): CaptureErrorResponse {
       : /rate|quota|MAX_CAPTURE_VISIBLE_TAB/i.test(raw)
         ? 'RATE_LIMITED'
         : 'CAPTURE_FAILED';
-  return { ok: false, code, message: CAPTURE_ERROR_MESSAGE };
+  return { ok: false, code, message: CAPTURE_FAILED_MESSAGE };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -322,7 +319,7 @@ export async function handleSaveItem(message: SaveItemMessage): Promise<SaveItem
       // Best effort — the metadata failure is what we report.
     }
     console.warn('[Annotator] could not save feedback item:', err);
-    return { ok: false, message: CAPTURE_ERROR_MESSAGE };
+    return { ok: false, message: CAPTURE_FAILED_MESSAGE };
   }
 }
 
@@ -332,7 +329,7 @@ export function _resetSaveQueueForTests(): void {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 7 — thumbnail list + enlarged modal (§1.5, §3.3)
+// Thumbnail list + enlarged view (§1.5, §3.3)
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // Four small read/write handlers on top of storage.ts/imageStore.ts.
@@ -342,11 +339,6 @@ export function _resetSaveQueueForTests(): void {
 // they share saveQueueTail with SAVE_ITEM: unserialised, a note edit
 // overlapping a capture in another tab (or a second edit) would write back a
 // stale copy of the record and drop the other change.
-
-const ITEM_LOAD_FAILED_MESSAGE = "couldn't load feedback for this page. try again.";
-const IMAGE_LOAD_FAILED_MESSAGE = "couldn't load screenshot. try again.";
-const NOTE_SAVE_FAILED_MESSAGE = "couldn't save note. try again.";
-const ITEM_DELETE_FAILED_MESSAGE = "couldn't delete item. try again.";
 
 export async function handleGetPageItems(
   message: GetPageItemsMessage,
@@ -375,13 +367,27 @@ export async function handleGetImage(message: GetImageMessage): Promise<GetImage
   }
 }
 
+export async function handleUpdateItem(message: UpdateItemMessage): Promise<UpdateItemResponse> {
+  try {
+    // A vanished item (the domain was replaced by an import in another tab
+    // while the view was open) currently reports ok — storage's `found`
+    // result is not yet surfaced; see the technical review's F-14.
+    await enqueueSave(() => updateItem(message.domain, message.normalisedUrl, message.itemId, message.patch));
+    return { ok: true };
+  } catch (err) {
+    console.warn('[Annotator] could not save note:', err);
+    return { ok: false, message: SAVE_ERROR_MESSAGE };
+  }
+}
+
+/** The note-only alias of UPDATE_ITEM (see UpdateNoteMessage). */
 export async function handleUpdateNote(message: UpdateNoteMessage): Promise<UpdateNoteResponse> {
   try {
     await enqueueSave(() => updateNote(message.domain, message.normalisedUrl, message.itemId, message.note));
     return { ok: true };
   } catch (err) {
     console.warn('[Annotator] could not save note:', err);
-    return { ok: false, message: NOTE_SAVE_FAILED_MESSAGE };
+    return { ok: false, message: SAVE_ERROR_MESSAGE };
   }
 }
 
@@ -391,22 +397,22 @@ export async function handleDeleteItem(message: DeleteItemMessage): Promise<Dele
     return { ok: true };
   } catch (err) {
     console.warn('[Annotator] could not delete feedback item:', err);
-    return { ok: false, message: ITEM_DELETE_FAILED_MESSAGE };
+    return { ok: false, message: DELETE_ERROR_MESSAGE };
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 8 — export (§1.6): src/export.ts owns the zip assembly and the
+// Export (§1.6): src/export.ts owns the zip assembly and the
 // chrome.downloads call (both service-worker-only — gotchas #1 and #4); this
 // handler is just the message-boundary adapter.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function handleExport(message: ExportMessage): Promise<ExportResponse> {
-  return exportDomain(message.domain);
+  return exportDomain(message.domain, (domain) => enqueueSave(() => getDomainData(domain)));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 9 — import (§1.7): the content script (src/import.ts) unzips and
+// Import (§1.7): the content script (src/import.ts) unzips and
 // validates the whole §5 ladder before anything reaches here — this side's
 // job is the two things only the service worker can do: read how many items
 // a domain currently has (so content.ts can show §5 #10's confirmation
@@ -415,14 +421,13 @@ export async function handleExport(message: ExportMessage): Promise<ExportRespon
 // (gotcha #4 — only this context has OffscreenCanvas).
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DOMAIN_COUNT_FAILED_MESSAGE = "couldn't check existing feedback. try again.";
-const IMPORT_FAILED_MESSAGE = "couldn't import this bundle. try again.";
-
 export async function handleGetDomainItemCount(
   message: GetDomainItemCountMessage,
 ): Promise<GetDomainItemCountResponse> {
   try {
-    const data = await getDomainData(message.domain);
+    // Through the queue like every other domain-record read: a first read of
+    // a legacy record migrates it in place, which must not overlap a write.
+    const data = await enqueueSave(() => getDomainData(message.domain));
     const count = data
       ? Object.values(data.pages).reduce((sum, items) => sum + items.length, 0)
       : 0;
@@ -495,8 +500,8 @@ export async function handleImportReplace(
 }
 
 /** Decode an imported screenshot and render the same inline-thumbnail shape
- *  a live capture produces (src/imageStore doesn't store thumbnails — Phase
- *  1's design call keeps them inline in chrome.storage.local metadata).
+ *  a live capture produces (src/imageStore doesn't store thumbnails — they
+ *  live inline in the item's chrome.storage.local record, by design).
  *  Reuses cropCapture's drawing primitives against the *whole* decoded
  *  image, since an imported screenshot has no separate "full frame" to crop
  *  out of — the PNG from the zip already is the crop. */
@@ -570,7 +575,7 @@ function captureVisibleTabDataUrl(windowId: number): Promise<string> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Crop (⚠ the pixel-critical half of Phase 5)
+// Crop (⚠ the pixel-critical half of the capture)
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // Service workers have no DOM and no URL.createObjectURL (gotcha #4) —
@@ -637,8 +642,8 @@ function captureVisibleTabDataUrl(windowId: number): Promise<string> {
 const THUMBNAIL_MAX_EDGE = 480;
 
 /** Thumbnails are JPEG, not PNG: they live inline in chrome.storage.local
- *  (Phase 1's design call) and that record is read in full every time the
- *  sidebar refreshes, so size matters more than fidelity here. §1.3's
+ *  (by design — types.ts's thumbnailDataUrl) and are read every time the
+ *  sidebar's list refreshes, so size matters more than fidelity here. §1.3's
  *  "PNG, lossless, native DPR" requirement governs the *stored capture*,
  *  which is the PNG in IndexedDB and the one that gets exported — not this
  *  render-only copy. */
@@ -815,61 +820,4 @@ class CropError extends Error {
     super(cause instanceof Error ? cause.message : String(cause));
     this.name = 'CropError';
   }
-}
-
-/**
- * Manual data URL -> Blob conversion, so `createImageBitmap` can decode what
- * `chrome.tabs.captureVisibleTab` handed us.
- *
- * ⚠ This must never go back to being `await (await fetch(dataUrl)).blob()`,
- * which is the idiomatic one-liner and is what it was originally. The
- * extension's CSP (manifest.json, carried forward from v1's "no network calls
- * at all" posture — §2 Security) sets `connect-src 'none'`, and an MV3
- * service worker is an extension page for CSP purposes: `fetch()` there is
- * governed by `connect-src`, and a `data:` URL is not exempt. So every real
- * capture died on a CSP violation inside cropCapture and surfaced to the user
- * as §5 #8's "couldn't capture a screenshot here. try again." — while the unit
- * tests stayed green, because they stub `global.fetch`. Decoding the base64 by
- * hand has no CSP surface, no network stack, and no async hop; it is the exact
- * mirror of blobToDataUrl below. (Relaxing the CSP instead was the other
- * option and was rejected: nothing in this extension should be able to talk to
- * the network, and manifest.json's permissions/CSP are Phase 0's contract.)
- */
-export function dataUrlToBlob(dataUrl: string): Blob {
-  const comma = typeof dataUrl === 'string' ? dataUrl.indexOf(',') : -1;
-  if (comma === -1 || !dataUrl.startsWith('data:')) {
-    throw new Error('captured image is not a data url');
-  }
-
-  const header = dataUrl.slice('data:'.length, comma);
-  const payload = dataUrl.slice(comma + 1);
-  const isBase64 = /;base64$/i.test(header);
-  const mime = header.replace(/;base64$/i, '').split(';')[0] || 'image/png';
-
-  if (!isBase64) {
-    // captureVisibleTab always returns base64, but a percent-encoded data URL
-    // is still a legal one — decode it rather than feed atob() garbage.
-    return new Blob([decodeURIComponent(payload)], { type: mime });
-  }
-
-  const binary = atob(payload);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type: mime });
-}
-
-/** Manual Blob -> data URL conversion: no URL.createObjectURL (gotcha #4)
- *  and FileReader's availability inside a service worker isn't guaranteed
- *  across Chrome versions, so this sticks to arrayBuffer()/btoa(), both of
- *  which are part of the standard worker global scope. */
-async function blobToDataUrl(blob: Blob): Promise<string> {
-  const buffer = await blob.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  const base64 = btoa(binary);
-  return `data:${blob.type || 'image/png'};base64,${base64}`;
 }

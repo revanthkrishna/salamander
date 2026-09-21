@@ -1,9 +1,7 @@
-// Phase 0: v2 type surface — screenshot-based feedback capture.
-//
-// This is a from-scratch rewrite for the pin → screenshot pivot (see
-// DEVELOPMENT_PLAN.md Phase 0 and REQUIREMENTS.md §1.2/§1.4/§1.6). Every later
-// phase compiles against this file, so it is frozen once Phase 0 lands — a
-// later phase needing a type change should make it and flag it explicitly.
+// The type surface — screenshot-based feedback capture (REQUIREMENTS.md
+// §1.2/§1.4/§1.6). Every module compiles against this file; a change to a
+// stored type here is a change to the data on disk (storage.ts's migration)
+// and to the export format (src/bundle), so make it deliberately.
 
 // ---------------------------------------------------------------------------
 // Geometry / page-metadata primitives
@@ -46,7 +44,7 @@ export interface ContainedElement {
   id?: string;
   /** Classes split into "semantic" (human-authored, e.g. BEM-ish names) vs.
    *  "generated" (framework hash classes, per the dictionary-word heuristic
-   *  lifted from fingerprint.ts in Phase 6). Absent entirely if the element
+   *  lifted from v1's fingerprint.ts). Absent entirely if the element
    *  has no classes. */
   classes?: {
     semantic: string[];
@@ -105,21 +103,32 @@ export interface FeedbackItem {
   /** Device pixel ratio at capture time — captures are kept at native DPR,
    *  no downscaling (§1.3). */
   dpr: number;
-  /** Key into the IndexedDB blob store (src/imageStore.ts, Phase 1) where the
+  /** Key into the IndexedDB blob store (src/imageStore.ts) where the
    *  full-resolution PNG lives. Not the image data itself — chrome.runtime
    *  messages can't carry Blob/ArrayBuffer (see cross-cutting gotcha #2). */
   screenshotKey: string;
-  /** Phase 1 design call: a small (~thumbnail-sized) data-URL cached inline
-   *  in chrome.storage.local metadata, alongside the full-resolution PNG in
-   *  IndexedDB (screenshotKey). This lets the sidebar's thumbnail list render
-   *  every item from a single storage.local read — no per-item IndexedDB
-   *  round trip just to paint the list. The modal and export still go
-   *  through imageStore.getImage(screenshotKey) for the full-resolution
-   *  image. Populated by whichever phase performs the capture (Phase 2/5);
-   *  storage.ts itself is agnostic to how the thumbnail was produced. */
+  /** Design call: a small (~thumbnail-sized) data-URL cached inline in the
+   *  item's chrome.storage.local record, alongside the full-resolution PNG
+   *  in IndexedDB (screenshotKey). This lets the sidebar's thumbnail list
+   *  render every item from one storage.local round trip — no per-item
+   *  IndexedDB read just to paint the list. The enlarged view and export
+   *  still go through imageStore.getImage(screenshotKey) for the
+   *  full-resolution image. Minted by the service worker at capture (and at
+   *  import); storage.ts itself is agnostic to how it was produced. */
   thumbnailDataUrl: string;
   context: CapturedContext;
 }
+
+/**
+ * The fields of a stored item that may change after capture, as a partial
+ * patch. This is the ONE place the set of mutable fields is declared: the
+ * storage write (storage.updateItem), the message (UpdateItemMessage) and
+ * its handler all take this type, so a new per-item document (e.g. an
+ * annotations model) is added to the Pick here and nowhere else. Identity
+ * (`id`, `normalisedUrl`), the capture geometry and the storage handles
+ * (`screenshotKey`, `thumbnailDataUrl`) are deliberately not patchable.
+ */
+export type ItemPatch = Partial<Pick<FeedbackItem, 'note'>>;
 
 // ---------------------------------------------------------------------------
 // Domain-keyed storage (extends v1's DomainData/DomainMeta pattern)
@@ -127,88 +136,44 @@ export interface FeedbackItem {
 
 export interface DomainMeta {
   /** Always max(all item ids in this domain) + 1; starts at 1. Sequential
-   *  across all URLs of the domain (§1.2), mirroring v1's pin numbering. */
+   *  across all URLs of the domain (§1.2). */
   nextItemNumber: number;
-  /** Storage schema version, currently 1. */
+  /** Storage schema version (storage.ts's STORAGE_VERSION at write time).
+   *  Nothing reads it today — no build with an older stored shape was ever
+   *  released — but every index carries it so a future change has something
+   *  to branch on. */
   version: number;
 }
 
+/** A domain's feedback as every consumer sees it: the items grouped by
+ *  normalised URL, in capture order. This is the IN-MEMORY shape —
+ *  storage.ts assembles it from the split layout below and splits it again
+ *  on write. */
 export interface DomainData {
   meta: DomainMeta;
   /** Keyed by normalised page URL. */
   pages: Record<string, FeedbackItem[]>;
 }
 
-// ---------------------------------------------------------------------------
-// Bundle serialisation mirror types (REQUIREMENTS §1.6/§1.7)
-// ---------------------------------------------------------------------------
-// snake_case field names, for the fenced ```yaml blocks embedded per-item in
-// feedback.md. The note text and screenshot image are NOT part of this
-// object — they live as plain markdown prose / an image reference alongside
-// it (§1.6) — this yaml block is exactly the §1.4 captured context plus the
-// item-identifying fields an importer needs to reconstruct a FeedbackItem.
-
-export interface YamlRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+/** What `domain:{domain}` holds in chrome.storage.local: the same meta, and
+ *  per URL the ids (in capture order) of the items stored under their own
+ *  `item:{domain}:{id}` keys. */
+export interface DomainIndex {
+  meta: DomainMeta;
+  pages: Record<string, number[]>;
 }
 
-export interface YamlPrimaryTarget {
-  css_selector: string;
-  xpath: string;
-  outer_html_snippet: string;
-  truncated: boolean;
-}
-
-export interface YamlContainedElement {
-  tag: string;
-  id?: string;
-  classes?: {
-    semantic: string[];
-    generated: string[];
-  };
-  attrs?: Record<string, string>;
-  text?: string;
-}
-
-export interface YamlPageMeta {
-  url: string;
-  normalised_url: string;
-  title: string;
-  viewport: { width: number; height: number };
-  dpr: number;
-  selection_rect: YamlRect;
-  captured_at: string;
-}
-
-export interface YamlCapturedContext {
-  primary_target: YamlPrimaryTarget;
-  contained_elements: YamlContainedElement[];
-  area_text: string;
-  page_meta: YamlPageMeta;
-  contained_elements_truncated?: boolean;
-}
-
-/** One item's fenced yaml block. `id` maps to `screenshots/{id}.png` (§1.6). */
-export interface YamlFeedbackItem {
-  id: number;
-  page_url: string;
-  normalised_url: string;
-  created_at: string;
-  selection_rect: YamlRect;
-  viewport: { width: number; height: number };
-  dpr: number;
-  context: YamlCapturedContext;
-}
+// The bundle's snake_case yaml mirror types live with the grammar they
+// belong to, per format version: src/bundle/v1.ts.
 
 // ---------------------------------------------------------------------------
-// Import errors (REQUIREMENTS §5 — 11 cases; only the 🔴 error rows and the
-// 🟡 version-mismatch warning need a code here. §5 #7 and #8 are export/capture
-// errors handled inline where they occur, not through the import ladder. §5 #9
-// is a page-injection failure, not an import error. §5 #10 is a confirmation,
-// not an error — handled via ImportCallbacks.showConfirm.)
+// Import errors (REQUIREMENTS §5 — 11 cases; only the 🔴 error rows need a
+// code here. The 🟡 version-mismatch warning (#6) is not an error: import
+// proceeds, so it is `ParsedImportBundle.versionWarning`, not a member of
+// this union. §5 #7 and #8 are export/capture errors handled inline where
+// they occur, not through the import ladder. §5 #9 is a page-injection
+// failure, not an import error. §5 #10 is a confirmation, not an error —
+// handled via the sidebar's confirm dialog.)
 // ---------------------------------------------------------------------------
 
 export type ImportErrorCode =
@@ -218,8 +183,7 @@ export type ImportErrorCode =
   | 'MALFORMED_CONTEXT'      // §5 #4b — fenced yaml block missing/malformed
   | 'MISSING_SCREENSHOT'     // §5 #4 — referenced screenshot not in the zip
   | 'DOMAIN_MISMATCH'        // §5 #5
-  | 'DUPLICATE_IDS'          // §5 #11
-  | 'VERSION_MISMATCH';      // §5 #6 — warning only; import still proceeds
+  | 'DUPLICATE_IDS';         // §5 #11
 
 export interface ImportErrorDetails {
   fileDomain?: string;
