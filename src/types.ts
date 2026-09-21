@@ -136,12 +136,12 @@ export type ItemPatch = Partial<Pick<FeedbackItem, 'note'>>;
 
 export interface DomainMeta {
   /** Always max(all item ids in this domain) + 1; starts at 1. Sequential
-   *  across all URLs of the domain (§1.2), mirroring v1's pin numbering. */
+   *  across all URLs of the domain (§1.2). */
   nextItemNumber: number;
   /** Storage schema version (storage.ts's STORAGE_VERSION at write time).
-   *  Read back by storage.ts's migrateDomainData on every load, which is
-   *  where a record written by an older build is brought up to the current
-   *  shape. */
+   *  Nothing reads it today — no build with an older stored shape was ever
+   *  released — but every index carries it so a future change has something
+   *  to branch on. */
   version: number;
 }
 
@@ -155,11 +155,9 @@ export interface DomainData {
   pages: Record<string, FeedbackItem[]>;
 }
 
-/** What `domain:{domain}` holds in chrome.storage.local since schema
- *  version 2: the same meta, and per URL the ids (in capture order) of the
- *  items stored under their own `item:{domain}:{id}` keys. Version 1 kept
- *  the items inline here (a DomainData verbatim); storage.ts migrates such
- *  a record the first time it is read. */
+/** What `domain:{domain}` holds in chrome.storage.local: the same meta, and
+ *  per URL the ids (in capture order) of the items stored under their own
+ *  `item:{domain}:{id}` keys. */
 export interface DomainIndex {
   meta: DomainMeta;
   pages: Record<string, number[]>;

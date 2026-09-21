@@ -257,3 +257,28 @@ updated or added. Net +70 tests.
   now redundant with `splitDomainData` stamping it, and deliberately left (belt and braces).
 - **TESTING.md's test list never mentioned `keyboardIsolation.test.ts`'s companion module in the
   inventory** — the inventory table now has it.
+
+
+---
+
+## Amendment, 2026-09-21 (same day, after the browser pass)
+
+**The v1 storage migration is removed.** No build with the older inline layout was ever published,
+so no record of that shape exists anywhere and the migration could never fire. Removed:
+`migrateInlineRecord`, the `storedVersion` helper, `readIndex`'s migrate-and-write-back branch, and
+the frozen v1 fixture and tests that went with them (jest 669 → 663).
+
+Kept deliberately: the `version` stamp on every index, and the place in `readIndex` where a version
+branch would go. Those cost nothing and are what a FUTURE schema change needs — which is likely,
+given the planned drawing-tool and export-format work.
+
+NOT removed, because it is not backward compatibility: `src/bundle/v1.ts` and the version detection
+beside it. v1 is the bundle format the extension writes and reads TODAY; the split exists so a
+future v2 can be added alongside it without orphaning bundles people have already exported.
+
+**Verified in Chrome after this change** (see the session log): export produces a valid 8.5KB zip
+through `chrome.downloads`; a full round trip on one origin — capture, export, wipe storage, import
+— returns both notes with their images and rebuilds the split layout; the enlarged view opens on an
+imported item with the new `.xp-card-media` wrapper. The Playwright suite is 23 passed / 3 failed,
+and those three are a harness fault, not a defect: they wait for a page-initiated download event,
+while export downloads through `chrome.downloads` from the service worker, which never raises one.

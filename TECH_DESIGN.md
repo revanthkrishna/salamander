@@ -73,8 +73,9 @@ The annotator is a Chrome extension that captures visual feedback from webpages.
    trip (index read + one multi-key get) without touching IndexedDB — but a note autosave rewrites only
    that item's key, not every item of the domain. Consumers never see the split: `storage.getDomainData`
    assembles the in-memory `DomainData` (`pages: { normalisedUrl: FeedbackItem[] }`) and the write
-   primitives split it again. A version-1 record (every item inline in the domain key) is migrated the
-   first time it is read (`storage.migrateInlineRecord`) and written back in the split layout once.
+   primitives split it again. There is no migration path from an older stored shape — no build with
+   one was ever released — but every index carries a `version` stamp so a future change has something
+   to branch on.
 
 2. **IndexedDB** (blobs, extension origin) — full-resolution PNGs indexed by `screenshotKey`, owned exclusively by service worker
    - Content script can't see IndexedDB; all access goes through background messages
@@ -150,7 +151,7 @@ The annotator is a Chrome extension that captures visual feedback from webpages.
 | `src/theme.ts` | 676 | Design tokens, light/dark/auto theme, bundled font loading |
 | `src/thumbnails.ts` | 209 | Thumbnail list rendering |
 | `src/keyboardIsolation.ts` | 94 | Capture-phase keyboard isolation for the extension's surfaces |
-| `src/storage.ts` | 396 | `chrome.storage.local` layout (per-domain index + per-item keys), schema migration, domain/item CRUD, session state |
+| `src/storage.ts` | 350 | `chrome.storage.local` layout (per-domain index + per-item keys), domain/item CRUD, session state |
 | `src/messages.ts` | 485 | Typed message contract, `MessageMap`, handler types |
 | `src/rpc.ts` | 35 | The content script's typed `send()` |
 | `src/types.ts` | 203 | Data model: FeedbackItem, ItemPatch, CapturedContext, DomainData / DomainIndex, import errors |

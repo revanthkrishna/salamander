@@ -5,17 +5,20 @@
 //   `domain:{domain}`     -> DomainIndex: { meta, pages: { normalisedUrl: id[] } }
 //   `item:{domain}:{id}`  -> FeedbackItem (thumbnail data-URL inline)
 //
-// Version 1 kept every item of a domain inline in the one `domain:` record,
-// thumbnails included, so a 700ms note autosave in a 150-item domain
-// serialised several MB of JPEG through chrome.storage.local.set, and
-// reading one URL's list read every other URL's thumbnails too. Splitting
-// the record keeps the property that decision was made for — the sidebar's
-// list paints from one round trip (an index read + one multi-key get) with
-// the thumbnail already inline per item — while an item write touches only
-// that item's key and the (small) index. A v1 record is migrated the first
-// time it is read (see readIndex). In memory, consumers still see the
+// The split exists so the sidebar's list still paints from one round trip
+// (an index read plus one multi-key get, thumbnail already inline per item)
+// while an item write touches only that item's key and the small index. The
+// alternative — every item of a domain inline in the one `domain:` record —
+// meant a 700ms note autosave in a 150-item domain serialised several MB of
+// JPEG through chrome.storage.local.set, and reading one URL's list read
+// every other URL's thumbnails too. In memory, consumers still see the
 // assembled DomainData shape: getDomainData() joins index and items, and
 // saveDomainData()/replaceDomainData() take one and split it.
+//
+// There is no migration path from an older stored shape, on purpose: no
+// build before this layout was ever released, so no such record exists in
+// the wild. `version` below is stamped on every index anyway, so a FUTURE
+// change has something to branch on.
 //
 // Item ids are sequential across every URL of a domain (§1.2), tracked via
 // DomainMeta.nextItemNumber in the index. Every read-modify-write here is
@@ -37,7 +40,8 @@ import * as imageStore from './imageStore';
 
 /** The schema version stamped on every domain index this build writes.
  *  Bump it the first time the stored shape changes, and add the matching
- *  step to migrateInlineRecord / readIndex below. */
+ *  step to readIndex below. Nothing reads it today — it is the hook a
+ *  future migration needs, not evidence that one exists. */
 export const STORAGE_VERSION = 2;
 
 function domainKey(domain: string): string {
@@ -85,45 +89,10 @@ function isRecordLike(raw: unknown): raw is { meta: Partial<DomainMeta>; pages: 
   return !!r.meta && typeof r.meta === 'object' && !!r.pages && typeof r.pages === 'object';
 }
 
-function storedVersion(raw: { meta: Partial<DomainMeta> }): number {
-  return typeof raw.meta.version === 'number' ? raw.meta.version : 0;
-}
-
-/**
- * Bring a legacy INLINE domain record (schema version 0/1: `pages` holding
- * the items themselves) up to the current in-memory DomainData shape. Pure,
- * so the version steps can be tested against frozen fixtures of what older
- * builds actually wrote. Returns null for anything that is not an inline
- * record at all.
- *
- * Each `case` is one version step and runs in sequence, so a record from
- * several versions back walks every step. The version-2 split is a change
- * of *stored* layout, not of the in-memory shape, so the step here is only
- * the stamp; splitDomainData() does the layout half when the result is
- * written back.
- */
-export function migrateInlineRecord(raw: unknown): DomainData | null {
-  if (!isRecordLike(raw)) return null;
-  if (storedVersion(raw) >= 2) return null; // an index, not an inline record
-  let data = raw as unknown as DomainData;
-  switch (storedVersion(raw)) {
-    case 0:
-      // No version at all predates the stamp (or was hand-edited): the first
-      // versioned shape.
-      data = { ...data, meta: { ...data.meta, version: 1 } };
-    // falls through
-    case 1:
-      data = { ...data, meta: { ...data.meta, version: 2 } };
-      break;
-  }
-  return data;
-}
-
 /** The chrome.storage.local keys+values that store `data` for `domain`:
  *  the index plus one entry per item. The index is stamped with this
- *  build's version regardless of what `data.meta.version` says, so a
- *  caller can never write an index the next read would mistake for a
- *  legacy inline record. */
+ *  build's version regardless of what `data.meta.version` says, so an
+ *  index is always stamped with the shape it was actually written in. */
 export function splitDomainData(domain: string, data: DomainData): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const pages: Record<string, number[]> = {};
@@ -166,25 +135,17 @@ function itemKeysOf(domain: string, index: DomainIndex): string[] {
 
 /**
  * Read a domain's index, or null if nothing has been captured for it yet.
- * A legacy inline record (version 0/1) found here is migrated and written
- * back in the split layout, once — every later read finds the index. The
- * write-back happens inside whatever queue slot the caller holds
- * (background.ts serialises every storage call), so it cannot interleave
- * with another write. A record stamped NEWER than this build (an extension
- * downgrade) is read as an index as-is: there is no way to reshape it
- * correctly, and refusing it would make the user's feedback vanish rather
- * than degrade.
+ * Whatever is under the key is taken as an index, including a record
+ * stamped NEWER than this build (an extension downgrade): there is no way
+ * to reshape that correctly, and refusing it would make the user's feedback
+ * vanish rather than degrade. If the stored shape ever changes, this is
+ * where the version branch goes.
  */
 async function readIndex(domain: string): Promise<DomainIndex | null> {
   const key = domainKey(domain);
   const raw = (await storageGet(key))[key];
   if (!isRecordLike(raw)) return null;
-  if (storedVersion(raw) >= 2) return raw as unknown as DomainIndex;
-  const data = migrateInlineRecord(raw);
-  if (!data) return null;
-  const split = splitDomainData(domain, data);
-  await storageSet(split);
-  return split[key] as DomainIndex;
+  return raw as unknown as DomainIndex;
 }
 
 // ---------------------------------------------------------------------------

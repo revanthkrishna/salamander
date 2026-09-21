@@ -4,7 +4,6 @@
 import {
   addItem,
   deleteItem,
-  migrateInlineRecord,
   splitDomainData,
   assembleDomainData,
   STORAGE_VERSION,
@@ -390,29 +389,7 @@ describe('storage.ts — the split layout (schema version 2)', () => {
   });
 });
 
-describe('storage.ts — migrating a version-1 record on read', () => {
-  /** A domain record exactly as version 1 wrote it: every item inline under
-   *  the domain key. FROZEN — this is the shape real users' storage holds
-   *  until their first read after upgrading. */
-  const V1_RECORD = {
-    meta: { nextItemNumber: 4, version: 1 },
-    pages: {
-      'https://example.com/a': [
-        makeItem({ id: 1, normalisedUrl: 'https://example.com/a' }),
-        makeItem({ id: 3, normalisedUrl: 'https://example.com/a', note: 'third' }),
-      ],
-      'https://example.com/b': [makeItem({ id: 2, normalisedUrl: 'https://example.com/b' })],
-    },
-  };
-  const V2_OF_V1 = { ...V1_RECORD, meta: { ...V1_RECORD.meta, version: 2 } };
-
-  async function storeRaw(value: unknown): Promise<void> {
-    await new Promise<void>((resolve) => chrome.storage.local.set({ [`domain:${DOMAIN}`]: value }, resolve));
-  }
-  async function rawStorage(): Promise<Record<string, unknown>> {
-    return new Promise((resolve) => chrome.storage.local.get(null, resolve));
-  }
-
+describe('storage.ts — the version stamp', () => {
   test('STORAGE_VERSION is what a fresh record is stamped with', async () => {
     const item = makeItem({ id: 1 });
     await seedImage(item.screenshotKey);
@@ -421,95 +398,24 @@ describe('storage.ts — migrating a version-1 record on read', () => {
     expect(STORAGE_VERSION).toBe(2);
   });
 
-  test('migrateInlineRecord: a version-1 record keeps its items and is stamped 2', () => {
-    expect(migrateInlineRecord(V1_RECORD)).toEqual(V2_OF_V1);
-  });
-
-  test('migrateInlineRecord: a record with no version stamp walks both steps', () => {
-    expect(migrateInlineRecord({ meta: { nextItemNumber: 4 }, pages: V1_RECORD.pages })).toEqual(V2_OF_V1);
-  });
-
-  test('migrateInlineRecord: anything that is not an inline record is null', () => {
-    expect(migrateInlineRecord(undefined)).toBeNull();
-    expect(migrateInlineRecord(null)).toBeNull();
-    expect(migrateInlineRecord('domain:example.com')).toBeNull();
-    expect(migrateInlineRecord({ meta: { nextItemNumber: 1, version: 1 } })).toBeNull();
-    expect(migrateInlineRecord({ pages: {} })).toBeNull();
-    // An index is not an inline record.
-    expect(migrateInlineRecord({ meta: { nextItemNumber: 1, version: 2 }, pages: { u: [1] } })).toBeNull();
-  });
-
-  test('the first read migrates the record to the split layout and writes it back once', async () => {
-    await storeRaw(V1_RECORD);
+  test('nothing branches on the stamp: there is no migration path to an older shape', async () => {
+    // No build with an older stored layout was ever released, so a record
+    // stamped with anything at all is read as an index as-is. This test is
+    // the reminder that adding a branch here is a deliberate act.
+    const stamped = {
+      meta: { nextItemNumber: 2, version: 99 },
+      pages: { 'https://example.com/a': [1] },
+    };
+    await new Promise<void>((resolve) =>
+      chrome.storage.local.set({ [`domain:${DOMAIN}`]: stamped }, resolve),
+    );
+    const item = makeItem({ id: 1, normalisedUrl: 'https://example.com/a' });
+    await new Promise<void>((resolve) =>
+      chrome.storage.local.set({ [`item:${DOMAIN}:1`]: item }, resolve),
+    );
     (chrome.storage.local.set as jest.Mock).mockClear();
 
-    expect(await getDomainData(DOMAIN)).toEqual(V2_OF_V1);
-    expect(chrome.storage.local.set).toHaveBeenCalledTimes(1);
-
-    const raw = await rawStorage();
-    expect(Object.keys(raw).sort()).toEqual([
-      `domain:${DOMAIN}`,
-      `item:${DOMAIN}:1`,
-      `item:${DOMAIN}:2`,
-      `item:${DOMAIN}:3`,
-    ]);
-    expect(raw[`domain:${DOMAIN}`]).toEqual({
-      meta: { nextItemNumber: 4, version: 2 },
-      pages: { 'https://example.com/a': [1, 3], 'https://example.com/b': [2] },
-    });
-    expect(raw[`item:${DOMAIN}:3`]).toEqual(V1_RECORD.pages['https://example.com/a'][1]);
-
-    // The second read finds the index and writes nothing.
-    (chrome.storage.local.set as jest.Mock).mockClear();
-    expect(await getDomainData(DOMAIN)).toEqual(V2_OF_V1);
-    expect(chrome.storage.local.set).not.toHaveBeenCalled();
-  });
-
-  test('every entry point migrates: getPageItems, getNextItemId, updateItem, deleteItem', async () => {
-    await storeRaw(V1_RECORD);
-    expect(await getPageItems(DOMAIN, 'https://example.com/a')).toEqual(V1_RECORD.pages['https://example.com/a']);
-
-    await storeRaw(V1_RECORD);
-    expect(await getNextItemId(DOMAIN)).toBe(4);
-
-    await storeRaw(V1_RECORD);
-    expect(await updateItem(DOMAIN, 'https://example.com/b', 2, { note: 'patched' })).toBe(true);
-    expect((await getPageItems(DOMAIN, 'https://example.com/b'))[0].note).toBe('patched');
-
-    await storeRaw(V1_RECORD);
-    await seedImage('shot-1');
-    await deleteItem(DOMAIN, 'https://example.com/a', 1);
-    expect((await getPageItems(DOMAIN, 'https://example.com/a')).map((i) => i.id)).toEqual([3]);
-    expect(await imageStore.getImage('shot-1')).toBeNull();
-  });
-
-  test('a v1 record is also migrated before an import replaces it, so its blobs are found and deleted', async () => {
-    await storeRaw(V1_RECORD);
-    await seedImage('shot-1');
-    await seedImage('shot-2');
-    await seedImage('shot-3');
-    const incoming = makeItem({ id: 9, screenshotKey: 'new-9' });
-    await seedImage('new-9');
-
-    await replaceDomainData(DOMAIN, {
-      meta: { nextItemNumber: 10, version: STORAGE_VERSION },
-      pages: { [incoming.normalisedUrl]: [incoming] },
-    });
-
-    expect(await imageStore.getImage('shot-1')).toBeNull();
-    expect(await imageStore.getImage('shot-3')).toBeNull();
-    expect(Object.keys(await rawStorage()).sort()).toEqual([`domain:${DOMAIN}`, `item:${DOMAIN}:9`]);
-  });
-
-  test('an index stamped by a newer build is read as an index rather than refused', async () => {
-    const item = makeItem({ id: 1 });
-    await new Promise<void>((resolve) => chrome.storage.local.set({
-      [`domain:${DOMAIN}`]: { meta: { nextItemNumber: 2, version: STORAGE_VERSION + 5 }, pages: { [item.normalisedUrl]: [1] } },
-      [`item:${DOMAIN}:1`]: item,
-    }, resolve));
-    (chrome.storage.local.set as jest.Mock).mockClear();
-
-    expect(await getPageItems(DOMAIN, item.normalisedUrl)).toEqual([item]);
+    expect(await getPageItems(DOMAIN, 'https://example.com/a')).toEqual([item]);
     expect(chrome.storage.local.set).not.toHaveBeenCalled();
   });
 });
