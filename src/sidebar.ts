@@ -49,7 +49,6 @@ import {
   ThemeMode,
   ResolvedTheme,
   FOCUS_RING_CSS,
-  PRESS_SCALE_CSS,
   STATE_TRANSITION_CSS,
   DISABLED_CSS,
   RADII,
@@ -415,7 +414,7 @@ const RESIZER_Z_INDEX = 101;
 
 // ---------------------------------------------------------------------------
 // CSS — Salamander design tokens (src/theme.ts's --sal-* custom properties,
-// design spec §1–§3.1). FOCUS_RING_CSS/PRESS_SCALE_CSS/STATE_TRANSITION_CSS/
+// design spec §1–§3.1). FOCUS_RING_CSS/STATE_TRANSITION_CSS/
 // DISABLED_CSS are the same shared interaction-state snippets enlargedView.ts and
 // addMode.ts already paste in, so all three surfaces feel identical.
 // ---------------------------------------------------------------------------
@@ -605,7 +604,7 @@ const SIDEBAR_CSS = `
     ${STATE_TRANSITION_CSS}
   }
   .btn-ghost:hover { background: var(--sal-hover); color: var(--sal-text); }
-  .btn-ghost:active { background: var(--sal-press); color: var(--sal-text); ${PRESS_SCALE_CSS} }
+  .btn-ghost:active { background: var(--sal-press); color: var(--sal-text); }
   .btn-ghost:focus-visible { ${FOCUS_RING_CSS} outline: none; color: var(--sal-text); }
   .btn-ghost[disabled] { ${DISABLED_CSS} }
   .btn-ghost .icon { width: 16px; height: 16px; display: inline-flex; }
@@ -884,16 +883,16 @@ const SIDEBAR_CSS = `
      the add group had). */
   .export-group:has(> button:hover) .btn-menu,
   .export-group:has(> button:active) .btn-menu { border-left-color: var(--sal-line-strong); }
-  /* The press scale stays on the group (scaling one half alone would tear
-     the group's border), and is suppressed while the menu is open — for the
-     same reason as above, an open menu must not move under the pointer. */
-  .export-group:not(.is-menu-open):has(> button:active) { ${PRESS_SCALE_CSS} }
+  /* No press scale on either action-row group: a press changes the fill of
+     the half under the pointer and nothing else. Scaling the whole box to
+     acknowledge a click on one half of it moved the other half too, and with
+     the menu open it slid the item out from under the pointer between
+     mousedown and mouseup — the click then landed on the panel instead. */
   .export-group:has(> button:focus-visible) { ${FOCUS_RING_CSS} }
   .export-group.is-disabled { ${DISABLED_CSS} }
   .export-group.is-disabled:has(> button:hover),
   .export-group.is-disabled:has(> button:active) {
     border-color: var(--sal-line);
-    transform: none;
   }
   .export-group.is-disabled .btn-export:hover,
   .export-group.is-disabled .btn-export:active,
@@ -1391,7 +1390,6 @@ const SIDEBAR_CSS = `
   .thumbnail-delete:active {
     background: var(--sal-danger-press);
     color: var(--sal-danger);
-    ${PRESS_SCALE_CSS}
   }
   /* Visible whenever it has focus (§L) — :focus-within above already covers
      this, but the ring must never paint on an invisible control. */

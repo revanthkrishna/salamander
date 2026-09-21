@@ -1714,11 +1714,10 @@ describe('export + chevron menu (design spec v3 §C2)', () => {
     // The menu hangs out of the bottom of the box.
     expect(group).toMatch(/overflow:\s*visible/);
     // Scoped to the group's own halves: the menu is a child of this box, so
-    // an unscoped :active would press-scale the open menu out from under the
-    // pointer between mousedown and mouseup and the click would never land.
+    // an unscoped :hover would light the group up whenever the pointer was
+    // merely inside the open menu.
     expect(cssRule('.export-group:has(> button:hover)')).toMatch(/border-color:\s*var\(--sal-line-strong\)/);
     expect(cssRule('.export-group:has(> button:active)')).toMatch(/border-color:\s*var\(--sal-line-strong\)/);
-    expect(cssRule('.export-group:not(.is-menu-open):has(> button:active)')).toMatch(/scale\(0\.97\)/);
     expect(css()).not.toMatch(/\n\s*\.export-group:active\s*\{/);
     expect(cssRule('.export-group:has(> button:focus-visible)')).toContain('0 0 0 4px var(--sal-focus)');
 
@@ -1768,9 +1767,11 @@ describe('export + chevron menu (design spec v3 §C2)', () => {
     // fill still reads while the menu is open.
     expect(css().indexOf('.btn-menu[aria-expanded="true"]')).toBeLessThan(css().indexOf('\n  .btn-menu:active'));
 
-    // The press scale stays on the group (a half alone would tear its
-    // border) and stays suppressed while the menu is open.
-    expect(cssRule('.export-group:not(.is-menu-open):has(> button:active)')).toMatch(/scale\(0\.97\)/);
+    // Nothing scales on press, here or anywhere else: a press changes the
+    // fill of the half under the pointer and nothing more. Scaling the box
+    // moved the half that was not pressed, and with the menu open it slid the
+    // item out from under the pointer between mousedown and mouseup.
+    expect(css()).not.toMatch(/scale\(0\.97\)/);
 
     // Disabled cancels the per-half fills as well as the group's own states.
     expect(css()).toMatch(
@@ -2091,7 +2092,7 @@ describe('note-in-list hover delete (design spec v4 §L)', () => {
 
     const press = cssRule('.thumbnail-delete:active');
     expect(press).toMatch(/background:\s*var\(--sal-danger-press\)/);
-    expect(press).toMatch(/scale\(0\.97\)/);
+    expect(press).not.toMatch(/scale\(/);
 
     expect(cssRule('.thumbnail-delete:focus-visible')).toContain('0 0 0 4px var(--sal-focus)');
   });

@@ -631,3 +631,16 @@ highlight looks clipped where the curve falls away. Reaching one radius back clo
 The collapsed state must zero the segment's border-width AND its negative margin: under the global
 `box-sizing: border-box` a `width: 0` box cannot shrink below its own border, so a leftover 1px
 would re-create the stray hairline and the 39px group.
+
+## W. No press scale, anywhere (2026-09-21)
+
+OVERRIDES §2's "press: `transform: scale(0.97)` plus the press fill", its state table, §A2's rows
+and every other mention of a press scale in this document. **A press changes the fill of the control
+under the pointer and nothing else** — no scale, no movement, in any control in any surface.
+
+`PRESS_SCALE_CSS` is retired from `src/theme.ts` rather than left unused, so it cannot creep back.
+
+Why: on a two-half control (the add group, the export + chevron group) scaling the box moved the
+half that was NOT being pressed, and on the export group it slid the open menu out from under the
+pointer between mousedown and mouseup, so the click landed on the panel instead of the menu item.
+Per-half scaling is not an option either — it tears the shared border between the halves.

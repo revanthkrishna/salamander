@@ -79,7 +79,7 @@ import { FeedbackItem } from './types';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
 // The project's one trash glyph (design spec v5 §S) — the note list's.
 import { ICON_TRASH } from './thumbnails';
-import { FOCUS_RING_CSS, PRESS_SCALE_CSS, DISABLED_CSS, STATE_TRANSITION_CSS, RADII } from './theme';
+import { FOCUS_RING_CSS, DISABLED_CSS, STATE_TRANSITION_CSS, RADII } from './theme';
 import {
   ACC,
   STD,
@@ -583,7 +583,7 @@ export const ENLARGED_VIEW_CSS = `
     ${STATE_TRANSITION_CSS}
   }
   .xp-delete:hover { background: var(--sal-danger-soft); color: var(--sal-danger); }
-  .xp-delete:active { background: var(--sal-danger-press); color: var(--sal-danger); ${PRESS_SCALE_CSS} }
+  .xp-delete:active { background: var(--sal-danger-press); color: var(--sal-danger); }
   .xp-delete:focus-visible { outline: none; ${FOCUS_RING_CSS} }
   .xp-delete svg { width: 16px; height: 16px; display: block; }
   /* The one thing under the textarea (design spec v5 §R): plain left-aligned
@@ -622,7 +622,7 @@ export const ENLARGED_VIEW_CSS = `
   .xp-rail-btn.xp-exit { margin-bottom: 8px; }
   .xp-rail-btn:not([aria-disabled="true"]):hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
   .xp-rail-btn:not([aria-disabled="true"]):active {
-    background: var(--sal-press); border-color: var(--sal-line-strong); ${PRESS_SCALE_CSS}
+    background: var(--sal-press); border-color: var(--sal-line-strong);
   }
   .xp-rail-btn:focus-visible { outline: none; ${FOCUS_RING_CSS} }
   .xp-rail-btn[aria-disabled="true"] { ${DISABLED_CSS} }

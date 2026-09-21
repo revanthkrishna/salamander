@@ -227,9 +227,12 @@ export function getThemeCSS(): string {
  *  applied on keyboard focus. Paste inside a `:focus-visible { }` block. */
 export const FOCUS_RING_CSS = 'box-shadow: 0 0 0 2px var(--sal-bg), 0 0 0 4px var(--sal-focus);';
 
-/** Press feedback (§2): scale down slightly, on top of the control's own
- *  press-fill colour change. */
-export const PRESS_SCALE_CSS = 'transform: scale(0.97);';
+/* Press feedback used to add `transform: scale(0.97)` on top of the control's
+ * own press fill. It is gone (design spec §2, revised): a press changes the
+ * fill of the thing under the pointer and nothing else. On a two-half control
+ * it moved the half you were not pressing, and on the export group with its
+ * menu open it slid the menu item out from under the pointer between
+ * mousedown and mouseup, so the click landed on the panel instead. */
 
 /** Interaction-state transition timing shared by every control (§2):
  *  120-160ms ease-out on colour-ish properties, 80ms for the press scale. */
