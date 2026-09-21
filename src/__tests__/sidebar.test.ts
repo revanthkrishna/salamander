@@ -384,8 +384,8 @@ describe('sidebar shell', () => {
       `${sidebar.getSidebarWidth()}px`,
     );
 
-    sidebar.setSidebarWidth(180);
-    expect(html().style.getPropertyValue('--annotator-sidebar-width')).toBe('180px');
+    sidebar.setSidebarWidth(200);
+    expect(html().style.getPropertyValue('--annotator-sidebar-width')).toBe('200px');
 
     sidebar.closeSidebar();
     expect(html().style.getPropertyValue('--annotator-sidebar-width')).toBe('');
@@ -439,8 +439,32 @@ describe('sidebar shell', () => {
     sidebar.initSidebar(makeCallbacks());
     expect(sidebar.getSidebarWidth()).toBe(sidebar.SIDEBAR_DEFAULT_WIDTH);
     expect(sidebar.SIDEBAR_DEFAULT_WIDTH).toBe(sidebar.SIDEBAR_MAX_WIDTH);
-    expect(sidebar.SIDEBAR_MIN_WIDTH).toBe(100);
     expect(sidebar.SIDEBAR_MAX_WIDTH).toBe(300);
+  });
+
+  test('v5 §V: the minimum width is the width the action row needs, switch revealed', () => {
+    sidebar.initSidebar(makeCallbacks());
+    // 1 (panel border) + 16·2 (row padding) + 38 (add group)
+    // + 49 (what the revealed switch ADDS: its box less the tuck that a
+    // negative margin cancels) + 8 (gap) + 60 (export + chevron).
+    expect(sidebar.ADD_SWITCH_ADVANCE_PX).toBe(49);
+    expect(sidebar.SIDEBAR_MIN_WIDTH).toBe(1 + 16 * 2 + 38 + sidebar.ADD_SWITCH_ADVANCE_PX + 8 + 60);
+    expect(sidebar.SIDEBAR_MIN_WIDTH).toBe(188);
+    // It has to leave the narrow breakpoint something to do, and has to be
+    // reachable at all.
+    expect(sidebar.SIDEBAR_MIN_WIDTH).toBeLessThan(sidebar.NARROW_WIDTH_BREAKPOINT);
+    expect(sidebar.SIDEBAR_MIN_WIDTH).toBeLessThan(sidebar.SIDEBAR_MAX_WIDTH);
+  });
+
+  test('v5 §V: a width persisted below the new minimum is clamped on load, not just on drag', () => {
+    const get = chrome.storage.local.get as unknown as jest.Mock;
+    get.mockImplementation((_key: string, cb: (r: Record<string, unknown>) => void) => cb({ sidebarWidth: 100 }));
+    sidebar.initSidebar(makeCallbacks());
+    expect(sidebar.getSidebarWidth()).toBe(sidebar.SIDEBAR_MIN_WIDTH);
+    // ...and the same clamp guards the drag/keyboard paths.
+    sidebar.setSidebarWidth(40);
+    expect(sidebar.getSidebarWidth()).toBe(sidebar.SIDEBAR_MIN_WIDTH);
+    expect(sidebar.clampSidebarWidth(100)).toBe(sidebar.SIDEBAR_MIN_WIDTH);
   });
 
   test('dragging the handle resizes the panel and the page shrink together, live', () => {
@@ -458,12 +482,12 @@ describe('sidebar shell', () => {
     );
   });
 
-  test('the drag is clamped to 100–300px in both directions', () => {
+  test('the drag is clamped to the resizable range in both directions', () => {
     sidebar.initSidebar(makeCallbacks());
     sidebar.openSidebar();
 
     dragResizerTo(window.innerWidth - 20); // far too narrow
-    expect(sidebar.getSidebarWidth()).toBe(100);
+    expect(sidebar.getSidebarWidth()).toBe(sidebar.SIDEBAR_MIN_WIDTH);
 
     window.dispatchEvent(
       new MouseEvent('mousemove', { clientX: window.innerWidth - 900, bubbles: true }),
@@ -501,15 +525,15 @@ describe('sidebar shell', () => {
 
   test('a persisted width is restored on the next init', () => {
     sidebar.initSidebar(makeCallbacks());
-    dragResizerTo(window.innerWidth - 150);
+    dragResizerTo(window.innerWidth - 250);
     window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
     sidebar.destroySidebar();
     expect(sidebar.getSidebarWidth()).toBe(sidebar.SIDEBAR_DEFAULT_WIDTH);
 
     sidebar.initSidebar(makeCallbacks());
-    expect(sidebar.getSidebarWidth()).toBe(150);
+    expect(sidebar.getSidebarWidth()).toBe(250);
     const panel = shadowRoot().querySelector('.sidebar') as HTMLElement;
-    expect(panel.style.width).toBe('150px');
+    expect(panel.style.width).toBe('250px');
   });
 
   test('a persisted width outside the range is clamped rather than trusted', () => {
@@ -541,11 +565,11 @@ describe('sidebar shell', () => {
 
   test('resizing while closed leaves the page alone', () => {
     sidebar.initSidebar(makeCallbacks());
-    sidebar.setSidebarWidth(150);
+    sidebar.setSidebarWidth(250);
     expect(html().style.getPropertyValue('margin-right')).toBe('');
     // ...and the new width is what the next open reserves.
     sidebar.openSidebar();
-    expect(html().style.getPropertyValue('margin-right')).toBe('150px');
+    expect(html().style.getPropertyValue('margin-right')).toBe('250px');
   });
 
   test('dispatches a synthetic resize so js-measured layouts re-read their box', () => {
@@ -871,16 +895,22 @@ describe('sidebar shell', () => {
     expect(panel.classList.contains('is-narrow')).toBe(true);
   });
 
-  test('goes compact at the low end of the range so the 100px floor never overflows', () => {
+  test('v5 §V: there is no compact layout left, at any reachable width', () => {
     sidebar.initSidebar(makeCallbacks());
     const panel = shadowRoot().querySelector('.sidebar') as HTMLElement;
+    const style = shadowRoot().querySelector('style')!.textContent ?? '';
 
-    sidebar.setSidebarWidth(200);
-    expect(panel.classList.contains('is-compact')).toBe(false);
-
+    for (const w of [sidebar.SIDEBAR_MIN_WIDTH, 200, 219, 220, 300]) {
+      sidebar.setSidebarWidth(w);
+      expect(panel.classList.contains('is-compact')).toBe(false);
+    }
+    // The class, its rules and the breakpoint are gone rather than unused.
+    expect(style).not.toContain('is-compact');
+    expect((sidebar as Record<string, unknown>).COMPACT_WIDTH_BREAKPOINT).toBeUndefined();
+    expect((sidebar as Record<string, unknown>).actionRowFits).toBeUndefined();
+    // The logo the compact layout used to shed is now always in the header.
     sidebar.setSidebarWidth(sidebar.SIDEBAR_MIN_WIDTH);
-    expect(panel.classList.contains('is-compact')).toBe(true);
-    expect(panel.classList.contains('is-narrow')).toBe(true);
+    expect(shadowRoot().querySelector('.header .logo')).not.toBeNull();
   });
 });
 
@@ -969,45 +999,42 @@ describe('sidebar review fixes', () => {
 
   // ── #3: the action row never overflows ─────────────────────────────────────
 
-  test('the breakpoints are derived so the action row fits at every width from 100 to 300px', () => {
+  test('v5 §V: the action row fits with the switch OUT at every reachable width', () => {
+    // The whole point of the new minimum: the widest the row can ever be is
+    // the width the panel can never go below.
+    const widest = 1 + 16 * 2 + 38 + sidebar.ADD_SWITCH_ADVANCE_PX + 8 + 60;
     for (let w = sidebar.SIDEBAR_MIN_WIDTH; w <= sidebar.SIDEBAR_MAX_WIDTH; w++) {
-      expect({ w, fits: sidebar.actionRowFits(w) }).toEqual({ w, fits: true });
+      expect({ w, fits: w >= widest }).toEqual({ w, fits: true });
     }
-    // Two groups on one row need 1 (border) + 16·2 (padding) + 38 (add) +
-    // 8 (gap) + 60 (export + chevron) = 139px.
-    expect(sidebar.COMPACT_WIDTH_BREAKPOINT).toBe(139);
   });
 
-  test('layout classes flip exactly at the boundaries', () => {
+  test('layout classes flip exactly at the narrow boundary', () => {
     sidebar.initSidebar(makeCallbacks());
     const panel = shadowRoot().querySelector('.sidebar') as HTMLElement;
     const at = (w: number) => {
       sidebar.setSidebarWidth(w);
-      return { narrow: panel.classList.contains('is-narrow'), compact: panel.classList.contains('is-compact') };
+      return { narrow: panel.classList.contains('is-narrow') };
     };
-    expect(at(100)).toEqual({ narrow: true, compact: true });
-    expect(at(138)).toEqual({ narrow: true, compact: true });
-    expect(at(139)).toEqual({ narrow: true, compact: false });
-    expect(at(157)).toEqual({ narrow: true, compact: false });
-    expect(at(219)).toEqual({ narrow: true, compact: false });
-    expect(at(220)).toEqual({ narrow: false, compact: false });
-    expect(at(300)).toEqual({ narrow: false, compact: false });
-    for (const w of [100, 138, 139, 157, 219, 220, 300]) {
+    expect(at(sidebar.SIDEBAR_MIN_WIDTH)).toEqual({ narrow: true });
+    expect(at(219)).toEqual({ narrow: true });
+    expect(at(220)).toEqual({ narrow: false });
+    expect(at(300)).toEqual({ narrow: false });
+    for (const w of [188, 200, 219, 220, 300]) {
       expect(sidebar.sidebarLayoutFor(w)).toEqual(at(w));
     }
   });
 
-  test('both action-row groups are fixed-size and the row wraps rather than overflowing', () => {
+  test('both action-row groups are fixed-size and the row never wraps (v5 §V)', () => {
     sidebar.initSidebar(makeCallbacks());
     // §A2: "the button never changes size in any state — nothing wraps,
     // shrinks or reflows on hover".
-    expect(cssRule('.btn-add')).toMatch(/width:\s*36px/);
+    // 38 = 36px of content plus the button's own two borders (border-box).
+    expect(cssRule('.btn-add')).toMatch(/width:\s*38px/);
     expect(cssRule('.btn-add')).toMatch(/flex-shrink:\s*0/);
     expect(cssRule('.btn-add')).toMatch(/white-space:\s*nowrap/);
     expect(cssRule('.export-group')).toMatch(/flex-shrink:\s*0/);
-    // The row's content width is not fixed (the switch reveals), so wrapping
-    // is content-driven at every width rather than breakpoint-driven.
-    expect(cssRule('.action-row')).toMatch(/flex-wrap:\s*wrap/);
+    // There is no second line to fall to any more — §V guarantees one fits.
+    expect(cssRule('.action-row')).toMatch(/flex-wrap:\s*nowrap/);
   });
 
   // ── #9: header controls stay right-aligned when the wordmark hides ────────
@@ -1216,25 +1243,35 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
 
   test('off hover/press use the secondary fills; only "on" goes yellow', () => {
     sidebar.initSidebar(makeCallbacks());
-    const base = cssRule('.add-group');
-    expect(base).toMatch(/background:\s*var\(--sal-surface\)/);
-    expect(base).toMatch(/border:\s*1px solid var\(--sal-line\)/);
+    // The fill and the border belong to the HALVES now (v5 §Q as refined):
+    // the group is pure layout, so the button can be a complete rounded
+    // button with the switch an open-sided extension behind it.
+    const group = cssRule('.add-group');
+    expect(group).not.toMatch(/background:/);
+    expect(group).not.toMatch(/border:\s*1px/);
 
-    const on = cssRule('.add-group.is-on');
+    const btn = cssRule('.btn-add');
+    expect(btn).toMatch(/background:\s*var\(--sal-surface\)/);
+    expect(btn).toMatch(/border:\s*1px solid var\(--sal-line\)/);
+
+    expect(cssRule('.add-group.is-on')).toMatch(/color:\s*var\(--sal-on-accent\)/);
+    const on = cssRule('.add-group.is-on .btn-add');
     expect(on).toMatch(/background:\s*var\(--sal-accent\)/);
-    expect(on).toMatch(/color:\s*var\(--sal-on-accent\)/);
     // The border stays in the box (transparent) so on and off are the same size.
     expect(on).toMatch(/border-color:\s*transparent/);
   });
 
   test('hover and press land on the half under the pointer, and nothing scales', () => {
     sidebar.initSidebar(makeCallbacks());
-    // The group acknowledges with its border only — no fill, no scale.
-    const groupHover = cssRule('.add-group:hover');
-    expect(groupHover).toMatch(/border-color:\s*var\(--sal-line-strong\)/);
-    expect(groupHover).not.toMatch(/background:/);
+    // Nothing is painted at the group level while the halves are separate
+    // controls, and nothing scales.
+    expect(css()).not.toMatch(/\.add-group:hover\s*\{/);
     expect(css()).not.toMatch(/\.add-group:active\s*\{/);
     expect(cssRule('.add-group')).not.toMatch(/scale\(0\.97\)/);
+    // Each half's own border reacts with it, so the hovered half is outlined
+    // as well as filled.
+    expect(cssRule('.btn-add:hover')).toMatch(/border-color:\s*var\(--sal-line-strong\)/);
+    expect(cssRule('.add-switch:hover')).toMatch(/border-color:\s*var\(--sal-line-strong\)/);
 
     // Each half takes its own fill, in both the off and the yellow group.
     expect(cssRule('.btn-add:hover')).toMatch(/background:\s*var\(--sal-hover\)/);
@@ -1244,24 +1281,25 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     expect(cssRule('.add-group.is-on .btn-add:hover')).toMatch(/background:\s*var\(--sal-accent-hover\)/);
     expect(cssRule('.add-group.is-on .btn-add:active')).toMatch(/background:\s*var\(--sal-accent-press\)/);
     // ...except once the switch is on: the two halves are then one button and
-    // the group owns the fill, so the switch half has no fill of its own (see
-    // the merged test below).
+    // both take the same yellow together (see the merged test below).
 
-    // Hovering the switch must not light up the button, so the only rule
-    // that fills on a group-level hover is the border one checked above.
-    expect(css()).not.toMatch(/\.add-group:hover\s*\{[^}]*background:\s*var\(--sal-hover\)/);
+    // Hovering the switch must not light up the button: no group-level rule
+    // paints a fill while the two are separate controls.
+    expect(css()).not.toMatch(/\.add-group:hover\s*\{[^}]*background:/);
   });
 
   test('the focus ring hugs the focused half, and the group lets it out', () => {
     sidebar.initSidebar(makeCallbacks());
     // A ring 4px outside a half would be clipped by a scrolling/hidden group.
     expect(cssRule('.add-group')).toMatch(/overflow:\s*visible/);
-    expect(css()).not.toMatch(/\.add-group:has\(:focus-visible\)/);
+    // No group-level ring while the halves are separate controls. (§Q's
+    // reveal uses `:has(:focus-visible)` as a *descendant* selector — that
+    // shows the switch, it does not draw a ring round the group.)
+    expect(css()).not.toMatch(/\.add-group:has\(:focus-visible\)\s*\{/);
 
     expect(cssRule('.btn-add:focus-visible')).toContain('0 0 0 4px var(--sal-focus)');
-    // The segment carries no box-shadow of its own any more (its divider is a
-    // border-left), so the ring is the plain shared snippet on both halves in
-    // both states — nothing to spell out alongside it.
+    // The segment carries no box-shadow of its own, so the ring is the plain
+    // shared snippet on both halves — nothing to spell out alongside it.
     const switchFocus = cssRule('.add-switch:focus-visible');
     expect(switchFocus).toContain('0 0 0 4px var(--sal-focus)');
     expect(switchFocus).not.toContain('inset');
@@ -1270,17 +1308,20 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     expect(css()).not.toMatch(/\.add-group\.is-switch-on \.add-switch:focus-visible/);
     expect(cssRule('.add-group.is-switch-on:has(.btn-add:focus-visible)')).toContain('0 0 0 4px var(--sal-focus)');
 
-    // Each half rounds its own fill, since the group no longer clips them.
-    expect(cssRule('.btn-add')).toMatch(/border-radius:\s*calc\(var\(--sal-radius-md\) - 1px\)/);
-    expect(cssRule('.add-switch')).toMatch(/border-radius:\s*0 calc\(var\(--sal-radius-md\) - 1px\)/);
+    // Each half owns its shape: the button fully rounded, the segment
+    // rounded only on the right, square on the tucked left edge.
+    expect(cssRule('.btn-add')).toMatch(/border-radius:\s*var\(--sal-radius-md\)/);
+    expect(cssRule('.add-switch')).toMatch(
+      /border-radius:\s*0 var\(--sal-radius-md\) var\(--sal-radius-md\) 0/,
+    );
   });
 
   test('the add button never squares off; the switch is an extension behind it', () => {
     sidebar.initSidebar(makeCallbacks());
     // No rule anywhere gives the button a half-rounded (right-square) radius.
     expect(css()).not.toMatch(/\.btn-add[^{]*\{[^}]*border-radius:[^;]*0 0 calc/);
-    // It paints above the switch, so its rounded fill covers the switch's
-    // square left edge.
+    // It paints above the switch, so the switch tucks out from behind its
+    // rounded silhouette (v5 §Q: that silhouette IS the separation now).
     const btn = cssRule('.btn-add');
     expect(btn).toMatch(/position:\s*relative/);
     expect(btn).toMatch(/z-index:\s*1/);
@@ -1290,16 +1331,17 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     const cb = makeCallbacks();
     sidebar.initSidebar(cb);
 
-    // The divider is made transparent rather than removed, so merging cannot
-    // change the group's width.
-    const merged = cssRule('.add-group.is-switch-on .add-switch');
-    expect(merged).toMatch(/border-left-color:\s*transparent/);
-    expect(merged).not.toMatch(/border-left-width:\s*0/);
+    // The junction line is the BUTTON's right border, and merged it goes
+    // transparent rather than away, so merged and split are the same width.
+    const merged = cssRule('.add-group.is-switch-on .btn-add,\n  .add-group.is-switch-on .add-switch');
+    expect(merged).toMatch(/border-color:\s*transparent/);
+    expect(merged).toMatch(/background:\s*var\(--sal-accent\)/);
 
-    // Hover/press/focus go back to the whole group, and the per-half fills
-    // are cancelled — it is one control now.
-    expect(cssRule('.add-group.is-switch-on:hover')).toMatch(/background:\s*var\(--sal-accent-hover\)/);
-    expect(cssRule('.add-group.is-switch-on:active')).toMatch(/background:\s*var\(--sal-accent-press\)/);
+    // Hover and press paint BOTH halves together — one control, one yellow.
+    const mergedHover = cssRule('.add-group.is-switch-on:hover .btn-add,\n  .add-group.is-switch-on:hover .add-switch');
+    expect(mergedHover).toMatch(/background:\s*var\(--sal-accent-hover\)/);
+    const mergedPress = cssRule('.add-group.is-switch-on:active .btn-add,\n  .add-group.is-switch-on:active .add-switch');
+    expect(mergedPress).toMatch(/background:\s*var\(--sal-accent-press\)/);
     expect(cssRule('.add-group.is-switch-on:has(.btn-add:focus-visible)')).toContain('0 0 0 4px var(--sal-focus)');
 
     // One tab stop while merged: the button half carries it.
@@ -1340,34 +1382,76 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     expect(css()).not.toMatch(/\.add-group\.is-on \.add-switch\s*\{/);
   });
 
-  test('the divider between the halves is drawn exactly once', () => {
+  test('v5 §Q: each half draws its own border, and they interlock', () => {
     sidebar.initSidebar(makeCallbacks());
-    const off = cssRule('.add-switch');
-    // One mechanism only. The segment used to carry an `inset 0 0 0 1px line`
-    // hairline *as well as* its border-left: an inset shadow paints inside
-    // the border, so the left edge came out 2px where every other divider in
-    // this UI is 1px — and on the other three edges it doubled the group's
-    // own 1px border, thickening it halfway along the group.
-    expect(off).toMatch(/border-left:\s*1px solid var\(--sal-line\)/);
-    expect(off).not.toMatch(/box-shadow:/);
-    // Nothing anywhere puts a second hairline back on this element.
-    expect(css()).not.toMatch(/\.add-switch[^{]*\{[^}]*box-shadow:\s*inset/);
+    // The button is a complete rounded button: border on all four sides,
+    // every corner rounded, in every state.
+    const btn = cssRule('.btn-add');
+    expect(btn).toMatch(/border:\s*1px solid var\(--sal-line\)/);
+    expect(btn).toMatch(/border-radius:\s*var\(--sal-radius-md\)/);
+    expect(css()).not.toMatch(/\.btn-add[^{]*\{[^}]*border-(left|right)-width:\s*0/);
+
+    // The segment borders its top, right and bottom only — never its left,
+    // where the button's own right border is the single line at the junction.
+    const seg = cssRule('.add-switch');
+    expect(seg).toMatch(/border:\s*0 solid var\(--sal-line\)/);
+    expect(seg).toMatch(/border-left-width:\s*0/);
+    expect(seg).not.toMatch(/box-shadow:/);
+    // The group itself paints nothing at all now.
+    const group = cssRule('.add-group');
+    expect(group).not.toMatch(/border:\s*1px/);
+    expect(group).not.toMatch(/background:/);
   });
 
-  test('the merged switch half shows the group\'s yellow rather than a second one', () => {
+  test('v5 §Q: the segment tucks a radius back so the border never breaks', () => {
     sidebar.initSidebar(makeCallbacks());
-    const on = cssRule('.add-group.is-switch-on .add-switch');
-    // Transparent, not accent: the group is already accent, and an opaque
-    // fill here stayed flat while the group went accentHover under the
-    // pointer — two different yellows in one control.
-    expect(on).toMatch(/background:\s*transparent/);
-    expect(on).not.toMatch(/background:\s*var\(--sal-accent\)/);
-    // Same class of bug for colour: the group is on-accent when merged, so
-    // this inherits rather than restating it.
-    expect(on).not.toMatch(/\n\s+color:/);
-    // Merged: the divider goes transparent rather than away, so the width
-    // does not change at the moment the two halves become one button.
-    expect(on).toMatch(/border-left-color:\s*transparent/);
+    // Butting a square-cornered segment against the button's ROUNDED right
+    // edge leaves a crescent gap at each corner: the outer border breaks into
+    // pieces and the segment's hover fill looks clipped where the curve falls
+    // away. Reaching exactly one radius back under the button fills both
+    // crescents, and the button (z-index: 1, opaque) hides the rest.
+    const reveal = css().match(
+      /\.add-group:hover \.add-switch,\s*\.add-group:has\(:focus-visible\) \.add-switch,\s*\.add-group\.is-switch-on \.add-switch \{[^}]*\}/,
+    )?.[0];
+    expect(reveal).toMatch(/margin-left:\s*-10px/);
+    expect(reveal).toMatch(/padding:\s*0 10px 0 20px/);
+    expect(reveal).toMatch(/border-left-width:\s*0/);
+    expect(cssRule('.btn-add')).toMatch(/z-index:\s*1/);
+    expect(cssRule('.btn-add')).toMatch(/background:\s*var\(--sal-surface\)/);
+
+    // The tuck must not widen the group: the negative margin cancels it, so
+    // the reveal still advances the row by the same 49px.
+    expect(sidebar.ADD_SWITCH_WIDTH_PX).toBe(10 + 20 + 28 + 1 - 10 + 10);
+    expect(sidebar.ADD_SWITCH_ADVANCE_PX).toBe(sidebar.ADD_SWITCH_WIDTH_PX - 10);
+    expect(sidebar.ADD_SWITCH_ADVANCE_PX).toBe(49);
+  });
+
+  test('v5 §Q: the reveal takes keyboard focus only, never a mouse click\'s focus', () => {
+    sidebar.initSidebar(makeCallbacks());
+    // :focus-within also matched the focus Chrome gives a button on
+    // mouse-down, so the switch stayed out from the click that started add
+    // mode and lingered right through it. :has(:focus-visible) does not.
+    expect(css()).not.toMatch(/:focus-within \.add-switch/);
+    expect(css()).toMatch(/\.add-group:has\(:focus-visible\) \.add-switch/);
+  });
+
+  test('merged, both halves take the same yellow together', () => {
+    sidebar.initSidebar(makeCallbacks());
+    // The group has no fill of its own, so each half paints the accent — and
+    // a hover anywhere in the group has to repaint BOTH, or the half under
+    // the pointer goes accentHover while the other stays flat accent: two
+    // yellows in what is meant to be one control.
+    const on = cssRule('.add-group.is-switch-on .btn-add,\n  .add-group.is-switch-on .add-switch');
+    expect(on).toMatch(/background:\s*var\(--sal-accent\)/);
+    expect(on).toMatch(/border-color:\s*transparent/);
+
+    for (const [sel, fill] of [
+      ['.add-group.is-switch-on:hover .btn-add,\n  .add-group.is-switch-on:hover .add-switch', 'accent-hover'],
+      ['.add-group.is-switch-on:active .btn-add,\n  .add-group.is-switch-on:active .add-switch', 'accent-press'],
+    ] as const) {
+      expect(cssRule(sel)).toMatch(new RegExp(`background:\\s*var\\(--sal-${fill}\\)`));
+    }
+
     // The per-half overrides that used to cancel an opaque fill are gone
     // rather than left behind as dead rules.
     expect(css()).not.toMatch(/\.add-group\.is-switch-on \.add-switch:hover\s*\{/);
@@ -1421,32 +1505,30 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     sidebar.initSidebar(makeCallbacks());
     const hidden = cssRule('.add-switch');
     // `box-sizing: border-box` is global here, so a `width: 0` box still
-    // cannot be narrower than its own border — the collapsed switch used to
-    // measure 1px, pushing the group to 39px, knocking the button half
-    // off-centre and drawing a stray `line` hairline at the button's right
-    // edge at rest. The border has to leave the box entirely.
+    // cannot be narrower than its own border — a collapsed switch that kept
+    // its 1px would measure 1px, pushing the group to 39px, knocking the
+    // button half off-centre and drawing a stray `line` hairline at the
+    // button's right edge at rest. The border has to leave the box entirely,
+    // and so does the negative margin that cancels the tuck.
     expect(cssRule('*, *::before, *::after')).toMatch(/box-sizing:\s*border-box/);
     expect(hidden).toMatch(/width:\s*0/);
-    expect(hidden).toMatch(/border-left-width:\s*0/);
     expect(hidden).toMatch(/padding:\s*0/);
+    expect(hidden).toMatch(/border-width:\s*0/);
+    expect(hidden).toMatch(/margin-left:\s*0/);
 
-    // Resting group width, from the stylesheet: the 36px button half, the
-    // group's own 1px border on each side, and nothing from the switch.
+    // Resting group width, from the stylesheet: the button half alone, its
+    // own two borders inside its box, and nothing from the switch.
     const px = (rule: string, prop: string): number =>
       Number(new RegExp(`${prop}:\\s*(\\d+)px`).exec(cssRule(rule))?.[1] ?? NaN);
-    const buttonHalf = px('.btn-add', 'width');
-    const groupBorder = Number(/border:\s*(\d+)px solid/.exec(cssRule('.add-group'))?.[1] ?? NaN);
-    expect(buttonHalf).toBe(36);
-    expect(groupBorder).toBe(1);
-    expect(buttonHalf + groupBorder * 2).toBe(38);
+    expect(px('.btn-add', 'width')).toBe(38);
 
-    // Revealing puts that same 1px back, and ADD_SWITCH_WIDTH_PX already
-    // counts it — so the revealed geometry is untouched by the fix.
+    // Revealing restores the border and the tuck together.
     const reveal = css().match(
-      /\.add-group:hover \.add-switch,\s*\.add-group:focus-within \.add-switch,\s*\.add-group\.is-switch-on \.add-switch \{[^}]*\}/,
+      /\.add-group:hover \.add-switch,\s*\.add-group:has\(:focus-visible\) \.add-switch,\s*\.add-group\.is-switch-on \.add-switch \{[^}]*\}/,
     )?.[0];
-    expect(reveal).toMatch(new RegExp(`border-left-width:\\s*${groupBorder}px`));
-    expect(sidebar.ADD_SWITCH_WIDTH_PX).toBe(groupBorder + 10 + 28 + 10);
+    expect(reveal).toMatch(/border-width:\s*1px/);
+    expect(reveal).toMatch(/margin-left:\s*-10px/);
+    expect(sidebar.ADD_SWITCH_WIDTH_PX).toBe(59);
   });
 
   test('the switch is hidden (and untabbable) at rest, revealed on hover/focus, and always visible once on', () => {
@@ -1456,7 +1538,7 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     expect(cssRule('.add-switch')).toMatch(/width:\s*0/);
 
     const reveal = css().match(
-      /\.add-group:hover \.add-switch,\s*\.add-group:focus-within \.add-switch,\s*\.add-group\.is-switch-on \.add-switch \{[^}]*\}/,
+      /\.add-group:hover \.add-switch,\s*\.add-group:has\(:focus-visible\) \.add-switch,\s*\.add-group\.is-switch-on \.add-switch \{[^}]*\}/,
     )?.[0];
     expect(reveal).toBeDefined();
     expect(reveal).toMatch(/visibility:\s*visible/);
@@ -1483,7 +1565,7 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
 
     // Revealing zeroes the delay, so opening stays immediate.
     const reveal = css().match(
-      /\.add-group:hover \.add-switch,\s*\.add-group:focus-within \.add-switch,\s*\.add-group\.is-switch-on \.add-switch \{[^}]*\}/,
+      /\.add-group:hover \.add-switch,\s*\.add-group:has\(:focus-visible\) \.add-switch,\s*\.add-group\.is-switch-on \.add-switch \{[^}]*\}/,
     )?.[0];
     expect(reveal).toMatch(/transition-delay:\s*0s/);
   });

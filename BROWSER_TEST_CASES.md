@@ -71,8 +71,10 @@ the same page.
       open on. Sidebar should be closed by default (session state cleared on browser restart).
 - [ ] **1.11. (Resizable sidebar)** Hover the sidebar's left edge — cursor should change to a
       resize cursor and a thin yellow rail should appear. Drag it wider and narrower. It should
-      stop at 100px (min) and 300px (max) and not go past either. Reload the page — the width you
-      left it at should be remembered.
+      stop at 188px (min) and 300px (max) and not go past either — the minimum is now exactly the
+      width the action row needs with the "keep on" switch revealed (v5 §V). Reload the page — the
+      width you left it at should be remembered. If you had previously left it narrower than 188px,
+      it should come back clamped up to 188, not stuck at the old width.
 - [ ] **1.12.** With the sidebar resized to a non-default width, open add mode — the selection area
       must not extend under the sidebar. Then open a note: the enlarged view expands to ~75% of the
       window regardless of the sidebar width, and collapsing returns the sidebar to your width.
@@ -89,9 +91,9 @@ the same page.
 - [ ] **1.15. (Narrow sidebar widths)** Drag the sidebar narrower than ~220px — the "salamander"
       wordmark should hide, and hovering the "add note" group should no longer reveal the
       "keep on" switch (keyboard focus still does, and it stays visible whenever it is on).
-      Keep dragging to the 100px minimum — the action row should wrap so the "add note" group
-      and the export group both stay reachable with nothing clipped or overflowing, and the
-      logo mark should hide too.
+      Keep dragging to the 188px minimum and hover the add group there — the switch should reveal
+      and BOTH groups must still sit on one line, with nothing clipped, nothing wrapped to a second
+      row and the logo mark still showing (v5 §V retired the old compact layout).
 - [ ] **1.16. ("this page (n)" heading)** With items captured on the current page, the sidebar
       shows a small "this page (n)" heading above the list, where n matches the visible item count.
       Delete items down to zero — the heading should disappear and the empty state should show
@@ -203,9 +205,21 @@ the same page.
 - [ ] **3.1.** Click a thumbnail → the sidebar expands leftward to ~75% of the window (the page
       itself doesn't reflow; the strip still visible is dimmed). The clicked thumbnail should
       visibly *grow* into the large screenshot, and the notes above/below it grow into the peeking
-      cards — nothing should just fade or jump. The title reads "feedback #n" with "n / total".
-- [ ] **3.2.** Edit the note, then pause — a muted "✓ saved" appears briefly. Collapse (x) and
-      reopen to confirm the edit was kept (there is no save button).
+      cards — nothing should just fade or jump. The title reads "feedback #n".
+- [ ] **3.1a. (v5 §R — the sheet)** The title bar, the screenshot and the text area read as one
+      block, centred in the expanded panel both horizontally and vertically. The x / ↑ / ↓ rail sits
+      against the **window's** right edge, ~20px in and vertically centred, and must not move when
+      you navigate to a differently-sized note. There is no bar under the text area at all.
+- [ ] **3.1b. (v5 §R — the arc)** About 20px of the previous note shows past the top edge and 20px
+      of the next past the bottom, and both are pushed slightly RIGHT of the centred block —
+      symmetrically, as if all three centres lay on one circle. Each peek is 3/4 of **its own**
+      note's size, so a peek of a big note is bigger than a peek of a small one (and can be bigger
+      than the note you're looking at). Navigating to it grows it to its true size. Two notes of very
+      different sizes should get visibly different pushes, both still on the same arc.
+- [ ] **3.2.** Edit the note, then pause — **nothing** should appear (v5 §R removed the "saved"
+      confirmation entirely). Collapse and reopen to confirm the edit was kept (there is no save
+      button). Break the save (e.g. offline) — the failure shows as plain left-aligned red text
+      directly under the text area, with no bar or background, and nothing moves when it appears.
 - [ ] **3.3.** Edit the note and immediately press ↓ (or Esc) without pausing — the edit must still
       be saved (flushed on navigate/collapse).
 - [ ] **3.3a. (navigation)** Use ↓/↑ (focus not in the text area), the rail's ↑/↓ buttons, and
@@ -221,7 +235,21 @@ the same page.
 - [ ] **3.3c. (reduced motion)** Turn on reduced motion (OS setting, or DevTools → Rendering →
       emulate prefers-reduced-motion) — opening, navigating and collapsing should change layout
       instantly with only crossfades, no sliding or growing.
-- [ ] **3.4.** In the enlarged view click **delete** — the note disappears immediately (no
+- [ ] **3.3d. (v5 §T — the page cannot scroll)** With the enlarged view open, try to scroll the
+      page behind the scrim: mouse wheel, trackpad two-finger, and the keyboard (space, page
+      up/down, home/end, arrows with focus outside the text area). Nothing behind should move, and
+      the page must not jump sideways when the view opens (no scrollbar-width reflow). Put a long
+      note in the text area and scroll it — that must still work, and once it reaches its last line
+      the page behind must still not take over. Check over both halves of the screen (the dimmed
+      page strip and the panel itself) — the scrim makes the whole viewport belong to our host, so a
+      lock that only checks "is this inside our UI" blocks nothing anywhere. Then leave by every route (x, Esc,
+      the scrim, closing the sidebar, entering add mode, an in-page SPA navigation) and confirm the
+      page scrolls normally again each time.
+- [ ] **3.3e. (v5 §U — the exit icon)** The top rail button is a "collapse the panel to the right"
+      glyph (a rounded panel outline with a divider near its right and a chevron pointing right),
+      not an ×. Hovering it still says "exit enlarged view (esc)".
+- [ ] **3.4.** In the enlarged view click **delete** — the trash glyph must be the SAME one the note
+      list's hover delete uses (v5 §S). The note disappears immediately (no
       confirmation) and the view moves on to the next note (or the previous one if it was last);
       deleting the only note collapses back to the empty list. Reload to confirm it's really gone.
 - [ ] **3.5.** After capturing several items, confirm the newest one appears at the **bottom** of
@@ -250,6 +278,12 @@ the same page.
       last line and the background's bottom edge — they must look identical, and both must match
       the gap at the left and right edges. Check it on a one-line note and on a three-line
       (clamped) one. Nothing may shift position between rest and hover.
+- [ ] **3.9a. (v5 §Q — the add group)** Hover the "add note" button: the switch slides out from
+      behind its rounded right edge with NO straight divider line between them, and the group must be
+      exactly as wide as it is with the switch out, in both the off and the on (merged yellow) state.
+      Click the button to start add mode and move the pointer away — the switch must collapse
+      straight away rather than lingering because the click left focus on the button. Tab to the
+      button with the keyboard — the switch does reveal.
 - [ ] **3.10. (List delete, §L)** Hover a note in the list — a small delete (trash) button fades in
       over the **top-right** corner of the thumbnail, at the same time as the note background, and
       grows with the item as the dock magnification swells it. At rest it must be completely

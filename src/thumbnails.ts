@@ -47,8 +47,11 @@ export interface ThumbnailCallbacks {
 /** Trash glyph for the per-item delete (design spec §1's icon language:
  *  1.8px stroke, round caps/joins, currentColor, 24-unit viewBox). Written
  *  out here rather than imported from sidebar.ts's icon set, because
- *  sidebar.ts imports *this* module — the dependency only runs one way. */
-const ICON_TRASH =
+ *  sidebar.ts imports *this* module — the dependency only runs one way.
+ *
+ *  This is the project's ONE trash glyph (design spec v5 §S): the enlarged
+ *  view's delete imports it from here rather than drawing a second one. */
+export const ICON_TRASH =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" ' +
   'stroke="currentColor" stroke-width="1.8" stroke-linecap="round" ' +
   'stroke-linejoin="round" aria-hidden="true">' +
@@ -59,7 +62,7 @@ const ICON_TRASH =
 
 /** Hard cap on the note text handed to the DOM (design spec §3.1's visual
  *  3-line clamp is CSS's job now — sidebar.ts's `.thumbnail-note` rule sets
- *  `-webkit-line-clamp: 3`, which adapts to the resizable 100–300px sidebar
+ *  `-webkit-line-clamp: 3`, which adapts to the resizable 188–300px sidebar
  *  width the way a fixed character count never could). This is only a sanity
  *  ceiling for pathological notes so a many-KB note never bloats one list
  *  item's DOM/paint cost. */
@@ -70,7 +73,7 @@ const NOTE_PREVIEW_LENGTH = 600;
  *  so without a fixed box the grid reads as uneven — some thumbnails tall,
  *  some short/wide. Width intentionally stays relative (100%, set in
  *  sidebar.ts's `.thumbnail-image-wrap` rule) rather than a paired fixed
- *  value: the sidebar itself is becoming resizable (100–300px) in this same
+ *  value: the sidebar itself is becoming resizable (188–300px) in this same
  *  round of work, so a hardcoded width would either overflow or leave a gap
  *  as the sidebar is dragged. Applied as an inline style rather than a new
  *  sidebar.ts CSS rule since this module owns the elements it builds and

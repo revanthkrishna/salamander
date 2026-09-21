@@ -9,12 +9,18 @@
 //
 // The screenshot is shown at the selection's original CSS size (design spec
 // v4 §M) — no card, no fill, no letterboxing — so the main slot IS the
-// rendered <img> box, the header bar and editor take their width from it, and
-// the column is centred between the panel's left edge and the rail. The peeks
-// are 75% of it, so the note in focus is always the biggest thing on screen.
-// That makes the whole column note-dependent: computeGeometry() reruns on
-// every index change. Only the rail is fixed — anchored to the panel and
-// vertically centred, it never moves when the image resizes.
+// rendered <img> box, the header bar and editor take their width from it.
+// That block (title bar + image + textarea) is centred in the sheet both ways
+// and is the anchor for everything else (design spec v5 §R). The peeks are
+// each their OWN note fitted the same way and scaled to 0.75, so a peek is a
+// preview of the note you are about to open rather than a copy of the focused
+// one's proportions, and they sit on an arc: one circle centred off to the
+// right whose leftmost point is the block's centre, which pushes both peeks
+// right of the block by the same law. All of that makes the layout
+// note-dependent in three places at once: computeGeometry() reruns on every
+// index change and takes the neighbours' natural sizes with it. Only the rail
+// is fixed — pinned to the VIEWPORT's right edge and vertically centred, it
+// never moves when any image resizes.
 //
 // ── Where it renders ────────────────────────────────────────────────────────
 // Inside the sidebar's own closed shadow root (sidebar.ts hands this module
@@ -71,6 +77,8 @@
 
 import { FeedbackItem } from './types';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
+// The project's one trash glyph (design spec v5 §S) — the note list's.
+import { ICON_TRASH } from './thumbnails';
 import { FOCUS_RING_CSS, PRESS_SCALE_CSS, DISABLED_CSS, STATE_TRANSITION_CSS, RADII } from './theme';
 import {
   ACC,
@@ -118,7 +126,6 @@ export const T = {
   listOut: 150,
   badgeDelayIn: 150,
   fade: 200,
-  captionDelay: 250,
   titleDelay: 200,
   editorDelay: 250,
   railDelay: 300,
@@ -133,9 +140,6 @@ export const T = {
   farPeekDelay: 200,
   deleteStep: 180,
   autosave: 700,
-  hintIn: 150,
-  hintHold: 1400,
-  hintOut: 300,
   errorIn: 200,
   errorOut: 120,
   shake: 200,
@@ -158,26 +162,36 @@ export const T = {
  *  ~38px past the edge at the 300px maximum width). */
 const FRONT_BLEED_PX = 48;
 const FRAME_RADIUS = RADII.md;
-/** Textarea (96) + visible part of the tucked extension bar (62 − 14). */
-const EDITOR_HEIGHT = 144;
+/** The editor is the textarea and nothing else (design spec v5 §R removed
+ *  the bar under it). The failure/empty-note text sits under the textarea
+ *  out of flow, so it reserves no height while idle. */
+const EDITOR_HEIGHT = 96;
 const TITLE_BLOCK = 46; // 34px title row + 12px gap
 const RAIL_BTN = 40;
 /** x + ↑ + ↓ stacked: three 40px buttons, an 8px gap between each and the
- *  extra 8px margin under x. The rail is centred on the panel and never
- *  moves when the image resizes (design spec v4 §M). */
+ *  extra 8px margin under x. */
 const RAIL_HEIGHT = RAIL_BTN * 3 + 8 * 3;
-/** Image → editor gap inside the column. */
+/** The rail's margin from the VIEWPORT's right edge (design spec v5 §R). It
+ *  is vertically centred there and never moves when an image resizes. */
+const RAIL_MARGIN = 20;
+/** Image → editor gap inside the block. */
 const COLUMN_GAP = 16;
 /** Floor for the header bar / editor width, so a tiny selection still leaves
  *  a usable title row and note editor (design spec v4 §M). */
 const MIN_COLUMN_W = 240;
-/** A peek card is this fraction of the note in focus, in both dimensions, so
- *  the focused note is always the biggest thing on the panel (v4 §M, which
- *  overrides MOTION_SPEC §4's fixed 540×285 — those numbers were written
- *  against the old fixed 720×380 main slot). */
-const PEEK_SCALE = 0.75;
-/** Breathing room between the column and the rail / the panel's left edge
- *  once the column has been centred between them. */
+/** A peek card is this fraction of ITS OWN note's fitted size (design spec
+ *  v5 §R), so navigating to it grows it to its true size — a zoom, not a
+ *  reshape. This replaces v4 §M's "0.75 × the main image box", which made
+ *  every peek a copy of the focused note's proportions. */
+export const PEEK_SCALE = 0.75;
+/** How much of each peek shows past the sheet's top / bottom edge (§R). */
+export const PEEK_REVEAL_PX = 20;
+/** The arc's intended horizontal push at a vertical distance of H/2 (§R).
+ *  The circle is solved from this, so the push at the peeks' real offsets
+ *  follows from the geometry rather than being dialled in per peek. */
+export const ARC_PUSH_PX = 60;
+/** Breathing room between the block and the rail column, reserved on BOTH
+ *  sides of the sheet so the block's centring stays symmetric (§R). */
 const COLUMN_GUTTER = 20;
 /** Instrument Serif italic overhangs its glyph origin to the LEFT (the
  *  leading "f" of "feedback" most visibly). The title's box is inset by this
@@ -187,8 +201,9 @@ const COLUMN_GUTTER = 20;
 const TITLE_INK_BLEED = 8;
 
 // ---------------------------------------------------------------------------
-// Geometry (MOTION_SPEC §4 at the 1440×900 reference, scaled responsively,
-// with the main slot replaced by the image's own box — design spec v4 §M)
+// Geometry. MOTION_SPEC §4's fixed slots are long gone: v4 §M replaced the
+// main slot with the image's own box, and v5 §R replaced the peeks with each
+// neighbour's own box on an arc, and re-anchored the whole sheet.
 // ---------------------------------------------------------------------------
 
 export interface EnlargedGeometry {
@@ -201,15 +216,21 @@ export interface EnlargedGeometry {
    *  floored at MIN_COLUMN_W so a tiny selection still leaves both usable
    *  (design spec v4 §M). */
   columnW: number;
-  /** The column's inset from the viewport's right edge. Not a fixed panel
-   *  inset any more — the column is CENTRED between the panel's left edge and
-   *  the rail, so this moves with the image's width (v4 §M). */
+  /** The block's inset from the viewport's right edge. The block is CENTRED
+   *  in the sheet (v5 §R), so this moves with the image's width. */
   columnRight: number;
   titleTop: number;
   editorTop: number;
   main: Slot;
   prev: Slot;
   next: Slot;
+}
+
+/** The natural sizes of the notes either side of the one in focus. Each peek
+ *  is sized from its own (design spec v5 §R), so they can differ. */
+export interface NeighbourSizes {
+  prev?: NaturalSize | null;
+  next?: NaturalSize | null;
 }
 
 /** A note's screenshot at its ORIGINAL size — `item.selectionRect`'s CSS
@@ -220,94 +241,128 @@ export interface NaturalSize {
 }
 
 /**
+ * The radius of the arc the focused block and both peeks sit on (design spec
+ * v5 §R). The circle's centre is off to the RIGHT of the block with the
+ * block's centre as its leftmost point, so it is fixed by asking for a
+ * horizontal push of `ARC_PUSH_PX` at a vertical distance of `H / 2`:
+ *
+ *     R = (D² + P²) / 2P,   D = H / 2,  P = ARC_PUSH_PX
+ */
+export function arcRadius(sheetH: number): number {
+  const d = Math.max(1, sheetH) / 2;
+  return (d * d + ARC_PUSH_PX * ARC_PUSH_PX) / (2 * ARC_PUSH_PX);
+}
+
+/** How far right of the block's centre a point `dy` above/below it sits on
+ *  that circle: `R − sqrt(R² − dy²)`, clamped to R once |dy| reaches R (the
+ *  sqrt's radicand is guarded rather than allowed to go NaN — §R). */
+export function arcPush(dy: number, radius: number): number {
+  const a = Math.abs(dy);
+  if (!(radius > 0)) return 0;
+  if (a >= radius) return radius;
+  return radius - Math.sqrt(Math.max(0, radius * radius - a * a));
+}
+
+/**
  * Pure layout for a `vw`×`vh` viewport showing a screenshot of `natural`
- * CSS size.
+ * CSS size, with `neighbours` the natural sizes of the notes either side.
  *
  * The main slot is the image itself (design spec v4 §M): no card, no fill,
  * no letterboxing, so the slot IS the rendered `<img>` box — `natural`
- * scaled DOWN to fit the width between the panel's left edge and the rail and
- * the height the title row and editor leave over, and never scaled up past
- * it. The header bar and the editor take the image's width (columnW, floored
- * at MIN_COLUMN_W), and the whole column is centred BOTH ways in that
- * content area. The rail is centred on the panel independently of the
- * column, so it never moves when the image resizes.
+ * scaled DOWN to fit the sheet less the rail column on either side, and the
+ * height the title row and editor leave over, and never scaled up past it.
+ * The header bar and the editor take the image's width (columnW, floored at
+ * MIN_COLUMN_W; a narrower image is then centred within it), and that whole
+ * block is centred in the sheet horizontally AND vertically (v5 §R). The
+ * rail is pinned to the viewport's right edge and vertically centred,
+ * independent of the block, so it never moves when the image resizes.
  *
- * The peeks derive from the note in focus: PEEK_SCALE of the main box in both
- * dimensions, so the focused note is always the biggest thing on screen and a
- * main↔peek morph is a pure uniform scale. This overrides MOTION_SPEC §4's
- * fixed 540×285, which was 75% of the old fixed 720×380 main slot; §M's
- * image-sized main makes a fixed peek size grow larger than the note the user
- * is actually looking at. Their right edge stays flush with the rail's (v2
- * §D). Horizontal insets scale with the panel (never below a usable floor,
- * never more than 1.25×), the vertical margin with the viewport height. The
- * panel is 75% of the viewport but at least 560px (or the whole viewport, if
- * narrower) and never narrower than the docked sidebar.
+ * Each peek is its OWN note fitted the same way and scaled by PEEK_SCALE
+ * (§R) — a preview of the note you are about to open, which then grows to
+ * its true size when you navigate to it, so peek ↔ main is a pure uniform
+ * scale. `PEEK_REVEAL_PX` of it shows past the sheet's top / bottom edge,
+ * which fixes each peek's centre y from its own height; the arc above turns
+ * that vertical offset into the horizontal push, so two peeks of different
+ * sizes get different pushes and still sit on one circle.
  *
- * `natural` omitted/degenerate (an item with no usable selectionRect) falls
- * back to the largest 16:9 box that fits — the same aspect aspectOf() falls
- * back to, so the image still fills its slot exactly.
+ * The panel is 75% of the viewport but at least 560px (or the whole
+ * viewport, if narrower) and never narrower than the docked sidebar.
+ *
+ * A natural size omitted/degenerate (an item with no usable selectionRect)
+ * falls back to the largest 16:9 box that fits — the same aspect aspectOf()
+ * falls back to, so the image still fills its slot exactly.
  */
 export function computeEnlargedGeometry(
   vw: number,
   vh: number,
   sidebarWidth: number,
   natural?: NaturalSize | null,
+  neighbours?: NeighbourSizes,
 ): EnlargedGeometry {
   const vwRight = Math.max(1, vw);
   const vhBottom = Math.max(1, vh);
   const panelW = Math.round(Math.min(vwRight, Math.max(0.75 * vwRight, Math.min(560, vwRight), sidebarWidth)));
-  const sx = Math.min(panelW / 1080, 1.25);
   const sy = Math.min(vhBottom / 900, 1.25);
 
-  const railRight = Math.max(16, Math.round(149 * sx));
-  const leftPad = Math.max(20, Math.round(151 * sx));
-  // The column's playground: the panel's left edge on one side, the rail's
-  // left edge on the other. Everything below is sized into it and centred
-  // in it; the rail itself is anchored to the panel and never moves.
-  const contentLeft = vwRight - panelW;
-  const railLeft = vwRight - railRight - RAIL_BTN;
+  // The rail rides the viewport's right edge (§R). The same column width is
+  // reserved on BOTH sides of the sheet, so the block can be centred in the
+  // sheet and still never reach the rail.
+  const railRight = RAIL_MARGIN;
+  const sideReserve = RAIL_MARGIN + RAIL_BTN + COLUMN_GUTTER;
 
-  // The box the image is fitted into: that content width less its insets, and
-  // the viewport height less the title row, the editor and their margins (§M).
+  // The box every image is fitted into: the sheet less those two reserves,
+  // and the viewport height less the title row, the editor and their margins.
   const marginV = Math.min(140, Math.max(40, Math.round(96 * sy)));
-  const maxW = Math.max(160, panelW - leftPad - (railRight + RAIL_BTN + COLUMN_GUTTER));
+  const maxW = Math.max(160, panelW - 2 * sideReserve);
   const maxH = Math.max(100, vhBottom - 2 * marginV - TITLE_BLOCK - COLUMN_GAP - EDITOR_HEIGHT);
 
-  const nat = natural && natural.w > 0 && natural.h > 0 ? natural : { w: (16 / 9) * maxH, h: maxH };
-  const fit = Math.min(1, maxW / nat.w, maxH / nat.h);
   // Width rounds to a whole pixel; the height then follows from the aspect
   // rather than rounding independently, so the slot's aspect is EXACTLY the
-  // image's and the contain-fit leaves no sub-pixel letterbox band of the
-  // frame's fill showing along an edge (§M: no container fill, no border).
-  const mainW = Math.max(1, Math.round(nat.w * fit));
-  const mainH = Math.max(1, (mainW * nat.h) / nat.w);
+  // image's and the contain-fit leaves no sub-pixel letterbox band showing
+  // along an edge (§M: no container fill, no border).
+  const fitted = (n: NaturalSize | null | undefined): NaturalSize => {
+    const nat = n && n.w > 0 && n.h > 0 ? n : { w: (16 / 9) * maxH, h: maxH };
+    const fit = Math.min(1, maxW / nat.w, maxH / nat.h);
+    const w = Math.max(1, Math.round(nat.w * fit));
+    return { w, h: Math.max(1, (w * nat.h) / nat.w) };
+  };
 
+  const { w: mainW, h: mainH } = fitted(natural);
   const columnW = Math.max(Math.min(MIN_COLUMN_W, maxW), mainW);
-  const columnH = TITLE_BLOCK + mainH + COLUMN_GAP + EDITOR_HEIGHT;
-  const titleTop = Math.max(16, Math.round((vhBottom - columnH) / 2));
+  const blockH = TITLE_BLOCK + mainH + COLUMN_GAP + EDITOR_HEIGHT;
+
+  // The block, centred in the sheet both ways. Its centre (bx, by) anchors
+  // the arc below; `by` is read back off the clamped top rather than assumed
+  // to be H/2, so a block too tall to centre still puts the peeks on a
+  // circle through where the block actually is.
+  const bx = vwRight - panelW / 2;
+  const titleTop = Math.max(16, Math.round(vhBottom / 2 - blockH / 2));
+  const by = titleTop + blockH / 2;
   const mainTop = titleTop + TITLE_BLOCK;
   const editorTop = mainTop + mainH + COLUMN_GAP;
-  // Centred horizontally between the panel edge and the rail, clamped so it
-  // can never sit under the rail or outside the panel.
-  const columnX = Math.max(
-    contentLeft,
-    Math.min(railLeft - COLUMN_GUTTER - columnW, Math.round(contentLeft + (railLeft - contentLeft - columnW) / 2)),
-  );
+  const columnX = Math.round(bx - columnW / 2);
   const columnRight = vwRight - (columnX + columnW);
 
-  // PEEK_SCALE of the note in focus, in both dimensions: the focused note is
-  // always the larger of the two, and peek ↔ main is a pure uniform scale
-  // with no letterboxing at either end.
-  const peekW = Math.max(1, Math.round(mainW * PEEK_SCALE));
-  const peekH = Math.max(1, (peekW * mainH) / mainW);
-  const peekSlot = (top: number): Slot => ({
-    x: railLeft + RAIL_BTN - peekW, // right edge flush with the rail's (v2 §D)
-    y: top,
-    w: peekW,
-    h: peekH,
+  // PEEK_SCALE of each neighbour's OWN fitted box, so peek ↔ main for that
+  // note is a pure uniform scale with no letterboxing at either end (§R).
+  const peekBox = (n: NaturalSize | null | undefined): NaturalSize => {
+    const f = fitted(n);
+    const w = Math.max(1, Math.round(f.w * PEEK_SCALE));
+    return { w, h: Math.max(1, (w * f.h) / f.w) };
+  };
+  const radius = arcRadius(vhBottom);
+  /** `centreY` comes from the PEEK_REVEAL_PX rule and that peek's own
+   *  height; the arc then supplies the push from the resulting offset. */
+  const peekSlot = (box: NaturalSize, centreY: number): Slot => ({
+    x: Math.round(bx + arcPush(centreY - by, radius) - box.w / 2),
+    y: Math.round(centreY - box.h / 2),
+    w: box.w,
+    h: box.h,
     pad: 0,
     imgR: FRAME_RADIUS,
   });
+  const prevBox = peekBox(neighbours?.prev);
+  const nextBox = peekBox(neighbours?.next);
 
   return {
     vwRight,
@@ -318,14 +373,21 @@ export function computeEnlargedGeometry(
     columnRight,
     titleTop,
     editorTop,
-    // The image sits at the column's LEFT edge, so title, image and editor
-    // share one edge even when the floor has made the column wider than a
-    // very small screenshot. pad 0 + the image's own aspect = the frame is
-    // exactly covered: no letterboxing, nothing of the card left to see.
-    main: { x: columnX, y: mainTop, w: mainW, h: mainH, pad: 0, imgR: FRAME_RADIUS },
-    // 24px gap + 44px 2-line caption above the title, then the card itself.
-    prev: peekSlot(titleTop - 68 - peekH),
-    next: peekSlot(editorTop + EDITOR_HEIGHT + 24),
+    // Centred within the column (§R), which only shows when the MIN_COLUMN_W
+    // floor has made the column wider than a small screenshot — otherwise the
+    // two are the same box. pad 0 + the image's own aspect = the frame is
+    // exactly covered: no letterboxing, nothing of a card left to see.
+    main: {
+      x: columnX + Math.round((columnW - mainW) / 2),
+      y: mainTop,
+      w: mainW,
+      h: mainH,
+      pad: 0,
+      imgR: FRAME_RADIUS,
+    },
+    // PEEK_REVEAL_PX of each peek shows past the sheet's top / bottom edge.
+    prev: peekSlot(prevBox, PEEK_REVEAL_PX - prevBox.h / 2),
+    next: peekSlot(nextBox, vhBottom - PEEK_REVEAL_PX + nextBox.h / 2),
   };
 }
 
@@ -352,7 +414,7 @@ export interface EnlargedViewMount {
   shadow: ShadowRoot;
   sidebarEl: HTMLElement;
   getSidebarWidth: () => number;
-  getListLayout: () => { narrow: boolean; compact: boolean };
+  getListLayout: () => { narrow: boolean };
   getLogoSrc: () => string;
   /** The list thumbnail box (.thumbnail-image-wrap) for an item, if rendered. */
   getListThumb: (id: number) => HTMLElement | null;
@@ -439,7 +501,6 @@ export const ENLARGED_VIEW_CSS = `
     pointer-events: none;
     white-space: nowrap;
   }
-  .xp-brand.is-compact { left: 8px; gap: 6px; }
   .xp-brand img { width: 35px; height: 20px; display: block; flex-shrink: 0; }
   .xp-brand-word {
     font-family: var(--sal-font-display);
@@ -474,10 +535,10 @@ export const ENLARGED_VIEW_CSS = `
     white-space: nowrap;
   }
 
-  /* Editor — design spec v2 §C's text area + tucked extension bar. */
+  /* Editor — design spec v2 §C's text area, and nothing under it: v5 §R
+     removed the extension bar, its fill and its inset border. */
   .xp-editor {
     position: absolute;
-    display: flex; flex-direction: column;
     pointer-events: auto;
   }
   .xp-note-input {
@@ -485,6 +546,12 @@ export const ENLARGED_VIEW_CSS = `
     display: block; width: 100%; height: 96px;
     margin: 0; padding: 12px 14px;
     resize: none; border: none; outline: none;
+    /* Stated rather than left to the UA default: this is the one element the
+       §T scroll lock lets a wheel through to, and overscroll-behavior
+       belt-and-braces the "textarea at its last line must not scroll the
+       page" case the lock already cancels. */
+    overflow-y: auto;
+    overscroll-behavior: contain;
     border-radius: var(--sal-radius-lg);
     background: var(--sal-surface);
     color: var(--sal-text);
@@ -501,21 +568,6 @@ export const ENLARGED_VIEW_CSS = `
   .xp-note-input.is-error:hover,
   .xp-note-input.is-error:focus { box-shadow: inset 0 0 0 1px var(--sal-danger); }
 
-  /* Extension bar tucked under the text area. Its 1px line border is drawn
-     INSIDE via an inset shadow (design spec v4 §O, same treatment as the
-     note's hover extension in v2 §B), so its edges line up exactly with the
-     text area's own inset border above instead of bleeding past them. The
-     bar now holds only the status slot, which stays on the right
-     (MOTION_SPEC §10/§11) — delete moved to the header bar (v4 §M). */
-  .xp-bar {
-    position: relative; z-index: 0;
-    height: 62px; margin-top: -14px;
-    padding: 22px 8px 8px;
-    background: var(--sal-raised);
-    box-shadow: inset 0 0 0 1px var(--sal-line);
-    border-radius: 0 0 var(--sal-radius-lg) var(--sal-radius-lg);
-    display: flex; align-items: center; justify-content: flex-end; gap: 8px;
-  }
   /* Delete: an icon button at the header bar's right end, with §L's list
      delete treatment (surface at rest, danger on hover/press). The stage is
      pointer-events: none, so this opts back in like the editor and rail. */
@@ -534,18 +586,21 @@ export const ENLARGED_VIEW_CSS = `
   .xp-delete:active { background: var(--sal-danger-press); color: var(--sal-danger); ${PRESS_SCALE_CSS} }
   .xp-delete:focus-visible { outline: none; ${FOCUS_RING_CSS} }
   .xp-delete svg { width: 16px; height: 16px; display: block; }
+  /* The one thing under the textarea (design spec v5 §R): plain left-aligned
+     text, no bar, no background, no border. Out of flow (top: 100%) so it
+     reserves no space at all while idle and the block's height is the
+     textarea's — nothing moves when a failure appears. Every message it can
+     carry is now an error, so it is danger-coloured outright; the success
+     hint is gone. */
   .xp-status {
-    min-width: 0;
-    display: flex; align-items: center; gap: 4px;
-    padding: 0 10px;
-    font-size: 12px; color: var(--sal-muted);
+    position: absolute; top: calc(100% + 8px); left: 0; right: 0;
+    margin: 0;
+    font-size: 12px; line-height: 16px;
+    color: var(--sal-danger);
+    text-align: left;
     opacity: 0;
-    white-space: nowrap; overflow: hidden;
+    word-break: break-word;
   }
-  .xp-status.is-danger { color: var(--sal-danger); }
-  .xp-status-text { overflow: hidden; text-overflow: ellipsis; }
-  .xp-status svg { width: 14px; height: 14px; flex-shrink: 0; display: block; }
-  .xp-status:not(.is-saved) svg { display: none; }
 
   /* Rail — 40×40 secondary icon buttons (§2's secondary row). */
   .xp-rail {
@@ -594,11 +649,13 @@ export const ENLARGED_VIEW_CSS = `
   /* ...enter 90ms std; pointer only — focus shows the ring, never the lift. */
   .xp-card.is-prev:hover .xp-card-lift { transform: translateY(7px); transition-duration: 90ms; }
   .xp-card.is-next:hover .xp-card-lift { transform: translateY(-7px); transition-duration: 90ms; }
+  /* No fill of its own (design spec v5 §R): every slot has the aspect of the
+     image it holds, so a fill could only ever show as a sub-pixel band along
+     an edge — and a peek is "the image edge alone", with no frame behind it. */
   .xp-card-frame {
     position: absolute; left: 0; top: 0; width: 100%; height: 100%;
     border-radius: var(--sal-radius-md);
     overflow: hidden;
-    background: var(--sal-raised);
     transform-origin: 0 0;
   }
   .xp-card:focus-visible .xp-card-frame { ${FOCUS_RING_CSS} }
@@ -618,17 +675,6 @@ export const ENLARGED_VIEW_CSS = `
     text-align: center;
     transform-origin: 0 0;
   }
-  .xp-card-caption {
-    position: absolute; left: 0; right: 0; top: calc(100% + 8px);
-    margin: 0; padding: 0 10px;
-    font-size: 13px; line-height: 18px;
-    color: var(--sal-text);
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-    overflow: hidden; word-break: break-word;
-    transform-origin: 0 0;
-  }
-  .xp-card-caption.is-empty { color: var(--sal-muted); font-style: italic; }
-
   @media (prefers-reduced-motion: reduce) {
     .xp-card-lift { transform: none !important; transition: none !important; }
     .xp-note-input { transition: none; }
@@ -642,24 +688,198 @@ export const ENLARGED_VIEW_CSS = `
 const STROKE =
   'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
   'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
-const ICON_CLOSE = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE}><path d="M6 6l12 12M18 6L6 18"/></svg>`;
+/** "collapse the panel to the right" (design spec v5 §U): a rounded panel
+ *  outline, a divider three-quarters across, and a chevron pointing right in
+ *  the larger left area. It replaces the × — the aria-label and title still
+ *  say "exit enlarged view", which is what carries the meaning to AT. */
+const ICON_COLLAPSE =
+  `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE}>` +
+  '<rect x="3" y="4" width="18" height="16" rx="2.5"/>' +
+  '<path d="M15.5 4v16M8 9.5l3 2.5-3 2.5"/></svg>';
 const ICON_UP = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE}><path d="M6 15l6-6 6 6"/></svg>`;
 const ICON_DOWN = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE}><path d="M6 9l6 6 6-6"/></svg>`;
-const ICON_CHECK = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE}><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
-const ICON_TRASH =
-  `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE}>` +
-  '<path d="M4 7h16M10 11v6M14 11v6M6.5 7l.8 11.6a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9L17.5 7' +
-  'M9.5 7V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v2"/></svg>';
 
 const TITLE_ID = 'xp-title';
 const STATUS_ID = 'xp-status';
+
+// ---------------------------------------------------------------------------
+// Page scroll lock (design spec v5 §T)
+// ---------------------------------------------------------------------------
+
+/** The direction each scrolling key travels, as a (dx, dy) sign pair. Space
+ *  is in the list twice over — it pages down, and shift+space pages up. */
+const SCROLL_KEYS: Record<string, { dx: number; dy: number }> = {
+  ' ': { dx: 0, dy: 1 },
+  Spacebar: { dx: 0, dy: 1 }, // legacy key name, still emitted by some IMEs/remotes
+  PageUp: { dx: 0, dy: -1 },
+  PageDown: { dx: 0, dy: 1 },
+  Home: { dx: 0, dy: -1 },
+  End: { dx: 0, dy: 1 },
+  ArrowUp: { dx: 0, dy: -1 },
+  ArrowDown: { dx: 0, dy: 1 },
+  ArrowLeft: { dx: -1, dy: 0 },
+  ArrowRight: { dx: 1, dy: 0 },
+};
+
+export interface ScrollLockHandle {
+  release: () => void;
+}
+
+function computedStyleOf(el: Element): CSSStyleDeclaration | null {
+  try {
+    return window.getComputedStyle(el);
+  } catch {
+    return null;
+  }
+}
+
+function scrollableOverflow(value: string | undefined): boolean {
+  return value === 'auto' || value === 'scroll' || value === 'overlay';
+}
+
+/**
+ * Can `el` itself take this scroll — is it an overflow container AND does it
+ * still have room to move in the direction of travel?
+ *
+ * The "room left" half is what makes overscroll chaining stop at our own
+ * edge: a textarea scrolled to its last line has no room, so the wheel is
+ * cancelled rather than handed on to the page underneath.
+ *
+ * `dx`/`dy` are signs (or a wheel's raw deltas); 0/0 means "either axis,
+ * either direction", which is all a touchmove can tell us.
+ */
+export function elementCanScroll(el: Element, dx: number, dy: number): boolean {
+  const anyDir = dx === 0 && dy === 0;
+  // The cheap rejection first — most elements in the path have no overflow
+  // at all, and this runs on every wheel event.
+  const roomY = el.scrollHeight - el.clientHeight;
+  const roomX = el.scrollWidth - el.clientWidth;
+  if (roomY <= 1 && roomX <= 1) return false;
+  const style = computedStyleOf(el);
+  // A <textarea> scrolls by UA default (and jsdom reports no computed
+  // overflow at all), so it counts whatever the cascade says.
+  const isTextarea = el instanceof HTMLTextAreaElement;
+
+  if (roomY > 1 && (dy !== 0 || anyDir) && (isTextarea || scrollableOverflow(style?.overflowY))) {
+    if (anyDir) return true;
+    if (dy < 0 ? el.scrollTop > 0 : el.scrollTop < roomY - 1) return true;
+  }
+  if (roomX > 1 && (dx !== 0 || anyDir) && (isTextarea || scrollableOverflow(style?.overflowX))) {
+    if (anyDir) return true;
+    if (dx < 0 ? el.scrollLeft > 0 : el.scrollLeft < roomX - 1) return true;
+  }
+  return false;
+}
+
+/** Text entry of any kind — typing a space, or moving the caret with the
+ *  arrow/home/end keys, must never be cancelled. These consume the key
+ *  themselves, so letting them through can't scroll anything either. */
+function isTextEntry(target: EventTarget | undefined): boolean {
+  if (target instanceof HTMLTextAreaElement) return true;
+  if (target instanceof HTMLInputElement) return true;
+  return target instanceof HTMLElement && target.isContentEditable;
+}
+
+/**
+ * Stops the host page scrolling under the enlarged view, at the EVENT level
+ * (design spec v5 §T): capture-phase `wheel` / `touchmove` with
+ * `{ passive: false }` plus the scrolling keys, cancelled unless something
+ * in OUR OWN UI can actually consume the scroll.
+ *
+ * Deliberately NOT `overflow: hidden` on the host's documentElement/body.
+ * On a page with a classic scrollbar that hands the scrollbar's width back
+ * to the content, which changes the layout viewport — and this extension
+ * reads that viewport twice over: content.ts shrinks the page by the docked
+ * sidebar's width, and the FLIP morphs measure list-thumbnail rects in
+ * viewport coordinates at the exact moment the view opens and closes. A
+ * width change there is a visible jump in the middle of the morph. Nothing
+ * here touches layout at all.
+ *
+ * The exemption is "this event can really be consumed", NOT "this event is
+ * somewhere inside our host". The two are not the same thing and the
+ * difference is the whole feature: while the view is open the host covers
+ * the ENTIRE viewport, because the scrim belongs to it — `elementFromPoint`
+ * anywhere on screen returns the host. A path-contains-host test therefore
+ * exempts every wheel and every key on the page and the lock blocks nothing
+ * at all, while still cancelling a synthetic event dispatched on
+ * `document.body` (whose path genuinely excludes the host) and so still
+ * looking like it works.
+ *
+ * So: walk the composed path as far as the host and let the event through
+ * only if an element BEFORE the host can take it — an overflow container
+ * with room left in the direction of travel. In practice that is the note
+ * textarea and nothing else. Stopping at the host also keeps a page that
+ * sets `html { overflow: auto }` from qualifying as the scroller.
+ */
+export function lockPageScroll(hostEl: Element): ScrollLockHandle {
+  /** The part of the composed path that belongs to our UI, or null when the
+   *  event never touched it. */
+  function ownPath(e: Event): EventTarget[] | null {
+    const path = e.composedPath();
+    const host = path.indexOf(hostEl);
+    return host > 0 ? path.slice(0, host) : null;
+  }
+
+  function consumable(e: Event, dx: number, dy: number): boolean {
+    const path = ownPath(e);
+    if (!path) return false;
+    for (const t of path) {
+      if (t instanceof Element && elementCanScroll(t, dx, dy)) return true;
+    }
+    return false;
+  }
+
+  function cancel(e: Event): void {
+    if (e.cancelable) e.preventDefault();
+  }
+
+  const onWheel = (e: Event): void => {
+    const w = e as WheelEvent;
+    if (!consumable(e, w.deltaX ?? 0, w.deltaY ?? 0)) cancel(e);
+  };
+  // A touchmove carries no delta, so "can this scroll at all, either way" is
+  // as much as can be asked of it.
+  const onTouchMove = (e: Event): void => {
+    if (!consumable(e, 0, 0)) cancel(e);
+  };
+  const onKeydown = (e: KeyboardEvent): void => {
+    const dir = SCROLL_KEYS[e.key];
+    if (!dir) return;
+    if (isTextEntry(e.composedPath()[0])) return;
+    const dy = e.key === ' ' || e.key === 'Spacebar' ? (e.shiftKey ? -1 : 1) : dir.dy;
+    if (!consumable(e, dir.dx, dy)) cancel(e);
+  };
+
+  // Capture phase, so a page that stops these events on its own document
+  // never gets the chance to (the same guarantee keyboardIsolation.ts
+  // relies on). `passive: false` is required: Chrome makes window-level
+  // wheel/touchmove listeners passive by default, and a passive listener's
+  // preventDefault() is ignored.
+  const opts: AddEventListenerOptions = { capture: true, passive: false };
+  window.addEventListener('wheel', onWheel, opts);
+  window.addEventListener('touchmove', onTouchMove, opts);
+  window.addEventListener('keydown', onKeydown, opts);
+
+  let released = false;
+  return {
+    release: () => {
+      if (released) return;
+      released = true;
+      window.removeEventListener('wheel', onWheel, opts);
+      window.removeEventListener('touchmove', onTouchMove, opts);
+      window.removeEventListener('keydown', onKeydown, opts);
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
 
 type Role = 'main' | 'prev' | 'next';
-type StatusKind = 'none' | 'saved' | 'save-error' | 'delete-error' | 'empty-error';
+/** Every message the status slot can carry is a failure now — design spec
+ *  v5 §R dropped the "✓ saved" confirmation entirely. */
+type StatusKind = 'none' | 'save-error' | 'delete-error' | 'empty-error';
 
 interface Card {
   item: FeedbackItem;
@@ -668,7 +888,6 @@ interface Card {
   frame: HTMLElement;
   img: HTMLImageElement;
   badge: HTMLElement;
-  caption: HTMLElement;
   role: Role | 'gone';
   /** Layout ("Last") slot the element boxes currently sit at. */
   slot: Slot;
@@ -748,8 +967,7 @@ class EnlargedView {
   private editor!: HTMLDivElement;
   private textarea!: HTMLTextAreaElement;
   private deleteBtn!: HTMLButtonElement;
-  private statusEl!: HTMLSpanElement;
-  private statusText!: HTMLSpanElement;
+  private statusEl!: HTMLParagraphElement;
   private rail!: HTMLDivElement;
   private btnExit!: HTMLButtonElement;
   private btnUp!: HTMLButtonElement;
@@ -781,7 +999,6 @@ class EnlargedView {
   private settleTimer: Timer | null = null;
   private swapTimer: Timer | null = null;
   private saveTimer: Timer | null = null;
-  private hintTimer: Timer | null = null;
   private suspendTimer: Timer | null = null;
   private panelSnapTimer: Timer | null = null;
   /** The delete step's own timer — never shares settleTimer, which a delete
@@ -792,6 +1009,10 @@ class EnlargedView {
   private collapseAfterDelete = false;
   private shakeAnim: Animation | null = null;
   private isolation: KeyboardIsolationHandle | null = null;
+  /** §T's page scroll lock. Taken in open(), dropped in finish() — the one
+   *  teardown path every exit already routes through, so no caller has to
+   *  remember it and a leaked lock is structurally impossible. */
+  private scrollLock: ScrollLockHandle | null = null;
   private resizeRaf: number | null = null;
 
   constructor(
@@ -831,6 +1052,11 @@ class EnlargedView {
     sb.classList.add('is-expanded', 'is-brand-riding');
     for (const id of sources.keys()) this.hideThumb(id);
 
+    // The page is frozen for as long as the view is up (§T). Taken before
+    // the keyboard isolation, which stops in-host key events reaching any
+    // later capture listener — the lock passes those through anyway, but
+    // this way its view of the keyboard matches the page's.
+    this.scrollLock = lockPageScroll(this.mount.host);
     this.isolation = installKeyboardIsolation(this.mount.host, this.onKeydown);
     window.addEventListener('resize', this.onResize);
     this.mql?.addEventListener?.('change', this.onReducedChange);
@@ -928,7 +1154,7 @@ class EnlargedView {
     this.deleteBtn = document.createElement('button');
     this.deleteBtn.type = 'button';
     this.deleteBtn.className = 'xp-delete';
-    this.deleteBtn.innerHTML = ICON_TRASH;
+    this.deleteBtn.innerHTML = ICON_TRASH; // the list's glyph, the only one (§S)
     this.deleteBtn.setAttribute('aria-label', 'delete note');
     this.deleteBtn.title = 'delete note';
     this.deleteBtn.addEventListener('click', () => this.deleteCurrent());
@@ -942,22 +1168,18 @@ class EnlargedView {
     this.textarea.placeholder = 'what should change here?';
     this.textarea.addEventListener('input', this.onInput);
     this.textarea.addEventListener('blur', this.onBlur);
-    const bar = div('xp-bar');
-    this.statusEl = document.createElement('span');
+    // The failure/empty-note line, directly under the textarea and out of
+    // flow (§R). It keeps the live-region semantics it had in the old bar.
+    this.statusEl = document.createElement('p');
     this.statusEl.className = 'xp-status';
     this.statusEl.id = STATUS_ID;
     this.statusEl.setAttribute('role', 'status');
     this.statusEl.setAttribute('aria-live', 'polite');
-    this.statusEl.innerHTML = ICON_CHECK;
-    this.statusText = document.createElement('span');
-    this.statusText.className = 'xp-status-text';
-    this.statusEl.appendChild(this.statusText);
-    bar.append(this.statusEl);
-    this.editor.append(this.textarea, bar);
+    this.editor.append(this.textarea, this.statusEl);
 
     // Rail.
     this.rail = div('xp-rail');
-    this.btnExit = railButton(ICON_CLOSE, 'exit enlarged view', 'exit enlarged view (esc)', 'xp-exit');
+    this.btnExit = railButton(ICON_COLLAPSE, 'exit enlarged view', 'exit enlarged view (esc)', 'xp-exit');
     this.btnUp = railButton(ICON_UP, 'previous note', 'previous note (↑)', 'xp-prev');
     this.btnDown = railButton(ICON_DOWN, 'next note', 'next note (↓)', 'xp-next');
     this.btnExit.addEventListener('click', () => void this.requestCollapse());
@@ -985,16 +1207,16 @@ class EnlargedView {
 
   private computeGeometry(): EnlargedGeometry {
     const vp = viewportSize();
-    return computeEnlargedGeometry(
-      vp.w,
-      vp.h,
-      this.mount.getSidebarWidth(),
-      this.naturalFor(this.items[this.idx]),
-    );
+    return computeEnlargedGeometry(vp.w, vp.h, this.mount.getSidebarWidth(), this.naturalFor(this.items[this.idx]), {
+      // Each peek is sized from its OWN note (§R), so the neighbours' natural
+      // sizes are part of the layout, not just the focused note's.
+      prev: this.naturalFor(this.items[this.idx - 1]),
+      next: this.naturalFor(this.items[this.idx + 1]),
+    });
   }
 
-  /** The main slot is the current note's image, so every index change
-   *  reshapes the column. Call before layoutCards() on any navigation. */
+  /** Every slot is sized from the note that sits in it, so an index change
+   *  reshapes all three. Call before layoutCards() on any navigation. */
   private recomputeGeometry(): void {
     this.geo = this.computeGeometry();
   }
@@ -1009,6 +1231,8 @@ class EnlargedView {
     // whose `min-width: 0; overflow: hidden; text-overflow: ellipsis` title
     // was free to shrink below its own text, with the old "n / total" count
     // reserving another 40px of it — was what clipped "feedback #12".
+    // Everything is positioned from the viewport's right edge, so the
+    // animated panel width never moves anything inside it (see the banner).
     this.head.style.right = `${g.columnRight}px`;
     this.head.style.top = `${g.titleTop}px`;
     this.head.style.width = 'auto';
@@ -1017,16 +1241,13 @@ class EnlargedView {
     setBox(this.rail, { right: g.railRight, top: g.railTop });
   }
 
-  /** Logo/wordmark parts the *list* header doesn't show at this sidebar
-   *  width (§3.1 narrow/compact) fade in/out as the view opens/closes; the
-   *  rest ride the edge unchanged. */
+  /** The wordmark, which the *list* header doesn't show at a narrow sidebar
+   *  width (§3.1), fades in/out as the view opens/closes; the logo rides the
+   *  edge unchanged — the list always shows it now that §V retired the
+   *  compact layout that used to shed it. */
   private syncBrandParts(opening: boolean): void {
     const layout = this.mount.getListLayout();
-    this.brand.classList.toggle('is-compact', layout.compact);
-    const parts: Array<[HTMLElement, boolean]> = [
-      [this.brandLogo, layout.compact],
-      [this.brandWord, layout.narrow],
-    ];
+    const parts: Array<[HTMLElement, boolean]> = [[this.brandWord, layout.narrow]];
     for (const [el, hiddenInList] of parts) {
       if (!hiddenInList) continue;
       if (opening) {
@@ -1135,12 +1356,10 @@ class EnlargedView {
         if (from && animate) {
           card.el.style.opacity = '1';
           card.badge.style.opacity = '1';
-          card.caption.style.opacity = '0';
           this.morphCard(card, from, slot, morphDur);
         } else {
           this.placeCard(card, slot);
           card.badge.style.opacity = '0';
-          card.caption.style.opacity = role === 'main' ? '0' : '1';
           card.el.style.opacity = '0';
           if (kind === 'instant' || !animate) {
             // Reduced motion: the whole card crossfades in with the rest.
@@ -1163,22 +1382,14 @@ class EnlargedView {
       }
       this.setRole(card, role);
 
-      // Badges never rest on main/peek (§4); peek captions fade only (§3).
+      // Badges never rest on main/peek (§4). Peeks carry nothing else — §R
+      // took their captions away: the image edge alone.
       if (animate) {
         fadeTo(card.badge, 0, kind === 'expand'
           ? { duration: T.fade, delay: T.badgeDelayIn, curve: STD }
           : { duration: 100, curve: ACC });
-        if (role === 'main') fadeTo(card.caption, 0, { duration: 100, curve: ACC });
-        else if (currentOpacity(card.caption) < 1 || kind === 'expand') {
-          fadeTo(card.caption, 1, {
-            duration: T.fade,
-            delay: kind === 'expand' ? T.captionDelay : T.farPeekDelay,
-            curve: STD,
-          });
-        }
       } else {
         fadeTo(card.badge, 0, { duration: 0, curve: STD });
-        fadeTo(card.caption, role === 'main' ? 0 : 1, { duration: 0, curve: STD });
       }
       if (role === 'main') this.ensureFullImage(card);
     }
@@ -1203,12 +1414,9 @@ class EnlargedView {
     badge.className = 'xp-card-badge';
     badge.textContent = String(item.id);
     badge.setAttribute('aria-hidden', 'true');
-    const caption = document.createElement('p');
-    caption.className = 'xp-card-caption';
-    caption.setAttribute('aria-hidden', 'true');
     frame.appendChild(img);
     lift.append(frame, badge);
-    el.append(lift, caption);
+    el.append(lift);
 
     const card: Card = {
       item,
@@ -1217,7 +1425,6 @@ class EnlargedView {
       frame,
       img,
       badge,
-      caption,
       role: 'gone',
       slot,
       morph: null,
@@ -1225,7 +1432,6 @@ class EnlargedView {
       removeTimer: null,
       shrink: null,
     };
-    this.updateCaption(card);
     el.addEventListener('click', () => {
       // Activating a peek: setRole() hands focus to the matching rail
       // button once this card has become the main one.
@@ -1240,21 +1446,16 @@ class EnlargedView {
       if (Math.abs(a - card.aspect) / card.aspect < 0.02) return;
       card.aspect = a;
       if (card.morph && tweenProgress(card.morph.tween, now()) < 1) return;
-      // The main slot IS the image (v4 §M), so a corrected aspect reshapes
-      // the whole column, not just this card's contain-fit.
-      if (card.role === 'main') this.relayout();
+      // Every slot IS its own image (v4 §M, v5 §R), so a corrected aspect
+      // reshapes the layout rather than just this card's contain-fit — a
+      // peek's height decides its own place on the arc.
+      if (card.role !== 'gone') this.relayout();
       else this.placeCard(card, card.slot);
     });
     this.placeCard(card, slot);
     this.cards.set(item.id, card);
     this.front.appendChild(el);
     return card;
-  }
-
-  private updateCaption(card: Card): void {
-    const text = (this.drafts.get(card.item.id) ?? card.item.note).trim() || this.saved.get(card.item.id)?.trim() || '';
-    card.caption.textContent = text || 'no note';
-    card.caption.classList.toggle('is-empty', !text);
   }
 
   /** Write the card's layout boxes for `slot` (the FLIP "Last"). */
@@ -1285,7 +1486,6 @@ class EnlargedView {
       animateEl(card.frame, kf.frame, opts),
       animateEl(card.img, kf.img, opts),
       animateEl(card.badge, kf.badge, opts),
-      animateEl(card.caption, kf.caption, opts),
     ].filter((a): a is Animation => a !== null);
     card.morph = { tween: { from, to, start: now(), delay: 0, duration, ease: STD.fn }, anims };
   }
@@ -1351,7 +1551,6 @@ class EnlargedView {
     card.shrink?.cancel();
     cancelTracks(card.el);
     cancelTracks(card.badge);
-    cancelTracks(card.caption);
     card.el.remove();
     if (this.cards.get(card.item.id) === card) this.cards.delete(card.item.id);
   }
@@ -1638,7 +1837,6 @@ class EnlargedView {
         this.morphCard(card, this.currentSlot(card), to, T.collapse);
         if (currentOpacity(card.el) < 1) fadeTo(card.el, 1, { duration: T.stageOut, curve: STD });
         fadeTo(card.badge, 1, { duration: T.scrimOut, curve: STD });
-        fadeTo(card.caption, 0, { duration: 100, curve: ACC });
       } else {
         this.setRole(card, 'gone');
         fadeTo(card.el, 0, { duration: T.stageOut, curve: ACC });
@@ -1666,9 +1864,7 @@ class EnlargedView {
     this.state = 'closed';
     this.clearChoreoTimers();
     if (this.saveTimer) clearTimeout(this.saveTimer);
-    if (this.hintTimer) clearTimeout(this.hintTimer);
     this.saveTimer = null;
-    this.hintTimer = null;
     this.shakeAnim?.cancel();
     this.shakeAnim = null;
     if (this.resizeRaf !== null) cancelAnimationFrameSafe(this.resizeRaf);
@@ -1696,6 +1892,10 @@ class EnlargedView {
     this.wrapper?.remove();
     this.isolation?.release();
     this.isolation = null;
+    // §T: the page gets its scroll back here and nowhere else, whether this
+    // was a collapse, an Esc, add mode, an SPA navigation or a destroy().
+    this.scrollLock?.release();
+    this.scrollLock = null;
     window.removeEventListener('resize', this.onResize);
     this.mql?.removeEventListener?.('change', this.onReducedChange);
     this.mount.setDockSuspended(false);
@@ -1730,20 +1930,18 @@ class EnlargedView {
     if (id === null) return;
     const value = this.textarea.value;
     this.drafts.set(id, value);
-    const card = this.cards.get(id);
-    if (card) this.updateCaption(card);
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = null;
     if (value.trim() === '') {
       // Never autosave an empty note — the last non-empty text stays stored.
-      if (this.statusKind === 'saved' || this.statusKind === 'save-error') this.setStatus('none');
+      if (this.statusKind === 'save-error') this.setStatus('none');
       return;
     }
     if (this.statusKind === 'empty-error') this.clearEmptyError();
     else if (this.statusKind === 'save-error' || this.statusKind === 'delete-error') this.setStatus('none');
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
-      this.save(id, true);
+      this.save(id);
     }, T.autosave);
   };
 
@@ -1755,7 +1953,7 @@ class EnlargedView {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
     }
-    if (this.isDirty(id)) this.save(id, true);
+    if (this.isDirty(id)) this.save(id);
   };
 
   private isDirty(id: number): boolean {
@@ -1776,13 +1974,13 @@ class EnlargedView {
       this.saveTimer = null;
     }
     const id = this.shownId;
-    if (id !== null && this.isDirty(id)) this.save(id, false);
+    if (id !== null && this.isDirty(id)) this.save(id);
     for (const f of [...this.failed]) {
-      if (f !== id && this.isDirty(f)) this.save(f, false);
+      if (f !== id && this.isDirty(f)) this.save(f);
     }
   }
 
-  private save(id: number, showHint: boolean): void {
+  private save(id: number): void {
     const item = this.items.find((i) => i.id === id);
     const value = this.drafts.get(id);
     if (!item || value === undefined || value.trim() === '') return;
@@ -1798,14 +1996,14 @@ class EnlargedView {
         this.inflight.delete(id);
         // 'closing' counts as off screen: the editor is already fading out.
         const up = this.state === 'open' || this.state === 'opening';
-        const onScreen = up && this.shownId === id && this.swapTimer === null;
         if (ok) {
           this.saved.set(id, value);
           item.note = value;
           this.failed.delete(id);
+          // A success says nothing at all now (v5 §R): it only clears a
+          // failure this note was still showing, or surfaces another note's.
           if (!up || this.statusKind === 'empty-error') return;
           if ([...this.failed].some((f) => this.unresolvedFailure(f))) this.surfaceSaveFailure();
-          else if (onScreen && showHint) this.setStatus('saved');
           else if (this.statusKind === 'save-error') this.setStatus('none');
           return;
         }
@@ -1833,11 +2031,6 @@ class EnlargedView {
   }
 
   private setStatus(kind: StatusKind, instant = false, message?: string): void {
-    if (this.hintTimer) {
-      clearTimeout(this.hintTimer);
-      this.hintTimer = null;
-    }
-    const prev = this.statusKind;
     this.statusKind = kind;
     // The empty-note error is the textarea's validation message.
     if (kind === 'empty-error') {
@@ -1848,34 +2041,22 @@ class EnlargedView {
       this.textarea.removeAttribute('aria-describedby');
     }
     if (kind === 'none') {
-      const dur = instant ? 0 : prev === 'saved' ? T.hintOut : T.errorOut;
-      fadeTo(this.statusEl, 0, { duration: dur, curve: ACC });
+      fadeTo(this.statusEl, 0, { duration: instant ? 0 : T.errorOut, curve: ACC });
       return;
     }
     const text =
       message ??
-      (kind === 'saved'
-        ? 'saved'
-        : kind === 'save-error'
-          ? SAVE_ERROR_MESSAGE
-          : kind === 'delete-error'
-            ? DELETE_ERROR_MESSAGE
-            : EMPTY_NOTE_MESSAGE);
-    this.statusText.textContent = text;
-    this.statusEl.title = kind === 'saved' ? '' : text;
-    this.statusEl.classList.toggle('is-saved', kind === 'saved');
-    this.statusEl.classList.toggle('is-danger', kind !== 'saved');
+      (kind === 'save-error'
+        ? SAVE_ERROR_MESSAGE
+        : kind === 'delete-error'
+          ? DELETE_ERROR_MESSAGE
+          : EMPTY_NOTE_MESSAGE);
+    this.statusEl.textContent = text;
     this.statusEl.dataset.kind = kind;
-    // The ✓ hint and save failures fade in over 150ms std; the empty-note
-    // error over 200ms std (§10, §11 — state-feedback: Inline Validation).
-    const dur = instant ? 0 : kind === 'empty-error' ? T.errorIn : T.hintIn;
-    fadeTo(this.statusEl, 1, { duration: dur, curve: STD });
-    if (kind === 'saved') {
-      this.hintTimer = setTimeout(() => {
-        this.hintTimer = null;
-        if (this.statusKind === 'saved') this.setStatus('none');
-      }, T.hintIn + T.hintHold);
-    }
+    // Every remaining message is a failure, so they all fade in over the
+    // 200ms std of §11's inline validation — there is no ✓ hint to be
+    // quicker than any more (v5 §R).
+    fadeTo(this.statusEl, 1, { duration: instant ? 0 : T.errorIn, curve: STD });
   }
 
   // ─── "A note can never be empty" (§D, MOTION_SPEC §11) ───────────────────

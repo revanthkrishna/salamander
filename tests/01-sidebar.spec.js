@@ -78,7 +78,7 @@ test('opening the sidebar shrinks the page rather than overlaying it', async () 
 
   const marginAfter = await page.evaluate(() => document.documentElement.style.marginRight);
   // SIDEBAR_DEFAULT_WIDTH (src/sidebar.ts) is 300px, not the old fixed 320px
-  // SIDEBAR_WIDTH — the sidebar is now user-resizable (100-300px).
+  // SIDEBAR_WIDTH — the sidebar is now user-resizable (188-300px).
   expect(marginAfter).toBe('300px');
 
   // Sidebar itself must be docked to the right edge.

@@ -477,3 +477,157 @@ Off: `muted` and `surface` invert together, so the knob always contrasts with it
 track is dark ink and the knob is the brand yellow in both themes, reading as a yellow knob sitting
 in a lit slot on the yellow segment. Check both themes after the change — this is exactly the class
 of bug that only shows up when you actually look at dark mode.
+
+---
+
+# v5 — the enlarged view's arc, and two add-group fixes (2026-09-20)
+
+OVERRIDES v4 §M where they conflict. Tokens from §1 only; all visible text lowercase.
+
+## Q. The add-note group: no straight divider, and a stricter reveal
+
+1. **The divider goes.** The switch's `border-left` is removed entirely. The switch tucks BEHIND the
+   add button's rounded right edge, so the button's own rounded silhouette is the separation and the
+   switch reads as an extension sliding out from behind it. The switch keeps a border on its other
+   three sides (top, right, bottom) only.
+   The fault this fixes: the button's hover fill is correctly rounded on all four corners, but the
+   straight full-height divider ran alongside that curve, so the junction read squared-off even
+   though the fill was round. Two edges disagreeing.
+   The group must stay exactly as wide as it is today in both the collapsed and revealed states —
+   compensate for the removed 1px wherever it was counted (`ADD_SWITCH_WIDTH_PX`, the merged
+   transparent-divider trick, the resting-width test that asserts 38px).
+2. **Reveal on hover, keyboard focus, or on — nothing else.** Today the reveal also fires on
+   `.add-group:focus-within`, and a mouse click focuses the button in Chrome, so the switch stays out
+   from the click until focus leaves — which is why it lingers through add mode until the user
+   clicks the page to draw a rect. Use `:has(:focus-visible)` so only keyboard focus counts.
+
+## R. The enlarged view's sheet: a centred block and an arc of peeks
+
+**The block.** The focused note is its title bar + image + textarea. That whole block is centred in
+the sheet, horizontally AND vertically. Its centre is the anchor for everything below.
+
+**The rail.** The prev/next buttons and the close button move to the VIEWPORT's right edge with a
+~20px margin, vertically centred, still independent of the image's size. The block's max width must
+leave room for that rail column on BOTH sides, so a wide image never collides with it and the
+centring stays symmetric.
+
+**No bar under the textarea.** `.xp-bar` goes, with its fill and its inset border. There is no
+"saved" confirmation at all. A save failure (and the empty-note error) shows as plain LEFT-ALIGNED
+text directly under the textarea, with no bar, no background, and no space reserved when idle.
+
+**The peeks.**
+- Each peek is its OWN note at its own natural size × `PEEK_SCALE = 0.75`, clamped the same way the
+  main image is and then scaled. It is a preview of the note you are about to open, so navigating to
+  it grows it to its true size — a zoom-out/zoom-in. This REPLACES v4 §M's "0.75 × the main image",
+  which made every peek a copy of the focused note's proportions instead of a preview of its own.
+- Only ~20px of the thumbnail shows past the sheet's top and bottom edges. No caption text, no
+  container background, no frame fill — the image edge alone.
+- **The arc.** The centres of the focused block and both peeks lie on one circle whose centre is off
+  to the RIGHT, with the focused block's centre as the circle's leftmost point. So each peek is
+  pushed right of the focused block, symmetrically above and below.
+
+  Let `by` be the block's centre y, `bx` its centre x, `H` the sheet height, and `P = 60` the
+  intended horizontal push at a reference vertical distance `D = H / 2`:
+
+      R = (D² + P²) / (2P)                      // circle radius, constant per sheet size
+      push(dy) = R − sqrt(R² − dy²)              // clamped to R when |dy| ≥ R
+      peekCentre = (bx + push(dy), by ± dy)
+
+  `dy` comes from the 20px rule and is computed per peek from ITS OWN height, so two peeks of
+  different sizes get different pushes — correct, since they sit on the same circle:
+
+      prev: centreY = 20 − peekH/2               (above the sheet; dy = by − centreY)
+      next: centreY = H − 20 + peekH/2           (below the sheet; dy = centreY − by)
+
+  Guard the `sqrt` against a negative radicand.
+
+**Image narrower than the column's minimum.** Centre it within the column; the title bar and the
+textarea keep the full column width.
+
+**The morph.** The FLIP expand/collapse and the prev/next carousel must stay continuous across all
+of this: a peek now morphs from (0.75 scale, on the arc, mostly off-screen) to (natural size,
+centred), and the list thumbnail → main morph still has to land correctly. Verify, don't assume.
+
+## S. One trash icon
+
+The enlarged view's delete and the note list's delete use the SAME glyph — the list's. Remove the
+other one rather than leaving two trash paths in the codebase.
+
+## T. The page does not scroll while the enlarged view is open
+
+Scrolling with the enlarged view open currently scrolls the host page behind the scrim, so the
+content slides around underneath. Lock it for as long as the view is open: the wheel, touch
+scrolling, and the keyboard (space, page up/down, home/end, arrows) must all leave the page where
+it is.
+
+Constraints, in order of importance:
+- **No layout shift.** `overflow: hidden` on the host's root is the obvious move, but on a page with
+  a scrollbar it changes the content width, which shifts the page-shrink machinery the docked
+  sidebar depends on and moves the rects the FLIP morph measures mid-flight. Prefer suppressing the
+  scroll at the event level (capture-phase `wheel` / `touchmove` with `{ passive: false }`, plus the
+  keys above) so nothing about the page's layout changes. If you do take the `overflow` route,
+  prove the width does not change and say how.
+- The enlarged view's OWN scrollable areas keep working — the note textarea above all.
+- The lock is released on EVERY exit path: collapse, Esc, the exit button, the sidebar closing, SPA
+  navigation, entering add mode, and the extension being torn down. A leaked lock leaves the user's
+  page unscrollable, which is the worst failure mode here — make it structurally impossible rather
+  than remembering each caller.
+
+## U. The exit button is a collapse-panel icon
+
+`.xp-exit` drops the × for a "collapse the panel to the right" glyph, in §1's icon language
+(1.8px stroke, round caps/joins, `currentColor`, 24×24 viewBox): a rounded rectangle outline with a
+vertical divider about three-quarters of the way across, and a chevron pointing RIGHT inside the
+larger left-hand area — i.e. `rect x=3 y=4 w=18 h=16 rx=2.5`, `M15.5 4v16`, `M8 9.5l3 2.5-3 2.5`,
+adjusted as needed to sit correctly at the rendered size.
+
+The `aria-label` and `title` are unchanged — it still exits the enlarged view, and the text is what
+carries that to assistive tech.
+
+## V. The sidebar's minimum width fits the action row
+
+`SIDEBAR_MIN_WIDTH` stops being an arbitrary 100 and becomes exactly the width the action row needs
+with the switch REVEALED, so the export + chevron group never wraps to a second line at any width
+the user can drag to:
+
+    SIDEBAR_MIN_WIDTH = PANEL_BORDER_PX
+                      + ACTION_ROW_PAD_X * 2          // left + right margin
+                      + ADD_GROUP_PX + ADD_SWITCH_WIDTH_PX   // add button + its switch, revealed
+                      + ACTION_ROW_GAP                // the gap between the two groups
+                      + EXPORT_GROUP_PX               // export + chevron
+
+Derive it from those constants — never hardcode the total, since §Q changes the switch's width.
+
+Consequences to handle, not to leave lying around:
+- `COMPACT_WIDTH_BREAKPOINT` is the same sum with the switch COLLAPSED, so it is now below the
+  minimum width and can never match. Remove the compact layout (`.is-compact`, its padding override,
+  its wrap behaviour and the breakpoint itself) rather than leaving unreachable layout code to rot.
+  `NARROW_WIDTH_BREAKPOINT` (220) still sits above the new minimum and stays.
+- A persisted width from before this change can be below the new minimum: clamp on load, not just
+  while dragging.
+- The action row no longer needs to wrap at all. `actionRowFits()` and anything that existed to
+  handle the wrap should go the same way if nothing else uses them.
+
+### Q.1 clarification — each half draws its own border (2026-09-21)
+
+§Q above was read as "the group keeps its single border and the switch simply drops its left edge".
+That is not it, and it produced the wrong shape. The correct structure:
+
+- The GROUP paints nothing: no fill, no border. It is layout only. (It keeps its radius solely so
+  the merged state's focus ring takes the shape of the whole control.)
+- The ADD BUTTON draws a complete border — all four sides, all four corners rounded — and an OPAQUE
+  fill, in every state. It is a finished rounded button in its own right.
+- The SWITCH draws a border on its top, right and bottom only, with its right corners rounded and
+  its left corners square.
+- The switch's box is pulled LEFT by exactly one corner radius (`margin-left: -10px`, with its width
+  grown by the same 10px so the group's width is unchanged). The button sits above it (`z-index: 1`,
+  opaque fill), so all that shows of the overlap is the two crescents either side of the button's
+  rounded right corners — which the switch's fill and hover fill therefore fill completely.
+
+Why the tuck is required: butting a square-cornered segment against a ROUNDED right edge leaves a
+crescent gap at each corner. The outer border breaks into pieces there, and the segment's hover
+highlight looks clipped where the curve falls away. Reaching one radius back closes both.
+
+The collapsed state must zero the segment's border-width AND its negative margin: under the global
+`box-sizing: border-box` a `width: 0` box cannot shrink below its own border, so a leftover 1px
+would re-create the stray hairline and the 39px group.

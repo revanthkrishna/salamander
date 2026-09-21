@@ -52,6 +52,7 @@ import {
   PRESS_SCALE_CSS,
   STATE_TRANSITION_CSS,
   DISABLED_CSS,
+  RADII,
 } from './theme';
 
 // ---------------------------------------------------------------------------
@@ -70,8 +71,9 @@ import {
 // of the pre-resize experience as the new clamp allows.
 // ---------------------------------------------------------------------------
 
-/** Narrowest the user can drag the panel. */
-export const SIDEBAR_MIN_WIDTH = 100;
+// SIDEBAR_MIN_WIDTH is now derived from the action row's own metrics, so it
+// is declared with them further down (design spec v5 §V).
+
 /** Widest the user can drag the panel — also the default. */
 export const SIDEBAR_MAX_WIDTH = 300;
 /** Width used before any persisted preference has loaded. */
@@ -142,7 +144,6 @@ function applyWidthToPanel(): void {
     // required.
     const layout = sidebarLayoutFor(sidebarWidth);
     elSidebar.classList.toggle('is-narrow', layout.narrow);
-    elSidebar.classList.toggle('is-compact', layout.compact);
   }
   if (elResizer) elResizer.setAttribute('aria-valuenow', String(sidebarWidth));
 }
@@ -293,8 +294,8 @@ function extensionUrl(path: string): string {
 
 // ---------------------------------------------------------------------------
 // Responsive layout metrics. The CSS below is generated from these, so the
-// breakpoints and actionRowFits() (and its test) can't drift from what the
-// browser actually lays out.
+// narrow breakpoint and the minimum width can't drift from what the browser
+// actually lays out.
 // ---------------------------------------------------------------------------
 
 /** .sidebar's border-left (box-sizing: border-box, so it eats into width). */
@@ -331,9 +332,10 @@ export const DEFAULT_THUMBNAIL_BOX_SIZE: { width: number; height: number } = {
   height: THUMBNAIL_IMAGE_HEIGHT_PX,
 };
 
-/** Action row side padding: design spec §3.1's 16px, 8px once compact. */
+/** Action row side padding (design spec §3.1). One value at every width now
+ *  that §V's minimum guarantees the row fits — there is no compact layout to
+ *  tighten it for. */
 const ACTION_ROW_PAD_X = 16;
-const ACTION_ROW_PAD_X_COMPACT = 8;
 const ACTION_ROW_GAP = 8;
 /** Every action-row control is 36px tall; the icon halves are 36px square. */
 const ACTION_BUTTON_PX = 36;
@@ -342,42 +344,70 @@ const ACTION_BUTTON_PX = 36;
 const GROUP_BORDER_PX = 1;
 /** The export group's chevron half (§C2). */
 const CHEVRON_HALF_PX = 22;
-/** The "keep on" switch half at full reveal (§A2): a 1px border-left, 10px of
- *  padding either side of the 28px track. Also the width the reveal
- *  transition animates to — `width: auto` is not animatable, and the switch's
- *  parts are all fixed-size, so the total is known up front. */
-export const ADD_SWITCH_WIDTH_PX = GROUP_BORDER_PX + 10 + 28 + 10;
+/** The switch's padding either side of its 28px track (§A2). */
+const ADD_SWITCH_PAD_X = 10;
+/** How far the switch reaches back UNDER the add button — exactly the
+ *  button's corner radius (design spec v5 §Q, as refined).
+ *
+ *  Each half now draws its own border: the button a complete rounded one on
+ *  all four sides, the switch one on its top, right and bottom only. Butting
+ *  a square-cornered segment against the button's ROUNDED right edge would
+ *  leave a crescent-shaped gap at each of those corners, breaking the outer
+ *  border into pieces and clipping the switch's hover fill where the curve
+ *  falls away. Reaching one radius back under the button fills both
+ *  crescents: the button paints above (z-index), so the overlap is hidden and
+ *  the only part of the segment on show past the button's silhouette is the
+ *  crescent itself. The outer edge then runs unbroken end to end, and the one
+ *  curve between the halves is the button's own right border. */
+const ADD_SWITCH_TUCK_PX = RADII.md;
+const ADD_SWITCH_PAD_LEFT = ADD_SWITCH_TUCK_PX + ADD_SWITCH_PAD_X;
+/** The switch's box at full reveal: the tuck, the 28px track and its padding,
+ *  and the segment's own right border (the group no longer carries one).
+ *  `width: auto` is not animatable and every part is fixed, so the total is
+ *  known up front. */
+export const ADD_SWITCH_WIDTH_PX =
+  ADD_SWITCH_PAD_LEFT + 28 + ADD_SWITCH_PAD_X + GROUP_BORDER_PX;
+/** What the reveal actually adds to the group, once the negative margin that
+ *  cancels the tuck is taken off — so the group's revealed width is unchanged
+ *  by the tuck, and SIDEBAR_MIN_WIDTH below stays honest. */
+export const ADD_SWITCH_ADVANCE_PX = ADD_SWITCH_WIDTH_PX - ADD_SWITCH_TUCK_PX;
 
 /** "add note" group at rest, i.e. with the switch collapsed (§A2). */
 const ADD_GROUP_PX = ACTION_BUTTON_PX + GROUP_BORDER_PX * 2;
 /** export + chevron group (§C2) — one box, two halves. */
 const EXPORT_GROUP_PX = ACTION_BUTTON_PX + CHEVRON_HALF_PX + GROUP_BORDER_PX * 2;
 
-/** Width-driven layout classes for a given panel width (pure; applied by
- *  applyWidthToPanel). */
-export function sidebarLayoutFor(width: number): { narrow: boolean; compact: boolean } {
-  return { narrow: width < NARROW_WIDTH_BREAKPOINT, compact: width < COMPACT_WIDTH_BREAKPOINT };
-}
-
-/** Whether the action row's fixed-size content fits inside a panel of this
- *  width in the layout sidebarLayoutFor() picks for it — i.e. the arithmetic
- *  behind the breakpoints.
+/**
+ * Narrowest the user can drag the panel (design spec v5 §V): exactly the
+ * width the action row needs with the switch REVEALED, so the export group
+ * can never be pushed onto a second line at any width that is reachable.
  *
- *  Both groups are counted at their *resting* width: the "add note" group's
- *  switch is only revealed on hover/focus (and the hover reveal is suppressed
- *  below the narrow breakpoint, §A2), and the action row wraps rather than
- *  overflows if a revealed switch ever doesn't fit — see `.action-row`'s
- *  flex-wrap. */
-export function actionRowFits(width: number): boolean {
-  const { compact } = sidebarLayoutFor(width);
-  const pad = compact ? ACTION_ROW_PAD_X_COMPACT : ACTION_ROW_PAD_X;
-  const available = width - PANEL_BORDER_PX - pad * 2;
-  // Compact wraps: each group takes its own row, so the widest row is
-  // whichever group is bigger on its own.
-  const needed = compact
-    ? Math.max(ADD_GROUP_PX, EXPORT_GROUP_PX)
-    : ADD_GROUP_PX + ACTION_ROW_GAP + EXPORT_GROUP_PX;
-  return available >= needed;
+ * Derived, never written out: §Q changed the switch's width, and a literal
+ * total would have gone stale silently. It works out at 188px today — above
+ * the old 100px floor and below NARROW_WIDTH_BREAKPOINT (220), which is why
+ * that one still has work to do.
+ */
+export const SIDEBAR_MIN_WIDTH =
+  PANEL_BORDER_PX +
+  ACTION_ROW_PAD_X * 2 +
+  ADD_GROUP_PX +
+  ADD_SWITCH_ADVANCE_PX +
+  ACTION_ROW_GAP +
+  EXPORT_GROUP_PX;
+
+/** Below this width the header sheds the wordmark (design spec §3.1's
+ *  "narrow widths" rule). It is the width the wordmark needs, not a
+ *  re-derivation of the action row: §V's SIDEBAR_MIN_WIDTH already
+ *  guarantees the row fits at every reachable width, but at ~190px the
+ *  wordmark is down to a couple of ellipsized characters. */
+export const NARROW_WIDTH_BREAKPOINT = 220;
+
+/** Width-driven layout classes for a given panel width (pure; applied by
+ *  applyWidthToPanel). Only the wordmark responds to width now — §V's
+ *  minimum retired the compact layout, whose breakpoint sat below it and
+ *  could never match again. */
+export function sidebarLayoutFor(width: number): { narrow: boolean } {
+  return { narrow: width < NARROW_WIDTH_BREAKPOINT };
 }
 
 /** Above every dock-magnified item (dockMotion.ts writes z-index 0–100). */
@@ -390,30 +420,6 @@ const RESIZER_Z_INDEX = 101;
 // addMode.ts already paste in, so all three surfaces feel identical.
 // ---------------------------------------------------------------------------
 
-/** Below this width the wordmark hides and the action row is treated as
- *  having no spare width, so the "keep on" switch's *hover* reveal is
- *  suppressed (design spec §3.1's "narrow widths" rule, design spec v3 §A2's
- *  "Reveal"). Keyboard focus still reveals it, and it stays visible whenever
- *  it is on.
- *
- *  Kept at the width the wordmark needs rather than re-derived from the
- *  action row: the row's *resting* content now fits well below this (see
- *  COMPACT_WIDTH_BREAKPOINT), but at ~190px the wordmark is down to a couple
- *  of ellipsized characters and a revealed switch would leave the two groups
- *  touching. */
-export const NARROW_WIDTH_BREAKPOINT = 220;
-/** Below this width the action row wraps (each group on its own row) and the
- *  header sheds the (purely decorative) logo mark, so the panel never
- *  overflows down to the 100px floor.
- *
- *  Derived, not picked: it is the narrowest width at which both action-row
- *  groups still sit on one row — the panel's 1px left border, 16px side
- *  padding, the 38px "add note" group, the 8px gap and the 60px export
- *  group: 1 + 16·2 + 38 + 8 + 60 = 139px. (It was 157 while the row held
- *  three separate 36px buttons; §A2/§C2 merged those into two groups.) */
-export const COMPACT_WIDTH_BREAKPOINT =
-  PANEL_BORDER_PX + ACTION_ROW_PAD_X * 2 + ADD_GROUP_PX + ACTION_ROW_GAP + EXPORT_GROUP_PX;
-
 // ─── Motion (design spec v2 §E's curves, reused for these small controls) ───
 
 /** Standard on-screen curve — entrances and state changes. */
@@ -423,7 +429,7 @@ const EASE_ACC = 'cubic-bezier(.3, 0, 1, 1)';
 
 /** The "keep on" switch's two reveal states (design spec v3 §A2). Kept as
  *  snippets rather than repeated blocks because several selectors reveal it
- *  (hover, focus-within, on, and hover-less pointers).
+ *  (hover, keyboard focus, on, and hover-less pointers).
  *
  *  `transition-delay: 0s` in the shown state is the grace period (§A2 micro
  *  states): the base rule below delays every collapse-ward transition by
@@ -431,27 +437,21 @@ const EASE_ACC = 'cubic-bezier(.3, 0, 1, 1)';
  *  leaves and a diagonal path back onto it never loses the target. Revealing
  *  zeroes the delay, so opening is still immediate.
  *
- *  `border-left-width: 0` while hidden is load-bearing, not tidiness: with
- *  the global `box-sizing: border-box`, a `width: 0` box still cannot be
- *  narrower than its own border, so the collapsed switch used to occupy 1px
- *  — enough to make the resting group 39px instead of 38px (the button half
- *  then sat off-centre) and to draw a stray `line`-coloured hairline down the
- *  button's right edge at rest, where nothing should be visible at all.
- *  ADD_SWITCH_WIDTH_PX already counts that 1px, so restoring it on reveal
- *  leaves the revealed geometry untouched. */
+ *  The collapsed box zeroes its BORDER as well as its width: under the global
+ *  `box-sizing: border-box` a `width: 0` box still cannot shrink below its own
+ *  borders, so leaving the segment's 1px right border in would park a stray
+ *  hairline at the button's edge and make the resting group 39px instead of
+ *  the 38px the button (36px plus its own two borders) actually occupies. The
+ *  negative margin that cancels the tuck only applies while revealed, for the
+ *  same reason: collapsed, there is nothing to pull back. */
 const ADD_SWITCH_HIDDEN_CSS =
-  'width: 0; padding: 0; border-left-width: 0; opacity: 0; visibility: hidden; overflow: hidden;';
+  'width: 0; padding: 0; margin-left: 0; border-width: 0; opacity: 0; visibility: hidden; overflow: hidden;';
 const ADD_SWITCH_SHOWN_CSS =
-  `width: ${ADD_SWITCH_WIDTH_PX}px; padding: 0 10px; border-left-width: ${GROUP_BORDER_PX}px; opacity: 1; visibility: visible; overflow: visible; transition-delay: 0s;`;
+  `width: ${ADD_SWITCH_WIDTH_PX}px; padding: 0 ${ADD_SWITCH_PAD_X}px 0 ${ADD_SWITCH_PAD_LEFT}px; margin-left: -${ADD_SWITCH_TUCK_PX}px; border-width: ${GROUP_BORDER_PX}px; border-left-width: 0; opacity: 1; visibility: visible; overflow: visible; transition-delay: 0s;`;
 /** How long the revealed switch holds open after the pointer leaves (§A2). */
 const ADD_SWITCH_GRACE_MS = 250;
 /** The reveal/collapse itself. */
 const ADD_SWITCH_REVEAL_MS = 160;
-/** Interior radius of an action-row group: the group's radius less its 1px
- *  border. Each half rounds its own fill with this, because the group can no
- *  longer clip them — it has to let a per-half focus ring out (§A2). */
-const GROUP_INNER_RADIUS_CSS = `calc(var(--sal-radius-md) - ${GROUP_BORDER_PX}px)`;
-
 /** The chevron menu (§C2) floats over the note list, whose dock-magnified
  *  items carry z-index 0–100 (dockMotion.ts); one above the resize handle so
  *  an open menu is never struck through by it either. */
@@ -560,7 +560,6 @@ const SIDEBAR_CSS = `
     padding: 0 10px 0 16px;
     gap: 10px;
   }
-  .sidebar.is-compact .header { padding: 0 8px; gap: 6px; }
 
   .logo {
     width: 35px;
@@ -569,9 +568,6 @@ const SIDEBAR_CSS = `
     display: block;
   }
   .logo img { width: 100%; height: 100%; display: block; }
-  /* Purely decorative chrome — shed first, before the header's actual
-     controls (theme toggle, close) could ever be squeezed out. */
-  .sidebar.is-compact .logo { display: none; }
 
   /* Pushes the theme toggle + close to the right edge at every width — a
      no-op while the flexible wordmark is showing, and what keeps them from
@@ -625,21 +621,15 @@ const SIDEBAR_CSS = `
     display: flex;
     align-items: center;
     flex-shrink: 0;
-    /* Always wrappable rather than only below a breakpoint: the "add note"
-       group grows by the switch's width when it is revealed, so the row's
-       content width is not fixed. Wrapping is content-driven and therefore
-       correct at every width; COMPACT_WIDTH_BREAKPOINT only decides when the
-       *padding* tightens (and actionRowFits() asserts the arithmetic). */
-    flex-wrap: wrap;
+    /* No wrapping: §V made SIDEBAR_MIN_WIDTH the width this row needs with
+       the switch revealed, so both groups fit on one line at every width the
+       user can drag to and there is no second line to fall to. */
+    flex-wrap: nowrap;
     padding: 4px ${ACTION_ROW_PAD_X}px 16px;
     gap: ${ACTION_ROW_GAP}px;
     /* §J: the one divider of the fixed top block, under the whole of it
        (header + action row) rather than between the two. */
     border-bottom: 1px solid var(--sal-line);
-  }
-  .sidebar.is-compact .action-row {
-    padding-left: ${ACTION_ROW_PAD_X_COMPACT}px;
-    padding-right: ${ACTION_ROW_PAD_X_COMPACT}px;
   }
 
   /* ── "add note" + its attached "keep on" switch (§A2) ─────────────────── */
@@ -653,40 +643,31 @@ const SIDEBAR_CSS = `
        keeps it there when the switch's reveal widens this group. */
     margin-right: auto;
     height: ${ACTION_BUTTON_PX}px;
-    border: ${GROUP_BORDER_PX}px solid var(--sal-line);
+    /* The group is pure layout now (design spec v5 §Q, as refined): no fill
+       and no border of its own — each half draws its own, so the button can
+       be a complete rounded button and the switch an open-sided extension
+       behind it. The radius is kept only so the merged state's focus ring
+       (below) takes the shape of the whole control. */
     border-radius: var(--sal-radius-md);
-    /* Not clipped: a focus ring sits 4px outside its half, and the halves
-       round their own fills instead (§A2 micro states). */
+    /* Not clipped: a focus ring sits 4px outside its half. */
     overflow: visible;
-    background: var(--sal-surface);
     color: var(--sal-text);
     ${STATE_TRANSITION_CSS}
   }
-  /* Hover and press are per half (§A2 micro states): the group acknowledges
-     with its border only, the fill lands on the half actually under the
-     pointer, and nothing scales — so flicking the switch never moves the
-     button next to it. The off-state fills are the SECONDARY ones, never
-     yellow: yellow means "add mode is on". */
-  .add-group:hover { border-color: var(--sal-line-strong); }
-  /* On (add mode active). The border stays in the box as a transparent one
-     rather than being dropped, so the group is exactly the same size on as
-     off — §A2's "the button never changes size in any state". */
-  .add-group.is-on {
-    border-color: transparent;
-    background: var(--sal-accent);
-    color: var(--sal-on-accent);
-  }
-  .add-group.is-on:hover { border-color: transparent; }
+  .add-group.is-on { color: var(--sal-on-accent); }
   .add-group.is-disabled { ${DISABLED_CSS} }
-  .add-group.is-disabled:hover { border-color: var(--sal-line); }
 
   .btn-add {
-    /* Above the switch, so the button's own rounded fill paints over the
-       switch's square left edge and the switch reads as an extension
-       emerging from behind it (§A2 micro states). */
+    /* Above the switch, so the tucked part of the segment is hidden behind
+       this button's own opaque fill and only the crescents either side of its
+       rounded right corners show (see ADD_SWITCH_TUCK_PX). The fill has to be
+       opaque in every state for that to hold — there is no group fill behind
+       it any more. */
     position: relative;
     z-index: 1;
-    width: ${ACTION_BUTTON_PX}px;
+    /* Its own two borders are inside this box (border-box), so the button
+       occupies exactly what the bordered group used to: 36px of content. */
+    width: ${ADD_GROUP_PX}px;
     height: 100%;
     flex-shrink: 0;
     margin: 0;
@@ -695,17 +676,18 @@ const SIDEBAR_CSS = `
     align-items: center;
     justify-content: center;
     white-space: nowrap;
-    background: transparent;
-    border: none;
-    border-radius: ${GROUP_INNER_RADIUS_CSS};
+    background: var(--sal-surface);
+    border: ${GROUP_BORDER_PX}px solid var(--sal-line);
+    border-radius: var(--sal-radius-md);
     color: inherit;
     cursor: pointer;
     ${STATE_TRANSITION_CSS}
   }
   /* Per-half hover/press (§A2 micro states), in both the off and the on
      (yellow) group — the .is-on rules outrank the bare ones by specificity. */
-  .btn-add:hover { background: var(--sal-hover); }
-  .btn-add:active { background: var(--sal-press); }
+  .btn-add:hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
+  .btn-add:active { background: var(--sal-press); border-color: var(--sal-line-strong); }
+  .add-group.is-on .btn-add { background: var(--sal-accent); border-color: transparent; }
   .add-group.is-on .btn-add:hover { background: var(--sal-accent-hover); }
   .add-group.is-on .btn-add:active { background: var(--sal-accent-press); }
   /* The ring hugs the focused half rather than the group, so it says which
@@ -714,7 +696,10 @@ const SIDEBAR_CSS = `
   .btn-add:focus-visible { ${FOCUS_RING_CSS} outline: none; }
   .btn-add[disabled] { cursor: default; }
   .add-group.is-disabled .btn-add:hover,
-  .add-group.is-disabled .btn-add:active { background: transparent; }
+  .add-group.is-disabled .btn-add:active {
+    background: var(--sal-surface);
+    border-color: var(--sal-line);
+  }
   .btn-add .icon { width: 17px; height: 17px; flex-shrink: 0; display: inline-flex; }
   .btn-add .icon svg { width: 100%; height: 100%; display: block; }
 
@@ -729,22 +714,21 @@ const SIDEBAR_CSS = `
     margin: 0;
     display: flex;
     align-items: center;
-    border: none;
-    /* The ONE mechanism that draws the divider between the two halves. §A2
-       also gave the off segment an "inset 0 0 0 1px line" hairline, which is
-       gone: an inset shadow paints inside the border, so on this edge it
-       stacked on top of the border and the divider read 2px, and on the
-       other three edges it doubled the group's own 1px line border — a
-       border that visibly thickened halfway along the group. Those three
-       edges are already drawn by the group; the divider is the only edge
-       this segment has to draw for itself. */
-    border-left: ${GROUP_BORDER_PX}px solid var(--sal-line);
+    /* Bordered on its top, right and bottom only — never on the left, where
+       the button's own right border is the single line at the junction. The
+       widths live in the hidden/shown snippets so the collapsed box can zero
+       them (see ADD_SWITCH_HIDDEN_CSS). */
+    border: 0 solid var(--sal-line);
+    border-left-width: 0;
+    /* Square on the left: that edge is tucked a radius back under the button,
+       so the fill reaches around its rounded corners and fills the crescents
+       rather than stopping short in a straight line. */
+    border-radius: 0 var(--sal-radius-md) var(--sal-radius-md) 0;
     /* Off: neutral segment — it stays neutral even when the button half is
        yellow, and only goes yellow when the switch itself is on (§A2). */
     background: var(--sal-surface);
     color: var(--sal-text);
     cursor: pointer;
-    border-radius: 0 ${GROUP_INNER_RADIUS_CSS} ${GROUP_INNER_RADIUS_CSS} 0;
     ${ADD_SWITCH_HIDDEN_CSS}
     /* Every collapse-ward transition carries the grace delay; the reveal
        selectors below zero it (see ADD_SWITCH_SHOWN_CSS). visibility is in
@@ -754,57 +738,58 @@ const SIDEBAR_CSS = `
     transition:
       width ${ADD_SWITCH_REVEAL_MS}ms ${EASE_STD} ${ADD_SWITCH_GRACE_MS}ms,
       padding ${ADD_SWITCH_REVEAL_MS}ms ${EASE_STD} ${ADD_SWITCH_GRACE_MS}ms,
-      border-left-width ${ADD_SWITCH_REVEAL_MS}ms ${EASE_STD} ${ADD_SWITCH_GRACE_MS}ms,
+      margin ${ADD_SWITCH_REVEAL_MS}ms ${EASE_STD} ${ADD_SWITCH_GRACE_MS}ms,
+      border-width ${ADD_SWITCH_REVEAL_MS}ms ${EASE_STD} ${ADD_SWITCH_GRACE_MS}ms,
       opacity ${ADD_SWITCH_REVEAL_MS}ms ${EASE_STD} ${ADD_SWITCH_GRACE_MS}ms,
       visibility 0s linear ${ADD_SWITCH_GRACE_MS + ADD_SWITCH_REVEAL_MS}ms,
       background-color 150ms ${EASE_STD} 0s,
       border-color 150ms ${EASE_STD} 0s;
   }
-  .add-switch:hover { background: var(--sal-hover); }
-  .add-switch:active { background: var(--sal-press); }
+  .add-switch:hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
+  .add-switch:active { background: var(--sal-press); border-color: var(--sal-line-strong); }
   .add-switch:focus-visible { ${FOCUS_RING_CSS} outline: none; }
   .add-group.is-disabled .add-switch:hover,
-  .add-group.is-disabled .add-switch:active { background: var(--sal-surface); }
-
-  .add-group.is-switch-on .add-switch {
-    /* Merged (§A2 micro states): once the switch is on the two halves are one
-       button, and the group owns the fill — so this segment is transparent
-       and lets whichever yellow the group is currently painting show
-       through. An opaque accent here would stay flat while the group went
-       accentHover under the pointer, putting two different yellows side by
-       side in what is supposed to be one control. The colour override is
-       gone for the same reason — it inherits the group's, which is already
-       on-accent whenever this class is set. */
-    background: transparent;
-    /* The divider goes. It is made transparent rather than removed — the 1px
-       is still in the box, so the group is exactly as wide merged as it is
-       split, and nothing shifts at the moment it merges. */
-    border-left-color: transparent;
+  .add-group.is-disabled .add-switch:active {
+    background: var(--sal-surface);
+    border-color: var(--sal-line);
   }
 
-  /* Merged (§A2 micro states): with the switch on, the group is a single
-     button — so hover, press and the focus ring go back to the whole group,
-     and the per-half fills above are cancelled. Clicking either half means
-     "stop": the click handler routes both to the add button's own callback,
-     which exits add mode and turns the switch off together. */
-  .add-group.is-switch-on:hover { background: var(--sal-accent-hover); }
-  .add-group.is-switch-on:active { background: var(--sal-accent-press); }
-  /* Only the button half needs cancelling — the switch half is already
-     unconditionally transparent while merged (see above). */
-  .add-group.is-switch-on .btn-add:hover,
-  .add-group.is-switch-on .btn-add:active { background: transparent; }
+  /* Merged (§A2 micro states): with the switch on the two halves are one
+     button, so they paint as one. The group has no fill of its own now, so
+     both halves take the same yellow and BOTH respond to a hover or press
+     anywhere in the group — painting only the half under the pointer would
+     put two different yellows side by side in what is meant to be a single
+     control. The junction line goes transparent rather than away, so merged
+     and split are exactly the same width. Clicking either half means "stop":
+     the click handler routes both to the add button's own callback, which
+     exits add mode and turns the switch off together. */
+  .add-group.is-switch-on .btn-add,
+  .add-group.is-switch-on .add-switch {
+    background: var(--sal-accent);
+    border-color: transparent;
+  }
+  .add-group.is-switch-on:hover .btn-add,
+  .add-group.is-switch-on:hover .add-switch { background: var(--sal-accent-hover); }
+  .add-group.is-switch-on:active .btn-add,
+  .add-group.is-switch-on:active .add-switch { background: var(--sal-accent-press); }
+  /* One control, one ring — on the group, which spans both halves. */
   .add-group.is-switch-on .btn-add:focus-visible { box-shadow: none; }
   .add-group.is-switch-on:has(.btn-add:focus-visible) { ${FOCUS_RING_CSS} }
 
-  /* Reveal (§A2): hidden at rest, shown on hover or keyboard focus anywhere
-     in the group, and always shown once the switch is on. The add button
-     keeps all four of its corners rounded throughout — the switch reads as
-     an extension sliding out from behind it, not as the right half of a
-     split pill (§A2 micro states). No breakpoint suppresses the reveal any
-     more — at a width where the revealed switch no longer fits, the action
-     row wraps instead, which it already does below the compact breakpoint. */
+  /* Reveal (§A2, tightened by v5 §Q): hidden at rest, shown on hover or
+     KEYBOARD focus anywhere in the group, and always shown once the switch is
+     on — nothing else. :has(:focus-visible) rather than :focus-within,
+     because Chrome focuses a button on mouse-down: with :focus-within the
+     switch stayed out from the click that started add mode and lingered right
+     through it, until the user clicked the page to draw a rect and focus
+     finally left. The add button keeps all four of its corners rounded
+     throughout — the switch reads as an extension sliding out from behind it,
+     not as the right half of a split pill (§A2 micro states). No breakpoint
+     suppresses the reveal — §V made the panel's minimum width the width this
+     row needs with the switch out, so there is no width at which it does not
+     fit. */
   .add-group:hover .add-switch,
-  .add-group:focus-within .add-switch,
+  .add-group:has(:focus-visible) .add-switch,
   .add-group.is-switch-on .add-switch { ${ADD_SWITCH_SHOWN_CSS} }
 
   /* Nothing to hover with, so nothing would ever reveal it: on touch and
@@ -992,9 +977,6 @@ const SIDEBAR_CSS = `
       transform 120ms ${EASE_STD},
       visibility 0s;
   }
-  /* At the low end of the range the panel is narrower than the menu's
-     comfortable minimum — let it shrink to its content instead. */
-  .sidebar.is-compact .action-menu { min-width: 0; }
 
   .action-menu-item {
     height: 32px;

@@ -73,7 +73,7 @@ In Chrome:
 7. Click **save** → overlay hides, screenshot taken, overlay restores, thumbnail appears
 8. Thumbnail shows correct image + truncated note text + item number
 9. Click thumbnail → the sidebar expands (thumbnail grows into the large screenshot; neighbouring notes peek in above/below)
-10. Edit the note text → autosaves shortly after typing stops ("saved" hint); try ↑/↓ and the peeks to move between notes; clear the text entirely and try to leave → blocked with an inline error
+10. Edit the note text → autosaves shortly after typing stops, silently (no confirmation); try ↑/↓ and the peeks to move between notes; clear the text entirely and try to leave → blocked with an inline error under the text area. Try to scroll the page behind the view → it must not move; the text area still scrolls
 11. Click **delete** → item removed, thumbnail gone, blob cleaned up. (A note can also be deleted without opening it: hover or Tab to its list item and use the delete button over the thumbnail's top-right corner.)
 12. Repeat steps 3–7 with 2+ items, then on a *different* URL in the same domain
 13. Click **export** → `.zip` downloads
@@ -90,7 +90,7 @@ In Chrome:
 1. Sidebar open on wikipedia → hover the sidebar's left edge: cursor becomes `ew-resize`
    and a thin yellow rail appears
 2. Drag left/right → panel width follows the cursor live, page reflows to match,
-   clamped at 100px (narrowest) and 300px (widest) — it will not go past either
+   clamped at 188px (narrowest — the width the action row needs with the "keep on" switch out) and 300px (widest) — it will not go past either
 3. Tab to the handle → arrow keys resize in 10px steps, `Home`/`End` jump to the extremes
 4. Open a note in the enlarged view, then resize the window → the expanded panel stays ~75%
    of the viewport and its layout recomputes; collapse → the sidebar is back at your chosen width

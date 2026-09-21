@@ -1212,17 +1212,17 @@ describe('add mode', () => {
 
     test('a box wider than the new bounds is shrunk to fit, and narrowing leaves it alone', () => {
       sidebar.initSidebar({ onAdd() {}, onExport() {}, onImportFile() {}, onClose() {}, onOpenItem() {} });
-      sidebar.setSidebarWidth(100);
+      sidebar.setSidebarWidth(sidebar.SIDEBAR_MIN_WIDTH); // 188px (v5 §V)
       sidebar.openSidebar();
       setViewport(400, 800);
       addMode.startAddMode(makeCallbacks());
-      drag(blocker(), 0, 0, 300, 100); // full width of the 300px selectable area
-      expect(addMode._boxForTests().width).toBe(300);
+      drag(blocker(), 0, 0, 300, 100); // full width of the 212px selectable area
+      expect(addMode._boxForTests().width).toBe(212);
 
       sidebar.setSidebarWidth(250);
       expect(addMode._boxForTests()).toEqual({ x: 0, y: 0, width: 150, height: 100 });
 
-      sidebar.setSidebarWidth(100);
+      sidebar.setSidebarWidth(sidebar.SIDEBAR_MIN_WIDTH);
       expect(addMode._boxForTests()).toEqual({ x: 0, y: 0, width: 150, height: 100 });
     });
 

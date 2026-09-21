@@ -177,8 +177,6 @@ export interface MorphKeyframes {
   img: Keyframe[];
   /** Translate-only: follows the frame's top-left corner (number badge). */
   badge: Keyframe[];
-  /** Translate-only: follows the frame's bottom-left corner (peek caption). */
-  caption: Keyframe[];
 }
 
 /**
@@ -197,7 +195,7 @@ export function morphKeyframes(
   steps: number,
   frameRadius: number,
 ): MorphKeyframes {
-  const out: MorphKeyframes = { frame: [], img: [], badge: [], caption: [] };
+  const out: MorphKeyframes = { frame: [], img: [], badge: [] };
   const lastImg = containFit(aspect, insetBox({ x: 0, y: 0, w: to.w, h: to.h }, to.pad));
   const n = Math.max(1, Math.round(steps));
   for (let i = 0; i <= n; i++) {
@@ -228,10 +226,6 @@ export function morphKeyframes(
     });
 
     out.badge.push({ offset, transform: `translate(${r3(tfx)}px, ${r3(tfy)}px)` });
-    out.caption.push({
-      offset,
-      transform: `translate(${r3(tfx)}px, ${r3(tfy + s.h - to.h)}px)`,
-    });
   }
   return out;
 }
