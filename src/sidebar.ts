@@ -1397,9 +1397,16 @@ const SIDEBAR_CSS = `
     opacity: 1;
     pointer-events: auto;
   }
-  .thumbnail-delete:hover { background: var(--sal-danger-soft); color: var(--sal-danger); }
+  /* dangerSoft and dangerPress are translucent in dark theme, and this
+     button sits on a screenshot — so the tint is layered over the button's
+     own opaque surface rather than used alone, which would let the image
+     show through. Same colour, no transparency. */
+  .thumbnail-delete:hover {
+    background: linear-gradient(var(--sal-danger-soft), var(--sal-danger-soft)), var(--sal-surface);
+    color: var(--sal-danger);
+  }
   .thumbnail-delete:active {
-    background: var(--sal-danger-press);
+    background: linear-gradient(var(--sal-danger-press), var(--sal-danger-press)), var(--sal-surface);
     color: var(--sal-danger);
   }
   /* Visible whenever it has focus (§L) — :focus-within above already covers
@@ -1477,6 +1484,11 @@ let elBody: HTMLDivElement | null = null;
  *  rebuilt on every repaint, torn down on close/destroy (see
  *  syncDockMotion). */
 let dockMotion: DockMotionHandle | null = null;
+/** Where the pointer last was over the note list (clientY), or null once it
+ *  left. renderItems() destroys and re-attaches the dock layer, and a fresh
+ *  one would otherwise have to wait for a pointer event that is not coming
+ *  — see DockMotionOptions.initialPointerY. */
+let lastListPointerY: number | null = null;
 /** Set by content.ts for the whole of add mode (see
  *  setDockMagnificationSuspended). Lives here rather than on the handle
  *  because the handle is rebuilt on every repaint. */
@@ -1671,6 +1683,14 @@ function buildDOM(shadow: ShadowRoot): void {
   elThumbnailList = document.createElement('ul');
   elThumbnailList.className = 'thumbnail-list';
   elThumbnailList.hidden = true;
+  // Tracked here rather than inside dockMotion because it has to survive
+  // that layer being torn down and rebuilt on every repaint.
+  elThumbnailList.addEventListener('pointermove', (e) => {
+    lastListPointerY = e.clientY;
+  });
+  elThumbnailList.addEventListener('pointerleave', () => {
+    lastListPointerY = null;
+  });
 
   body.appendChild(elHeading);
   body.appendChild(elEmptyState);
@@ -2448,6 +2468,16 @@ export function focusThumbnail(id: number): boolean {
   return true;
 }
 
+/** The pointer's clientY if it is genuinely over the list right now, else
+ *  null. The coordinate is only trusted when it still falls inside the
+ *  list's box: after a delete the list is shorter, and the pointer that was
+ *  over the last row may now be past the end of it. */
+function pointerYOverList(): number | null {
+  if (lastListPointerY === null || !elThumbnailList) return null;
+  const r = elThumbnailList.getBoundingClientRect();
+  return lastListPointerY >= r.top && lastListPointerY <= r.bottom ? lastListPointerY : null;
+}
+
 /** Keep exactly one dock-motion layer alive while the sidebar is visible and
  *  showing items, and none otherwise (so a closed sidebar holds no rAF,
  *  listeners or matchMedia subscription). */
@@ -2456,6 +2486,9 @@ function syncDockMotion(): void {
   if (wanted && !dockMotion && elThumbnailList) {
     dockMotion = attachDockMotion(elThumbnailList, {
       scrollContainer: elBody,
+      // Only when the pointer really is over the list right now: a stale
+      // coordinate would magnify a row nobody is pointing at.
+      initialPointerY: pointerYOverList(),
       // See .body's CSS: the scroller only paints (and stops taking pointer
       // events) over the page while something is actually magnified.
       onBleedChange: (bleeding) => elBody?.classList.toggle('is-bleeding', bleeding),

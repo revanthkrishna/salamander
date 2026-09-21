@@ -218,6 +218,14 @@ export interface DockMotionHandle {
 }
 
 export interface DockMotionOptions {
+  /** Where the pointer is right now, if it is over the list — clientY.
+   *
+   *  A dock layer normally learns the pointer from its own pointerenter,
+   *  but sidebar.ts destroys and re-attaches this whole layer on every
+   *  repaint. After one (a note deleted, say) the pointer has not moved, so
+   *  no event is coming: without this the row that just slid under the
+   *  cursor would sit at rest until the user jiggled the mouse. */
+  initialPointerY?: number | null;
   /** The element that scrolls the list (sidebar.ts's `.body`); scroll
    *  events don't bubble, so it has to be named. */
   scrollContainer?: HTMLElement | null;
@@ -291,7 +299,7 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
   let radius = FALLBACK_ITEM_HEIGHT_PX * DOCK_RADIUS_ITEMS;
   let layoutDirty = true;
   /** Pointer clientY while it is over the list, else null. */
-  let pointerY: number | null = null;
+  let pointerY: number | null = options.initialPointerY ?? null;
   /** Index of the keyboard-focused item, else null. */
   let focusIndex: number | null = null;
   let targets: number[] = items.map(() => 0);
@@ -444,7 +452,14 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
         // button's own :focus-visible).
         const next = o < 1e-3 ? '' : o.toFixed(4);
         if (item.noteBg) item.noteBg.style.opacity = next;
-        if (item.deleteBtn) item.deleteBtn.style.opacity = next;
+        if (item.deleteBtn) {
+          item.deleteBtn.style.opacity = next;
+          // The CSS makes the delete clickable on :hover, which the browser
+          // will not re-evaluate until the pointer moves again. When the
+          // dock has faded one in because the list moved under a still
+          // pointer, it has to be usable straight away.
+          item.deleteBtn.style.pointerEvents = o > 0.5 ? 'auto' : '';
+        }
       }
     }
   }
@@ -465,7 +480,10 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
       item.li.style.zIndex = '';
       item.li.style.willChange = '';
       if (item.noteBg) item.noteBg.style.opacity = '';
-      if (item.deleteBtn) item.deleteBtn.style.opacity = '';
+      if (item.deleteBtn) {
+        item.deleteBtn.style.opacity = '';
+        item.deleteBtn.style.pointerEvents = '';
+      }
     }
     setBleed(false);
   }

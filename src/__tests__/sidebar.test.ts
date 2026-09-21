@@ -2106,11 +2106,17 @@ describe('note-in-list hover delete (design spec v4 §L)', () => {
     expect(rest).toMatch(/color:\s*var\(--sal-muted\)/);
 
     const hover = cssRule('.thumbnail-delete:hover');
-    expect(hover).toMatch(/background:\s*var\(--sal-danger-soft\)/);
+    // Layered over the button's own surface: both danger tints are
+    // translucent in dark theme, and this sits on a screenshot.
+    expect(hover).toMatch(
+      /background:\s*linear-gradient\(var\(--sal-danger-soft\), var\(--sal-danger-soft\)\), var\(--sal-surface\)/,
+    );
     expect(hover).toMatch(/color:\s*var\(--sal-danger\)/);
 
     const press = cssRule('.thumbnail-delete:active');
-    expect(press).toMatch(/background:\s*var\(--sal-danger-press\)/);
+    expect(press).toMatch(
+      /background:\s*linear-gradient\(var\(--sal-danger-press\), var\(--sal-danger-press\)\), var\(--sal-surface\)/,
+    );
     expect(press).not.toMatch(/scale\(/);
 
     expect(cssRule('.thumbnail-delete:focus-visible')).toContain('0 0 0 4px var(--sal-focus)');

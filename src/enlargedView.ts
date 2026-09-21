@@ -573,8 +573,16 @@ export const ENLARGED_VIEW_CSS = `
     pointer-events: auto;
     ${STATE_TRANSITION_CSS}
   }
-  .xp-delete:hover { background: var(--sal-danger-soft); color: var(--sal-danger); }
-  .xp-delete:active { background: var(--sal-danger-press); color: var(--sal-danger); }
+  /* Layered over the button's own surface, not used alone: both tints are
+     translucent in dark theme (see .thumbnail-delete). */
+  .xp-delete:hover {
+    background: linear-gradient(var(--sal-danger-soft), var(--sal-danger-soft)), var(--sal-surface);
+    color: var(--sal-danger);
+  }
+  .xp-delete:active {
+    background: linear-gradient(var(--sal-danger-press), var(--sal-danger-press)), var(--sal-surface);
+    color: var(--sal-danger);
+  }
   .xp-delete:focus-visible { outline: none; ${FOCUS_RING_CSS} }
   .xp-delete svg { width: 16px; height: 16px; display: block; }
   /* The one thing under the textarea (design spec v5 §R): plain left-aligned
