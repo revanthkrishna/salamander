@@ -137,7 +137,17 @@ function addModeShadow(): ShadowRoot | null {
 }
 
 function addButton(): HTMLButtonElement {
-  return sidebarShadow().querySelector('.btn-primary') as HTMLButtonElement;
+  return sidebarShadow().querySelector('.btn-add') as HTMLButtonElement;
+}
+
+/** The "keep add mode on" switch attached to it (design spec v3 §A2). */
+function addSwitch(): HTMLButtonElement {
+  return sidebarShadow().querySelector('.add-switch') as HTMLButtonElement;
+}
+
+/** The group that actually carries the on/switch-on paint. */
+function addGroup(): HTMLElement {
+  return sidebarShadow().querySelector('.add-group') as HTMLElement;
 }
 
 function dblclick(el: Element): void {
@@ -161,8 +171,8 @@ afterEach(() => {
   pageItems = [];
 });
 
-describe('content.ts: "add note" toggle + lock (design spec v2 §A)', () => {
-  test('starts off; a single click enters add mode immediately (on, unlocked)', () => {
+describe('content.ts: "add note" toggle + "keep on" switch (design spec v3 §A2)', () => {
+  test('starts off; a single click enters add mode immediately (on, switch off)', () => {
     loadContent();
     activate();
     const btn = addButton();
@@ -173,10 +183,10 @@ describe('content.ts: "add note" toggle + lock (design spec v2 §A)', () => {
     btn.click();
 
     expect(addMode.isAddModeActive()).toBe(true);
-    expect(btn.classList.contains('is-on')).toBe(true);
-    expect(btn.classList.contains('is-locked')).toBe(false);
+    expect(addGroup().classList.contains('is-on')).toBe(true);
+    expect(addGroup().classList.contains('is-switch-on')).toBe(false);
     expect(btn.getAttribute('aria-pressed')).toBe('true');
-    expect(btn.getAttribute('aria-label')).toBe('add note');
+    expect(btn.getAttribute('aria-label')).toBe('add note (on)');
   });
 
   test('a second click with no following dblclick cancels add mode after the double-click window', () => {
@@ -197,7 +207,7 @@ describe('content.ts: "add note" toggle + lock (design spec v2 §A)', () => {
     expect(btn.getAttribute('aria-label')).toBe('add note');
   });
 
-  test('double-click locks instead of toggling off, and the deferred cancel never fires', () => {
+  test('double-click turns the switch on instead of toggling off, and the deferred cancel never fires', () => {
     jest.useFakeTimers();
     loadContent();
     activate();
@@ -205,20 +215,21 @@ describe('content.ts: "add note" toggle + lock (design spec v2 §A)', () => {
 
     btn.click(); // off -> on
     btn.click(); // schedules the deferred toggle-off
-    dblclick(btn); // pre-empts it: locks instead
+    dblclick(btn); // pre-empts it: turns the switch on instead
 
     expect(addMode.isAddModeActive()).toBe(true);
-    expect(btn.classList.contains('is-on')).toBe(true);
-    expect(btn.classList.contains('is-locked')).toBe(true);
-    expect(btn.title).toBe('add note (locked) — click to stop');
+    expect(addGroup().classList.contains('is-on')).toBe(true);
+    expect(addGroup().classList.contains('is-switch-on')).toBe(true);
+    expect(btn.getAttribute('aria-label')).toBe('add note (kept on)');
+    expect(addSwitch().getAttribute('aria-checked')).toBe('true');
 
     // The pre-empted timer must not still be pending.
     jest.advanceTimersByTime(1000);
     expect(addMode.isAddModeActive()).toBe(true);
-    expect(btn.classList.contains('is-locked')).toBe(true);
+    expect(addGroup().classList.contains('is-switch-on')).toBe(true);
   });
 
-  test('a single click while locked exits both the lock and add mode immediately', () => {
+  test('a single click while the switch is on exits add mode and turns the switch off', () => {
     jest.useFakeTimers();
     loadContent();
     activate();
@@ -226,24 +237,24 @@ describe('content.ts: "add note" toggle + lock (design spec v2 §A)', () => {
 
     btn.click();
     btn.click();
-    dblclick(btn); // locked
+    dblclick(btn); // switch on
     expect(addMode.isAddModeActive()).toBe(true);
 
-    btn.click(); // locked -> exits immediately, no dblclick-window delay
+    btn.click(); // switch on -> exits immediately, no dblclick-window delay
     expect(addMode.isAddModeActive()).toBe(false);
-    expect(btn.classList.contains('is-on')).toBe(false);
-    expect(btn.classList.contains('is-locked')).toBe(false);
+    expect(addGroup().classList.contains('is-on')).toBe(false);
+    expect(addGroup().classList.contains('is-switch-on')).toBe(false);
     expect(btn.getAttribute('aria-pressed')).toBe('false');
   });
 
-  test('Escape exits both lock and add mode', () => {
+  test('Escape exits add mode and turns the switch off', () => {
     loadContent();
     activate();
     const btn = addButton();
 
     btn.click();
     btn.click();
-    dblclick(btn); // locked
+    dblclick(btn); // switch on
     expect(addMode.isAddModeActive()).toBe(true);
 
     // Registered on window in the capture phase at ensureStarted() time —
@@ -251,11 +262,11 @@ describe('content.ts: "add note" toggle + lock (design spec v2 §A)', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
 
     expect(addMode.isAddModeActive()).toBe(false);
-    expect(btn.classList.contains('is-on')).toBe(false);
-    expect(btn.classList.contains('is-locked')).toBe(false);
+    expect(addGroup().classList.contains('is-on')).toBe(false);
+    expect(addGroup().classList.contains('is-switch-on')).toBe(false);
   });
 
-  test('closing the sidebar exits an active (unlocked) add mode', () => {
+  test('closing the sidebar exits an active add mode', () => {
     loadContent();
     activate();
     const btn = addButton();
@@ -269,14 +280,14 @@ describe('content.ts: "add note" toggle + lock (design spec v2 §A)', () => {
     expect(addMode.isAddModeActive()).toBe(false);
   });
 
-  test('a successful capture while locked re-enters add mode automatically, still locked', async () => {
+  test('a successful capture while the switch is on re-enters add mode automatically, switch still on', async () => {
     loadContent();
     activate();
     const btn = addButton();
 
     btn.click();
     btn.click();
-    dblclick(btn); // locked
+    dblclick(btn); // switch on
     placeSelection();
     expect(addModeShadow()!.querySelector('.comment-box')).not.toBeNull();
 
@@ -294,18 +305,18 @@ describe('content.ts: "add note" toggle + lock (design spec v2 §A)', () => {
     // Straight back into placing — still locked, still active, fresh
     // placement (no comment box yet).
     expect(addMode.isAddModeActive()).toBe(true);
-    expect(btn.classList.contains('is-locked')).toBe(true);
+    expect(addGroup().classList.contains('is-switch-on')).toBe(true);
     expect(addModeShadow()!.querySelector('.comment-box')).toBeNull();
   });
 
-  test('cancel inside the comment box while locked cancels only that note and stays in add mode', async () => {
+  test('cancel inside the comment box while the switch is on cancels only that note and stays in add mode', async () => {
     loadContent();
     activate();
     const btn = addButton();
 
     btn.click();
     btn.click();
-    dblclick(btn); // locked
+    dblclick(btn); // switch on
     placeSelection();
     expect(addModeShadow()!.querySelector('.comment-box')).not.toBeNull();
 
@@ -314,22 +325,22 @@ describe('content.ts: "add note" toggle + lock (design spec v2 §A)', () => {
 
     expect(captureAndSave).not.toHaveBeenCalled();
     expect(addMode.isAddModeActive()).toBe(true); // stayed in add mode
-    expect(btn.classList.contains('is-locked')).toBe(true); // lock persists
+    expect(addGroup().classList.contains('is-switch-on')).toBe(true); // switch persists
     expect(addModeShadow()!.querySelector('.comment-box')).toBeNull(); // fresh placement
   });
 
-  test('cancel while NOT locked exits add mode entirely', () => {
+  test('cancel while the switch is off exits add mode entirely', () => {
     loadContent();
     activate();
     const btn = addButton();
 
-    btn.click(); // on, unlocked
+    btn.click(); // on, switch off
     placeSelection();
     const cancelBtn = addModeShadow()!.querySelector('.btn-cancel') as HTMLButtonElement;
     cancelBtn.click();
 
     expect(addMode.isAddModeActive()).toBe(false);
-    expect(btn.classList.contains('is-on')).toBe(false);
+    expect(addGroup().classList.contains('is-on')).toBe(false);
   });
 
   test('opening a note (the enlarged view) exits an active add mode first', async () => {
@@ -349,6 +360,153 @@ describe('content.ts: "add note" toggle + lock (design spec v2 §A)', () => {
 
     expect(addMode.isAddModeActive()).toBe(false);
     expect(btn.getAttribute('aria-pressed')).toBe('false');
+  });
+  test('flicking the switch on from off starts add mode straight away', () => {
+    loadContent();
+    activate();
+
+    addSwitch().click();
+
+    expect(addMode.isAddModeActive()).toBe(true);
+    expect(addGroup().classList.contains('is-on')).toBe(true);
+    expect(addGroup().classList.contains('is-switch-on')).toBe(true);
+    expect(addSwitch().getAttribute('aria-checked')).toBe('true');
+    expect(addButton().getAttribute('aria-label')).toBe('add note (kept on)');
+  });
+
+  test('flicking the switch off while add mode is on leaves it running for the current note', async () => {
+    loadContent();
+    activate();
+
+    addSwitch().click(); // on + kept on
+    addSwitch().click(); // kept on -> off
+
+    expect(addMode.isAddModeActive()).toBe(true); // still placing
+    expect(addGroup().classList.contains('is-on')).toBe(true);
+    expect(addGroup().classList.contains('is-switch-on')).toBe(false);
+
+    // …and the next successful capture now ends add mode, rather than
+    // putting the user straight back into placing.
+    placeSelection();
+    const textarea = addModeShadow()!.querySelector('.note-input') as HTMLTextAreaElement;
+    textarea.value = 'one and done';
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    captureAndSave.mockResolvedValueOnce({ ok: true, item: makeItem({ id: 5 }) });
+    (addModeShadow()!.querySelector('.btn-save') as HTMLButtonElement).click();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(addMode.isAddModeActive()).toBe(false);
+    expect(addGroup().classList.contains('is-on')).toBe(false);
+  });
+
+  test('a button click while the switch is on turns both off (one click stops everything)', () => {
+    loadContent();
+    activate();
+
+    addSwitch().click();
+    expect(addMode.isAddModeActive()).toBe(true);
+
+    addButton().click();
+
+    expect(addMode.isAddModeActive()).toBe(false);
+    expect(addGroup().classList.contains('is-on')).toBe(false);
+    expect(addGroup().classList.contains('is-switch-on')).toBe(false);
+    expect(addSwitch().getAttribute('aria-checked')).toBe('false');
+  });
+
+  test('Escape turns the switch off too', () => {
+    loadContent();
+    activate();
+    addSwitch().click();
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+
+    expect(addMode.isAddModeActive()).toBe(false);
+    expect(addGroup().classList.contains('is-switch-on')).toBe(false);
+  });
+
+  test('the switch does not persist across a sidebar close/reopen', () => {
+    loadContent();
+    activate();
+    addSwitch().click();
+    expect(addGroup().classList.contains('is-switch-on')).toBe(true);
+
+    (sidebarShadow().querySelector('.btn-close') as HTMLButtonElement).click();
+    onMessageListener({ type: 'ICON_CLICKED' }, {}, () => {});
+
+    expect(addGroup().classList.contains('is-switch-on')).toBe(false);
+    expect(addSwitch().getAttribute('aria-checked')).toBe('false');
+  });
+});
+
+describe('content.ts: the sidebar is on hold during add mode (design spec v3 §H)', () => {
+  function body(): HTMLElement {
+    return sidebarShadow().querySelector('.body') as HTMLElement;
+  }
+
+  test('entering add mode holds the list and disables the export group; leaving restores both', async () => {
+    pageItems = [makeItem({ id: 7 })];
+    loadContent();
+    activate();
+    await flushMicrotasks();
+
+    const thumb = () => sidebarShadow().querySelector('button.thumbnail') as HTMLButtonElement;
+    const exportBtn = () => sidebarShadow().querySelector('.btn-export') as HTMLButtonElement;
+    const menuBtn = () => sidebarShadow().querySelector('.btn-menu') as HTMLButtonElement;
+    expect(thumb().hasAttribute('tabindex')).toBe(false);
+
+    addButton().click();
+
+    expect(body().classList.contains('is-on-hold')).toBe(true);
+    expect(thumb().getAttribute('tabindex')).toBe('-1');
+    expect(exportBtn().disabled).toBe(true);
+    expect(menuBtn().disabled).toBe(true);
+    // The controls that stop add mode stay live.
+    expect(addButton().disabled).toBe(false);
+    expect(addSwitch().disabled).toBe(false);
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+
+    expect(body().classList.contains('is-on-hold')).toBe(false);
+    expect(thumb().hasAttribute('tabindex')).toBe(false);
+    expect(exportBtn().disabled).toBe(false);
+    expect(menuBtn().disabled).toBe(false);
+  });
+
+  test('an open chevron menu is closed by entering add mode', () => {
+    loadContent();
+    activate();
+    const menu = () => sidebarShadow().querySelector('.action-menu') as HTMLElement;
+
+    (sidebarShadow().querySelector('.btn-menu') as HTMLButtonElement).click();
+    expect(menu().dataset.open).toBe('true');
+
+    addButton().click();
+    expect(menu().dataset.open).toBe('false');
+  });
+
+  test('the hold survives the list repaint after a capture while the switch is on', async () => {
+    pageItems = [makeItem({ id: 7 })];
+    loadContent();
+    activate();
+    await flushMicrotasks();
+
+    addSwitch().click(); // add mode on and kept on
+    placeSelection();
+    const textarea = addModeShadow()!.querySelector('.note-input') as HTMLTextAreaElement;
+    textarea.value = 'still going';
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    captureAndSave.mockResolvedValueOnce({ ok: true, item: makeItem({ id: 8 }) });
+    (addModeShadow()!.querySelector('.btn-save') as HTMLButtonElement).click();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(addMode.isAddModeActive()).toBe(true);
+    expect(body().classList.contains('is-on-hold')).toBe(true);
+    for (const btn of Array.from(sidebarShadow().querySelectorAll('button.thumbnail'))) {
+      expect(btn.getAttribute('tabindex')).toBe('-1');
+    }
   });
 });
 
@@ -422,17 +580,17 @@ describe('content.ts: review fixes', () => {
     expect(btn.getAttribute('aria-pressed')).toBe('false');
   });
 
-  test('shift+click from off enters add mode already locked', () => {
+  test('shift+click from off enters add mode with the switch already on', () => {
     loadContent();
     activate();
     const btn = addButton();
 
     btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true }));
     expect(addMode.isAddModeActive()).toBe(true);
-    expect(btn.classList.contains('is-locked')).toBe(true);
+    expect(addGroup().classList.contains('is-switch-on')).toBe(true);
   });
 
-  test('shift+Enter while on locks it', () => {
+  test('shift+Enter while on turns the switch on', () => {
     loadContent();
     activate();
     const btn = addButton();
@@ -440,7 +598,7 @@ describe('content.ts: review fixes', () => {
     btn.click();
     btn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true }));
     expect(addMode.isAddModeActive()).toBe(true);
-    expect(btn.classList.contains('is-locked')).toBe(true);
+    expect(addGroup().classList.contains('is-switch-on')).toBe(true);
   });
 
   test('Esc that ends an IME composition does not exit add mode', () => {

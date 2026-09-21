@@ -29,10 +29,12 @@ test.afterEach(async () => {
 test('clicking the icon opens the sidebar, docked right, with the header/action-row controls and the empty state', async () => {
   // Salamander restyle (design spec §3.1): add/export/import moved out of
   // the header into their own action row below it, and the header itself
-  // gained a logo/wordmark and a theme toggle. export/import/close keep a
-  // fixed aria-label; the add button's aria-label is state-dependent ("add
-  // note" / "add note (on)" / "add note (locked)"), so its selector targets
-  // the stable .btn-primary class instead (see SELECTORS.btnAdd).
+  // gained a logo/wordmark and a theme toggle. v3 §A2/§C2 then merged the
+  // row into two groups — "add note" (icon-only) with a "keep add mode on"
+  // switch, and export with a chevron whose menu holds "import".
+  // export/close keep a fixed aria-label; the add button's is state-dependent
+  // ("add note" / "add note (on)" / "add note (kept on)"), so its selector
+  // targets the stable .btn-add class instead (see SELECTORS.btnAdd).
   const page = await context.newPage();
   await page.goto(fileServer.baseUrl);
   await helper.activateExtension(context, page);
@@ -40,8 +42,25 @@ test('clicking the icon opens the sidebar, docked right, with the header/action-
   await expect(page.locator(helper.SELECTORS.sidebar)).toBeVisible();
   await expect(page.locator(helper.SELECTORS.btnAdd)).toBeVisible();
   await expect(page.locator(helper.SELECTORS.btnExport)).toBeVisible();
-  await expect(page.locator(helper.SELECTORS.btnImport)).toBeVisible();
+  await expect(page.locator(helper.SELECTORS.btnMenu)).toBeVisible();
   await expect(page.locator(helper.SELECTORS.btnClose)).toBeVisible();
+
+  // The "keep add mode on" switch and the chevron menu's "import" item are
+  // both hidden until asked for (§A2's reveal, §C2's menu) — and nothing
+  // hidden may be focusable.
+  await expect(page.locator(helper.SELECTORS.addSwitch)).toBeHidden();
+  await expect(page.locator(helper.SELECTORS.btnImport)).toBeHidden();
+
+  await page.locator(helper.SELECTORS.addGroup).hover();
+  await expect(page.locator(helper.SELECTORS.addSwitch)).toBeVisible();
+  await expect(page.locator(helper.SELECTORS.addSwitch)).toHaveAttribute('aria-checked', 'false');
+
+  await helper.openActionMenu(page);
+  await expect(page.locator(helper.SELECTORS.btnImport)).toBeVisible();
+  await expect(page.locator(helper.SELECTORS.btnMenu)).toHaveAttribute('aria-expanded', 'true');
+  // Esc closes it and hands focus back to the chevron (§C2).
+  await page.keyboard.press('Escape');
+  await expect(page.locator(helper.SELECTORS.btnImport)).toBeHidden();
 
   // §3.1's decided empty-state copy, lowercase.
   await expect(page.locator(helper.SELECTORS.emptyState)).toHaveText('no feedback on this page yet');

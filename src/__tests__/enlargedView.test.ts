@@ -881,7 +881,9 @@ describe('delete edge cases', () => {
     await flush();
     jest.advanceTimersByTime(T.collapseSettle);
     expect(cbs.onClosed).toHaveBeenCalledWith(null);
-    expect(shadow().activeElement).toBe(q('.btn-primary'));
+    // The action row's "add note" half (design spec v3 §A2 renamed it from
+    // the old labelled .btn-primary).
+    expect(shadow().activeElement).toBe(q('.btn-add'));
   });
 
   test('a delete during the expand does not strand the view in "opening"', async () => {

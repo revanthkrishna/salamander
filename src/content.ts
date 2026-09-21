@@ -98,28 +98,32 @@ let lastKnownUrl = location.href;
 let started = false;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Add-mode toggle + lock (design spec v2 §A)
+// Add-mode toggle + "keep on" switch (design spec v3 §A2, which replaces v2
+// §A's hidden double-click lock as the primary affordance)
 //
-// The sidebar's "add note" button is a three-state toggle — off / on / locked
-// — and this module is the only thing that ever moves it between those
-// states, so the button's visuals (sidebar.setAddButtonState) can never drift
-// from addMode.isAddModeActive()'s real state. Every one of add mode's exit
-// paths (capture success/failure, cancel, Esc, sidebar close, SPA navigation,
-// opening the enlarged view) funnels through exitAddModeFully() or
-// handleAddModeCancel() below rather than calling addMode.exitAddMode()
-// directly, so "sync in every path" only has to be true in one place.
+// The sidebar's "add note" control is an icon-only button with a "keep add
+// mode on" switch attached to it, and this module is the only thing that ever
+// moves it between its three painted states (off / on / locked — where
+// 'locked' now means button-on *and* switch-on), so the control's visuals
+// (sidebar.setAddButtonState) can never drift from addMode.isAddModeActive()'s
+// real state. Every one of add mode's exit paths (capture success/failure,
+// cancel, Esc, sidebar close, SPA navigation, opening the enlarged view)
+// funnels through exitAddModeFully() or handleAddModeCancel() below rather
+// than calling addMode.exitAddMode() directly, so "sync in every path" only
+// has to be true in one place.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** True for the whole of a "locked" add-mode session (double-click), until a
- *  single click on the button or Esc ends it (§A). Survives any number of
- *  successful captures / per-note cancels in between — see enterAddMode(). */
+/** True while the "keep add mode on" switch is on: add mode survives each
+ *  successful capture and each per-note cancel, until a click on the button,
+ *  a flick of the switch, or Esc ends it (§A2). Deliberately not persisted —
+ *  it resets to off per page session, like the v2 lock it replaces. */
 let addLocked = false;
 
 /**
- * A click while add mode is already on (unlocked) that follows another click
+ * A click while add mode is already on (switch off) that follows another click
  * on the button within this window might be the *second* click of a
  * double-click that the native 'dblclick' event (fired right after) will
- * turn into "lock" instead. Only then is the toggle-off deferred by this
+ * turn into "switch on" instead. Only then is the toggle-off deferred by this
  * much, so the dblclick has a chance to pre-empt it — comfortably longer
  * than any OS's double-click timing. A deliberate, lone "off" click acts
  * immediately, and the first click of any pair (off -> on) is never delayed
@@ -130,8 +134,8 @@ const ADD_DBLCLICK_WINDOW_MS = 400;
 /** When the button was last clicked (Date.now()), for the pairing above. */
 let lastAddClickAt = -Infinity;
 
-/** Pending "toggle off" from a single click while on (unlocked); cleared if a
- *  dblclick or another exit path pre-empts it. */
+/** Pending "toggle off" from a single click while on (switch off); cleared
+ *  if a dblclick or another exit path pre-empts it. */
 let pendingAddOffTimer: ReturnType<typeof setTimeout> | null = null;
 
 function clearPendingAddOff(): void {
@@ -141,22 +145,25 @@ function clearPendingAddOff(): void {
   }
 }
 
-/** Enter add mode (fresh placement) and paint the button for whatever
+/** Enter add mode (fresh placement) and paint the control for whatever
  *  addLocked currently is — the single entry point for every "start/restart
- *  add mode" path: the first click off -> on, and locked re-entry after a
- *  successful capture or a per-note cancel. */
+ *  add mode" path: the first click off -> on, flicking the switch on from
+ *  off, and re-entry while the switch is on after a successful capture or a
+ *  per-note cancel. */
 function enterAddMode(): void {
   // The enlarged view and add mode can never coexist (design spec v2 §D) —
   // nothing of it may be on screen for add mode's capture. Cancel-then-run
   // (MOTION_SPEC §13): kill it instantly to its resting closed state, no
   // half-collapse frame. A no-op when it isn't open.
   sidebar.collapseEnlargedView({ immediate: true, force: true });
-  // No dock magnification for the whole of add mode: swollen note items grow
-  // out over the page, which is exactly what add mode selects and
-  // screenshots. Suspending snaps them back to rest instantly (no release
-  // animation that could still be in flight at capture time). Lifted by
-  // finishAddMode() on every exit path.
-  sidebar.setDockMagnificationSuspended(true);
+  // The sidebar goes "on hold" for the whole of add mode (design spec v3
+  // §H): the note list stops taking input and dims, the export + chevron
+  // group is disabled and its menu closed, and dock magnification is
+  // switched off — swollen note items grow out over the page, which is
+  // exactly what add mode selects and screenshots, and suspending snaps them
+  // back to rest instantly (no release animation still in flight at capture
+  // time). Lifted by finishAddMode() on every exit path.
+  sidebar.setAddModeHold(true);
   addMode.startAddMode({
     onOk: (result) => {
       // Phase 5's capture pipeline (src/capture.ts) owns everything between
@@ -169,22 +176,24 @@ function enterAddMode(): void {
   sidebar.setAddButtonState(addLocked ? 'locked' : 'on');
 }
 
-/** Common tail of every full exit: drop the lock, hand the list its dock
- *  magnification back, and paint the button off. Does NOT touch add mode
- *  itself — callers that still need to call addMode.exitAddMode() do so
- *  first (see exitAddModeFully). */
+/** Common tail of every full exit: turn the switch off, take the sidebar off
+ *  hold (§H — list interactive again, dimming gone, export group re-enabled)
+ *  and paint the control off. Does NOT touch add mode itself — callers that
+ *  still need to call addMode.exitAddMode() do so first (see
+ *  exitAddModeFully). */
 function finishAddMode(): void {
   addLocked = false;
-  sidebar.setDockMagnificationSuspended(false);
+  sidebar.setAddModeHold(false);
   sidebar.setAddButtonState('off');
 }
 
 /** Full stop: exits add mode (a no-op if it's already idle) and resets the
- *  lock/button/dock state. Every exit path that isn't "cancel a note while
- *  locked, stay in add mode" goes through this — capture failure never does
- *  (add mode stays exactly as the user left it), but Esc, a click while
- *  locked, sidebar close, SPA navigation and opening a note's enlarged view
- *  all do (§A, and "sidebar state must stay in sync … in every path"). */
+ *  switch, the control's paint and the sidebar's §H hold. Every exit path
+ *  that isn't "cancel a note while the switch is on, stay in add mode" goes
+ *  through this — capture failure never does (add mode stays exactly as the
+ *  user left it), but Esc, a click while the switch is on, sidebar close,
+ *  SPA navigation and opening a note's enlarged view all do (§A2, and
+ *  "sidebar state must stay in sync … in every path"). */
 function exitAddModeFully(): void {
   clearPendingAddOff();
   addMode.exitAddMode();
@@ -192,9 +201,9 @@ function exitAddModeFully(): void {
 }
 
 /** addMode.ts's onCancel — fired once add mode has already torn itself down
- *  for this note (exitAddMode() already ran). While locked this only cancels
- *  the one note; the lock (and add mode) persists, so re-enter immediately
- *  rather than falling all the way to "off" (§A). */
+ *  for this note (exitAddMode() already ran). While the switch is on this
+ *  only cancels the one note; the switch (and add mode) persists, so
+ *  re-enter immediately rather than falling all the way to "off" (§A2). */
 function handleAddModeCancel(): void {
   clearPendingAddOff();
   if (addLocked) {
@@ -216,20 +225,21 @@ function handleAddButtonClick(): void {
     return;
   }
   if (addLocked) {
-    // A single click while locked exits lock AND add mode outright (§A) —
-    // no dblclick disambiguation needed, since locked has no "on-but-not-
-    // locked" state to fall back to.
+    // A single click while the switch is on exits add mode AND turns the
+    // switch off (§A2) — one click to stop everything. No dblclick
+    // disambiguation needed: there is no intermediate state to fall back to.
     exitAddModeFully();
     return;
   }
-  // On, unlocked, and not right after another click: a lone "turn it off".
+  // On, switch off, and not right after another click: a lone "turn it off".
   if (!pairedClick) {
     exitAddModeFully();
     return;
   }
   // Right after another click: possibly the second click of a double-click
   // the browser is about to report — defer the toggle-off just long enough
-  // for that native 'dblclick' (handled below) to pre-empt it and lock.
+  // for that native 'dblclick' (handled below) to pre-empt it and turn the
+  // switch on instead.
   if (pendingAddOffTimer !== null) return;
   pendingAddOffTimer = setTimeout(() => {
     pendingAddOffTimer = null;
@@ -237,24 +247,47 @@ function handleAddButtonClick(): void {
   }, ADD_DBLCLICK_WINDOW_MS);
 }
 
-/** sidebar.SidebarCallbacks.onAddDoubleClick — the lock gesture: the native
- *  browser 'dblclick' that follows the click pair handleAddButtonClick
- *  already saw, or a shift+click / shift+Enter / shift+Space. Converts the
- *  pending toggle-off (if any) into "locked on" instead (§A); from off (the
- *  shift gestures) it enters add mode already locked. */
+/** sidebar.SidebarCallbacks.onAddDoubleClick — the v2 gestures, which now
+ *  simply drive the switch (§A2's "Behaviour"): the native browser 'dblclick'
+ *  that follows the click pair handleAddButtonClick already saw, or a
+ *  shift+click / shift+Enter / shift+Space. Converts the pending toggle-off
+ *  (if any) into "switch on" instead; from off it enters add mode with the
+ *  switch already on. They are alternates now, not the only path — the
+ *  visible switch is. */
 function handleAddButtonDoubleClick(): void {
+  setAddSwitch(true);
+}
+
+/** sidebar.SidebarCallbacks.onAddSwitchChange — the user flicked the "keep
+ *  add mode on" switch (§A2):
+ *    - on while add mode is off starts add mode immediately ("start, and
+ *      keep going")
+ *    - on while it is already active just keeps it on past the next capture
+ *    - off leaves add mode running for the current note only
+ *  The switch never moves on its own: the sidebar reports the requested
+ *  value and this repaints whatever actually happened. */
+function handleAddSwitchChange(on: boolean): void {
+  setAddSwitch(on);
+}
+
+function setAddSwitch(on: boolean): void {
   clearPendingAddOff();
-  if (addLocked) return;
-  addLocked = true;
-  if (!addMode.isAddModeActive()) {
+  if (on === addLocked && addMode.isAddModeActive()) return;
+  addLocked = on;
+  if (on && !addMode.isAddModeActive()) {
     enterAddMode();
     return;
   }
-  sidebar.setAddButtonState('locked');
+  if (!addMode.isAddModeActive()) {
+    // Switching off with add mode already gone: nothing to keep on.
+    finishAddMode();
+    return;
+  }
+  sidebar.setAddButtonState(on ? 'locked' : 'on');
 }
 
-/** Esc always exits both lock and add mode (§A), regardless of what state
- *  add mode is in ('placing' or 'editing') or whether it's locked. Installed
+/** Esc always exits add mode and turns the switch off (§A2), regardless of
+ *  what state add mode is in ('placing' or 'editing'). Installed
  *  on `window` in the capture phase, once, in ensureStarted() — i.e. *before*
  *  addMode.ts ever installs its own capture-phase keyboardIsolation listener
  *  for a given add-mode session, so this always sees the keydown first
@@ -333,6 +366,7 @@ function ensureStarted(): void {
 
   sidebar.initSidebar({
     onAdd: handleAddButtonClick,
+    onAddSwitchChange: handleAddSwitchChange,
     onAddDoubleClick: handleAddButtonDoubleClick,
     onExport: () => {
       void handleExport();
@@ -344,17 +378,20 @@ function ensureStarted(): void {
       // sidebar.ts has already hidden itself by the time this fires (see
       // SidebarCallbacks.onClose's doc comment) — but add mode hasn't, so
       // the same "sidebar requires add mode" sync as toggleSidebar() below
-      // applies here too (§A sync).
+      // applies here too (§A2 sync).
       if (addMode.isAddModeActive()) exitAddModeFully();
       notifyBackground({ type: 'SIDEBAR_CLOSED' });
     },
     onOpenItem: (item) => {
-      // Add mode can't coexist with the enlarged view (design spec v2 §D) —
-      // and the sidebar's own thumbnails sit above add mode's page blocker
-      // (higher z-index), so they're still clickable while add mode is
-      // active. A comment already being typed wins: the click is ignored
-      // (with a nudge) rather than silently discarding it. Otherwise exit
-      // fully first so the button/lock state stays in sync.
+      // Add mode can't coexist with the enlarged view (design spec v2 §D).
+      // §H now stops the list taking clicks at all for the whole of add
+      // mode, so this is a backstop rather than the main defence — the
+      // sidebar's thumbnails sit above add mode's page blocker (higher
+      // z-index), and an activation could still arrive from a script or a
+      // focus already inside the list when the hold went on. A comment
+      // already being typed wins: the click is ignored (with a nudge) rather
+      // than silently discarding it. Otherwise exit fully first so the
+      // control's state stays in sync.
       if (addMode.hasPendingComment()) {
         sidebar.showWarning(FINISH_NOTE_FIRST_MESSAGE);
         return;
@@ -366,22 +403,23 @@ function ensureStarted(): void {
   setupNavigationDetection();
   window.addEventListener('beforeunload', handleBeforeUnload);
   window.addEventListener('pagehide', handleBeforeUnload);
-  // Esc-exits-add-mode (§A) — see handleGlobalKeyDown's doc comment for why
+  // Esc-exits-add-mode (§A2) — see handleGlobalKeyDown's doc comment for why
   // this has to be registered once, here, rather than per add-mode session.
   window.addEventListener('keydown', handleGlobalKeyDown, true);
 }
 
 /**
  * §1.2 step 4: "add mode exits; sidebar restores; a new thumbnail appears at
- * the bottom of the sidebar list" — except while locked (§A v2), where the
+ * the bottom of the sidebar list" — except while the switch is on (§A2), where the
  * user is put straight back into add mode (a fresh placement) instead of
  * exiting, so several notes can be added without re-clicking the button.
  *
  * On failure the opposite: add mode stays exactly as the user left it (the
  * capture pipeline has already restored the hidden overlay and re-enabled
  * cancel/ok), no item exists anywhere (§1.3, §5 #8), and the reason is shown
- * in the sidebar's error bar — lowercase, verbatim from §5. The lock/button
- * state is untouched either way, since add mode itself hasn't exited.
+ * in the sidebar's error bar — lowercase, verbatim from §5. The switch and
+ * the control's paint are untouched either way, since add mode itself hasn't
+ * exited.
  */
 async function handleCaptureOk(result: addMode.AddModeResult): Promise<void> {
   const outcome = await capture.captureAndSave(result, {
@@ -421,7 +459,7 @@ function toggleSidebar(): void {
     // Add mode requires the sidebar (its bounds exclude the docked strip,
     // and its own button reflects add mode's state) — closing the sidebar
     // while it's active would leave a page-covering overlay with no visible
-    // "on"/"locked" affordance anywhere. Exit fully first (§A sync).
+    // "on"/"kept on" affordance anywhere. Exit fully first (§A2 sync).
     if (addMode.isAddModeActive()) exitAddModeFully();
     sidebar.closeSidebar();
     notifyBackground({ type: 'SIDEBAR_CLOSED' });
@@ -469,7 +507,7 @@ function handleUrlChange(): void {
 
   // A route change swaps out the page add mode is selecting/screenshotting
   // from under it — exit fully rather than leave a stale overlay (and a
-  // button state) pointed at content that's already gone (§A sync).
+  // button state) pointed at content that's already gone (§A2 sync).
   if (addMode.isAddModeActive()) exitAddModeFully();
   // The enlarged view is showing notes of the page we just left.
   sidebar.collapseEnlargedView({ immediate: true, force: true });

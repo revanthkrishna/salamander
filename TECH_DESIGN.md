@@ -35,7 +35,11 @@ The annotator is a Chrome extension that captures visual feedback from webpages.
 
 **Sidebar shell** (`src/sidebar.ts`)
 - Right-docked panel that **resizes the page** (shrinks `<html>` width), not an overlay
-- Header: 4 buttons (add, export, import, close), all icon-only
+- Header: logo + wordmark, theme toggle, close. A separate action row below it holds two
+  icon-only groups: **add note** with an attached "keep add mode on" switch (design spec v3 §A2),
+  and **export** with an attached chevron whose menu holds **import** (§C2)
+- While add mode is active the sidebar goes "on hold" (§H): the note list dims, stops taking
+  pointer/keyboard input and loses its dock magnification; the export group is disabled
 - Body: scrollable thumbnail list for current URL only (§1.5 of REQUIREMENTS)
 - Closed shadow root (prevents page CSS bleed)
 - Persists across SPA navigation and full reloads via `chrome.storage.session` per-tab
@@ -104,7 +108,7 @@ The annotator is a Chrome extension that captures visual feedback from webpages.
 | File | Lines | Role |
 |---|---|---|
 | `src/background.ts` | 868 | Service worker: injection, capture relay, storage ownership |
-| `src/sidebar.ts` | ~2100 | Right-docked sidebar shell, page resize, add-note toggle, hosts the enlarged view |
+| `src/sidebar.ts` | ~2770 | Right-docked sidebar shell, page resize, add-note toggle + "keep on" switch, export/chevron menu, hosts the enlarged view |
 | `src/content.ts` | ~700 | Content script entry: injection guard, message listener, SPA nav detection |
 | `src/addMode.ts` | ~960 | Selection box, dimming scrim, comment box, add mode lifecycle |
 | `src/capture.ts` | 318 | Capture pipeline: hide UI, capture, crop, restore, exit |

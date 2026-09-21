@@ -16,7 +16,7 @@ npx jest bundle                   # markdown serialization round-trip
 ```
 
 **Test coverage** (~395 tests, 15 test files):
-- `sidebar.test.ts` — sidebar open/close, page resize, URL tracking, resizable width (drag/keyboard, persistence, clamping), narrow-width breakpoints, theme toggle wiring
+- `sidebar.test.ts` — sidebar open/close, page resize, URL tracking, resizable width (drag/keyboard, persistence, clamping), narrow-width breakpoints, theme toggle wiring, the "add note" group + its "keep on" switch (paint, reveal, gestures), the export/chevron menu (open/close routes, keyboard, outside pointerdown), and the §H "on hold" state
 - `addMode.test.ts` — selection box creation, edge/corner resize hit zones, clamping to viewport, comment box positioning, counter thresholds, save/cancel state
 - `capture.test.ts` — viewport-relative CSS coordinates, CSS → device-pixel scale calculation, DPR accounting, crop verification
 - `contextCapture.test.ts` — deepest-common-ancestor selection, contained-elements prioritization (15-element cap), area-text aggregation, 2KB size governor, truncation markers
@@ -24,7 +24,7 @@ npx jest bundle                   # markdown serialization round-trip
 - `storage.test.ts` — domain CRUD, item CRUD (create/read/update/delete), blob orphan prevention, nextItemNumber monotonicity, session state round-trip
 - `thumbnails.test.ts` — thumbnail list rendering from FeedbackItem array
 - `enlargedView.test.ts` — enlarged view open/collapse (incl. interrupted transitions), prev/next and the ends, autosave debounce + flush on navigate/collapse, save failures, the empty-note rule on every exit path, delete (middle/last/only), keyboard (Esc/↑/↓/focus in and out), add mode collapsing it first, reduced-motion path, teardown
-- `content.test.ts` — add-note toggle / double-click lock state machine end to end (capture re-entry while locked, cancel while locked, Esc, sidebar close, opening a note)
+- `content.test.ts` — add-note toggle / "keep add mode on" switch state machine end to end (switch on from off, switch off mid-session, capture re-entry and per-note cancel while it is on, the v2 dblclick/shift gestures, Esc, sidebar close, opening a note), plus the §H "sidebar on hold" wiring
 - `import.test.ts` — all 13 error cases (not-a-zip, corrupt archive, missing `feedback.md`, malformed fence, missing screenshot, duplicate IDs, domain mismatch, version mismatch, existing-data confirmation) with purpose-built fixture bundles
 - `bundle.test.ts` — markdown → YAML fence extraction, YAML → object parsing, round-trip (export → parse → deep-equal)
 - `background.test.ts` — injection, message handlers, capture relay, throttle verification, re-inject on reload
@@ -64,7 +64,7 @@ In Chrome:
 
 1. Click the extension icon → sidebar opens on right side of page
 2. Verify sidebar has resized the page (page is narrower, no overlay)
-3. Click **add note** (it turns yellow = on) → cursor becomes a crosshair. Double-click it instead to lock add mode (padlock shown): after each save you're straight back in add mode until you click the button or press Esc
+3. Click **add note** (the icon-only comment-bubble button; the group turns yellow = on) → cursor becomes a crosshair. Hover the button to reveal the "keep add mode on" switch and flick it on instead: after each save you're straight back in add mode until you click the button, flick the switch back, or press Esc. (Double-click / shift+click / shift+enter still work and just turn the switch on.) While add mode is active the note list below dims and stops responding, and export is disabled
 4. Click a specific element (e.g. a button or heading) → default 267×100px box appears (the thumbnail's size at the default sidebar width)
 5. Drag from the invisible edge/corner resize zones (no visible handles) to adjust the box
    (minimum 20×20px enforced)
@@ -111,7 +111,7 @@ In Chrome:
 **Page:** same website where the bundle was created
 
 1. Sidebar open, domain is empty (or has old feedback)
-2. Click **import** → file picker opens, accept `.zip` only
+2. Click the chevron beside **export**, then **import** in the menu → file picker opens, accept `.zip` only
 3. Select the bundle → extension reads and validates
 4. If existing feedback: confirmation dialog appears → accept it to replace
 5. Sidebar populates with thumbnails for URLs in the bundle

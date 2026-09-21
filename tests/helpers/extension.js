@@ -30,12 +30,22 @@ const SELECTORS = {
   // Sidebar (src/sidebar.ts)
   sidebarHost: '#annotator-sidebar-host',
   sidebar: '#annotator-sidebar-host .sidebar',
-  // aria-label is state-dependent ("add note" / "add note (on)" / "add note
-  // (locked)" — see setAddButtonState() in src/sidebar.ts), so this selects
-  // on the button's stable class instead of the label text.
-  btnAdd: '#annotator-sidebar-host button.btn-primary',
+  // The action row is two groups (design spec v3 §A2/§C2): "add note" +
+  // its "keep add mode on" switch, and export + a chevron whose menu holds
+  // "import". aria-label is state-dependent on the add button ("add note" /
+  // "add note (on)" / "add note (kept on)" — see setAddButtonState() in
+  // src/sidebar.ts), so that one selects on its stable class instead.
+  addGroup: '#annotator-sidebar-host .add-group',
+  btnAdd: '#annotator-sidebar-host button.btn-add',
+  // Hidden (visibility: hidden) until the group is hovered/focused, or until
+  // it is on — see keepAddModeOn() below.
+  addSwitch: '#annotator-sidebar-host button.add-switch',
+  exportGroup: '#annotator-sidebar-host .export-group',
   btnExport: '#annotator-sidebar-host button[aria-label="export feedback"]',
-  btnImport: '#annotator-sidebar-host button[aria-label="import feedback"]',
+  btnMenu: '#annotator-sidebar-host button.btn-menu',
+  actionMenu: '#annotator-sidebar-host .action-menu',
+  // "import" is the chevron menu's one item, not a button of its own.
+  btnImport: '#annotator-sidebar-host .action-menu-item[role="menuitem"]',
   btnClose: '#annotator-sidebar-host button[aria-label="close sidebar"]',
   fileInput: '#annotator-sidebar-host input[type="file"]',
   emptyState: '#annotator-sidebar-host .empty-state',
@@ -495,14 +505,31 @@ async function exportAndGetEmptyAlert(page) {
   return message;
 }
 
-/** Click "import", pick `filePath` from the native file chooser, and wait for
- *  the round trip to settle (sidebar re-render / confirm dialog, if any). */
+/** Open the export group's chevron menu (design spec v3 §C2) and wait for it
+ *  to be shown. */
+async function openActionMenu(page) {
+  await page.locator(SELECTORS.btnMenu).click();
+  await page.locator(SELECTORS.btnImport).waitFor({ state: 'visible', timeout: 5000 });
+}
+
+/** Open the chevron menu, click its "import" item, pick `filePath` from the
+ *  native file chooser, and wait for the round trip to settle (sidebar
+ *  re-render / confirm dialog, if any). */
 async function importFile(page, filePath) {
+  await openActionMenu(page);
   const [chooser] = await Promise.all([
     page.waitForEvent('filechooser', { timeout: 5000 }),
     page.locator(SELECTORS.btnImport).click(),
   ]);
   await chooser.setFiles(filePath);
+}
+
+/** Turn the "keep add mode on" switch on (design spec v3 §A2). The switch is
+ *  hidden until the group is hovered or focused, so hover first. */
+async function keepAddModeOn(page) {
+  await page.locator(SELECTORS.addGroup).hover();
+  await page.locator(SELECTORS.addSwitch).waitFor({ state: 'visible', timeout: 5000 });
+  await page.locator(SELECTORS.addSwitch).click();
 }
 
 module.exports = {
@@ -518,6 +545,8 @@ module.exports = {
   clickExtensionIcon,
   clearExtensionStorage,
   enterAddMode,
+  keepAddModeOn,
+  openActionMenu,
   placeSelectionBox,
   dragResizeZone,
   typeAddModeNote,

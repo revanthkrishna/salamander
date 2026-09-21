@@ -53,8 +53,9 @@ the same page.
 - [ ] **1.2.** The page itself visibly narrows/reflows to make room — the sidebar does **not**
       float on top of or cover page content.
 - [ ] **1.3.** Sidebar header shows a logo + "salamander" wordmark (display italic), a theme
-      toggle, and a close button. Below it, a separate action row holds the primary "add note"
-      button (icon + label) and the export/import icon buttons.
+      toggle, and a close button. Below it, a separate action row holds two groups: an icon-only
+      "add note" button (comment-bubble glyph) with a "keep add mode on" switch attached to its
+      right, and an "export" icon button with a chevron attached to its right.
 - [ ] **1.4.** With no feedback captured yet on this page, sidebar body shows the empty-state
       message: "no feedback on this page yet".
 - [ ] **1.5.** Click **close** → sidebar disappears, page returns to full width.
@@ -86,10 +87,11 @@ the same page.
       prefers-color-scheme") — the sidebar (and add mode / the enlarged view, if open) should repaint to match
       without any click.
 - [ ] **1.15. (Narrow sidebar widths)** Drag the sidebar narrower than ~220px — the "salamander"
-      wordmark should hide and "add note" should collapse to an icon-only button (its accessible
-      label stays "add note"). Keep dragging to the 100px minimum — the action row should
-      wrap so "add note" and the export/import icons all stay reachable with nothing clipped or
-      overflowing, and the logo mark should hide too.
+      wordmark should hide, and hovering the "add note" group should no longer reveal the
+      "keep on" switch (keyboard focus still does, and it stays visible whenever it is on).
+      Keep dragging to the 100px minimum — the action row should wrap so the "add note" group
+      and the export group both stay reachable with nothing clipped or overflowing, and the
+      logo mark should hide too.
 - [ ] **1.16. ("this page (n)" heading)** With items captured on the current page, the sidebar
       shows a small "this page (n)" heading above the list, where n matches the visible item count.
       Delete items down to zero — the heading should disappear and the empty state should show
@@ -166,19 +168,35 @@ the same page.
       one should show an error like "couldn't capture a screenshot here. try again." rather than
       silently failing or creating a broken item — confirm no partial/blank thumbnail appears.
 
-- [ ] **2.15. (add note toggle)** **add note** looks like a secondary button when off. Click it → it
-      turns yellow (on) and add mode starts; click it again → add mode is cancelled and it's off.
-      Hover/press show yellow in both states; Tab to it → a focus ring appears.
-- [ ] **2.16. (lock)** Double-click **add note** (also try shift+click and shift+enter) → a small
-      padlock appears on the button. Capture a note → you're immediately back in add mode for the
-      next one. Click **cancel** in a comment box → that note is discarded but you stay in add mode.
-      Single-click the button, or press Esc → the lock and add mode both end.
-- [ ] **2.17.** While locked, close the sidebar, or navigate to another page in the app — the lock
-      and add mode end cleanly, and the button shows off when the sidebar is reopened.
+- [ ] **2.15. (add note toggle)** The **add note** group is neutral (surface fill, 1px border) when
+      off, and its hover/press fills are the *secondary* greys — never yellow. Click it → the whole
+      group turns yellow (on) and add mode starts; click it again → add mode is cancelled and it's
+      off. Tab to it → the focus ring wraps the whole rounded group, not just the focused half.
+      The group must never change size between off, hover, on and press.
+- [ ] **2.16. ("keep on" switch)** Hover the group (or Tab into it) → a small switch slides out on
+      the right, labelled "keep add mode on"; it must not be reachable by Tab while it is hidden.
+      Flick it on from off → add mode starts immediately and the switch segment turns yellow
+      (while the switch is off the segment stays neutral even when the button half is yellow).
+      Capture a note → you're immediately back in add mode for the next one. Click **cancel** in a
+      comment box → that note is discarded but you stay in add mode. Flick the switch off → add
+      mode keeps running for the current note only. One click on the **button** while the switch
+      is on → add mode and the switch both stop. Esc does the same. Double-click / shift+click /
+      shift+enter on the button still work and simply turn the switch on. There is no padlock
+      glyph anywhere.
+- [ ] **2.17.** While the switch is on, close the sidebar, or navigate to another page in the app —
+      add mode ends cleanly and the switch is back off when the sidebar is reopened (it never
+      persists across a page session).
 - [ ] **2.18. (comment box)** The comment box is a rounded text area with a button bar tucked under
       it (same width, edges line up). Hover the text area → its border darkens; focus it → the
       border turns yellow (no extra glow). cancel/save are padded ghost buttons; save fills yellow
       on hover, press and keyboard focus.
+- [ ] **2.19. (sidebar on hold during add mode)** Enter add mode with at least one note in the
+      list. The note list should dim to about half opacity, stop reacting to hover (no dock
+      magnification), refuse clicks, and be skipped entirely when you Tab through the sidebar.
+      The export group should be greyed out and unclickable, and any open chevron menu should
+      have closed. The **add note** button, its switch, the theme toggle and **close** must all
+      still work. Leave add mode by every route (button, switch+button, Esc, close, cancel) and
+      confirm the list comes back fully interactive each time, with magnification working again.
 
 ## 3. Viewing & managing feedback (§1.5, §3.3)
 
@@ -247,8 +265,15 @@ the same page.
 
 ## 5. Importing (§1.7) and all error cases (§5)
 
-- [ ] **5.1. (Happy path)** On the same site the bundle was exported from, click **import**,
-      select the `.zip` from §4. Sidebar should populate with thumbnails matching what was
+- [ ] **5.0. (chevron menu)** **import** now lives in the menu behind the chevron attached to
+      **export**. Click the chevron → a small menu opens below it with one "import" item; the
+      chevron flips to point up and takes the hover fill. Check it closes on: picking the item,
+      Esc (focus returns to the chevron), a click anywhere else in the sidebar, a click on the
+      page behind, and Tab. Open it with the keyboard (Tab to the chevron, then Enter, Space or
+      ↓) → focus lands on "import"; ↑/↓ move between items. Nothing in the menu should be
+      reachable by Tab while it is closed.
+- [ ] **5.1. (Happy path)** On the same site the bundle was exported from, open the chevron menu
+      and click **import**, then select the `.zip` from §4. Sidebar should populate with thumbnails matching what was
       exported (same images, same notes) once you're on a URL that has items.
 - [ ] **5.2. (Round trip)** Export again right after importing — the new export should be
       equivalent to the original (same item count, same notes, same context data).

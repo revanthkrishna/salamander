@@ -174,21 +174,30 @@ function loadPersistedWidth(): void {
 }
 
 export interface SidebarCallbacks {
-  /** "add note" button was clicked (design spec v2 §A: a three-state
-   *  off/on/locked toggle). content.ts owns the whole state machine — single
-   *  click toggles, a second click within the double-click window is instead
-   *  turned into "lock" by onAddDoubleClick below, and this sidebar module
-   *  only ever paints whatever state it's told via setAddButtonState(). */
+  /** "add note" button was clicked (design spec v3 §A2: an icon-only toggle
+   *  with an attached "keep on" switch). content.ts owns the whole state
+   *  machine — single click toggles, a second click within the double-click
+   *  window is instead turned into "switch on" by onAddDoubleClick below, and
+   *  this sidebar module only ever paints whatever state it's told via
+   *  setAddButtonState(). */
   onAdd: () => void;
-  /** Lock gesture on the "add note" button: native browser 'dblclick',
+  /** The "keep add mode on" switch was flipped by the user (design spec v3
+   *  §A2). `on` is the switch's *requested* new value; content.ts decides what
+   *  that means for add mode and paints the result back through
+   *  setAddButtonState(), so the switch never moves on its own.
+   *  Optional for the same reason as onAddDoubleClick. */
+  onAddSwitchChange?: (on: boolean) => void;
+  /** The v2 "lock" gestures, which now simply turn the switch on (design spec
+   *  v3 §A2's "Behaviour"): native browser 'dblclick' on the button,
    *  shift+click or shift+Enter/Space — see onAdd.
    *  Optional so callers that never toggle add mode (e.g. other modules'
    *  test doubles) don't have to stub a callback they'll never receive. */
   onAddDoubleClick?: () => void;
   /** "export" header button. No-op for Phase 3 — Phase 8 wires the real zip export. */
   onExport: () => void;
-  /** "import" header button, fired once a file is chosen from the native
-   *  picker. content.ts (Phase 9) runs the full §5 validation ladder and the
+  /** "import" — now the one item of the export group's chevron menu (design
+   *  spec v3 §C2) — fired once a file is chosen from the native picker.
+   *  content.ts (Phase 9) runs the full §5 validation ladder and the
    *  confirm-then-replace round trip. */
   onImportFile: (file: File) => void;
   /** "close" header button. Fired *after* the sidebar has already hidden
@@ -212,14 +221,22 @@ const STROKE_ICON_ATTRS =
   'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
   'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
 
-const ICON_PLUS = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M12 5v14M5 12h14"/></svg>`;
+/** "add note" (design spec v3 §A2): a comment bubble rather than the v2 plus,
+ *  because the button is now icon-only — a bare plus reads as "add anything",
+ *  a bubble reads as "add a note". Rendered at 17px inside the 36px half. */
+const ICON_COMMENT = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M20 14a2 2 0 0 1-2 2H8.5L4 19.5V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/></svg>`;
 
-/** Small plain-stroke padlock (no circle/badge) shown at the plus icon's
- *  bottom-right once the "add note" button is locked (design spec v2 §A).
- *  Sized/positioned by the `.icon-lock` CSS rule below — this markup is only
- *  ever hidden/shown via that rule's `display`, never removed from the DOM,
- *  so it survives the icon-only narrow/compact variants unchanged. */
-const ICON_LOCK = `<svg xmlns="http://www.w3.org/2000/svg" class="icon-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>`;
+/** Chevron for the export group's menu half (design spec v3 §C2) — 12px at a
+ *  heavier 2px stroke so it still reads at that size, and drawn as two
+ *  variants rather than a rotation so the open/closed arrow is the exact path
+ *  the spec names. */
+const CHEVRON_ICON_ATTRS =
+  'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+
+const ICON_CHEVRON_DOWN = `<svg xmlns="http://www.w3.org/2000/svg" ${CHEVRON_ICON_ATTRS}><path d="M6 9l6 6 6-6"/></svg>`;
+
+const ICON_CHEVRON_UP = `<svg xmlns="http://www.w3.org/2000/svg" ${CHEVRON_ICON_ATTRS}><path d="M6 15l6-6 6 6"/></svg>`;
 
 const ICON_EXPORT = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14"/></svg>`;
 
@@ -305,9 +322,23 @@ export const DEFAULT_THUMBNAIL_BOX_SIZE: { width: number; height: number } = {
 const ACTION_ROW_PAD_X = 16;
 const ACTION_ROW_PAD_X_COMPACT = 8;
 const ACTION_ROW_GAP = 8;
-/** Every action-row button is 36px tall; the secondaries (and the icon-only
- *  primary) are 36px square. */
+/** Every action-row control is 36px tall; the icon halves are 36px square. */
 const ACTION_BUTTON_PX = 36;
+/** The 1px border each action-row *group* carries (design spec v3 §A2/§C2:
+ *  the group owns the fill and the border, its halves are transparent). */
+const GROUP_BORDER_PX = 1;
+/** The export group's chevron half (§C2). */
+const CHEVRON_HALF_PX = 22;
+/** The "keep on" switch half at full reveal (§A2): a 1px border-left, 10px of
+ *  padding either side of the 28px track. Also the width the reveal
+ *  transition animates to — `width: auto` is not animatable, and the switch's
+ *  parts are all fixed-size, so the total is known up front. */
+export const ADD_SWITCH_WIDTH_PX = GROUP_BORDER_PX + 10 + 28 + 10;
+
+/** "add note" group at rest, i.e. with the switch collapsed (§A2). */
+const ADD_GROUP_PX = ACTION_BUTTON_PX + GROUP_BORDER_PX * 2;
+/** export + chevron group (§C2) — one box, two halves. */
+const EXPORT_GROUP_PX = ACTION_BUTTON_PX + CHEVRON_HALF_PX + GROUP_BORDER_PX * 2;
 
 /** Width-driven layout classes for a given panel width (pure; applied by
  *  applyWidthToPanel). */
@@ -316,20 +347,23 @@ export function sidebarLayoutFor(width: number): { narrow: boolean; compact: boo
 }
 
 /** Whether the action row's fixed-size content fits inside a panel of this
- *  width in the layout sidebarLayoutFor() picks for it — i.e. the
- *  arithmetic behind the breakpoints. The labelled primary (wide layout) is
- *  counted at its icon-only size: it has min-width: 0 and an ellipsizing
- *  label, so it can shrink to that without overflowing. */
+ *  width in the layout sidebarLayoutFor() picks for it — i.e. the arithmetic
+ *  behind the breakpoints.
+ *
+ *  Both groups are counted at their *resting* width: the "add note" group's
+ *  switch is only revealed on hover/focus (and the hover reveal is suppressed
+ *  below the narrow breakpoint, §A2), and the action row wraps rather than
+ *  overflows if a revealed switch ever doesn't fit — see `.action-row`'s
+ *  flex-wrap. */
 export function actionRowFits(width: number): boolean {
   const { compact } = sidebarLayoutFor(width);
   const pad = compact ? ACTION_ROW_PAD_X_COMPACT : ACTION_ROW_PAD_X;
   const available = width - PANEL_BORDER_PX - pad * 2;
-  const secondaries = ACTION_BUTTON_PX * 2 + ACTION_ROW_GAP;
-  // Compact wraps: the primary takes its own full-width row, so the widest
-  // row is the two secondaries side by side.
+  // Compact wraps: each group takes its own row, so the widest row is
+  // whichever group is bigger on its own.
   const needed = compact
-    ? Math.max(ACTION_BUTTON_PX, secondaries)
-    : ACTION_BUTTON_PX + ACTION_ROW_GAP + secondaries;
+    ? Math.max(ADD_GROUP_PX, EXPORT_GROUP_PX)
+    : ADD_GROUP_PX + ACTION_ROW_GAP + EXPORT_GROUP_PX;
   return available >= needed;
 }
 
@@ -343,19 +377,50 @@ const RESIZER_Z_INDEX = 101;
 // addMode.ts already paste in, so all three surfaces feel identical.
 // ---------------------------------------------------------------------------
 
-/** Below this width the wordmark hides and "add note" goes icon-only (design
- *  spec §3.1's "narrow widths" rule). */
+/** Below this width the wordmark hides and the action row is treated as
+ *  having no spare width, so the "keep on" switch's *hover* reveal is
+ *  suppressed (design spec §3.1's "narrow widths" rule, design spec v3 §A2's
+ *  "Reveal"). Keyboard focus still reveals it, and it stays visible whenever
+ *  it is on.
+ *
+ *  Kept at the width the wordmark needs rather than re-derived from the
+ *  action row: the row's *resting* content now fits well below this (see
+ *  COMPACT_WIDTH_BREAKPOINT), but at ~190px the wordmark is down to a couple
+ *  of ellipsized characters and a revealed switch would leave the two groups
+ *  touching. */
 export const NARROW_WIDTH_BREAKPOINT = 220;
-/** Below this width the action row wraps (primary on its own row) and the
+/** Below this width the action row wraps (each group on its own row) and the
  *  header sheds the (purely decorative) logo mark, so the panel never
  *  overflows down to the 100px floor.
  *
- *  Derived, not picked: it is the narrowest width at which the *narrow*
- *  single-row layout (three 36px buttons, two gaps, 16px side padding, the
- *  panel's 1px left border) still fits — 1 + 16 + 36·3 + 8·2 + 16 = 157px.
- *  A hand-picked 150 left 150–156px overflowing by up to 7px. */
+ *  Derived, not picked: it is the narrowest width at which both action-row
+ *  groups still sit on one row — the panel's 1px left border, 16px side
+ *  padding, the 38px "add note" group, the 8px gap and the 60px export
+ *  group: 1 + 16·2 + 38 + 8 + 60 = 139px. (It was 157 while the row held
+ *  three separate 36px buttons; §A2/§C2 merged those into two groups.) */
 export const COMPACT_WIDTH_BREAKPOINT =
-  PANEL_BORDER_PX + ACTION_ROW_PAD_X * 2 + ACTION_BUTTON_PX * 3 + ACTION_ROW_GAP * 2;
+  PANEL_BORDER_PX + ACTION_ROW_PAD_X * 2 + ADD_GROUP_PX + ACTION_ROW_GAP + EXPORT_GROUP_PX;
+
+// ─── Motion (design spec v2 §E's curves, reused for these small controls) ───
+
+/** Standard on-screen curve — entrances and state changes. */
+const EASE_STD = 'cubic-bezier(.2, 0, 0, 1)';
+/** Accelerating curve — exits/fade-outs, which run shorter than entrances. */
+const EASE_ACC = 'cubic-bezier(.3, 0, 1, 1)';
+
+/** The "keep on" switch's two reveal states (design spec v3 §A2). Kept as
+ *  snippets rather than repeated blocks because three selectors reveal it
+ *  (hover, focus-within, on) and the narrow breakpoint has to re-collapse and
+ *  then re-reveal the same declarations at a higher specificity. */
+const ADD_SWITCH_HIDDEN_CSS =
+  'width: 0; padding: 0; opacity: 0; visibility: hidden; overflow: hidden;';
+const ADD_SWITCH_SHOWN_CSS =
+  `width: ${ADD_SWITCH_WIDTH_PX}px; padding: 0 10px; opacity: 1; visibility: visible; overflow: visible;`;
+
+/** The chevron menu (§C2) floats over the note list, whose dock-magnified
+ *  items carry z-index 0–100 (dockMotion.ts); one above the resize handle so
+ *  an open menu is never struck through by it either. */
+const MENU_Z_INDEX = 102;
 /** How far (px) the note list's scrollport extends out over the page so
  *  dock-magnified items aren't clipped at the panel edge (see .body). Worst
  *  case at the 300px maximum width: 0.12 × 268px of scale + 22px of shift −
@@ -514,115 +579,318 @@ const SIDEBAR_CSS = `
   .btn-ghost.btn-close .icon { width: 18px; height: 18px; }
   .btn-ghost .icon svg { width: 100%; height: 100%; display: block; }
 
-  /* ─── Action row: primary "add note" + secondary export/import (§3.1) ── */
+  /* ─── Action row: "add note" + "keep on" switch, export + chevron menu ──
+     design spec v3 §A2 / §C2. Two groups, each one rounded box that carries
+     the fill, the border and the interaction states; the halves inside are
+     transparent, borderless and never change size. */
 
   .action-row {
     display: flex;
     align-items: center;
     flex-shrink: 0;
+    /* Always wrappable rather than only below a breakpoint: the "add note"
+       group grows by the switch's width when it is revealed, so the row's
+       content width is not fixed. Wrapping is content-driven and therefore
+       correct at every width; COMPACT_WIDTH_BREAKPOINT only decides when the
+       *padding* tightens (and actionRowFits() asserts the arithmetic). */
+    flex-wrap: wrap;
     padding: 4px ${ACTION_ROW_PAD_X}px 16px;
     gap: ${ACTION_ROW_GAP}px;
   }
   .sidebar.is-compact .action-row {
     padding-left: ${ACTION_ROW_PAD_X_COMPACT}px;
     padding-right: ${ACTION_ROW_PAD_X_COMPACT}px;
-    flex-wrap: wrap;
   }
 
-  /* "add note" toggle (design spec v2 §A) — off/on/locked. The base rule
-     below *is* the on/locked look (accent fill, onAccent text, 600 weight);
-     :not(.is-on) overrides it to the off/secondary look. Both share every
-     interaction-state rule after it (hover/press/focus/disabled), since §A
-     says hover/press are identical fills regardless of on/off — only the
-     *regular* state differs. */
-  .btn-primary {
-    flex: 1 1 auto;
-    /* Lets the button shrink below its label's width (the label ellipsizes)
-       rather than pushing the icon buttons out of the row, whatever the
-       loaded font's metrics turn out to be. */
-    min-width: 0;
-    height: 36px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 0 12px;
-    border: none;
+  /* ── "add note" + its attached "keep on" switch (§A2) ─────────────────── */
+
+  .add-group {
+    position: relative;
+    display: inline-flex;
+    align-items: stretch;
+    flex-shrink: 0;
+    /* Pushes the export group to the row's right edge at every width, and
+       keeps it there when the switch's reveal widens this group. */
+    margin-right: auto;
+    height: ${ACTION_BUTTON_PX}px;
+    border: ${GROUP_BORDER_PX}px solid var(--sal-line);
     border-radius: var(--sal-radius-md);
-    font-family: var(--sal-font-body);
-    font-size: 13px;
-    line-height: 1;
-    font-weight: 600;
-    background: var(--sal-accent);
-    color: var(--sal-on-accent);
-    cursor: pointer;
+    overflow: hidden;
+    background: var(--sal-surface);
+    color: var(--sal-text);
     ${STATE_TRANSITION_CSS}
   }
-  .btn-primary:not(.is-on) {
-    background: var(--sal-surface);
-    border: 1px solid var(--sal-line);
-    color: var(--sal-text);
-    font-weight: 500;
-  }
-  /* Hover/press: accentHover/accentPress fill + onAccent text regardless of
-     on/off (§A) — border-color: transparent rather than removing the
-     declaration keeps the off variant's box the same size under
-     box-sizing: border-box. */
-  .btn-primary:hover { background: var(--sal-accent-hover); color: var(--sal-on-accent); border-color: transparent; }
-  .btn-primary:active {
-    background: var(--sal-accent-press);
-    color: var(--sal-on-accent);
+  /* Off hover/press use the SECONDARY fills, never yellow — yellow means
+     "add mode is on" (§A2). */
+  .add-group:hover { border-color: var(--sal-line-strong); background: var(--sal-hover); }
+  .add-group:active { border-color: var(--sal-line-strong); background: var(--sal-press); ${PRESS_SCALE_CSS} }
+  /* On (add mode active). The border stays in the box as a transparent one
+     rather than being dropped, so the group is exactly the same size on as
+     off — §A2's "the button never changes size in any state". */
+  .add-group.is-on {
     border-color: transparent;
-    ${PRESS_SCALE_CSS}
+    background: var(--sal-accent);
+    color: var(--sal-on-accent);
   }
-  .btn-primary:focus-visible { ${FOCUS_RING_CSS} outline: none; }
-  .btn-primary[disabled] { ${DISABLED_CSS} }
-  .btn-primary .icon { position: relative; width: 16px; height: 16px; flex-shrink: 0; display: inline-flex; }
-  .btn-primary .btn-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .btn-primary .icon svg { width: 100%; height: 100%; display: block; }
-  /* The lock glyph (ICON_LOCK) is always in the DOM — display:none/block
-     rather than adding/removing it — so it survives the icon-only narrow/
-     compact variants (.is-narrow hides only .btn-label, never .icon)
-     unchanged. ~9px, bottom-right of the 16px plus icon, per design spec v2
-     §A / States.dc.html's "add note · locked" row. */
-  .btn-primary .icon svg.icon-lock {
-    position: absolute;
-    right: -3px;
-    bottom: -3px;
-    width: 9px;
-    height: 9px;
-    display: none;
+  .add-group.is-on:hover { background: var(--sal-accent-hover); }
+  .add-group.is-on:active { background: var(--sal-accent-press); ${PRESS_SCALE_CSS} }
+  /* The ring wraps the whole rounded group whichever half has focus (§A2) —
+     :has(:focus-visible) rather than :focus-within so it stays keyboard-only,
+     like every other control here. */
+  .add-group:has(:focus-visible) { ${FOCUS_RING_CSS} }
+  .add-group.is-disabled { ${DISABLED_CSS} }
+  .add-group.is-disabled:hover,
+  .add-group.is-disabled:active {
+    border-color: var(--sal-line);
+    background: var(--sal-surface);
+    transform: none;
   }
-  .btn-primary.is-locked .icon svg.icon-lock { display: block; }
-  /* Icon-only once the wordmark itself would no longer fit (§3.1). */
-  .sidebar.is-narrow .btn-primary .btn-label { display: none; }
-  .sidebar.is-narrow .btn-primary { flex: 0 0 ${ACTION_BUTTON_PX}px; padding: 0; }
-  /* At the 100px floor the action row wraps instead: the primary button
-     takes its own full-width row so the two icon buttons below always have
-     room to sit side by side. */
-  .sidebar.is-compact .btn-primary { flex: 1 1 100%; }
 
-  .btn-secondary {
-    width: 36px;
-    height: 36px;
+  .btn-add {
+    width: ${ACTION_BUTTON_PX}px;
+    height: 100%;
     flex-shrink: 0;
+    margin: 0;
     padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
+    white-space: nowrap;
+    background: transparent;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+  }
+  .btn-add:focus-visible { outline: none; }
+  .btn-add[disabled] { cursor: default; }
+  .btn-add .icon { width: 17px; height: 17px; flex-shrink: 0; display: inline-flex; }
+  .btn-add .icon svg { width: 100%; height: 100%; display: block; }
+
+  /* The switch half. Hidden at rest and revealed on hover / keyboard focus
+     anywhere in the group; once ON it is visible in every state (§A2).
+     visibility (not just opacity) so Tab can never land on an invisible
+     control, and an explicit collapsed/expanded width because width: auto is not
+     animatable. */
+  .add-switch {
+    height: 100%;
+    flex-shrink: 0;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    border: none;
+    border-left: ${GROUP_BORDER_PX}px solid var(--sal-line);
     background: var(--sal-surface);
-    border: 1px solid var(--sal-line);
-    border-radius: var(--sal-radius-md);
     color: var(--sal-text);
+    cursor: pointer;
+    /* Off: neutral segment with an inner hairline — it stays neutral even
+       when the button half is yellow, and only goes yellow when the switch
+       itself is on (§A2). */
+    box-shadow: inset 0 0 0 1px var(--sal-line);
+    ${ADD_SWITCH_HIDDEN_CSS}
+    transition:
+      width 160ms ${EASE_STD},
+      padding 160ms ${EASE_STD},
+      opacity 160ms ${EASE_STD},
+      background-color 140ms ease-out,
+      border-color 140ms ease-out;
+  }
+  .add-switch:focus-visible { outline: none; }
+
+  .add-group.is-switch-on .add-switch {
+    background: var(--sal-accent);
+    color: var(--sal-on-accent);
+    /* onAccent at 25% — the only divider that reads on the yellow segment
+       (§A2's table); it is the same ink in both themes, so no token exists
+       for it and none is invented. */
+    border-left-color: rgba(26, 23, 18, 0.25);
+    box-shadow: none;
+  }
+
+  /* Reveal (§A2): hidden at rest, shown on hover or keyboard focus anywhere
+     in the group, and always shown once the switch is on. */
+  .add-group:hover .add-switch,
+  .add-group:focus-within .add-switch,
+  .add-group.is-switch-on .add-switch { ${ADD_SWITCH_SHOWN_CSS} }
+  /* Below the narrow breakpoint the row has no spare width, so hover alone
+     no longer reveals it — keyboard focus and "on" still do (§A2). */
+  .sidebar.is-narrow .add-group:hover .add-switch { ${ADD_SWITCH_HIDDEN_CSS} }
+  .sidebar.is-narrow .add-group:focus-within .add-switch,
+  .sidebar.is-narrow .add-group.is-switch-on .add-switch { ${ADD_SWITCH_SHOWN_CSS} }
+
+  .add-switch-track {
+    position: relative;
+    width: 28px;
+    height: 16px;
+    flex-shrink: 0;
+    border-radius: 8px;
+    background: var(--sal-line-strong);
+    transition: background-color 150ms ${EASE_STD};
+  }
+  .add-group.is-switch-on .add-switch-track { background: var(--sal-on-accent); }
+
+  .add-switch-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--sal-surface);
+    transition: left 150ms ${EASE_STD};
+  }
+  .add-group.is-switch-on .add-switch-knob { left: 14px; }
+
+  /* ── export + chevron menu (§C2) ──────────────────────────────────────── */
+
+  .export-group {
+    position: relative;
+    display: inline-flex;
+    align-items: stretch;
+    flex-shrink: 0;
+    height: ${ACTION_BUTTON_PX}px;
+    border: ${GROUP_BORDER_PX}px solid var(--sal-line);
+    border-radius: var(--sal-radius-md);
+    /* The menu hangs out of the bottom of this box. */
+    overflow: visible;
+    background: var(--sal-surface);
+    color: var(--sal-text);
+    ${STATE_TRANSITION_CSS}
+  }
+  /* Hover/press/focus are scoped to the group's own two halves rather than
+     the whole box, because the menu is a child of it: an unscoped :hover
+     would light the group up whenever the pointer was merely inside the open
+     menu, and an unscoped :active would apply the press scale to the group
+     *and* the menu, sliding the item out from under the pointer between
+     mousedown and mouseup so the click never landed on it. */
+  .export-group:has(> button:hover) { border-color: var(--sal-line-strong); background: var(--sal-hover); }
+  .export-group:has(> button:active) { border-color: var(--sal-line-strong); background: var(--sal-press); }
+  /* Same reason, for the chevron itself: pressing it to close an open menu
+     must not shift the menu it is closing. */
+  .export-group:not(.is-menu-open):has(> button:active) { ${PRESS_SCALE_CSS} }
+  .export-group:has(> button:focus-visible) { ${FOCUS_RING_CSS} }
+  .export-group.is-disabled { ${DISABLED_CSS} }
+  .export-group.is-disabled:has(> button:hover),
+  .export-group.is-disabled:has(> button:active) {
+    border-color: var(--sal-line);
+    background: var(--sal-surface);
+    transform: none;
+  }
+
+  .btn-export {
+    width: ${ACTION_BUTTON_PX}px;
+    height: 100%;
+    flex-shrink: 0;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    /* One px inside the group's own radius-md, so the halves' corners sit
+       flush inside the border rather than crossing it. */
+    border-radius: 9px 0 0 9px;
+    color: inherit;
+    cursor: pointer;
+  }
+  .btn-export:focus-visible { outline: none; }
+  .btn-export[disabled] { cursor: default; }
+  .btn-export .icon { width: 16px; height: 16px; display: inline-flex; }
+  .btn-export .icon svg { width: 100%; height: 100%; display: block; }
+
+  .btn-menu {
+    width: ${CHEVRON_HALF_PX}px;
+    height: 100%;
+    flex-shrink: 0;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-left: ${GROUP_BORDER_PX}px solid var(--sal-line);
+    border-radius: 0 9px 9px 0;
+    color: var(--sal-muted);
     cursor: pointer;
     ${STATE_TRANSITION_CSS}
   }
-  .btn-secondary:hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
-  .btn-secondary:active { background: var(--sal-press); border-color: var(--sal-line-strong); ${PRESS_SCALE_CSS} }
-  .btn-secondary:focus-visible { ${FOCUS_RING_CSS} outline: none; }
-  .btn-secondary[disabled] { ${DISABLED_CSS} }
-  .btn-secondary .icon { width: 16px; height: 16px; display: inline-flex; }
-  .btn-secondary .icon svg { width: 100%; height: 100%; display: block; }
+  .btn-menu:focus-visible { outline: none; }
+  .btn-menu[disabled] { cursor: default; }
+  /* Open takes the hover fill so the chevron reads as the active control
+     while its menu is down (§C2). */
+  .btn-menu[aria-expanded="true"] { background: var(--sal-hover); }
+  .btn-menu .icon { width: 12px; height: 12px; display: inline-flex; }
+  .btn-menu .icon svg { width: 100%; height: 100%; display: block; }
+
+  /* The menu itself. Closed is the base state, so this rule carries the
+     *exit* timing (90ms, accelerating) and the [data-open] rule below the
+     entrance (120ms, standard) — §C2, and the motion language's "entrances
+     run 30–50% longer than exits". visibility rather than [hidden] so both
+     directions can animate, and so nothing inside is focusable or in the
+     accessibility tree while it is invisible. */
+  .action-menu {
+    position: absolute;
+    top: 42px;
+    right: 0;
+    min-width: 132px;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    border: 1px solid var(--sal-line);
+    border-radius: var(--sal-radius-md);
+    background: var(--sal-surface);
+    box-shadow: var(--sal-shadow-pop);
+    z-index: ${MENU_Z_INDEX};
+    transform-origin: top right;
+    opacity: 0;
+    visibility: hidden;
+    transform: scale(0.96);
+    transition:
+      opacity 90ms ${EASE_ACC},
+      transform 90ms ${EASE_ACC},
+      visibility 0s linear 90ms;
+  }
+  .action-menu[data-open="true"] {
+    opacity: 1;
+    visibility: visible;
+    transform: scale(1);
+    transition:
+      opacity 120ms ${EASE_STD},
+      transform 120ms ${EASE_STD},
+      visibility 0s;
+  }
+  /* At the low end of the range the panel is narrower than the menu's
+     comfortable minimum — let it shrink to its content instead. */
+  .sidebar.is-compact .action-menu { min-width: 0; }
+
+  .action-menu-item {
+    height: 32px;
+    margin: 0;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-radius: var(--sal-radius-sm);
+    color: var(--sal-text);
+    font-family: var(--sal-font-body);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    cursor: pointer;
+    ${STATE_TRANSITION_CSS}
+  }
+  .action-menu-item:hover { background: var(--sal-hover); }
+  .action-menu-item:focus-visible { background: var(--sal-hover); outline: none; }
+  .action-menu-item:active { background: var(--sal-press); }
+  .action-menu-item[disabled] { ${DISABLED_CSS} }
+  .action-menu-item .icon { width: 16px; height: 16px; flex-shrink: 0; display: inline-flex; }
+  .action-menu-item .icon svg { width: 100%; height: 100%; display: block; }
 
   /* ─── Notification banner (error / warning) — design spec §3.1 ────────
      An inline rounded banner (not the old full-bleed black bar), with a
@@ -721,12 +989,26 @@ const SIDEBAR_CSS = `
     margin-left: -${DOCK_BLEED_PX}px;
     padding: 12px 0 16px ${DOCK_BLEED_PX}px;
     clip-path: inset(0 0 0 ${DOCK_BLEED_PX}px);
+    transition: opacity 140ms ease-out;
   }
   .body.is-bleeding {
     clip-path: none;
     pointer-events: none;
   }
   .body.is-bleeding > * { pointer-events: auto; }
+
+  /* ─── §H: the sidebar is "on hold" during add mode ─────────────────────
+     The note list takes no pointer or keyboard interaction while a selection
+     is being placed or a note typed, and is dimmed so the state is legible.
+     Dock magnification is switched off through the handle itself (see
+     setAddModeHold) rather than fought with CSS, and the list's items are
+     also taken out of the tab order in JS — pointer-events: none alone
+     would still leave them keyboard-reachable. The header controls and the
+     "add note" group are deliberately untouched: the user must always be
+     able to stop, change theme or close. */
+  .body.is-on-hold { opacity: 0.5; }
+  .body.is-on-hold .thumbnail-list,
+  .body.is-on-hold .thumbnail { pointer-events: none; }
 
   .section-heading {
     margin: 0 16px 12px;
@@ -912,6 +1194,22 @@ const SIDEBAR_CSS = `
   .thumbnail-list:not([data-dock="on"]) .thumbnail:focus-visible .thumbnail-note-bg {
     opacity: 1;
   }
+
+  /* Reduced motion (design spec §4, and v3 §A2/§C2's "reduced motion →
+     instant"): every state change added by the action row still *happens*,
+     it just happens at once. dockMotion.ts switches itself off separately. */
+  @media (prefers-reduced-motion: reduce) {
+    .add-switch,
+    .add-switch-track,
+    .add-switch-knob,
+    .action-menu,
+    .action-menu[data-open="true"],
+    .body {
+      transition: none;
+    }
+    .action-menu { transform: none; }
+    .action-menu[data-open="true"] { transform: none; }
+  }
 `;
 
 // ---------------------------------------------------------------------------
@@ -926,9 +1224,20 @@ let elResizer: HTMLDivElement | null = null;
 let elLogoImg: HTMLImageElement | null = null;
 let elBtnTheme: HTMLButtonElement | null = null;
 let elBtnAdd: HTMLButtonElement | null = null;
+/** The rounded box holding the "add note" button and its switch — it is the
+ *  element that carries the on/off fill, the border and the states (§A2). */
+let elAddGroup: HTMLDivElement | null = null;
+/** The "keep add mode on" switch (role="switch") attached to elBtnAdd. */
+let elAddSwitch: HTMLButtonElement | null = null;
 /** Visually-hidden aria-describedby text for elBtnAdd (lock state/hint). */
 let elAddDesc: HTMLSpanElement | null = null;
+/** The export + chevron box (§C2) — one group, same role as elAddGroup. */
+let elExportGroup: HTMLDivElement | null = null;
 let elBtnExport: HTMLButtonElement | null = null;
+/** The chevron half that opens elActionMenu. */
+let elBtnMenu: HTMLButtonElement | null = null;
+let elActionMenu: HTMLDivElement | null = null;
+/** "import" — the menu's one item today. */
 let elBtnImport: HTMLButtonElement | null = null;
 let elBtnClose: HTMLButtonElement | null = null;
 let elFileInput: HTMLInputElement | null = null;
@@ -1030,22 +1339,70 @@ function buildDOM(shadow: ShadowRoot): void {
   header.appendChild(elBtnTheme);
   header.appendChild(elBtnClose);
 
-  // ── Action row: primary "add note" + secondary export/import (§3.1) ─────
+  // ── Action row: "add note" + "keep on" switch, export + chevron menu ────
+  //    (design spec v3 §A2 / §C2)
   const actionRow = document.createElement('div');
   actionRow.className = 'action-row';
 
-  elBtnAdd = makePrimaryButton(ICON_PLUS, 'add note');
-  elBtnAdd.setAttribute('aria-label', 'add note');
+  // "add note" group: an icon-only button with the switch attached to it.
+  // Both halves are plain <button>s inside one <div> that owns the visuals,
+  // so the group can carry one focus ring, one fill and one press scale.
+  elAddGroup = document.createElement('div');
+  elAddGroup.className = 'add-group';
+
+  elBtnAdd = makeIconButton(ICON_COMMENT, 'add note', 'btn-add');
+  elBtnAdd.setAttribute('aria-pressed', 'false');
   elBtnAdd.setAttribute('aria-describedby', ADD_BUTTON_DESC_ID);
+
+  elAddSwitch = document.createElement('button');
+  elAddSwitch.type = 'button';
+  elAddSwitch.className = 'add-switch';
+  elAddSwitch.setAttribute('role', 'switch');
+  elAddSwitch.setAttribute('aria-checked', 'false');
+  elAddSwitch.setAttribute('aria-label', ADD_SWITCH_LABEL);
+  elAddSwitch.title = ADD_SWITCH_LABEL;
+  const switchTrack = document.createElement('span');
+  switchTrack.className = 'add-switch-track';
+  switchTrack.setAttribute('aria-hidden', 'true');
+  const switchKnob = document.createElement('span');
+  switchKnob.className = 'add-switch-knob';
+  switchTrack.appendChild(switchKnob);
+  elAddSwitch.appendChild(switchTrack);
+
+  elAddGroup.appendChild(elBtnAdd);
+  elAddGroup.appendChild(elAddSwitch);
+
   elAddDesc = document.createElement('span');
   elAddDesc.id = ADD_BUTTON_DESC_ID;
   elAddDesc.className = 'sr-only';
-  elBtnExport = makeSecondaryButton(ICON_EXPORT, 'export feedback');
-  elBtnImport = makeSecondaryButton(ICON_IMPORT, 'import feedback');
 
-  actionRow.appendChild(elBtnAdd);
-  actionRow.appendChild(elBtnExport);
-  actionRow.appendChild(elBtnImport);
+  // export group: export, a chevron, and the chevron's menu. The menu lives
+  // inside this same (closed) shadow root — there is nowhere else it could
+  // go — positioned against the group.
+  elExportGroup = document.createElement('div');
+  elExportGroup.className = 'export-group';
+
+  elBtnExport = makeIconButton(ICON_EXPORT, 'export feedback', 'btn-export');
+
+  elBtnMenu = makeIconButton(ICON_CHEVRON_DOWN, 'more actions', 'btn-menu');
+  elBtnMenu.setAttribute('aria-haspopup', 'menu');
+  elBtnMenu.setAttribute('aria-expanded', 'false');
+
+  elActionMenu = document.createElement('div');
+  elActionMenu.className = 'action-menu';
+  elActionMenu.setAttribute('role', 'menu');
+  elActionMenu.setAttribute('aria-label', 'more actions');
+  elActionMenu.dataset.open = 'false';
+
+  elBtnImport = makeMenuItem(ICON_IMPORT, 'import');
+  elActionMenu.appendChild(elBtnImport);
+
+  elExportGroup.appendChild(elBtnExport);
+  elExportGroup.appendChild(elBtnMenu);
+  elExportGroup.appendChild(elActionMenu);
+
+  actionRow.appendChild(elAddGroup);
+  actionRow.appendChild(elExportGroup);
   actionRow.appendChild(elAddDesc);
 
   // Notification bar — live region so a screen reader announces errors and
@@ -1124,11 +1481,14 @@ function makeGhostButton(svgMarkup: string, ariaLabel: string, extraClass = ''):
   return btn;
 }
 
-/** Secondary icon button (export / import) — surface fill, 1px line border. */
-function makeSecondaryButton(svgMarkup: string, ariaLabel: string): HTMLButtonElement {
+/** A transparent, borderless icon half of an action-row group (design spec
+ *  v3 §A2/§C2): "add note", export and the chevron are all this shape — the
+ *  surrounding `.add-group`/`.export-group` owns the fill, the border and the
+ *  focus ring, and `className` picks the half's own size/radius rules. */
+function makeIconButton(svgMarkup: string, ariaLabel: string, className: string): HTMLButtonElement {
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'btn-secondary';
+  btn.className = className;
   btn.setAttribute('aria-label', ariaLabel);
   btn.title = ariaLabel;
   const span = document.createElement('span');
@@ -1138,19 +1498,19 @@ function makeSecondaryButton(svgMarkup: string, ariaLabel: string): HTMLButtonEl
   return btn;
 }
 
-/** Primary button ("add note") — the off/on/locked toggle (design spec v2
- *  §A). Label text stays "add note" in every state (only the fill/border and
- *  the lock glyph change); state is applied afterward via
- *  setAddButtonState(), which owns the classes/aria-pressed/aria-label. */
-function makePrimaryButton(svgMarkup: string, label: string): HTMLButtonElement {
+/** One row of the chevron menu (§C2): a 16px leading icon plus a visible,
+ *  lowercase label. `role="menuitem"` and the roving Tab/arrow behaviour are
+ *  wired in initSidebar. */
+function makeMenuItem(svgMarkup: string, label: string): HTMLButtonElement {
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'btn-primary';
+  btn.className = 'action-menu-item';
+  btn.setAttribute('role', 'menuitem');
   const icon = document.createElement('span');
   icon.className = 'icon';
-  icon.innerHTML = svgMarkup + ICON_LOCK;
+  icon.innerHTML = svgMarkup;
   const text = document.createElement('span');
-  text.className = 'btn-label';
+  text.className = 'menu-item-label';
   text.textContent = label;
   btn.appendChild(icon);
   btn.appendChild(text);
@@ -1168,41 +1528,56 @@ function updateThemeToggleUI(mode: ThemeMode): void {
   elBtnTheme.title = label;
 }
 
-/** The "add note" button's three states (design spec v2 §A). */
+/** The "add note" control's three states. The three values are unchanged
+ *  from design spec v2 §A (every content.ts exit path already calls this with
+ *  one of them), but 'locked' no longer means "a padlock glyph": per v3 §A2
+ *  it paints button-on **and** switch-on. */
 export type AddButtonState = 'off' | 'on' | 'locked';
 
-/** Tooltip per state — also how the lock gesture is discoverable. */
-const ADD_BUTTON_TITLES: Record<AddButtonState, string> = {
-  off: 'add note — double-click or shift+click to lock',
-  on: 'add note — double-click or shift+click to lock',
-  locked: 'add note (locked) — click to stop',
+/** aria-label + title per state (§A2). The label is state-dependent here
+ *  rather than fixed because the button is icon-only — with no visible text,
+ *  the accessible name is the only place "on"/"kept on" can be read out. */
+const ADD_BUTTON_LABELS: Record<AddButtonState, string> = {
+  off: 'add note',
+  on: 'add note (on)',
+  locked: 'add note (kept on)',
 };
 
-/** Screen-reader description (aria-describedby) per state. The accessible
- *  name stays "add note" and on/off rides on aria-pressed alone, so a state
- *  change is announced once, not as a new label plus a new pressed state. */
+/** Screen-reader description (aria-describedby) per state: what the switch
+ *  beside the button is doing, and how to reach it from the keyboard. */
 const ADD_BUTTON_DESCRIPTIONS: Record<AddButtonState, string> = {
-  off: 'shift+enter to lock',
-  on: 'shift+enter to lock',
-  locked: 'locked: stays on after each note',
+  off: 'shift+enter keeps add mode on',
+  on: 'shift+enter keeps add mode on',
+  locked: 'kept on: stays on after each note',
 };
 
 const ADD_BUTTON_DESC_ID = 'add-note-desc';
 
+/** The switch's own accessible name/tooltip (§A2) — fixed, since its state
+ *  is carried by aria-checked. */
+const ADD_SWITCH_LABEL = 'keep add mode on';
+
 /**
- * Paint the "add note" button for `state` — fill/border (via .is-on),
- * the padlock glyph (via .is-locked), `aria-pressed`, the title and the
- * visually-hidden lock description (design spec v2 §A). content.ts is the
- * only caller: it owns the real add-mode/lock state and calls this on every
- * transition so the button never drifts from what add mode is actually doing.
+ * Paint the "add note" group for `state` (design spec v3 §A2):
+ *   - 'off'    group neutral, `aria-pressed="false"`, switch off
+ *   - 'on'     group accent, `aria-pressed="true"`, switch off
+ *   - 'locked' group accent, `aria-pressed="true"`, switch ON (and therefore
+ *              visible in every state, not just on hover/focus)
+ *
+ * content.ts is the only caller: it owns the real add-mode/switch state and
+ * calls this on every transition, so neither half can drift from what add
+ * mode is actually doing.
  */
 export function setAddButtonState(state: AddButtonState): void {
-  if (!elBtnAdd) return;
+  if (!elBtnAdd || !elAddGroup) return;
   const isOn = state !== 'off';
-  elBtnAdd.classList.toggle('is-on', isOn);
-  elBtnAdd.classList.toggle('is-locked', state === 'locked');
+  const keepOn = state === 'locked';
+  elAddGroup.classList.toggle('is-on', isOn);
+  elAddGroup.classList.toggle('is-switch-on', keepOn);
   elBtnAdd.setAttribute('aria-pressed', String(isOn));
-  elBtnAdd.title = ADD_BUTTON_TITLES[state];
+  elBtnAdd.setAttribute('aria-label', ADD_BUTTON_LABELS[state]);
+  elBtnAdd.title = ADD_BUTTON_LABELS[state];
+  elAddSwitch?.setAttribute('aria-checked', String(keepOn));
   if (elAddDesc) elAddDesc.textContent = ADD_BUTTON_DESCRIPTIONS[state];
 }
 
@@ -1268,10 +1643,18 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
     e.stopPropagation();
     // Not every browser treats a button as a natural double-click target
     // for text selection, but pointer-down text selection can still occur
-    // on the label — suppress it so a rapid double-click reads as a clean
-    // "lock" gesture rather than also highlighting "add note".
+    // on the icon — suppress it so a rapid double-click reads as a clean
+    // "keep on" gesture rather than also selecting something.
     e.preventDefault();
     callbacksRef?.onAddDoubleClick?.();
+  });
+
+  // The switch reports the value the user asked for; content.ts decides what
+  // that does to add mode and paints the result back (§A2).
+  elAddSwitch!.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const on = elAddSwitch!.getAttribute('aria-checked') !== 'true';
+    callbacksRef?.onAddSwitchChange?.(on);
   });
 
   elBtnExport!.addEventListener('click', (e) => {
@@ -1279,8 +1662,40 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
     callbacksRef?.onExport();
   });
 
+  // ── chevron menu (§C2) ────────────────────────────────────────────────
+  elBtnMenu!.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (menuOpen) {
+      closeActionMenu();
+      return;
+    }
+    // A keyboard activation (Enter/Space) reports detail 0, a real pointer
+    // click reports ≥1 — the spec only wants focus pulled into the menu for
+    // the former ("open via keyboard focuses the first item").
+    openActionMenu({ focusFirstItem: e.detail === 0 });
+  });
+  elBtnMenu!.addEventListener('keydown', (e) => {
+    // Esc closes a menu opened by pointer, where focus is still on the
+    // chevron rather than inside the menu (§C2's "Esc" applies either way).
+    if (e.key === 'Escape' && menuOpen) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeActionMenu();
+      return;
+    }
+    // ArrowDown/Up open the menu straight into its first item, the usual
+    // menu-button convention.
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    e.stopPropagation();
+    openActionMenu({ focusFirstItem: true });
+  });
+
+  elActionMenu!.addEventListener('keydown', onActionMenuKeyDown);
+
   elBtnImport!.addEventListener('click', (e) => {
     e.stopPropagation();
+    closeActionMenu();
     elFileInput!.click();
   });
 
@@ -1304,6 +1719,15 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
   elResizer!.addEventListener('mousedown', onResizerMouseDown);
   elResizer!.addEventListener('keydown', onResizerKeyDown);
 
+  // "Outside pointerdown closes the menu" (§C2) needs two listeners, because
+  // this shadow root is *closed*: an event raised inside it retargets to the
+  // host by the time it reaches the document, and composedPath() is
+  // truncated for listeners outside the tree. So the shadow root itself sees
+  // everything inside the sidebar, and the document listener handles the
+  // host page (where every one of our events looks like `sidebarHost`).
+  sidebarShadow.addEventListener('pointerdown', onShadowPointerDown, true);
+  document.addEventListener('pointerdown', onDocumentPointerDown, true);
+
   // Theme (design spec §3.4): paint the toggle/logo for whatever mode is
   // already resolved (a fresh 'auto' default, or a mode already restored
   // from chrome.storage.local by the time this host is built), then stay
@@ -1317,12 +1741,103 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
     updateLogoForTheme(resolved);
   });
 
-  // "add note" starts off (design spec v2 §A) — content.ts moves it to
-  // on/locked as the real add-mode state changes.
+  // "add note" starts off (design spec v3 §A2) — content.ts moves it to
+  // on/locked as the real add-mode state changes. The switch does not
+  // persist: it resets to off per page session, like the old lock.
   setAddButtonState('off');
 
   applyWidthToPanel();
   loadPersistedWidth();
+}
+
+// ---------------------------------------------------------------------------
+// The export group's chevron menu (design spec v3 §C2)
+//
+// Lives inside the sidebar's own closed shadow root — there is nowhere else
+// it could go — and is shown/hidden via a `data-open` attribute so the CSS
+// owns both the entrance and the (shorter) exit. Nothing inside it is
+// focusable while it is closed: the closed rule is `visibility: hidden`.
+// ---------------------------------------------------------------------------
+
+let menuOpen = false;
+
+function openActionMenu(options: { focusFirstItem?: boolean } = {}): void {
+  if (!elActionMenu || !elBtnMenu || menuOpen || elBtnMenu.disabled) return;
+  menuOpen = true;
+  elActionMenu.dataset.open = 'true';
+  elExportGroup?.classList.add('is-menu-open');
+  elBtnMenu.setAttribute('aria-expanded', 'true');
+  setChevronIcon(true);
+  if (options.focusFirstItem) menuItems()[0]?.focus();
+}
+
+/**
+ * Close the menu. `returnFocus` hands focus back to the chevron, which is
+ * right for Esc (§C2) and wrong for an outside click — the user has already
+ * aimed somewhere else, and stealing focus back would fight them.
+ */
+function closeActionMenu(options: { returnFocus?: boolean } = {}): void {
+  if (!elActionMenu || !elBtnMenu || !menuOpen) return;
+  menuOpen = false;
+  elActionMenu.dataset.open = 'false';
+  elExportGroup?.classList.remove('is-menu-open');
+  elBtnMenu.setAttribute('aria-expanded', 'false');
+  setChevronIcon(false);
+  if (options.returnFocus) elBtnMenu.focus();
+}
+
+function setChevronIcon(open: boolean): void {
+  const icon = elBtnMenu?.querySelector('.icon');
+  if (icon) icon.innerHTML = open ? ICON_CHEVRON_UP : ICON_CHEVRON_DOWN;
+}
+
+function menuItems(): HTMLButtonElement[] {
+  return Array.from(elActionMenu?.querySelectorAll<HTMLButtonElement>('.action-menu-item:not([disabled])') ?? []);
+}
+
+/** Up/Down move between items (wrapping), Esc closes and returns focus to
+ *  the chevron, Tab closes and lets focus move on normally (§C2). */
+function onActionMenuKeyDown(e: KeyboardEvent): void {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    closeActionMenu({ returnFocus: true });
+    return;
+  }
+  if (e.key === 'Tab') {
+    closeActionMenu();
+    return;
+  }
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  const items = menuItems();
+  if (items.length === 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  // ShadowRoot.activeElement, not document.activeElement — the latter only
+  // ever reports the host for anything focused inside a closed root.
+  const current = items.indexOf(sidebarShadow?.activeElement as HTMLButtonElement);
+  const from = current >= 0 ? current : 0;
+  const delta = e.key === 'ArrowDown' ? 1 : -1;
+  items[(from + delta + items.length) % items.length].focus();
+}
+
+/** Pointerdown anywhere inside the sidebar's shadow tree: close unless it
+ *  landed on the menu itself or on the chevron (whose own click handler
+ *  toggles). */
+function onShadowPointerDown(e: Event): void {
+  if (!menuOpen || !elActionMenu || !elBtnMenu) return;
+  const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+  if (path.includes(elActionMenu) || path.includes(elBtnMenu)) return;
+  closeActionMenu();
+}
+
+/** Pointerdown on the host page (or in another extension surface). Anything
+ *  raised inside our closed root arrives here retargeted to the host, and is
+ *  already handled by onShadowPointerDown. */
+function onDocumentPointerDown(e: Event): void {
+  if (!menuOpen) return;
+  if (e.target === sidebarHost) return;
+  closeActionMenu();
 }
 
 // ---------------------------------------------------------------------------
@@ -1456,6 +1971,10 @@ export function closeSidebar(): void {
   // must honour the empty-note lock (content.ts's toggle) ask
   // collapseEnlargedView() first; this is the unconditional backstop.
   enlargedView?.forceClose();
+  // §C2: the menu closes when the sidebar closes — a panel that reopened
+  // with a menu already down would be a surprise, and nothing in a hidden
+  // panel should stay in the accessibility tree.
+  closeActionMenu();
   revealToken++;
   if (elSidebar) {
     elSidebar.hidden = true;
@@ -1476,7 +1995,8 @@ export function isSidebarVisible(): boolean {
  *  so content.ts disables this for the duration to prevent a second export
  *  starting (and downloading) before the first finishes. */
 export function setExportButtonEnabled(enabled: boolean): void {
-  if (elBtnExport) elBtnExport.disabled = !enabled;
+  exportEnabled = enabled;
+  syncActionAvailability();
 }
 
 /** Disable/enable the import header button (Phase 9, §1.7). Mirrors
@@ -1485,7 +2005,66 @@ export function setExportButtonEnabled(enabled: boolean): void {
  *  content.ts disables this for the duration to prevent a second file pick
  *  from overlapping the first. */
 export function setImportButtonEnabled(enabled: boolean): void {
-  if (elBtnImport) elBtnImport.disabled = !enabled;
+  importEnabled = enabled;
+  syncActionAvailability();
+}
+
+// ---------------------------------------------------------------------------
+// Availability of the action row's controls
+//
+// Three independent reasons a control can be off, so they are tracked
+// separately and resolved in one place rather than by whoever wrote last:
+//   - an export round trip is in flight (setExportButtonEnabled)
+//   - an import round trip is in flight (setImportButtonEnabled)
+//   - add mode is active, so the sidebar is "on hold" (setAddModeHold, §H)
+// ---------------------------------------------------------------------------
+
+let exportEnabled = true;
+let importEnabled = true;
+/** True for the whole of add mode (design spec v3 §H). */
+let addModeHold = false;
+
+function syncActionAvailability(): void {
+  // §H disables the whole export group; an in-flight export only disables
+  // the half that would start a second one.
+  if (elBtnExport) elBtnExport.disabled = addModeHold || !exportEnabled;
+  if (elBtnMenu) elBtnMenu.disabled = addModeHold;
+  if (elBtnImport) elBtnImport.disabled = !importEnabled;
+  elExportGroup?.classList.toggle('is-disabled', addModeHold);
+}
+
+/**
+ * Put the sidebar "on hold" for the duration of add mode (design spec v3
+ * §H): the note list stops taking pointer and keyboard input and dims to
+ * ~0.5, dock magnification is switched off at the handle (rather than fought
+ * with CSS — magnified items also bleed out over the page add mode is about
+ * to screenshot), and the export + chevron group is disabled with its menu
+ * closed. The "add note" group, the theme toggle and close deliberately stay
+ * live: the user must always be able to stop, change theme or close.
+ *
+ * Idempotent, and everything it touches is restored by the same call with
+ * `false` — which every one of content.ts's add-mode exit paths makes.
+ */
+export function setAddModeHold(hold: boolean): void {
+  addModeHold = hold;
+  if (hold) closeActionMenu();
+  elBody?.classList.toggle('is-on-hold', hold);
+  syncActionAvailability();
+  applyListHold();
+  setDockMagnificationSuspended(hold);
+}
+
+/** Take the list's items out of the tab order while on hold (and put them
+ *  back after). `pointer-events: none` covers the mouse but leaves a button
+ *  perfectly reachable with Tab, so this is the other half of §H's "list
+ *  items not tabbable". Re-applied after every repaint — renderItems() calls
+ *  it — since a fresh list starts with default tabindexes. */
+function applyListHold(): void {
+  if (!elThumbnailList) return;
+  for (const btn of Array.from(elThumbnailList.querySelectorAll<HTMLButtonElement>('button.thumbnail'))) {
+    if (addModeHold) btn.setAttribute('tabindex', '-1');
+    else btn.removeAttribute('tabindex');
+  }
 }
 
 /**
@@ -1537,6 +2116,9 @@ function renderItems(items: FeedbackItem[]): void {
       callbacksRef?.onOpenItem(item);
     },
   });
+  // A fresh list starts with default tabindexes — re-assert the §H hold if
+  // one is in force (e.g. a repaint after a capture while add mode stays on).
+  applyListHold();
   syncDockMotion();
 }
 
@@ -1575,12 +2157,14 @@ function syncDockMotion(): void {
 
 /**
  * Suspend (true) / resume (false) the note list's dock magnification.
- * content.ts suspends it for the whole of add mode: magnified items grow out
- * past the panel's left edge over the page, and add mode's screenshot is of
- * the page — so nothing of ours may bleed there while a selection is being
- * made or captured. Suspending snaps the list back to rest instantly (no
- * release animation, no pending frame), and the flag survives list repaints
- * and close/reopen until it is lifted.
+ * setAddModeHold() (design spec v3 §H) drives this for the whole of add
+ * mode: magnified items grow out past the panel's left edge over the page,
+ * and add mode's screenshot is of the page — so nothing of ours may bleed
+ * there while a selection is being made or captured. Suspending snaps the
+ * list back to rest instantly (no release animation, no pending frame), and
+ * the flag survives list repaints and close/reopen until it is lifted.
+ * Exported separately so a caller can suspend magnification *without* the
+ * rest of the hold.
  */
 export function setDockMagnificationSuspended(suspended: boolean): void {
   dockSuspended = suspended;
@@ -1688,11 +2272,14 @@ export function destroySidebar(): void {
   enlargedDockSuspended = false;
   dockMotion?.destroy();
   dockMotion = null;
+  closeActionMenu();
   clearMessage();
   endResizeDrag();
   restorePageResize();
   unsubscribeThemeChange?.();
   unsubscribeThemeChange = null;
+  document.removeEventListener('pointerdown', onDocumentPointerDown, true);
+  sidebarShadow?.removeEventListener('pointerdown', onShadowPointerDown, true);
   if (sidebarHost && sidebarHost.parentNode) {
     sidebarHost.parentNode.removeChild(sidebarHost);
   }
@@ -1703,8 +2290,13 @@ export function destroySidebar(): void {
   elLogoImg = null;
   elBtnTheme = null;
   elBtnAdd = null;
+  elAddGroup = null;
+  elAddSwitch = null;
   elAddDesc = null;
+  elExportGroup = null;
   elBtnExport = null;
+  elBtnMenu = null;
+  elActionMenu = null;
   elBtnImport = null;
   elBtnClose = null;
   elFileInput = null;
@@ -1719,6 +2311,9 @@ export function destroySidebar(): void {
   callbacksRef = null;
   visible = false;
   dockSuspended = false;
+  addModeHold = false;
+  exportEnabled = true;
+  importEnabled = true;
   revealToken++;
   // Hard reset, not a soft close: the next initSidebar() re-reads the
   // persisted width from scratch, so in-memory width state must not leak
