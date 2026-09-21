@@ -45,6 +45,7 @@
 import { Rect } from './types';
 import { getSidebarWidth, DEFAULT_THUMBNAIL_BOX_SIZE } from './sidebar';
 import { getContentViewportSize } from './capture';
+import { clamp } from './flip';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
 import { DISABLED_CSS, FOCUS_RING_CSS, getThemeCSS, registerThemedHost, STATE_TRANSITION_CSS } from './theme';
 
@@ -467,10 +468,6 @@ let placeDragging = false;
 // ---------------------------------------------------------------------------
 // Geometry helpers
 // ---------------------------------------------------------------------------
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
 
 /** The selectable area: full viewport height, full viewport width minus the
  *  sidebar's docked strip (§1.2 step 44.1 — the sidebar can never fall inside

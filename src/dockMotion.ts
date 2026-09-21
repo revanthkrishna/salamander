@@ -49,6 +49,8 @@
 // point and returns a handle whose destroy() removes every listener,
 // observer, rAF and inline style it added.
 
+import { cancelAnimationFrameSafe, reducedMotionQuery, requestAnimationFrameSafe } from './dom';
+
 /** Peak scale gain on the item under the pointer (1 → 1.12). */
 export const DOCK_SCALE_GAIN = 0.12;
 /** Peak leftward shift (px) on the item under the pointer. */
@@ -96,8 +98,6 @@ const REST_VEL_EPS = 1e-2;
 
 /** Fallback item height when layout is unavailable (jsdom, hidden list). */
 const FALLBACK_ITEM_HEIGHT_PX = 170;
-
-const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
 // ---------------------------------------------------------------------------
 // Pure maths
@@ -253,31 +253,6 @@ interface DockItem {
   z: number;
 }
 
-type RafFn = (cb: (ts: number) => void) => number;
-type CancelRafFn = (id: number) => void;
-
-function getRaf(): { raf: RafFn; cancel: CancelRafFn } {
-  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
-    return {
-      raf: (cb) => window.requestAnimationFrame(cb),
-      cancel: (id) => window.cancelAnimationFrame(id),
-    };
-  }
-  return {
-    raf: (cb) => setTimeout(() => cb(Date.now()), 16) as unknown as number,
-    cancel: (id) => clearTimeout(id),
-  };
-}
-
-function getReducedMotionQuery(): MediaQueryList | null {
-  try {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return null;
-    return window.matchMedia(REDUCED_MOTION_QUERY) ?? null;
-  } catch {
-    return null;
-  }
-}
-
 /** True when `el` currently shows keyboard focus. Falls back to true where
  *  the selector isn't supported (older engines, jsdom): showing the swell on
  *  a mouse-focused button is a far smaller sin than never showing it for a
@@ -294,7 +269,8 @@ function isFocusVisible(el: Element): boolean {
  *  destroy()) whenever the list is repainted — items are captured once. */
 export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions = {}): DockMotionHandle {
   const scrollContainer = options.scrollContainer ?? null;
-  const { raf, cancel } = getRaf();
+  const raf = requestAnimationFrameSafe;
+  const cancel = cancelAnimationFrameSafe;
 
   const items: DockItem[] = Array.from(listEl.children)
     .filter((el): el is HTMLElement => el instanceof HTMLElement)
@@ -331,7 +307,7 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
   let holding = false;
   const holdTargets = options.holdTargets ?? [];
 
-  const mql = getReducedMotionQuery();
+  const mql = reducedMotionQuery();
   let reduced = mql?.matches ?? false;
 
   // ─── Layout cache ─────────────────────────────────────────────────────

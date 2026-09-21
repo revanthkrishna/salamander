@@ -45,10 +45,18 @@ import * as addMode from './addMode';
 import * as capture from './capture';
 import { ensureFontsLoaded, primeThemeMode } from './theme';
 import { parseImportBundle } from './import';
-// The list's hover delete (design spec v4 §L) reuses the enlarged view's
-// failure copy rather than declaring a second string for the same event.
-import { DELETE_ERROR_MESSAGE } from './enlargedView';
-import { FeedbackItem, ImportError, ImportErrorCode, ImportErrorDetails } from './types';
+import {
+  // The list's hover delete (design spec v4 §L) shares the enlarged view's
+  // failure copy rather than declaring a second string for the same event.
+  DELETE_ERROR_MESSAGE,
+  EXPORT_FAILED_MESSAGE,
+  FINISH_NOTE_FIRST_MESSAGE,
+  IMPORT_FAILED_MESSAGE,
+  NOTHING_TO_EXPORT_MESSAGE,
+  importErrorMessage,
+  importReplaceConfirmMessage,
+} from './copy';
+import { FeedbackItem, ImportError } from './types';
 import {
   SidebarOpenedMessage,
   SidebarClosedMessage,
@@ -67,19 +75,6 @@ import {
   GetDomainItemCountMessage,
   GetDomainItemCountResponse,
 } from './messages';
-
-// §5 #7's alert text is fixed and verbatim; this is the fallback shown when
-// the export round trip itself fails (a dead service worker, etc.) — not one
-// of the 11 numbered §5 cases, but kept lowercase and in the same tone.
-const EXPORT_ROUND_TRIP_FAILED_MESSAGE = "couldn't export feedback. try again.";
-
-// Fallback shown when the import round trip itself fails (dead service
-// worker, etc.) rather than a validation failure §5 already has copy for.
-const IMPORT_ROUND_TRIP_FAILED_MESSAGE = "couldn't import this bundle. try again.";
-
-// Shown when a note is clicked while add mode's comment box holds typed text
-// — opening it would throw that text away.
-const FINISH_NOTE_FIRST_MESSAGE = 'finish or cancel your note first.';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Idempotency guard + runtime init (wrapped in IIFE so we can `return` instead
@@ -611,12 +606,12 @@ async function handleExport(): Promise<void> {
     };
     const response = await sendMessage<ExportResponse>(message);
     if (!response) {
-      sidebar.showError(EXPORT_ROUND_TRIP_FAILED_MESSAGE);
+      sidebar.showError(EXPORT_FAILED_MESSAGE);
       return;
     }
     if (!response.ok) {
       if (response.code === 'EMPTY') {
-        alert('nothing to export'); // §5 #7, verbatim
+        alert(NOTHING_TO_EXPORT_MESSAGE); // §5 #7, verbatim
       } else {
         sidebar.showError(response.message);
       }
@@ -646,7 +641,7 @@ async function handleImportFile(file: File): Promise<void> {
       bundle = await parseImportBundle(file, currentDomain);
     } catch (err) {
       sidebar.showError(
-        err instanceof ImportError ? importErrorMessage(err.code, err.details) : IMPORT_ROUND_TRIP_FAILED_MESSAGE,
+        err instanceof ImportError ? importErrorMessage(err.code, err.details) : IMPORT_FAILED_MESSAGE,
       );
       return;
     }
@@ -664,9 +659,7 @@ async function handleImportFile(file: File): Promise<void> {
 
     if (existingCount > 0) {
       // §5 #10, verbatim.
-      const confirmed = await sidebar.showConfirmDialog(
-        `importing will replace your current ${existingCount} feedback item(s) for this site. this cannot be undone. continue?`,
-      );
+      const confirmed = await sidebar.showConfirmDialog(importReplaceConfirmMessage(existingCount));
       if (!confirmed) return;
     }
 
@@ -677,7 +670,7 @@ async function handleImportFile(file: File): Promise<void> {
     };
     const replaceResponse = await sendMessage<ImportReplaceResponse>(replaceMessage);
     if (!replaceResponse || !replaceResponse.ok) {
-      sidebar.showError(replaceResponse?.message ?? IMPORT_ROUND_TRIP_FAILED_MESSAGE);
+      sidebar.showError(replaceResponse?.message ?? IMPORT_FAILED_MESSAGE);
       return;
     }
 
@@ -689,31 +682,6 @@ async function handleImportFile(file: File): Promise<void> {
     }
   } finally {
     sidebar.setImportButtonEnabled(true);
-  }
-}
-
-/** §5's error/warning copy, lowercase and verbatim. The one parameterised
- *  row (#5, domain mismatch) fills in from `ImportError.details`. */
-function importErrorMessage(code: ImportErrorCode, details?: ImportErrorDetails): string {
-  switch (code) {
-    case 'INVALID_FILE_TYPE':
-      return 'invalid file type. please upload a .zip feedback bundle.';
-    case 'CORRUPT_ARCHIVE':
-      return 'could not read this file — it appears to be corrupted.';
-    case 'MISSING_MANIFEST':
-      return "this doesn't look like a feedback bundle.";
-    case 'MALFORMED_CONTEXT':
-      return "this bundle appears to be corrupted (couldn't read feedback data).";
-    case 'MISSING_SCREENSHOT':
-      return "this file is missing screenshot data and can't be imported.";
-    case 'DOMAIN_MISMATCH':
-      return `this bundle contains feedback for '${details?.fileDomain}', but you're currently on '${details?.currentDomain}'.`;
-    case 'DUPLICATE_IDS':
-      return 'this bundle appears to be corrupted (duplicate item ids).';
-    case 'VERSION_MISMATCH':
-      return 'this bundle was created with a newer version of the extension. some feedback may not display correctly.';
-    default:
-      return IMPORT_ROUND_TRIP_FAILED_MESSAGE;
   }
 }
 

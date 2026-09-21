@@ -13,15 +13,12 @@ import {
   arcPush,
   arcRadius,
   computeEnlargedGeometry,
-  EMPTY_NOTE_MESSAGE,
-  SAVE_ERROR_MESSAGE,
-  DELETE_ERROR_MESSAGE,
   PEEK_REVEAL_PX,
   PEEK_SCALE,
-  saveErrorFor,
   T,
   EnlargedViewCallbacks,
 } from '../enlargedView';
+import { DELETE_ERROR_MESSAGE, EMPTY_NOTE_MESSAGE, SAVE_ERROR_MESSAGE, saveErrorFor } from '../copy';
 import { containFit, cubicBezier, morphKeyframes, STD } from '../flip';
 
 const originalAttachShadow = HTMLElement.prototype.attachShadow;

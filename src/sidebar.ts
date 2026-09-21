@@ -31,6 +31,19 @@ import { FeedbackItem } from './types';
 import { renderThumbnailList, THUMBNAIL_IMAGE_HEIGHT_PX } from './thumbnails';
 import { attachDockMotion, DockMotionHandle } from './dockMotion';
 import {
+  ICON_CHEVRON_DOWN,
+  ICON_CHEVRON_UP,
+  ICON_CLOSE,
+  ICON_COMMENT,
+  ICON_ERROR,
+  ICON_EXPORT,
+  ICON_IMPORT,
+  ICON_THEME_AUTO,
+  ICON_THEME_DARK,
+  ICON_THEME_LIGHT,
+  ICON_WARNING,
+} from './icons';
+import {
   openEnlargedView as openEnlargedViewImpl,
   ENLARGED_VIEW_CSS,
   EnlargedViewCallbacks,
@@ -217,54 +230,9 @@ export interface SidebarCallbacks {
 }
 
 // ---------------------------------------------------------------------------
-// Inline currentColor SVG icons — 1.8px stroke, round caps/joins (design
-// spec §1's icon language). Fill-based icons are gone with the v1 palette.
+// Icons come from src/icons.ts (design spec §1's stroke language); this
+// module only maps the theme modes onto their glyphs.
 // ---------------------------------------------------------------------------
-
-/** Shared attributes for every stroke icon — kept as one string so a change
- *  to the stroke language (weight, cap style) only has to happen once. */
-const STROKE_ICON_ATTRS =
-  'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
-  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
-
-/** "add note" (design spec v3 §A2): a comment bubble rather than the v2 plus,
- *  because the button is now icon-only — a bare plus reads as "add anything",
- *  a bubble reads as "add a note". Rendered at 17px inside the 36px half. */
-const ICON_COMMENT = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M20 14a2 2 0 0 1-2 2H8.5L4 19.5V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/></svg>`;
-
-/** Chevron for the export group's menu half (design spec v3 §C2) — 12px at a
- *  heavier 2px stroke so it still reads at that size, and drawn as two
- *  variants rather than a rotation so the open/closed arrow is the exact path
- *  the spec names. */
-const CHEVRON_ICON_ATTRS =
-  'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
-  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
-
-const ICON_CHEVRON_DOWN = `<svg xmlns="http://www.w3.org/2000/svg" ${CHEVRON_ICON_ATTRS}><path d="M6 9l6 6 6-6"/></svg>`;
-
-const ICON_CHEVRON_UP = `<svg xmlns="http://www.w3.org/2000/svg" ${CHEVRON_ICON_ATTRS}><path d="M6 15l6-6 6 6"/></svg>`;
-
-const ICON_EXPORT = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14"/></svg>`;
-
-const ICON_IMPORT = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M5 19h14"/></svg>`;
-
-const ICON_CLOSE = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M6 6l12 12M18 6L6 18"/></svg>`;
-
-/** Default error-bar icon. */
-export const ICON_ERROR = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>`;
-
-/** Default warning-bar icon. */
-export const ICON_WARNING = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg>`;
-
-// ─── Theme toggle icons (design spec §3.4: sun / moon / half-circle) ────────
-
-const ICON_THEME_LIGHT = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5.6 5.6 4.2 4.2M19.8 19.8l-1.4-1.4M5.6 18.4 4.2 19.8M19.8 4.2l-1.4 1.4"/></svg>`;
-
-const ICON_THEME_DARK = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5Z"/></svg>`;
-
-/** "auto" — a half-filled circle rather than a third distinct glyph, so it
- *  reads as "in between" light and dark at a glance. */
-const ICON_THEME_AUTO = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none"/></svg>`;
 
 const THEME_MODE_ICONS: Record<ThemeMode, string> = {
   auto: ICON_THEME_AUTO,

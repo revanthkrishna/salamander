@@ -77,8 +77,11 @@
 
 import { FeedbackItem } from './types';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
-// The project's one trash glyph (design spec v5 §S) — the note list's.
-import { ICON_TRASH } from './thumbnails';
+// ICON_TRASH is the project's one trash glyph (design spec v5 §S) — the same
+// one the note list's hover delete draws.
+import { ICON_ARROW_DOWN, ICON_ARROW_UP, ICON_COLLAPSE, ICON_TRASH } from './icons';
+import { DELETE_ERROR_MESSAGE, EMPTY_NOTE_MESSAGE, SAVE_ERROR_MESSAGE, saveErrorFor } from './copy';
+import { cancelAnimationFrameSafe, reducedMotionQuery, requestAnimationFrameSafe } from './dom';
 import { FOCUS_RING_CSS, DISABLED_CSS, STATE_TRANSITION_CSS, RADII } from './theme';
 import {
   ACC,
@@ -98,19 +101,6 @@ import {
   trackedValue,
   tweenProgress,
 } from './flip';
-
-// ---------------------------------------------------------------------------
-// Copy (lowercase UI, §3.4). The save/delete failures are the old modal's
-// strings, byte-exact.
-// ---------------------------------------------------------------------------
-
-export const SAVE_ERROR_MESSAGE = "couldn't save note. try again.";
-/** A save failure for a note other than the one on screen names it. */
-export function saveErrorFor(id: number): string {
-  return `couldn't save note #${id}. try again.`;
-}
-export const DELETE_ERROR_MESSAGE = "couldn't delete item. try again.";
-export const EMPTY_NOTE_MESSAGE = "a note can't be empty. add some text to continue.";
 
 // ---------------------------------------------------------------------------
 // Timing (MOTION_SPEC §5–§12). Durations in ms.
@@ -681,24 +671,6 @@ export const ENLARGED_VIEW_CSS = `
   }
 `;
 
-// ---------------------------------------------------------------------------
-// Icons (1.8px stroke, round caps/joins — design spec §1)
-// ---------------------------------------------------------------------------
-
-const STROKE =
-  'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
-  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
-/** "collapse the panel to the right" (design spec v5 §U): a rounded panel
- *  outline, a divider three-quarters across, and a chevron pointing right in
- *  the larger left area. It replaces the × — the aria-label and title still
- *  say "exit enlarged view", which is what carries the meaning to AT. */
-const ICON_COLLAPSE =
-  `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE}>` +
-  '<rect x="3" y="4" width="18" height="16" rx="2.5"/>' +
-  '<path d="M15.5 4v16M8 9.5l3 2.5-3 2.5"/></svg>';
-const ICON_UP = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE}><path d="M6 15l6-6 6 6"/></svg>`;
-const ICON_DOWN = `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE}><path d="M6 9l6 6 6-6"/></svg>`;
-
 const TITLE_ID = 'xp-title';
 const STATUS_ID = 'xp-status';
 
@@ -898,17 +870,6 @@ interface Card {
 }
 
 type Timer = ReturnType<typeof setTimeout>;
-
-const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
-
-function reducedMotionQuery(): MediaQueryList | null {
-  try {
-    if (typeof window.matchMedia !== 'function') return null;
-    return window.matchMedia(REDUCED_MOTION_QUERY) ?? null;
-  } catch {
-    return null;
-  }
-}
 
 function viewportSize(): { w: number; h: number } {
   const de = document.documentElement;
@@ -1180,8 +1141,8 @@ class EnlargedView {
     // Rail.
     this.rail = div('xp-rail');
     this.btnExit = railButton(ICON_COLLAPSE, 'exit enlarged view', 'exit enlarged view (esc)', 'xp-exit');
-    this.btnUp = railButton(ICON_UP, 'previous note', 'previous note (↑)', 'xp-prev');
-    this.btnDown = railButton(ICON_DOWN, 'next note', 'next note (↓)', 'xp-next');
+    this.btnUp = railButton(ICON_ARROW_UP, 'previous note', 'previous note (↑)', 'xp-prev');
+    this.btnDown = railButton(ICON_ARROW_DOWN, 'next note', 'next note (↓)', 'xp-next');
     this.btnExit.addEventListener('click', () => void this.requestCollapse());
     this.btnUp.addEventListener('click', () => this.go(-1));
     this.btnDown.addEventListener('click', () => this.go(1));
@@ -2206,14 +2167,4 @@ function setBox(el: HTMLElement, box: { right: number; top: number; width?: numb
   el.style.right = `${box.right}px`;
   el.style.top = `${box.top}px`;
   if (box.width !== undefined) el.style.width = `${box.width}px`;
-}
-
-function requestAnimationFrameSafe(cb: () => void): number {
-  if (typeof window.requestAnimationFrame === 'function') return window.requestAnimationFrame(() => cb());
-  return setTimeout(cb, 16) as unknown as number;
-}
-
-function cancelAnimationFrameSafe(id: number): void {
-  if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(id);
-  else clearTimeout(id as unknown as Timer);
 }

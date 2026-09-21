@@ -34,6 +34,9 @@
 // module renders them in the order given, appending nothing itself.
 
 import { FeedbackItem } from './types';
+// The project's ONE trash glyph (design spec v5 §S) — the enlarged view's
+// delete draws the same one.
+import { ICON_TRASH } from './icons';
 
 export interface ThumbnailCallbacks {
   /** Fired when a thumbnail is activated (click or Enter/Space). */
@@ -43,22 +46,6 @@ export interface ThumbnailCallbacks {
    *  DELETE_ITEM round trip and the repaint that follows. */
   onDelete: (item: FeedbackItem) => void;
 }
-
-/** Trash glyph for the per-item delete (design spec §1's icon language:
- *  1.8px stroke, round caps/joins, currentColor, 24-unit viewBox). Written
- *  out here rather than imported from sidebar.ts's icon set, because
- *  sidebar.ts imports *this* module — the dependency only runs one way.
- *
- *  This is the project's ONE trash glyph (design spec v5 §S): the enlarged
- *  view's delete imports it from here rather than drawing a second one. */
-export const ICON_TRASH =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" ' +
-  'stroke="currentColor" stroke-width="1.8" stroke-linecap="round" ' +
-  'stroke-linejoin="round" aria-hidden="true">' +
-  '<path d="M4 7h16"/>' +
-  '<path d="M9.5 7V5.5a1.5 1.5 0 0 1 1.5-1.5h2a1.5 1.5 0 0 1 1.5 1.5V7"/>' +
-  '<path d="M6.5 7l.8 12a1.5 1.5 0 0 0 1.5 1.4h6.4a1.5 1.5 0 0 0 1.5-1.4l.8-12"/>' +
-  '</svg>';
 
 /** Hard cap on the note text handed to the DOM (design spec §3.1's visual
  *  3-line clamp is CSS's job now — sidebar.ts's `.thumbnail-note` rule sets

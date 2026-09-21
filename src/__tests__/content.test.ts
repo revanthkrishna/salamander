@@ -23,7 +23,7 @@
 
 import { FeedbackItem } from '../types';
 // The list delete reuses the enlarged view's failure copy (design spec v4 §L).
-import { DELETE_ERROR_MESSAGE } from '../enlargedView';
+import { DELETE_ERROR_MESSAGE } from '../copy';
 
 jest.mock('../capture', () => ({
   ...jest.requireActual('../capture'),

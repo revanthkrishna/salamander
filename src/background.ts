@@ -21,6 +21,16 @@ import {
 } from './storage';
 import * as imageStore from './imageStore';
 import { exportDomain } from './export';
+import { dataUrlToBlob, blobToDataUrl } from './dataUrl';
+import {
+  CAPTURE_FAILED_MESSAGE,
+  ITEM_LOAD_FAILED_MESSAGE,
+  IMAGE_LOAD_FAILED_MESSAGE,
+  SAVE_ERROR_MESSAGE,
+  DELETE_ERROR_MESSAGE,
+  DOMAIN_COUNT_FAILED_MESSAGE,
+  IMPORT_FAILED_MESSAGE,
+} from './copy';
 import { FeedbackItem, Rect, ViewportSize, DomainData } from './types';
 import {
   ActivateMessage,
@@ -219,15 +229,13 @@ function pingContentScript(tabId: number): Promise<boolean> {
 // Capture relay (§1.2 step 2, §1.3, §2, §6 #8)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CAPTURE_ERROR_MESSAGE = "couldn't capture a screenshot here. try again."; // §5 #8, verbatim, lowercase
-
 export async function handleCapture(
   message: CaptureMessage,
   sender: chrome.runtime.MessageSender,
 ): Promise<CaptureResponse> {
   const tab = sender.tab;
   if (!tab || tab.id === undefined) {
-    return { ok: false, code: 'CAPTURE_FAILED', message: CAPTURE_ERROR_MESSAGE };
+    return { ok: false, code: 'CAPTURE_FAILED', message: CAPTURE_FAILED_MESSAGE };
   }
 
   try {
@@ -260,7 +268,7 @@ export function mapCaptureError(err: unknown): CaptureErrorResponse {
       : /rate|quota|MAX_CAPTURE_VISIBLE_TAB/i.test(raw)
         ? 'RATE_LIMITED'
         : 'CAPTURE_FAILED';
-  return { ok: false, code, message: CAPTURE_ERROR_MESSAGE };
+  return { ok: false, code, message: CAPTURE_FAILED_MESSAGE };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -309,7 +317,7 @@ export async function handleSaveItem(message: SaveItemMessage): Promise<SaveItem
       // Best effort — the metadata failure is what we report.
     }
     console.warn('[Annotator] could not save feedback item:', err);
-    return { ok: false, message: CAPTURE_ERROR_MESSAGE };
+    return { ok: false, message: CAPTURE_FAILED_MESSAGE };
   }
 }
 
@@ -329,11 +337,6 @@ export function _resetSaveQueueForTests(): void {
 // they share saveQueueTail with SAVE_ITEM: unserialised, a note edit
 // overlapping a capture in another tab (or a second edit) would write back a
 // stale copy of the record and drop the other change.
-
-const ITEM_LOAD_FAILED_MESSAGE = "couldn't load feedback for this page. try again.";
-const IMAGE_LOAD_FAILED_MESSAGE = "couldn't load screenshot. try again.";
-const NOTE_SAVE_FAILED_MESSAGE = "couldn't save note. try again.";
-const ITEM_DELETE_FAILED_MESSAGE = "couldn't delete item. try again.";
 
 export async function handleGetPageItems(
   message: GetPageItemsMessage,
@@ -368,7 +371,7 @@ export async function handleUpdateNote(message: UpdateNoteMessage): Promise<Upda
     return { ok: true };
   } catch (err) {
     console.warn('[Annotator] could not save note:', err);
-    return { ok: false, message: NOTE_SAVE_FAILED_MESSAGE };
+    return { ok: false, message: SAVE_ERROR_MESSAGE };
   }
 }
 
@@ -378,7 +381,7 @@ export async function handleDeleteItem(message: DeleteItemMessage): Promise<Dele
     return { ok: true };
   } catch (err) {
     console.warn('[Annotator] could not delete feedback item:', err);
-    return { ok: false, message: ITEM_DELETE_FAILED_MESSAGE };
+    return { ok: false, message: DELETE_ERROR_MESSAGE };
   }
 }
 
@@ -401,9 +404,6 @@ export async function handleExport(message: ExportMessage): Promise<ExportRespon
 // itself, including minting a fresh screenshotKey/thumbnailDataUrl per item
 // (gotcha #4 — only this context has OffscreenCanvas).
 // ─────────────────────────────────────────────────────────────────────────────
-
-const DOMAIN_COUNT_FAILED_MESSAGE = "couldn't check existing feedback. try again.";
-const IMPORT_FAILED_MESSAGE = "couldn't import this bundle. try again.";
 
 export async function handleGetDomainItemCount(
   message: GetDomainItemCountMessage,
@@ -802,61 +802,4 @@ class CropError extends Error {
     super(cause instanceof Error ? cause.message : String(cause));
     this.name = 'CropError';
   }
-}
-
-/**
- * Manual data URL -> Blob conversion, so `createImageBitmap` can decode what
- * `chrome.tabs.captureVisibleTab` handed us.
- *
- * ⚠ This must never go back to being `await (await fetch(dataUrl)).blob()`,
- * which is the idiomatic one-liner and is what it was originally. The
- * extension's CSP (manifest.json, carried forward from v1's "no network calls
- * at all" posture — §2 Security) sets `connect-src 'none'`, and an MV3
- * service worker is an extension page for CSP purposes: `fetch()` there is
- * governed by `connect-src`, and a `data:` URL is not exempt. So every real
- * capture died on a CSP violation inside cropCapture and surfaced to the user
- * as §5 #8's "couldn't capture a screenshot here. try again." — while the unit
- * tests stayed green, because they stub `global.fetch`. Decoding the base64 by
- * hand has no CSP surface, no network stack, and no async hop; it is the exact
- * mirror of blobToDataUrl below. (Relaxing the CSP instead was the other
- * option and was rejected: nothing in this extension should be able to talk to
- * the network, and manifest.json's permissions/CSP are Phase 0's contract.)
- */
-export function dataUrlToBlob(dataUrl: string): Blob {
-  const comma = typeof dataUrl === 'string' ? dataUrl.indexOf(',') : -1;
-  if (comma === -1 || !dataUrl.startsWith('data:')) {
-    throw new Error('captured image is not a data url');
-  }
-
-  const header = dataUrl.slice('data:'.length, comma);
-  const payload = dataUrl.slice(comma + 1);
-  const isBase64 = /;base64$/i.test(header);
-  const mime = header.replace(/;base64$/i, '').split(';')[0] || 'image/png';
-
-  if (!isBase64) {
-    // captureVisibleTab always returns base64, but a percent-encoded data URL
-    // is still a legal one — decode it rather than feed atob() garbage.
-    return new Blob([decodeURIComponent(payload)], { type: mime });
-  }
-
-  const binary = atob(payload);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type: mime });
-}
-
-/** Manual Blob -> data URL conversion: no URL.createObjectURL (gotcha #4)
- *  and FileReader's availability inside a service worker isn't guaranteed
- *  across Chrome versions, so this sticks to arrayBuffer()/btoa(), both of
- *  which are part of the standard worker global scope. */
-async function blobToDataUrl(blob: Blob): Promise<string> {
-  const buffer = await blob.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  const base64 = btoa(binary);
-  return `data:${blob.type || 'image/png'};base64,${base64}`;
 }

@@ -12,6 +12,7 @@
 
 import * as sidebar from '../sidebar';
 import { FeedbackItem } from '../types';
+import { ICON_WARNING } from '../icons';
 import { _resetThemeStateForTests, setThemeMode } from '../theme';
 
 function getHost(): HTMLElement | null {
@@ -802,7 +803,7 @@ describe('sidebar shell', () => {
     expect(notif.classList.contains('warning')).toBe(true);
     // Compared by a distinctive path fragment rather than the whole string:
     // innerHTML round-trips `<path/>` back out as `<path></path>`.
-    expect(sidebar.ICON_WARNING).toContain('M12 7.5v5.5');
+    expect(ICON_WARNING).toContain('M12 7.5v5.5');
     expect(icon.innerHTML).toContain('M12 7.5v5.5');
 
     // An error after a warning swaps back to the error icon.

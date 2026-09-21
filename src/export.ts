@@ -19,8 +19,8 @@ import { buildFeedbackMarkdown } from './bundle';
 import { exportFilename } from './urlNorm';
 import { DomainData } from './types';
 import { ExportResponse } from './messages';
-
-const EXPORT_FAILED_MESSAGE = "couldn't export feedback. try again."; // lowercase, §3.4
+import { EXPORT_FAILED_MESSAGE } from './copy';
+import { dataUrlToBytes, bytesToDataUrl } from './dataUrl';
 
 /**
  * Export every feedback item across every URL of `domain` (§1.6). Returns
@@ -60,11 +60,11 @@ async function buildZipDataUrl(data: DomainData): Promise<string> {
     // than failing the whole export; the item's yaml context and note still
     // export, just without its image.
     if (!dataUrl) continue;
-    files[`screenshots/${item.id}.png`] = dataUrlToUint8Array(dataUrl);
+    files[`screenshots/${item.id}.png`] = dataUrlToBytes(dataUrl);
   }
 
   const zipped = zipSync(files, { level: 6 });
-  return uint8ArrayToDataUrl(zipped, 'application/zip');
+  return bytesToDataUrl(zipped, 'application/zip');
 }
 
 function triggerDownload(dataUrl: string, filename: string): Promise<void> {
@@ -77,35 +77,4 @@ function triggerDownload(dataUrl: string, filename: string): Promise<void> {
       resolve();
     });
   });
-}
-
-/**
- * Mirrors background.ts's dataUrlToBlob, but returns raw bytes: fflate's
- * `zipSync` wants `Uint8Array` entries, not `Blob`, and a service worker has
- * no `URL.createObjectURL` to bridge the two anyway (gotcha #4). Manual
- * base64 decode for the same CSP reason background.ts's version documents —
- * `connect-src 'none'` makes `fetch(dataUrl)` fail even for local data: URLs
- * inside a service worker.
- */
-export function dataUrlToUint8Array(dataUrl: string): Uint8Array {
-  const comma = dataUrl.indexOf(',');
-  if (comma === -1 || !dataUrl.startsWith('data:')) {
-    throw new Error('stored image is not a data url');
-  }
-  const binary = atob(dataUrl.slice(comma + 1));
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
-/** Manual Uint8Array -> data URL conversion (no Blob involved), mirroring
- *  background.ts's blobToDataUrl for the same "no FileReader guarantee in a
- *  service worker" reason (gotcha #4). */
-function uint8ArrayToDataUrl(bytes: Uint8Array, mime: string): string {
-  let binary = '';
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return `data:${mime};base64,${btoa(binary)}`;
 }

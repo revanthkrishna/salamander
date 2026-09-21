@@ -33,6 +33,7 @@ import { ImportError } from './types';
 import { parseFeedbackMarkdown, parseSchemaVersion, fromYamlFeedbackItem, SCHEMA_VERSION } from './bundle';
 import { normaliseDomain } from './urlNorm';
 import { ImportItemPayload } from './messages';
+import { bytesToDataUrl } from './dataUrl';
 
 export interface ParsedImportBundle {
   /** Normalised domain the bundle's items belong to (empty-item bundles have
@@ -138,7 +139,10 @@ export async function parseImportBundle(
 
   const items: ImportItemPayload[] = withNotes.map(({ item, id }) => ({
     ...item,
-    screenshotDataUrl: uint8ArrayToPngDataUrl(entries[`screenshots/${id}.png`]),
+    // Raw PNG bytes -> a data URL, so they can cross the chrome.runtime
+    // boundary as JSON (gotcha #2) and land in imageStore exactly like every
+    // other stored screenshot.
+    screenshotDataUrl: bytesToDataUrl(entries[`screenshots/${id}.png`], 'image/png'),
   }));
 
   // §5 #6 — newer schema version. Warning only; import proceeds.
@@ -157,16 +161,4 @@ function domainOf(pageUrl: string): string {
   } catch {
     return '';
   }
-}
-
-/** Raw PNG bytes (a zip entry) -> a data URL, so they can cross the
- *  chrome.runtime boundary as JSON (gotcha #2) and land in imageStore
- *  (Phase 1) exactly like every other stored screenshot. */
-function uint8ArrayToPngDataUrl(bytes: Uint8Array): string {
-  let binary = '';
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return `data:image/png;base64,${btoa(binary)}`;
 }

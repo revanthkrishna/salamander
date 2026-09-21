@@ -700,56 +700,6 @@ describe('computeThumbnailSize', () => {
 });
 
 // ---------------------------------------------------------------------------
-// dataUrlToBlob — the CSP-safe replacement for fetch(dataUrl)
-// ---------------------------------------------------------------------------
-
-describe('dataUrlToBlob', () => {
-  /** jsdom's Blob has no arrayBuffer()/text() and jsdom has no Response, but
-   *  it does have a working FileReader — enough to read the bytes back out. */
-  function bytesOf(blob: Blob): Promise<number[]> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(Array.from(new Uint8Array(reader.result as ArrayBuffer)));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsArrayBuffer(blob);
-    });
-  }
-
-  async function textOf(blob: Blob): Promise<string> {
-    return String.fromCharCode(...(await bytesOf(blob)));
-  }
-
-  it('decodes a base64 png into bytes, preserving the mime type', async () => {
-    const blob = background.dataUrlToBlob('data:image/png;base64,AAECAw==');
-    expect(blob.type).toBe('image/png');
-    expect(await bytesOf(blob)).toEqual([0, 1, 2, 3]);
-  });
-
-  it('keeps every byte value intact across the 0x80 boundary', async () => {
-    const source = [0, 127, 128, 200, 255];
-    const base64 = Buffer.from(source).toString('base64');
-    const blob = background.dataUrlToBlob(`data:image/png;base64,${base64}`);
-    expect(await bytesOf(blob)).toEqual(source);
-  });
-
-  it('handles a percent-encoded (non-base64) data url', async () => {
-    const blob = background.dataUrlToBlob('data:image/svg+xml,%3Csvg%3E');
-    expect(blob.type).toBe('image/svg+xml');
-    expect(await textOf(blob)).toBe('<svg>');
-  });
-
-  it('defaults the mime type when the header omits it', () => {
-    expect(background.dataUrlToBlob('data:;base64,AAA=').type).toBe('image/png');
-  });
-
-  it('rejects anything that is not a data url', () => {
-    expect(() => background.dataUrlToBlob('https://example.com/a.png')).toThrow(/data url/);
-    expect(() => background.dataUrlToBlob('data:image/png;base64')).toThrow(/data url/);
-    expect(() => background.dataUrlToBlob('' as unknown as string)).toThrow(/data url/);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // handleSaveItem — id allocation and the no-orphan failure path
 // ---------------------------------------------------------------------------
 

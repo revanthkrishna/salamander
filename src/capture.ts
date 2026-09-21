@@ -74,6 +74,7 @@ import type { AddModeResult } from './addMode';
 import type { CapturedContext, FeedbackItem, Rect, ViewportSize } from './types';
 import { captureContext } from './contextCapture';
 import { normaliseDomain, normaliseUrl } from './urlNorm';
+import { CAPTURE_FAILED_MESSAGE } from './copy';
 import type {
   CaptureMessage,
   CaptureResponse,
@@ -97,11 +98,6 @@ export interface OverlayControls {
 export type CaptureOutcome =
   | { ok: true; item: FeedbackItem }
   | { ok: false; message: string };
-
-/** §5 #8, verbatim and lowercase (§3.4). The service worker sends this same
- *  string back for its own failures; this copy covers the failures that happen
- *  before/without a round trip. */
-export const CAPTURE_FAILED_MESSAGE = "couldn't capture a screenshot here. try again.";
 
 /** How long to wait for the post-hide paint before giving up on the frame
  *  clock. requestAnimationFrame is throttled to a standstill in a backgrounded
