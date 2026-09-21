@@ -637,3 +637,15 @@ highlight looks clipped where the curve falls away. Reaching one radius back clo
 The collapsed state must zero the segment's border-width AND its negative margin: under the global
 `box-sizing: border-box` a `width: 0` box cannot shrink below its own border, so a leftover 1px
 would re-create the stray hairline and the 39px group.
+
+## X. Button sizes (2026-09-21)
+
+Three sizes, and no others:
+
+| px | used by |
+|---|---|
+| 28 | the note's hover delete — it sits on a thumbnail, where 32 crowded the image |
+| 32 | close, theme toggle, the enlarged view's delete, the rail's prev/next/exit |
+| 36 | the action row: the add-note group and the export + chevron group |
+
+Icons stay 16px in all three (17px for the add button's comment glyph, 18px for close).

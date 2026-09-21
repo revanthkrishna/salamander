@@ -1368,11 +1368,11 @@ const SIDEBAR_CSS = `
     right: 8px;
     /* Above .thumbnail-image-wrap's z-index: 1, which is what it overlays. */
     z-index: 2;
-    /* 32px — the "small" button size (the close and theme buttons here, and
-       the enlarged view's delete). There are two sizes in this UI and no
-       others: small 32, medium 36 (the action row). */
-    width: 32px;
-    height: 32px;
+    /* 28px. Three button sizes exist and no others: 28 here (this one sits
+       on a thumbnail, where 32 crowded the image), 32 for the close, theme
+       and enlarged-view delete buttons, 36 for the action row. */
+    width: 28px;
+    height: 28px;
     margin: 0;
     padding: 0;
     display: flex;

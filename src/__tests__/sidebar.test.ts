@@ -2092,8 +2092,10 @@ describe('note-in-list hover delete (design spec v4 §L)', () => {
     expect(rule).toMatch(/right:\s*8px/);
     // .thumbnail-image-wrap carries z-index 1; this overlays it.
     expect(rule).toMatch(/z-index:\s*2/);
-    expect(rule).toMatch(/width:\s*32px/);
-    expect(rule).toMatch(/height:\s*32px/);
+    // 28px: it sits on a thumbnail, where the 32px of the close/theme
+    // buttons crowded the image. Three sizes exist — 28, 32, 36.
+    expect(rule).toMatch(/width:\s*28px/);
+    expect(rule).toMatch(/height:\s*28px/);
     // Inside the <li> dockMotion.ts transforms, so it magnifies with its item.
     expect(cssRule('.thumbnail-item')).toMatch(/transform-origin:\s*right center/);
   });
