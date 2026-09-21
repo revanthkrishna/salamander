@@ -463,21 +463,36 @@ describe('add mode', () => {
     expect(visualsEl().dataset.preview).toBeUndefined();
   });
 
-  test('the preview disappears as soon as a placement gesture begins (mousedown), before click vs. drag resolves', () => {
+  test('the preview holds through the press, and a drag hands over to the real rect', () => {
     addMode.startAddMode(makeCallbacks());
     mousemove(300, 300);
     expect(visualsEl().dataset.preview).toBe('true');
 
+    // It deliberately survives mousedown. Dropping it here left NOTHING
+    // drawn between mousedown and mouseup — the whole duration of a click —
+    // so the outline and the scrim's hole blinked out and back as the box
+    // was placed.
     mousedown(blocker(), 300, 300);
-    expect(visualsEl().dataset.preview).toBeUndefined();
-    expect(previewTooltipEl().dataset.visible).toBeUndefined();
+    expect(visualsEl().dataset.preview).toBe('true');
 
-    mousemove(500, 450); // now drawing — still no preview, only the real (has-box) rect
+    mousemove(500, 450); // a drag: the real (has-box) rect takes over
     expect(visualsEl().dataset.preview).toBeUndefined();
     expect(visualsEl().dataset.hasBox).toBe('true');
 
     mouseup(500, 450);
     expect(visualsEl().dataset.preview).toBeUndefined();
+  });
+
+  test('the preview stops tracking the cursor once the press begins', () => {
+    addMode.startAddMode(makeCallbacks());
+    mousemove(300, 300);
+    const held = { left: boxEl().style.left, top: boxEl().style.top };
+    mousedown(blocker(), 300, 300);
+    // Below the drag threshold: still a click, and the preview must not
+    // creep with the pointer while the button is held.
+    mousemove(302, 301);
+    expect(visualsEl().dataset.preview).toBe('true');
+    expect({ left: boxEl().style.left, top: boxEl().style.top }).toEqual(held);
   });
 
   test('the preview is gone for good once a rect is placed by a plain click, and does not come back on further pointer moves', () => {

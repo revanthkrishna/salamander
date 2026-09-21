@@ -607,6 +607,23 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
 
   applyReducedMotion();
 
+  // Seeded with a live pointer (sidebar.ts re-attaching after a repaint):
+  // jump straight to the settled state instead of springing up from rest.
+  // Every spring here starts at 0, so without this the row under the cursor
+  // paints unmagnified for a frame and then swells — read as a flicker,
+  // because from the user's side nothing happened except a note above it
+  // disappearing.
+  if (pointerY !== null && !reduced && !suspended) {
+    measure();
+    retarget();
+    for (let i = 0; i < items.length; i++) {
+      const t = targets[i] ?? 0;
+      items[i].influence = { x: t, v: 0 };
+      items[i].note = { x: i === noteIndex ? 1 : 0, v: 0 };
+    }
+    write();
+  }
+
   return {
     refresh(): void {
       onLayoutChange();

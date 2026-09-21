@@ -978,11 +978,13 @@ function handleBlockerMouseDown(e: MouseEvent): void {
   if (e.button !== 0) return;
   e.preventDefault();
 
-  // The preview is gone for good once a placement gesture begins (design
-  // spec §G) — a click has no intermediate mousemove before its matching
-  // mouseup, so this is the only reliable place to drop it for that path.
-  hidePreview();
-
+  // The preview deliberately stays up through the press. Dropping it here
+  // left nothing drawn at all between mousedown and mouseup — the whole
+  // duration of a click — so the outline and the scrim's hole blinked out
+  // and back as the box was placed. onPlacementHoverMove stops tracking the
+  // moment placeStart is set, so it simply holds still under the cursor
+  // until either a drag takes over (below) or finalizePlacement() swaps in
+  // the real box.
   placeStart = { x: e.clientX, y: e.clientY };
   placeDragging = false;
   document.addEventListener('mousemove', onPlacementMove);
@@ -995,7 +997,12 @@ function onPlacementMove(e: MouseEvent): void {
   const dx = e.clientX - placeStart.x;
   const dy = e.clientY - placeStart.y;
   if (!placeDragging && Math.hypot(dx, dy) < DRAG_THRESHOLD) return; // still might resolve as a click
-  placeDragging = true;
+  if (!placeDragging) {
+    // A drag, not a click: the real box takes over from here, so the preview
+    // goes now (design spec §G, "hides when a drag starts").
+    placeDragging = true;
+    hidePreview();
+  }
 
   const bounds = getBounds();
   box = computeDragBox(placeStart.x, placeStart.y, e.clientX, e.clientY, bounds);
