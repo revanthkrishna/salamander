@@ -2088,8 +2088,13 @@ describe('note-in-list hover delete (design spec v4 §L)', () => {
     sidebar.initSidebar(makeCallbacks());
     const rule = cssRule('.thumbnail-delete');
     expect(rule).toMatch(/position:\s*absolute/);
-    expect(rule).toMatch(/top:\s*8px/);
-    expect(rule).toMatch(/right:\s*8px/);
+    // NOTE_INSET_PX: one spacing for the whole note card, so the badge, this
+    // and the note text all line up (§L).
+    expect(rule).toMatch(/top:\s*10px/);
+    expect(rule).toMatch(/right:\s*10px/);
+    const badge = cssRule('.thumbnail-badge');
+    expect(badge).toMatch(/top:\s*10px/);
+    expect(badge).toMatch(/left:\s*10px/);
     // .thumbnail-image-wrap carries z-index 1; this overlays it.
     expect(rule).toMatch(/z-index:\s*2/);
     // 28px: it sits on a thumbnail, where the 32px of the close/theme

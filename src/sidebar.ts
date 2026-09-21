@@ -1235,8 +1235,12 @@ const SIDEBAR_CSS = `
 
   .thumbnail-badge {
     position: absolute;
-    top: 8px;
-    left: 8px;
+    /* NOTE_INSET_PX, the note's single spacing value: the badge, the hover
+       delete and the note text all sit that far in, so the badge's left edge
+       lines up with the text's below it and the delete's right edge with the
+       text's right. */
+    top: ${NOTE_INSET_PX}px;
+    left: ${NOTE_INSET_PX}px;
     min-width: 20px;
     height: 20px;
     padding: 0 6px;
@@ -1364,8 +1368,10 @@ const SIDEBAR_CSS = `
      its own item, and :focus-visible below brings it into view. */
   .thumbnail-delete {
     position: absolute;
-    top: 8px;
-    right: 8px;
+    /* NOTE_INSET_PX — the same spacing as the badge opposite it and the note
+       text below (see .thumbnail-badge). */
+    top: ${NOTE_INSET_PX}px;
+    right: ${NOTE_INSET_PX}px;
     /* Above .thumbnail-image-wrap's z-index: 1, which is what it overlays. */
     z-index: 2;
     /* 28px. Three button sizes exist and no others: 28 here (this one sits
