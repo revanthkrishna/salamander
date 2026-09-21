@@ -57,6 +57,8 @@ import {
   ImportReplaceResponse,
   GetDomainItemCountMessage,
   GetDomainItemCountResponse,
+  MessageHandlers,
+  MessageType,
 } from './messages';
 
 const CONTENT_SCRIPT = 'dist/content.js';
@@ -149,66 +151,59 @@ chrome.tabs.onRemoved.addListener(handleTabRemoved);
 // Runtime messages from content scripts: sidebar state + screenshot capture
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * One handler per content->background message type, declared over
+ * messages.ts's MessageMap so the table fails to compile when a message is
+ * added without a handler (or a handler answers with the wrong shape). The
+ * two notifications return nothing; every other entry returns the promise
+ * of its response.
+ */
+const handlers: MessageHandlers = {
+  SIDEBAR_OPENED: (_message, sender) => {
+    const tabId = sender.tab?.id;
+    if (tabId !== undefined) void setSidebarOpen(tabId);
+  },
+  SIDEBAR_CLOSED: (_message, sender) => {
+    const tabId = sender.tab?.id;
+    if (tabId !== undefined) void clearSidebarState(tabId);
+  },
+  CAPTURE: (message, sender) => handleCapture(message, sender),
+  SAVE_ITEM: (message) => handleSaveItem(message),
+  GET_PAGE_ITEMS: (message) => handleGetPageItems(message),
+  GET_IMAGE: (message) => handleGetImage(message),
+  UPDATE_ITEM: (message) => handleUpdateItem(message),
+  UPDATE_NOTE: (message) => handleUpdateNote(message),
+  DELETE_ITEM: (message) => handleDeleteItem(message),
+  EXPORT: (message) => handleExport(message),
+  GET_DOMAIN_ITEM_COUNT: (message) => handleGetDomainItemCount(message),
+  IMPORT_REPLACE: (message) => handleImportReplace(message),
+};
+
+function isKnownMessageType(type: unknown): type is MessageType {
+  return typeof type === 'string' && Object.prototype.hasOwnProperty.call(handlers, type);
+}
+
+/** chrome.runtime.onMessage listener. Returns true to keep the channel open
+ *  for an async response, false for a notification or a message that isn't
+ *  ours (PING/ACTIVATE/ICON_CLICKED are background->content). */
 export function handleRuntimeMessage(
   message: unknown,
   sender: chrome.runtime.MessageSender,
   sendResponse: (response?: unknown) => void,
 ): boolean {
-  const type = (message as { type?: string } | null | undefined)?.type;
-  switch (type) {
-    case 'SIDEBAR_OPENED': {
-      const tabId = sender.tab?.id;
-      if (tabId !== undefined) void setSidebarOpen(tabId);
-      return false;
-    }
-    case 'SIDEBAR_CLOSED': {
-      const tabId = sender.tab?.id;
-      if (tabId !== undefined) void clearSidebarState(tabId);
-      return false;
-    }
-    case 'CAPTURE': {
-      handleCapture(message as CaptureMessage, sender).then(sendResponse);
-      return true; // keep the message channel open for the async response
-    }
-    case 'SAVE_ITEM': {
-      handleSaveItem(message as SaveItemMessage).then(sendResponse);
-      return true; // keep the message channel open for the async response
-    }
-    case 'GET_PAGE_ITEMS': {
-      handleGetPageItems(message as GetPageItemsMessage).then(sendResponse);
-      return true; // keep the message channel open for the async response
-    }
-    case 'GET_IMAGE': {
-      handleGetImage(message as GetImageMessage).then(sendResponse);
-      return true; // keep the message channel open for the async response
-    }
-    case 'UPDATE_ITEM': {
-      handleUpdateItem(message as UpdateItemMessage).then(sendResponse);
-      return true; // keep the message channel open for the async response
-    }
-    case 'UPDATE_NOTE': {
-      handleUpdateNote(message as UpdateNoteMessage).then(sendResponse);
-      return true; // keep the message channel open for the async response
-    }
-    case 'DELETE_ITEM': {
-      handleDeleteItem(message as DeleteItemMessage).then(sendResponse);
-      return true; // keep the message channel open for the async response
-    }
-    case 'EXPORT': {
-      handleExport(message as ExportMessage).then(sendResponse);
-      return true; // keep the message channel open for the async response
-    }
-    case 'GET_DOMAIN_ITEM_COUNT': {
-      handleGetDomainItemCount(message as GetDomainItemCountMessage).then(sendResponse);
-      return true; // keep the message channel open for the async response
-    }
-    case 'IMPORT_REPLACE': {
-      handleImportReplace(message as ImportReplaceMessage).then(sendResponse);
-      return true; // keep the message channel open for the async response
-    }
-    default:
-      return false; // PING/ACTIVATE/ICON_CLICKED are background->content; not ours to handle
-  }
+  const type = (message as { type?: unknown } | null | undefined)?.type;
+  if (!isKnownMessageType(type)) return false;
+  // The table is exhaustive by type, so the message's shape is fixed by the
+  // key it was looked up under; the widening here is the runtime boundary's
+  // one unavoidable cast.
+  const handler = handlers[type] as (
+    message: unknown,
+    sender: chrome.runtime.MessageSender,
+  ) => Promise<unknown> | void;
+  const result = handler(message, sender);
+  if (!result) return false;
+  void result.then(sendResponse);
+  return true;
 }
 
 chrome.runtime.onMessage.addListener(handleRuntimeMessage);

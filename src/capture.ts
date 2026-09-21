@@ -75,13 +75,8 @@ import type { CapturedContext, FeedbackItem, Rect, ViewportSize } from './types'
 import { captureContext } from './contextCapture';
 import { normaliseDomain, normaliseUrl } from './urlNorm';
 import { CAPTURE_FAILED_MESSAGE } from './copy';
-import type {
-  CaptureMessage,
-  CaptureResponse,
-  NewFeedbackItem,
-  SaveItemMessage,
-  SaveItemResponse,
-} from './messages';
+import { send } from './rpc';
+import type { CaptureMessage, NewFeedbackItem, SaveItemMessage } from './messages';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -193,30 +188,6 @@ export function waitForNextPaint(timeoutMs: number = PAINT_TIMEOUT_MS): Promise<
 }
 
 // ---------------------------------------------------------------------------
-// Messaging helpers
-// ---------------------------------------------------------------------------
-
-/** chrome.runtime.sendMessage as a promise that never rejects: a dead service
- *  worker or a torn-down port surfaces as `undefined`, which every caller
- *  already has to treat as a failure anyway. */
-function sendMessage<TResponse>(message: unknown): Promise<TResponse | undefined> {
-  return new Promise((resolve) => {
-    try {
-      chrome.runtime.sendMessage(message, (response: TResponse | undefined) => {
-        if (chrome.runtime.lastError) {
-          resolve(undefined);
-          return;
-        }
-        resolve(response);
-      });
-    } catch {
-      // Extension context invalidated (e.g. reloaded while the page stayed open).
-      resolve(undefined);
-    }
-  });
-}
-
-// ---------------------------------------------------------------------------
 // The pipeline
 // ---------------------------------------------------------------------------
 
@@ -275,7 +246,7 @@ export async function captureAndSave(
     // the blocker stays up for that whole window, which is the right trade:
     // a brief pause beats either a captured overlay or Chrome's opaque
     // rate-limit error.
-    const captured = await sendMessage<CaptureResponse>(captureMessage);
+    const captured = await send(captureMessage);
     if (!captured || !captured.ok) {
       overlay.show();
       return { ok: false, message: captured?.message ?? CAPTURE_FAILED_MESSAGE };
@@ -299,7 +270,7 @@ export async function captureAndSave(
       domain: normaliseDomain(location.host),
       item: newItem,
     };
-    const saved = await sendMessage<SaveItemResponse>(saveMessage);
+    const saved = await send(saveMessage);
     if (!saved || !saved.ok) {
       overlay.show();
       return { ok: false, message: saved?.message ?? CAPTURE_FAILED_MESSAGE };

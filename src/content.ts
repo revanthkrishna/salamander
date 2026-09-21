@@ -57,23 +57,17 @@ import {
   importReplaceConfirmMessage,
 } from './copy';
 import { FeedbackItem, ImportError } from './types';
+import { send } from './rpc';
 import {
   SidebarOpenedMessage,
   SidebarClosedMessage,
   GetPageItemsMessage,
-  GetPageItemsResponse,
   GetImageMessage,
-  GetImageResponse,
   UpdateItemMessage,
-  UpdateItemResponse,
   DeleteItemMessage,
-  DeleteItemResponse,
   ExportMessage,
-  ExportResponse,
   ImportReplaceMessage,
-  ImportReplaceResponse,
   GetDomainItemCountMessage,
-  GetDomainItemCountResponse,
 } from './messages';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -469,13 +463,11 @@ function toggleSidebar(): void {
   }
 }
 
+/** Fire-and-forget: the background/service worker not being reachable is
+ *  not actionable here — the persisted "sidebar open" state simply won't
+ *  update this time. */
 function notifyBackground(message: SidebarOpenedMessage | SidebarClosedMessage): void {
-  chrome.runtime.sendMessage(message, () => {
-    if (chrome.runtime.lastError) {
-      // Background/service worker not reachable — nothing actionable here;
-      // the persisted "sidebar open" state simply won't update this time.
-    }
-  });
+  void send(message);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -525,27 +517,6 @@ function handleUrlChange(): void {
 // Phase 7 — thumbnail list + enlarged view message plumbing
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** chrome.runtime.sendMessage as a promise that never rejects: a dead service
- *  worker or a torn-down port surfaces as `undefined`, which every caller
- *  here already has to treat as a failure. Mirrors capture.ts's private
- *  helper of the same shape. */
-function sendMessage<TResponse>(message: unknown): Promise<TResponse | undefined> {
-  return new Promise((resolve) => {
-    try {
-      chrome.runtime.sendMessage(message, (response: TResponse | undefined) => {
-        if (chrome.runtime.lastError) {
-          resolve(undefined);
-          return;
-        }
-        resolve(response);
-      });
-    } catch {
-      // Extension context invalidated (e.g. reloaded while the page stayed open).
-      resolve(undefined);
-    }
-  });
-}
-
 /** Fetch the current URL's feedback items and repaint the sidebar's thumbnail
  *  list (§1.5 — "current URL only"). Called on open, on every SPA navigation,
  *  after a successful capture, and after the enlarged view closes (an edit or
@@ -556,7 +527,7 @@ async function refreshThumbnails(): Promise<void> {
     domain: normaliseDomain(location.host),
     normalisedUrl: normaliseUrl(location.href),
   };
-  const response = await sendMessage<GetPageItemsResponse>(message);
+  const response = await send(message);
   if (!response || !response.ok) {
     sidebar.setThumbnails([]);
     if (response && !response.ok) sidebar.showError(response.message);
@@ -580,7 +551,7 @@ async function handleDeleteItem(item: FeedbackItem): Promise<void> {
     normalisedUrl: item.normalisedUrl,
     itemId: item.id,
   };
-  const response = await sendMessage<DeleteItemResponse>(message);
+  const response = await send(message);
   if (response?.ok !== true) {
     sidebar.showError(DELETE_ERROR_MESSAGE);
     return;
@@ -604,7 +575,7 @@ async function handleExport(): Promise<void> {
       type: 'EXPORT',
       domain: normaliseDomain(location.host),
     };
-    const response = await sendMessage<ExportResponse>(message);
+    const response = await send(message);
     if (!response) {
       sidebar.showError(EXPORT_FAILED_MESSAGE);
       return;
@@ -654,7 +625,7 @@ async function handleImportFile(file: File): Promise<void> {
       type: 'GET_DOMAIN_ITEM_COUNT',
       domain: currentDomain,
     };
-    const countResponse = await sendMessage<GetDomainItemCountResponse>(countMessage);
+    const countResponse = await send(countMessage);
     const existingCount = countResponse?.ok ? countResponse.count : 0;
 
     if (existingCount > 0) {
@@ -668,7 +639,7 @@ async function handleImportFile(file: File): Promise<void> {
       domain: currentDomain,
       items: bundle.items,
     };
-    const replaceResponse = await sendMessage<ImportReplaceResponse>(replaceMessage);
+    const replaceResponse = await send(replaceMessage);
     if (!replaceResponse || !replaceResponse.ok) {
       sidebar.showError(replaceResponse?.message ?? IMPORT_FAILED_MESSAGE);
       return;
@@ -696,7 +667,7 @@ function openItemEnlarged(item: FeedbackItem): void {
   sidebar.openEnlargedView(item.id, {
     fetchFullImage: async (target) => {
       const getImage: GetImageMessage = { type: 'GET_IMAGE', screenshotKey: target.screenshotKey };
-      const response = await sendMessage<GetImageResponse>(getImage);
+      const response = await send(getImage);
       return response && response.ok ? response.dataUrl : null;
     },
     onSaveNote: async (target, note) => {
@@ -707,7 +678,7 @@ function openItemEnlarged(item: FeedbackItem): void {
         itemId: target.id,
         patch: { note },
       };
-      const response = await sendMessage<UpdateItemResponse>(updateItem);
+      const response = await send(updateItem);
       return response?.ok === true;
     },
     onDelete: async (target) => {
@@ -717,7 +688,7 @@ function openItemEnlarged(item: FeedbackItem): void {
         normalisedUrl: target.normalisedUrl,
         itemId: target.id,
       };
-      const response = await sendMessage<DeleteItemResponse>(deleteItemMsg);
+      const response = await send(deleteItemMsg);
       return response?.ok === true;
     },
     onClosed: (currentId) => {

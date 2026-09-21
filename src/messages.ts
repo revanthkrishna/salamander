@@ -432,3 +432,56 @@ export type ContentToBackgroundMessage =
   | ExportMessage
   | ImportReplaceMessage
   | GetDomainItemCountMessage;
+
+// ---------------------------------------------------------------------------
+// The request map — what makes the channel typed at both ends
+// ---------------------------------------------------------------------------
+//
+// One entry per content->background message: `[request, response]`. The
+// content script's `send()` (src/rpc.ts) derives its return type from the
+// request it is given, and the service worker's handler table
+// (background.ts) is declared over these keys, so a new member of
+// ContentToBackgroundMessage without an entry here, or an entry without a
+// handler, is a compile error rather than a message that silently goes
+// unanswered. `void` marks the two fire-and-forget notifications, which
+// have no response at all.
+
+export interface MessageMap {
+  SIDEBAR_OPENED: [SidebarOpenedMessage, void];
+  SIDEBAR_CLOSED: [SidebarClosedMessage, void];
+  CAPTURE: [CaptureMessage, CaptureResponse];
+  SAVE_ITEM: [SaveItemMessage, SaveItemResponse];
+  GET_PAGE_ITEMS: [GetPageItemsMessage, GetPageItemsResponse];
+  GET_IMAGE: [GetImageMessage, GetImageResponse];
+  UPDATE_ITEM: [UpdateItemMessage, UpdateItemResponse];
+  UPDATE_NOTE: [UpdateNoteMessage, UpdateNoteResponse];
+  DELETE_ITEM: [DeleteItemMessage, DeleteItemResponse];
+  EXPORT: [ExportMessage, ExportResponse];
+  IMPORT_REPLACE: [ImportReplaceMessage, ImportReplaceResponse];
+  GET_DOMAIN_ITEM_COUNT: [GetDomainItemCountMessage, GetDomainItemCountResponse];
+}
+
+export type MessageType = keyof MessageMap;
+export type RequestOf<K extends MessageType> = MessageMap[K][0];
+export type ResponseOf<K extends MessageType> = MessageMap[K][1];
+
+/** The response for a given request type, looked up by its `type` literal. */
+export type ResponseFor<M extends ContentToBackgroundMessage> = ResponseOf<M['type']>;
+
+/**
+ * One service-worker handler. A message with a response returns it as a
+ * promise (the channel is held open until it settles); a notification
+ * handler returns nothing and the channel closes at once.
+ */
+export type MessageHandler<K extends MessageType> = ResponseOf<K> extends void
+  ? (message: RequestOf<K>, sender: chrome.runtime.MessageSender) => void
+  : (message: RequestOf<K>, sender: chrome.runtime.MessageSender) => Promise<ResponseOf<K>>;
+
+/** The complete handler table — every key of MessageMap, no extras. */
+export type MessageHandlers = { [K in MessageType]: MessageHandler<K> };
+
+// Compile-time guard: MessageMap's keys and ContentToBackgroundMessage's
+// `type` literals must be the same set, in both directions.
+type MapKeysCoverUnion = [ContentToBackgroundMessage['type']] extends [MessageType] ? true : never;
+type UnionCoversMapKeys = [MessageType] extends [ContentToBackgroundMessage['type']] ? true : never;
+export const MESSAGE_MAP_IS_COMPLETE: MapKeysCoverUnion & UnionCoversMapKeys = true;
