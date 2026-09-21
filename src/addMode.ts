@@ -192,13 +192,19 @@ const ADD_MODE_CSS = `
     pointer-events: none;
   }
 
-  /* Selection outline: 2px accent plus a 1px keyline outside it, so it reads
-     on both light and dark pages. No hover/press styling — only the cursor
-     over the hit zones below changes. */
+  /* Selection outline: a 2px dotted accent line with a 1px keyline outside
+     it, so it reads on both light and dark pages. Drawn with outline rather
+     than border: the box's rect IS the selection, and a border would eat 2px
+     of it on every side (box-sizing is border-box here), moving what gets
+     captured. The keyline stays a box-shadow, sitting just outside the
+     dotted line rather than between it and the page. No hover/press styling
+     — only the cursor over the hit zones below changes. */
   .box {
     position: absolute;
     border-radius: var(--sal-radius-md);
-    box-shadow: 0 0 0 2px var(--sal-accent), 0 0 0 3px var(--sal-keyline);
+    outline: 2px dotted var(--sal-accent);
+    outline-offset: 0;
+    box-shadow: 0 0 0 3px var(--sal-keyline);
     background: transparent;
     pointer-events: none;
   }

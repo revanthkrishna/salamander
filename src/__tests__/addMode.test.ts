@@ -748,11 +748,16 @@ describe('add mode', () => {
     expect(cssRule('.scrim-layer')).toMatch(/pointer-events:\s*none/);
   });
 
-  test('the selection box has a radius-md outline of accent + keyline and no hover/press styling', () => {
+  test('the selection box has a radius-md dotted outline of accent + keyline and no hover/press styling', () => {
     addMode.startAddMode(makeCallbacks());
     const rule = cssRule('.box');
     expect(rule).toMatch(/border-radius:\s*var\(--sal-radius-md\)/);
-    expect(rule).toMatch(/box-shadow:\s*0 0 0 2px var\(--sal-accent\), 0 0 0 3px var\(--sal-keyline\)/);
+    // An outline, not a border: the box's rect IS the selection, and a
+    // border would eat into it (box-sizing: border-box) and move what gets
+    // captured.
+    expect(rule).toMatch(/outline:\s*2px dotted var\(--sal-accent\)/);
+    expect(rule).not.toMatch(/border:\s*2px/);
+    expect(rule).toMatch(/box-shadow:\s*0 0 0 3px var\(--sal-keyline\)/);
     expect(addModeOwnCSS()).not.toMatch(/\.box:(hover|active)/);
     expect(addModeOwnCSS()).not.toMatch(/\.resize-zone:(hover|active)/);
   });
