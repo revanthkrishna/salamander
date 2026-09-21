@@ -71,6 +71,14 @@ function commentBoxEl(): HTMLElement | null {
   return shadowRoot().querySelector('.comment-box');
 }
 
+function visualsEl(): HTMLElement {
+  return shadowRoot().querySelector('.visuals') as HTMLElement;
+}
+
+function previewTooltipEl(): HTMLElement {
+  return shadowRoot().querySelector('.preview-tooltip') as HTMLElement;
+}
+
 function stylesheetText(): string {
   return (shadowRoot().querySelector('style') as HTMLStyleElement).textContent ?? '';
 }
@@ -364,6 +372,168 @@ describe('add mode', () => {
     place(blocker(), 700, 600);
     expect(addMode._boxForTests()).toEqual(before);
     expect(addMode.isAddModeActive()).toBe(true);
+  });
+
+  // ── add-mode preview: the selection rect follows the cursor (design spec §G) ──
+
+  test('a pointer move during placing shows a preview using the exact click-to-place box, faded in', () => {
+    addMode.startAddMode(makeCallbacks());
+    expect(visualsEl().dataset.preview).toBeUndefined();
+
+    mousemove(300, 200);
+
+    const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
+    const expected = expectedDefaultBox(300, 200, bounds);
+    // "uses the same rect as computeDefaultBox" — same box, same clamping.
+    expect(visualsEl().dataset.preview).toBe('true');
+    expect(visualsEl().dataset.previewVisible).toBe('true');
+    expect(boxEl().dataset.preview).toBe('true');
+    expect([boxEl().style.left, boxEl().style.top, boxEl().style.width, boxEl().style.height]).toEqual([
+      `${expected.x}px`, `${expected.y}px`, `${expected.width}px`, `${expected.height}px`,
+    ]);
+    const scrim = shadowRoot().querySelector('.scrim') as HTMLElement;
+    expect([scrim.style.left, scrim.style.top, scrim.style.width, scrim.style.height]).toEqual([
+      `${expected.x}px`, `${expected.y}px`, `${expected.width}px`, `${expected.height}px`,
+    ]);
+
+    // no resize zones and no comment box during the preview
+    expect(visualsEl().dataset.hasBox).toBeUndefined();
+    expect(commentBoxEl()).toBeNull();
+
+    expect(cssRule('.preview-tooltip')).toMatch(/opacity:\s*0/);
+    expect(cssRule('.preview-tooltip')).toMatch(/transition:\s*opacity 120ms/);
+    expect(addModeOwnCSS()).toMatch(/\.preview-tooltip\[data-visible="true"\]\s*\{\s*opacity:\s*1/);
+  });
+
+  test('the preview follows the pointer 1:1 as it moves, with no comment box or resize zones appearing', () => {
+    addMode.startAddMode(makeCallbacks());
+    mousemove(300, 200);
+    const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
+
+    mousemove(500, 450);
+    const expected = expectedDefaultBox(500, 450, bounds);
+    expect(boxEl().style.left).toBe(`${expected.x}px`);
+    expect(boxEl().style.top).toBe(`${expected.y}px`);
+    expect(commentBoxEl()).toBeNull();
+    expect(shadowRoot().querySelectorAll('.resize-zone')).toHaveLength(8); // present but still hidden
+    for (const z of Array.from(shadowRoot().querySelectorAll('.resize-zone'))) {
+      expect((z as HTMLElement).style.left).toBe(''); // never laid out — renderZones() never ran
+    }
+  });
+
+  test('the preview is clamped at the viewport edges, exactly like a real click there', () => {
+    addMode.startAddMode(makeCallbacks());
+    const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
+
+    mousemove(5, 5); // naive centering would push both edges negative
+    let expected = expectedDefaultBox(5, 5, bounds);
+    expect(expected.x).toBe(0);
+    expect(expected.y).toBe(0);
+    expect(boxEl().style.left).toBe('0px');
+    expect(boxEl().style.top).toBe('0px');
+
+    mousemove(bounds.width - 5, bounds.height - 5); // bottom-right corner
+    expected = expectedDefaultBox(bounds.width - 5, bounds.height - 5, bounds);
+    expect(boxEl().style.left).toBe(`${expected.x}px`);
+    expect(boxEl().style.top).toBe(`${expected.y}px`);
+    expect(expected.x + expected.width).toBe(bounds.width);
+    expect(expected.y + expected.height).toBe(bounds.height);
+  });
+
+  test('the preview hides the moment the pointer moves past the selectable area onto the sidebar', () => {
+    addMode.startAddMode(makeCallbacks());
+    const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
+    mousemove(300, 300);
+    expect(visualsEl().dataset.preview).toBe('true');
+
+    mousemove(bounds.width + 10, 300); // now over the sidebar strip
+    expect(visualsEl().dataset.preview).toBeUndefined();
+    expect(previewTooltipEl().dataset.visible).toBeUndefined();
+  });
+
+  test('the preview hides when the pointer leaves the browser viewport entirely', () => {
+    addMode.startAddMode(makeCallbacks());
+    mousemove(300, 300);
+    expect(visualsEl().dataset.preview).toBe('true');
+
+    document.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: null }));
+    expect(visualsEl().dataset.preview).toBeUndefined();
+  });
+
+  test('the preview disappears as soon as a placement gesture begins (mousedown), before click vs. drag resolves', () => {
+    addMode.startAddMode(makeCallbacks());
+    mousemove(300, 300);
+    expect(visualsEl().dataset.preview).toBe('true');
+
+    mousedown(blocker(), 300, 300);
+    expect(visualsEl().dataset.preview).toBeUndefined();
+    expect(previewTooltipEl().dataset.visible).toBeUndefined();
+
+    mousemove(500, 450); // now drawing — still no preview, only the real (has-box) rect
+    expect(visualsEl().dataset.preview).toBeUndefined();
+    expect(visualsEl().dataset.hasBox).toBe('true');
+
+    mouseup(500, 450);
+    expect(visualsEl().dataset.preview).toBeUndefined();
+  });
+
+  test('the preview is gone for good once a rect is placed by a plain click, and does not come back on further pointer moves', () => {
+    addMode.startAddMode(makeCallbacks());
+    mousemove(300, 200);
+    expect(visualsEl().dataset.preview).toBe('true');
+
+    place(blocker(), 300, 200);
+
+    expect(visualsEl().dataset.preview).toBeUndefined();
+    expect(visualsEl().dataset.previewVisible).toBeUndefined();
+    expect(boxEl().dataset.preview).toBeUndefined();
+    expect(visualsEl().dataset.hasBox).toBe('true');
+
+    mousemove(500, 400); // 'editing' now — must not resurrect the preview
+    expect(visualsEl().dataset.preview).toBeUndefined();
+  });
+
+  test('the tooltip reads "click or drag to select" (lowercase), tracks the cursor with the preview, and is hidden once a rect is placed', () => {
+    addMode.startAddMode(makeCallbacks());
+    const tooltip = previewTooltipEl();
+    expect(tooltip.textContent).toBe('click or drag to select');
+    expect(tooltip.dataset.visible).toBeUndefined();
+    expect(tooltip.getAttribute('aria-hidden')).toBe('true');
+
+    mousemove(300, 200);
+    expect(tooltip.dataset.visible).toBe('true');
+    // offset (+16, +20) from the cursor per design spec §G, unless that would
+    // overflow the bounds (not the case here).
+    expect(tooltip.style.left).toBe('316px');
+    expect(tooltip.style.top).toBe('220px');
+
+    place(blocker(), 300, 200);
+    expect(tooltip.dataset.visible).toBeUndefined();
+  });
+
+  test('the tooltip flips to stay clamped within the viewport near the bottom-right edge', () => {
+    addMode.startAddMode(makeCallbacks());
+    const bounds = { width: 1200 - getSidebarWidth(), height: 800 };
+    const tooltip = previewTooltipEl();
+
+    mousemove(bounds.width - 2, bounds.height - 2);
+
+    const left = parseFloat(tooltip.style.left);
+    const top = parseFloat(tooltip.style.top);
+    expect(left).toBeGreaterThanOrEqual(0);
+    expect(top).toBeGreaterThanOrEqual(0);
+    expect(left).toBeLessThanOrEqual(bounds.width);
+    expect(top).toBeLessThanOrEqual(bounds.height);
+  });
+
+  test('the preview and tooltip stay inside .visuals, so hideOverlayUI() keeps them out of a screenshot', () => {
+    addMode.startAddMode(makeCallbacks());
+    mousemove(300, 200);
+    expect(visualsEl().contains(boxEl())).toBe(true);
+    expect(visualsEl().contains(previewTooltipEl())).toBe(true);
+
+    addMode.hideOverlayUI();
+    expect(visualsEl().getAttribute('data-hidden')).toBe('true');
   });
 
   // ── placement (drag-to-draw + click-vs-drag threshold) ───────────────────

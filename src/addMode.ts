@@ -8,8 +8,11 @@
 // (custom-sized box between mousedown and mouseup, 5px movement threshold to
 // distinguish the two), resize from any edge or corner via invisible hit
 // zones (20x20 minimum), a macOS-screenshot-style dimming scrim outside the
-// rounded box, full suppression of page interaction while active, and the
-// attached comment box (textarea / counter / cancel / save).
+// rounded box, full suppression of page interaction while active, the
+// attached comment box (textarea / counter / cancel / save), and — while
+// 'placing' and nothing has been drawn yet — a preview of the exact
+// click-to-place box plus a "click or drag to select" tooltip, both
+// following the cursor (design spec §G).
 //
 // What this module does NOT do: capture a screenshot, talk to the service
 // worker, or build DOM/context data. That is Phase 5 (src/capture.ts) and
@@ -106,6 +109,19 @@ const SAVE_LABEL = 'save';
 const SAVING_LABEL = 'saving\u2026';
 const CORNER_ZONE = 16;
 
+/** Preview tooltip (design spec \u00a7G): fixed lowercase copy (\u00a73.4), offset
+ *  down-right of the cursor, flipped/clamped like computeCommentPosition()
+ *  so it can never render off the selectable area. */
+const PREVIEW_TOOLTIP_TEXT = 'click or drag to select';
+const TOOLTIP_OFFSET_X = 16;
+const TOOLTIP_OFFSET_Y = 20;
+/** Fallback size before the tooltip's first real layout pass (offsetWidth/
+ *  Height are 0 in plain jsdom, same rationale as COMMENT_FALLBACK_HEIGHT) \u2014
+ *  sized to roughly fit "click or drag to select" at 12px with the padding
+ *  above. */
+const TOOLTIP_FALLBACK_WIDTH = 150;
+const TOOLTIP_FALLBACK_HEIGHT = 28;
+
 type ZoneKey = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 /** Edges first, corners last: at small box sizes the corner squares overlap
  *  the ends of the edge strips, and later siblings win the hit test, so a
@@ -188,6 +204,55 @@ const ADD_MODE_CSS = `
        must opt back in or no mousedown ever reaches them. */
     pointer-events: auto;
   }
+
+  /* Add-mode preview (design spec §G): while 'placing' and before any box
+     has been placed, hovering shows the same box+scrim visuals as a live
+     preview of the box a click would produce right now. These two rules are
+     an equal-specificity override of the ".visuals:not([data-has-box]) ..."
+     display:none rule above (three class/attribute selectors on each side),
+     so they only need to win by appearing later in the stylesheet — no
+     !important, no touching that rule (a regression test pins its exact
+     text). Faded in via opacity rather than the display flip itself, since
+     display can't transition; onPlacementHoverMove() forces a style flush
+     between setting data-preview and data-preview-visible so the fade-in
+     actually runs (see showPreview()). Hiding is instant (spec only
+     describes an appear fade), which also covers reduced motion without a
+     media-query duplicate of the whole rule. */
+  .visuals[data-preview="true"] .scrim-layer,
+  .visuals[data-preview="true"] .box {
+    display: block;
+    opacity: 0;
+    transition: opacity 120ms ease-out;
+  }
+  .visuals[data-preview="true"][data-preview-visible="true"] .scrim-layer,
+  .visuals[data-preview="true"][data-preview-visible="true"] .box {
+    opacity: 1;
+  }
+
+  /* Tooltip that follows the cursor alongside the preview (design spec §G):
+     "click or drag to select". Uses the real box/comment surface treatment
+     (surface fill, line border, radius md, shadowNote) so it reads as part
+     of the same UI. Position is set 1:1 with the pointer in JS (no
+     transition on left/top — only opacity fades, per the motion-design
+     skill's rule for pointer-following UI: the tracked position itself
+     never eases or lags, only the appearance/disappearance may). */
+  .preview-tooltip {
+    position: absolute;
+    z-index: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--sal-line);
+    border-radius: var(--sal-radius-md);
+    background: var(--sal-surface);
+    box-shadow: var(--sal-shadow-note);
+    color: var(--sal-text);
+    font-family: var(--sal-font-body);
+    font-size: 12px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 120ms ease-out;
+  }
+  .preview-tooltip[data-visible="true"] { opacity: 1; }
 
   /* The wrapper itself has no fill/border/radius of its own (design spec
      §3.2 v2 §C): it just positions and drop-shadows its two block children,
@@ -316,6 +381,19 @@ const ADD_MODE_CSS = `
   /* While capturing (after save), keep the ink colour so "saving…" reads as
      in-progress rather than as the empty-note disabled state. */
   .comment-box[aria-busy="true"] .btn-save:disabled { color: var(--sal-accent-ink); opacity: 1; }
+
+  /* Motion-design skill: reduced motion keeps the opacity change (still
+     communicates state) but drops the transition itself, so the preview and
+     tooltip appear instantly instead of fading in. Nothing here needs a
+     "remove spatial movement" rule — the preview/tooltip never had any: both
+     already track the pointer 1:1 with plain style writes, never eased. */
+  @media (prefers-reduced-motion: reduce) {
+    .visuals[data-preview="true"] .scrim-layer,
+    .visuals[data-preview="true"] .box,
+    .preview-tooltip {
+      transition: none;
+    }
+  }
 `;
 
 // ---------------------------------------------------------------------------
@@ -343,6 +421,13 @@ let elTextarea: HTMLTextAreaElement | null = null;
 let elCounter: HTMLSpanElement | null = null;
 let elCancelBtn: HTMLButtonElement | null = null;
 let elSaveBtn: HTMLButtonElement | null = null;
+let elPreviewTooltip: HTMLDivElement | null = null;
+
+/** Whether the placing-phase preview (box/scrim + tooltip) is currently
+ *  shown. Tracked separately from `elVisuals.dataset.preview` so
+ *  showPreview()/hidePreview() only run their one-time fade-in/instant-hide
+ *  transition on an actual state change, not on every mousemove. */
+let previewVisible = false;
 
 let activeZone: ZoneKey | null = null;
 let keyboardIsolation: KeyboardIsolationHandle | null = null;
@@ -500,6 +585,28 @@ function computeCommentPosition(
   };
 }
 
+/** Preview tooltip position (design spec §G): offset (+16, +20) from the
+ *  cursor, flipped to the opposite side of whichever axis would overflow,
+ *  then unconditionally clamped into `bounds` — same "flip, then clamp
+ *  regardless" shape as computeCommentPosition() above, just for a single
+ *  fixed-offset candidate instead of four. */
+function positionTooltip(cursorX: number, cursorY: number, bounds: { width: number; height: number }): void {
+  if (!elPreviewTooltip) return;
+  // offsetWidth/Height are 0 before the tooltip's first layout pass (and
+  // always 0 in plain jsdom) — fall back to a fixed estimate, same rationale
+  // as positionComment()'s commentHeight fallback.
+  const w = elPreviewTooltip.offsetWidth || TOOLTIP_FALLBACK_WIDTH;
+  const h = elPreviewTooltip.offsetHeight || TOOLTIP_FALLBACK_HEIGHT;
+
+  let left = cursorX + TOOLTIP_OFFSET_X;
+  if (left + w > bounds.width) left = cursorX - TOOLTIP_OFFSET_X - w;
+  let top = cursorY + TOOLTIP_OFFSET_Y;
+  if (top + h > bounds.height) top = cursorY - TOOLTIP_OFFSET_Y - h;
+
+  elPreviewTooltip.style.left = `${clamp(left, 0, Math.max(0, bounds.width - w))}px`;
+  elPreviewTooltip.style.top = `${clamp(top, 0, Math.max(0, bounds.height - h))}px`;
+}
+
 // ---------------------------------------------------------------------------
 // DOM construction
 // ---------------------------------------------------------------------------
@@ -552,6 +659,17 @@ function buildDOM(): void {
   elVisuals.appendChild(elScrimLayer);
   elVisuals.appendChild(elBox);
   for (const key of ZONE_KEYS) elVisuals.appendChild(elZones[key]!);
+
+  // Placing-phase preview tooltip (design spec §G) — appended last so it
+  // paints above the box/zones. Built eagerly (unlike the comment box) since
+  // it has no interactive state of its own to defer: it only ever shows
+  // static copy and follows the pointer.
+  elPreviewTooltip = document.createElement('div');
+  elPreviewTooltip.className = 'preview-tooltip';
+  elPreviewTooltip.textContent = PREVIEW_TOOLTIP_TEXT;
+  elPreviewTooltip.setAttribute('aria-hidden', 'true');
+  elVisuals.appendChild(elPreviewTooltip);
+
   // The comment box (textarea + counter + cancel/save) is deliberately NOT
   // built here. Per REQUIREMENTS §1.2 it must not exist until the user has
   // placed the box (click-to-place or drag-to-draw, 'placing' -> 'editing');
@@ -722,6 +840,93 @@ function positionComment(bounds: { width: number; height: number }): void {
 }
 
 // ---------------------------------------------------------------------------
+// Add-mode preview: the selection rect follows the cursor (design spec §G)
+// ---------------------------------------------------------------------------
+
+/** Shows the box+scrim visuals (marked `data-preview="true"`, per the spec's
+ *  own wording) at `rect`, plus the tooltip. Safe to call on every
+ *  'placing'-phase mousemove: the rect/tooltip position is updated
+ *  unconditionally (1:1 with the pointer, no easing), while the one-time
+ *  fade-in only runs the first time (`previewVisible` false -> true). */
+function showPreview(rect: Rect, bounds: { width: number; height: number }): void {
+  if (!elBox || !elScrim || !elVisuals) return;
+  layoutHost(bounds);
+  setRectStyle(elBox, rect.x, rect.y, rect.width, rect.height);
+  setRectStyle(elScrim, rect.x, rect.y, rect.width, rect.height);
+
+  if (!previewVisible) {
+    previewVisible = true;
+    elVisuals.dataset.preview = 'true';
+    elBox.dataset.preview = 'true';
+    // Force a style flush between adding data-preview (opacity: 0, having
+    // just come from display: none — see the CSS) and flipping
+    // data-preview-visible (opacity: 1) below, or the browser coalesces both
+    // attribute writes into one recalc and the fade-in never runs.
+    void elVisuals.offsetWidth;
+    elVisuals.dataset.previewVisible = 'true';
+  }
+}
+
+/** Reverse of showPreview(): hides the box/scrim (instantly — the spec only
+ *  describes a fade for the appearance) and the tooltip. No-op if the
+ *  preview isn't currently shown. */
+function hidePreview(): void {
+  if (!previewVisible) return;
+  previewVisible = false;
+  if (elVisuals) {
+    delete elVisuals.dataset.preview;
+    delete elVisuals.dataset.previewVisible;
+  }
+  if (elBox) delete elBox.dataset.preview;
+  hideTooltip();
+}
+
+function showTooltip(cursorX: number, cursorY: number, bounds: { width: number; height: number }): void {
+  if (!elPreviewTooltip) return;
+  positionTooltip(cursorX, cursorY, bounds);
+  elPreviewTooltip.dataset.visible = 'true';
+}
+
+function hideTooltip(): void {
+  if (elPreviewTooltip) delete elPreviewTooltip.dataset.visible;
+}
+
+/** Drives the preview while 'placing' and no placement gesture has begun yet
+ *  (`placeStart` is only set between a blocker mousedown and its matching
+ *  mouseup — see handleBlockerMouseDown/onPlacementUp): on every pointer
+ *  move, shows the exact default box a click would produce right now
+ *  (computeDefaultBox + clampBoxToBounds — the same functions the real
+ *  click-to-place path uses, so the preview can never lie about the
+ *  outcome), plus the "click or drag to select" tooltip. Reuses this
+ *  module's one document-level mousemove path rather than a second
+ *  animation loop — there's no rAF loop here at all; position is just
+ *  written straight from the event, same as onPlacementMove/onResizeMove. */
+function onPlacementHoverMove(e: MouseEvent): void {
+  if (mode !== 'placing' || placeStart) return;
+
+  const bounds = getBounds();
+  if (e.clientX < 0 || e.clientY < 0 || e.clientX > bounds.width || e.clientY > bounds.height) {
+    hidePreview(); // pointer moved onto the sidebar, or otherwise off the selectable area
+    return;
+  }
+
+  const rect = clampBoxToBounds(computeDefaultBox(e.clientX, e.clientY, bounds), bounds);
+  showPreview(rect, bounds);
+  showTooltip(e.clientX, e.clientY, bounds);
+}
+
+/** Belt-and-braces for onPlacementHoverMove()'s own bounds check above:
+ *  `mousemove` never fires once the pointer is actually outside the browser
+ *  window, so that check alone would leave the preview stuck at its last
+ *  position. `mouseout` with a null `relatedTarget` fires exactly when the
+ *  pointer leaves the document entirely (design spec §G: "leaves the
+ *  viewport"). */
+function onPlacementMouseOut(e: MouseEvent): void {
+  if (mode !== 'placing') return;
+  if (e.relatedTarget === null) hidePreview();
+}
+
+// ---------------------------------------------------------------------------
 // Placement (first click) and resize (hit-zone drag)
 // ---------------------------------------------------------------------------
 
@@ -729,6 +934,11 @@ function handleBlockerMouseDown(e: MouseEvent): void {
   if (mode !== 'placing') return; // 'editing': clicking outside the box/comment does nothing (§1.2)
   if (e.button !== 0) return;
   e.preventDefault();
+
+  // The preview is gone for good once a placement gesture begins (design
+  // spec §G) — a click has no intermediate mousemove before its matching
+  // mouseup, so this is the only reliable place to drop it for that path.
+  hidePreview();
 
   placeStart = { x: e.clientX, y: e.clientY };
   placeDragging = false;
@@ -769,6 +979,13 @@ function onPlacementUp(e: MouseEvent): void {
 function finalizePlacement(): void {
   mode = 'editing';
   elBlocker?.classList.remove('placing');
+  // The preview only ever exists during 'placing' (design spec §G: "gone
+  // for good once a rect is placed") — drop its listeners and any lingering
+  // visual state (already hidden by handleBlockerMouseDown for the
+  // mousedown path, but onPlacementUp's drag path never called it).
+  document.removeEventListener('mousemove', onPlacementHoverMove);
+  document.removeEventListener('mouseout', onPlacementMouseOut);
+  hidePreview();
 
   buildCommentDOM();
   renderBox();
@@ -857,6 +1074,12 @@ export function startAddMode(callbacks: AddModeCallbacks): void {
   buildDOM();
   elBlocker!.classList.add('placing');
   elBlocker!.addEventListener('mousedown', handleBlockerMouseDown);
+  // Preview (design spec §G): document-level, like onPlacementMove/
+  // onResizeMove, so it still tracks the pointer over the blocker (and sees
+  // it leave the selectable area onto the sidebar) without needing its own
+  // per-element listener.
+  document.addEventListener('mousemove', onPlacementHoverMove);
+  document.addEventListener('mouseout', onPlacementMouseOut);
   layoutHost(getBounds());
   window.addEventListener('resize', handleBoundsChange);
 }
@@ -918,6 +1141,10 @@ export function exitAddMode(): void {
 
   window.removeEventListener('resize', handleBoundsChange);
 
+  document.removeEventListener('mousemove', onPlacementHoverMove);
+  document.removeEventListener('mouseout', onPlacementMouseOut);
+  previewVisible = false;
+
   document.removeEventListener('mousemove', onResizeMove);
   document.removeEventListener('mouseup', onResizeUp);
   activeZone = null;
@@ -948,6 +1175,7 @@ export function exitAddMode(): void {
   elCounter = null;
   elCancelBtn = null;
   elSaveBtn = null;
+  elPreviewTooltip = null;
 
   mode = 'idle';
   callbacksRef = null;
