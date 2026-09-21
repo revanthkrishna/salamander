@@ -147,10 +147,24 @@ export interface DomainMeta {
   version: number;
 }
 
+/** A domain's feedback as every consumer sees it: the items grouped by
+ *  normalised URL, in capture order. This is the IN-MEMORY shape —
+ *  storage.ts assembles it from the split layout below and splits it again
+ *  on write. */
 export interface DomainData {
   meta: DomainMeta;
   /** Keyed by normalised page URL. */
   pages: Record<string, FeedbackItem[]>;
+}
+
+/** What `domain:{domain}` holds in chrome.storage.local since schema
+ *  version 2: the same meta, and per URL the ids (in capture order) of the
+ *  items stored under their own `item:{domain}:{id}` keys. Version 1 kept
+ *  the items inline here (a DomainData verbatim); storage.ts migrates such
+ *  a record the first time it is read. */
+export interface DomainIndex {
+  meta: DomainMeta;
+  pages: Record<string, number[]>;
 }
 
 // The bundle's snake_case yaml mirror types live with the grammar they

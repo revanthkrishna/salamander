@@ -28,8 +28,14 @@ import { dataUrlToBytes, bytesToDataUrl } from './dataUrl';
  * (§5 #7) — the caller (content.ts) is the one that shows
  * `alert("nothing to export")`, since `alert()` needs the page's window.
  */
-export async function exportDomain(domain: string): Promise<ExportResponse> {
-  const data = await storage.getDomainData(domain);
+export async function exportDomain(
+  domain: string,
+  // The read goes through whatever serialisation the caller holds
+  // (background.ts's save queue): a first read of a legacy record migrates
+  // it in place, which must not overlap a queued write.
+  loadDomain: (domain: string) => Promise<DomainData | null> = storage.getDomainData,
+): Promise<ExportResponse> {
+  const data = await loadDomain(domain);
   const allItems = data ? Object.values(data.pages).flat() : [];
   if (!data || allItems.length === 0) {
     return { ok: false, code: 'EMPTY' };

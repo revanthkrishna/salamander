@@ -63,11 +63,18 @@ The annotator is a Chrome extension that captures visual feedback from webpages.
 
 **Three-tier persistence** (cross-cutting gotcha #1):
 
-1. **`chrome.storage.local`** (metadata) — domain-keyed `DomainData` records:
+1. **`chrome.storage.local`** (metadata) — one small index per domain plus one key per item
+   (schema version 2):
    ```
-   { domain: { meta: { nextItemNumber, version }, pages: { normalisedUrl: FeedbackItem[] } } }
+   domain:{domain}    → { meta: { nextItemNumber, version }, pages: { normalisedUrl: id[] } }
+   item:{domain}:{id} → FeedbackItem   (thumbnail data-URL inline)
    ```
-   Includes inline thumbnail data-URLs so sidebar list renders without IndexedDB round trips (Phase 1 design call)
+   Each item carries its own inline thumbnail data-URL, so the sidebar list still paints from one round
+   trip (index read + one multi-key get) without touching IndexedDB — but a note autosave rewrites only
+   that item's key, not every item of the domain. Consumers never see the split: `storage.getDomainData`
+   assembles the in-memory `DomainData` (`pages: { normalisedUrl: FeedbackItem[] }`) and the write
+   primitives split it again. A version-1 record (every item inline in the domain key) is migrated the
+   first time it is read (`storage.migrateInlineRecord`) and written back in the split layout once.
 
 2. **IndexedDB** (blobs, extension origin) — full-resolution PNGs indexed by `screenshotKey`, owned exclusively by service worker
    - Content script can't see IndexedDB; all access goes through background messages

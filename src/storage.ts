@@ -1,10 +1,26 @@
-// Phase 1: storage layer — chrome.storage.local metadata, IndexedDB blobs
+// Storage layer — chrome.storage.local metadata, IndexedDB blobs
 // (src/imageStore.ts), chrome.storage.session sidebar state.
 //
-// Layout in chrome.storage.local: one key per domain, `domain:{domain}` ->
-// DomainData (meta + pages, keyed by normalised URL). Item ids are
-// sequential across every URL of a domain (§1.2), tracked via
-// DomainMeta.nextItemNumber.
+// Layout in chrome.storage.local (schema version 2):
+//   `domain:{domain}`     -> DomainIndex: { meta, pages: { normalisedUrl: id[] } }
+//   `item:{domain}:{id}`  -> FeedbackItem (thumbnail data-URL inline)
+//
+// Version 1 kept every item of a domain inline in the one `domain:` record,
+// thumbnails included, so a 700ms note autosave in a 150-item domain
+// serialised several MB of JPEG through chrome.storage.local.set, and
+// reading one URL's list read every other URL's thumbnails too. Splitting
+// the record keeps the property that decision was made for — the sidebar's
+// list paints from one round trip (an index read + one multi-key get) with
+// the thumbnail already inline per item — while an item write touches only
+// that item's key and the (small) index. A v1 record is migrated the first
+// time it is read (see readIndex). In memory, consumers still see the
+// assembled DomainData shape: getDomainData() joins index and items, and
+// saveDomainData()/replaceDomainData() take one and split it.
+//
+// Item ids are sequential across every URL of a domain (§1.2), tracked via
+// DomainMeta.nextItemNumber in the index. Every read-modify-write here is
+// still non-atomic, which is why background.ts serialises every call
+// through one queue.
 //
 // Cross-cutting gotcha #1 — the storage boundary (TECH_DESIGN.md "Storage
 // boundary"): this module (and imageStore.ts) is only ever imported by the
@@ -16,16 +32,20 @@
 // chrome.storage.local directly: they are not domain data, a round trip
 // for them would be silly, and nothing here ever touches those keys.
 
-import { DomainData, DomainMeta, FeedbackItem, ItemPatch } from './types';
+import { DomainData, DomainIndex, DomainMeta, FeedbackItem, ItemPatch } from './types';
 import * as imageStore from './imageStore';
 
-/** The schema version stamped on every domain record this build writes.
- *  Bump it the first time DomainData's stored shape changes, and add the
- *  matching step to migrateDomainData below. */
-export const STORAGE_VERSION = 1;
+/** The schema version stamped on every domain index this build writes.
+ *  Bump it the first time the stored shape changes, and add the matching
+ *  step to migrateInlineRecord / readIndex below. */
+export const STORAGE_VERSION = 2;
 
 function domainKey(domain: string): string {
   return `domain:${domain}`;
+}
+
+function itemKey(domain: string, id: number): string {
+  return `item:${domain}:${id}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -50,78 +70,151 @@ function storageRemove(keys: string | string[]): Promise<void> {
   });
 }
 
-function emptyDomainData(): DomainData {
+function emptyIndex(): DomainIndex {
   return { meta: { nextItemNumber: 1, version: STORAGE_VERSION }, pages: {} };
+}
+
+// ---------------------------------------------------------------------------
+// Schema migration + the split/assemble pair (all pure, all exported for the
+// frozen-fixture tests)
+// ---------------------------------------------------------------------------
+
+function isRecordLike(raw: unknown): raw is { meta: Partial<DomainMeta>; pages: Record<string, unknown> } {
+  if (!raw || typeof raw !== 'object') return false;
+  const r = raw as Partial<DomainData>;
+  return !!r.meta && typeof r.meta === 'object' && !!r.pages && typeof r.pages === 'object';
+}
+
+function storedVersion(raw: { meta: Partial<DomainMeta> }): number {
+  return typeof raw.meta.version === 'number' ? raw.meta.version : 0;
+}
+
+/**
+ * Bring a legacy INLINE domain record (schema version 0/1: `pages` holding
+ * the items themselves) up to the current in-memory DomainData shape. Pure,
+ * so the version steps can be tested against frozen fixtures of what older
+ * builds actually wrote. Returns null for anything that is not an inline
+ * record at all.
+ *
+ * Each `case` is one version step and runs in sequence, so a record from
+ * several versions back walks every step. The version-2 split is a change
+ * of *stored* layout, not of the in-memory shape, so the step here is only
+ * the stamp; splitDomainData() does the layout half when the result is
+ * written back.
+ */
+export function migrateInlineRecord(raw: unknown): DomainData | null {
+  if (!isRecordLike(raw)) return null;
+  if (storedVersion(raw) >= 2) return null; // an index, not an inline record
+  let data = raw as unknown as DomainData;
+  switch (storedVersion(raw)) {
+    case 0:
+      // No version at all predates the stamp (or was hand-edited): the first
+      // versioned shape.
+      data = { ...data, meta: { ...data.meta, version: 1 } };
+    // falls through
+    case 1:
+      data = { ...data, meta: { ...data.meta, version: 2 } };
+      break;
+  }
+  return data;
+}
+
+/** The chrome.storage.local keys+values that store `data` for `domain`:
+ *  the index plus one entry per item. The index is stamped with this
+ *  build's version regardless of what `data.meta.version` says, so a
+ *  caller can never write an index the next read would mistake for a
+ *  legacy inline record. */
+export function splitDomainData(domain: string, data: DomainData): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const pages: Record<string, number[]> = {};
+  for (const [url, items] of Object.entries(data.pages)) {
+    pages[url] = items.map((item) => item.id);
+    for (const item of items) out[itemKey(domain, item.id)] = item;
+  }
+  const index: DomainIndex = {
+    meta: { nextItemNumber: data.meta.nextItemNumber, version: STORAGE_VERSION },
+    pages,
+  };
+  out[domainKey(domain)] = index;
+  return out;
+}
+
+/** Join an index with the items it points at. An id whose item is missing
+ *  (a torn write) is skipped rather than surfaced as `undefined`. */
+export function assembleDomainData(
+  domain: string,
+  index: DomainIndex,
+  stored: Record<string, unknown>,
+): DomainData {
+  const pages: Record<string, FeedbackItem[]> = {};
+  for (const [url, ids] of Object.entries(index.pages)) {
+    const items: FeedbackItem[] = [];
+    for (const id of ids) {
+      const item = stored[itemKey(domain, id)] as FeedbackItem | undefined;
+      if (item) items.push(item);
+    }
+    pages[url] = items;
+  }
+  return { meta: { ...index.meta }, pages };
+}
+
+function itemKeysOf(domain: string, index: DomainIndex): string[] {
+  return Object.values(index.pages)
+    .flat()
+    .map((id) => itemKey(domain, id));
+}
+
+/**
+ * Read a domain's index, or null if nothing has been captured for it yet.
+ * A legacy inline record (version 0/1) found here is migrated and written
+ * back in the split layout, once — every later read finds the index. The
+ * write-back happens inside whatever queue slot the caller holds
+ * (background.ts serialises every storage call), so it cannot interleave
+ * with another write. A record stamped NEWER than this build (an extension
+ * downgrade) is read as an index as-is: there is no way to reshape it
+ * correctly, and refusing it would make the user's feedback vanish rather
+ * than degrade.
+ */
+async function readIndex(domain: string): Promise<DomainIndex | null> {
+  const key = domainKey(domain);
+  const raw = (await storageGet(key))[key];
+  if (!isRecordLike(raw)) return null;
+  if (storedVersion(raw) >= 2) return raw as unknown as DomainIndex;
+  const data = migrateInlineRecord(raw);
+  if (!data) return null;
+  const split = splitDomainData(domain, data);
+  await storageSet(split);
+  return split[key] as DomainIndex;
 }
 
 // ---------------------------------------------------------------------------
 // Domain CRUD
 // ---------------------------------------------------------------------------
 
-/**
- * Bring a raw stored record up to the current DomainData shape. Pure, so the
- * version steps can be tested against frozen fixtures of what older builds
- * actually wrote. Returns null for anything that is not a domain record at
- * all (nothing stored, or a value with no `meta`/`pages`).
- *
- * Each `case` is one version step and runs in sequence, so a record from
- * several versions back walks every step. A record stamped with a version
- * NEWER than this build (an extension downgrade) is passed through as-is:
- * there is no way to reshape it correctly, and refusing it would make the
- * user's feedback vanish rather than degrade.
- */
-export function migrateDomainData(raw: unknown): DomainData | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const record = raw as Partial<DomainData>;
-  if (!record.meta || typeof record.meta !== 'object' || !record.pages || typeof record.pages !== 'object') {
-    return null;
-  }
-  let data = record as DomainData;
-  // A record with no version at all predates the stamp (or was hand-edited)
-  // and is treated as the first versioned shape.
-  const version = typeof data.meta.version === 'number' ? data.meta.version : 0;
-  switch (version) {
-    case 0:
-      data = { ...data, meta: { ...data.meta, version: 1 } };
-    // falls through — version 1 is the current shape.
-    case 1:
-      break;
-    default:
-      break;
-  }
-  return data;
-}
-
-/** Read a domain's full record, or null if nothing has been captured for it
- *  yet. A record written by an older build is migrated on the way in and,
- *  if the migration changed it, written straight back so the upgrade
- *  happens once rather than on every read. */
+/** Read a domain's full record — index and every item joined into the
+ *  DomainData shape — or null if nothing has been captured for it yet. */
 export async function getDomainData(domain: string): Promise<DomainData | null> {
-  const key = domainKey(domain);
-  const result = await storageGet(key);
-  const raw = result[key];
-  const data = migrateDomainData(raw);
-  if (!data) return null;
-  const storedVersion = (raw as Partial<DomainData>).meta?.version;
-  if (storedVersion !== data.meta.version) {
-    await saveDomainData(domain, data);
-  }
-  return data;
+  const index = await readIndex(domain);
+  if (!index) return null;
+  const keys = itemKeysOf(domain, index);
+  const stored = keys.length > 0 ? await storageGet(keys) : {};
+  return assembleDomainData(domain, index, stored);
 }
 
-/** Overwrite a domain's full record verbatim. Low-level primitive — prefer
+/** Write a domain's full record in the split layout. Low-level primitive —
+ *  it does not remove item keys `data` no longer references; prefer
  *  addItem/updateItem/deleteItem/replaceDomainData for normal mutation. */
 export async function saveDomainData(domain: string, data: DomainData): Promise<void> {
-  await storageSet({ [domainKey(domain)]: data });
+  await storageSet(splitDomainData(domain, data));
 }
 
-/** Delete a domain's record entirely, including every item's blob. */
+/** Delete a domain's record entirely — index, every item, every blob. */
 export async function deleteDomainData(domain: string): Promise<void> {
+  const index = await readIndex(domain);
+  if (!index) return;
   const data = await getDomainData(domain);
-  if (data) {
-    await deleteAllBlobsIn(data);
-  }
-  await storageRemove(domainKey(domain));
+  if (data) await deleteAllBlobsIn(data);
+  await storageRemove([domainKey(domain), ...itemKeysOf(domain, index)]);
 }
 
 async function deleteAllBlobsIn(data: DomainData): Promise<void> {
@@ -136,41 +229,50 @@ async function deleteAllBlobsIn(data: DomainData): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /** All feedback items captured for one normalised URL of a domain, in
- *  capture order. Empty array if the domain or URL has nothing yet. */
+ *  capture order. Empty array if the domain or URL has nothing yet. One
+ *  index read and one multi-key get — the other URLs' items (and their
+ *  thumbnails) are never read. */
 export async function getPageItems(
   domain: string,
   normalisedUrl: string,
 ): Promise<FeedbackItem[]> {
-  const data = await getDomainData(domain);
-  return data?.pages[normalisedUrl] ?? [];
+  const index = await readIndex(domain);
+  const ids = index?.pages[normalisedUrl];
+  if (!ids || ids.length === 0) return [];
+  const keys = ids.map((id) => itemKey(domain, id));
+  const stored = await storageGet(keys);
+  return keys.map((k) => stored[k] as FeedbackItem | undefined).filter((it): it is FeedbackItem => !!it);
 }
 
 /** The id the *next* captured item for this domain should use. Monotonic
  *  across every URL of the domain (§1.2) — does not itself reserve the id;
  *  addItem() is what advances the counter. */
 export async function getNextItemId(domain: string): Promise<number> {
-  const data = await getDomainData(domain);
-  return data?.meta.nextItemNumber ?? 1;
+  const index = await readIndex(domain);
+  return index?.meta.nextItemNumber ?? 1;
 }
 
 /** Append a captured feedback item under its page's URL, creating the
- *  domain record if this is its first item. Advances nextItemNumber past
+ *  domain index if this is its first item. Advances nextItemNumber past
  *  the item's id so ids stay strictly increasing even if a caller supplies
- *  one out of the expected sequence. */
+ *  one out of the expected sequence. The item and the index land in one
+ *  `set`, so a torn write cannot leave the index pointing at nothing. */
 export async function addItem(domain: string, item: FeedbackItem): Promise<void> {
-  const data = (await getDomainData(domain)) ?? emptyDomainData();
-  const pageItems = data.pages[item.normalisedUrl] ?? [];
-  data.pages[item.normalisedUrl] = [...pageItems, item];
-  data.meta.nextItemNumber = Math.max(data.meta.nextItemNumber, item.id + 1);
-  await saveDomainData(domain, data);
+  const index = (await readIndex(domain)) ?? emptyIndex();
+  const ids = index.pages[item.normalisedUrl] ?? [];
+  index.pages[item.normalisedUrl] = [...ids, item.id];
+  index.meta.nextItemNumber = Math.max(index.meta.nextItemNumber, item.id + 1);
+  index.meta.version = STORAGE_VERSION;
+  await storageSet({ [itemKey(domain, item.id)]: item, [domainKey(domain)]: index });
 }
 
 /**
  * Apply a partial update to one stored item (the enlarged view's autosave,
  * §1.5). `patch` is an ItemPatch (src/types.ts) — the one declaration of
  * which fields are mutable — so a new per-item field needs no new storage
- * function. Resolves true if the item was found and written, false if the
- * domain, URL or item does not exist (nothing is written then).
+ * function. Writes only that item's key: the index and every other item
+ * are untouched. Resolves true if the item was found and written, false if
+ * the domain, URL or item does not exist (nothing is written then).
  */
 export async function updateItem(
   domain: string,
@@ -178,14 +280,12 @@ export async function updateItem(
   itemId: number,
   patch: ItemPatch,
 ): Promise<boolean> {
-  const data = await getDomainData(domain);
-  if (!data) return false;
-  const pageItems = data.pages[normalisedUrl];
-  if (!pageItems) return false;
-  const idx = pageItems.findIndex((it) => it.id === itemId);
-  if (idx === -1) return false;
-  pageItems[idx] = { ...pageItems[idx], ...patch };
-  await saveDomainData(domain, data);
+  const index = await readIndex(domain);
+  if (!index?.pages[normalisedUrl]?.includes(itemId)) return false;
+  const key = itemKey(domain, itemId);
+  const item = (await storageGet(key))[key] as FeedbackItem | undefined;
+  if (!item) return false;
+  await storageSet({ [key]: { ...item, ...patch } });
   return true;
 }
 
@@ -208,32 +308,43 @@ export async function deleteItem(
   normalisedUrl: string,
   itemId: number,
 ): Promise<void> {
-  const data = await getDomainData(domain);
-  if (!data) return;
-  const pageItems = data.pages[normalisedUrl];
-  if (!pageItems) return;
-  const idx = pageItems.findIndex((it) => it.id === itemId);
-  if (idx === -1) return;
-  const [removed] = pageItems.splice(idx, 1);
-  if (pageItems.length === 0) {
-    delete data.pages[normalisedUrl];
+  const index = await readIndex(domain);
+  if (!index) return;
+  const ids = index.pages[normalisedUrl];
+  if (!ids || !ids.includes(itemId)) return;
+  const key = itemKey(domain, itemId);
+  const removed = (await storageGet(key))[key] as FeedbackItem | undefined;
+  const remaining = ids.filter((id) => id !== itemId);
+  if (remaining.length === 0) {
+    delete index.pages[normalisedUrl];
+  } else {
+    index.pages[normalisedUrl] = remaining;
   }
-  await saveDomainData(domain, data);
-  await imageStore.deleteImage(removed.screenshotKey);
+  await storageSet({ [domainKey(domain)]: index });
+  await storageRemove(key);
+  if (removed) await imageStore.deleteImage(removed.screenshotKey);
 }
 
 /** Import's replace-only semantics (§1.7): discard everything currently
- *  stored for `domain` — metadata and blobs alike — and install `data` in
- *  its place. The caller is responsible for having already written the
+ *  stored for `domain` — index, items and blobs alike — and install `data`
+ *  in its place. The caller is responsible for having already written the
  *  incoming items' screenshots into imageStore before calling this (or
  *  immediately after — either order is safe since the two stores are keyed
- *  independently and screenshotKey values are unique to the import). */
+ *  independently and screenshotKey values are unique to the import). The
+ *  new record is written before the old item keys are removed, so a torn
+ *  write leaves orphan item keys rather than an index with no items. */
 export async function replaceDomainData(domain: string, data: DomainData): Promise<void> {
-  const existing = await getDomainData(domain);
+  const existingIndex = await readIndex(domain);
+  const existing = existingIndex ? await getDomainData(domain) : null;
   if (existing) {
     await deleteAllBlobsIn(existing);
   }
-  await saveDomainData(domain, data);
+  const split = splitDomainData(domain, data);
+  await storageSet(split);
+  if (existingIndex) {
+    const stale = itemKeysOf(domain, existingIndex).filter((k) => !(k in split));
+    if (stale.length > 0) await storageRemove(stale);
+  }
 }
 
 // ---------------------------------------------------------------------------

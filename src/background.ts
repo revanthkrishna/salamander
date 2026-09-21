@@ -413,7 +413,7 @@ export async function handleDeleteItem(message: DeleteItemMessage): Promise<Dele
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function handleExport(message: ExportMessage): Promise<ExportResponse> {
-  return exportDomain(message.domain);
+  return exportDomain(message.domain, (domain) => enqueueSave(() => getDomainData(domain)));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -430,7 +430,9 @@ export async function handleGetDomainItemCount(
   message: GetDomainItemCountMessage,
 ): Promise<GetDomainItemCountResponse> {
   try {
-    const data = await getDomainData(message.domain);
+    // Through the queue like every other domain-record read: a first read of
+    // a legacy record migrates it in place, which must not overlap a write.
+    const data = await enqueueSave(() => getDomainData(message.domain));
     const count = data
       ? Object.values(data.pages).reduce((sum, items) => sum + items.length, 0)
       : 0;
