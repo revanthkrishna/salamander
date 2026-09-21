@@ -748,16 +748,41 @@ describe('add mode', () => {
     expect(cssRule('.scrim-layer')).toMatch(/pointer-events:\s*none/);
   });
 
-  test('the selection box has a radius-md dotted outline of accent + keyline and no hover/press styling', () => {
+  test('the selection outline alternates 4px accent / 4px ink at one width, over a keyline', () => {
     addMode.startAddMode(makeCallbacks());
     const rule = cssRule('.box');
     expect(rule).toMatch(/border-radius:\s*var\(--sal-radius-md\)/);
-    // An outline, not a border: the box's rect IS the selection, and a
-    // border would eat into it (box-sizing: border-box) and move what gets
-    // captured.
-    expect(rule).toMatch(/outline:\s*2px dotted var\(--sal-accent\)/);
+    // The line itself is an SVG stroke: CSS `dashed`/`dotted` derive their
+    // dash length from the line's thickness and give no control over it, and
+    // border-image with a repeating gradient ignores border-radius.
+    expect(rule).not.toMatch(/outline:/);
     expect(rule).not.toMatch(/border:\s*2px/);
     expect(rule).toMatch(/box-shadow:\s*0 0 0 3px var\(--sal-keyline\)/);
+
+    // Both rects stroke the same path at the same width, so the accent's
+    // gaps are ink rather than holes and the line never thickens.
+    expect(cssRule('.box-dash rect')).toMatch(/stroke-width:\s*2/);
+    expect(cssRule('.box-dash .dash-ink')).toMatch(/stroke:\s*var\(--sal-on-accent\)/);
+    const accent = cssRule('.box-dash .dash-accent');
+    expect(accent).toMatch(/stroke:\s*var\(--sal-accent\)/);
+    expect(accent).toMatch(/stroke-dasharray:\s*4 4/);
+  });
+
+  test('the outline SVG tracks the box and keeps its dashes 4px at any size', () => {
+    addMode.startAddMode(makeCallbacks());
+    place(blocker(), 400, 300);
+    const svg = shadowRoot().querySelector('.box-dash') as SVGSVGElement;
+    const ink = shadowRoot().querySelector('.dash-ink') as SVGRectElement;
+    const box = boxEl();
+    const w = parseFloat(box.style.width);
+    const h = parseFloat(box.style.height);
+    // Sized in CSS pixels with no viewBox, so nothing scales the dashes.
+    expect(svg.getAttribute('viewBox')).toBeNull();
+    expect(+svg.getAttribute('width')!).toBe(w + 6);
+    expect(+svg.getAttribute('height')!).toBe(h + 6);
+    // The stroke is centred on this path, so it lands outside the selection.
+    expect(+ink.getAttribute('x')!).toBe(2);
+    expect(+ink.getAttribute('width')!).toBe(w + 2);
     expect(addModeOwnCSS()).not.toMatch(/\.box:(hover|active)/);
     expect(addModeOwnCSS()).not.toMatch(/\.resize-zone:(hover|active)/);
   });

@@ -46,7 +46,7 @@ import { getSidebarWidth, DEFAULT_THUMBNAIL_BOX_SIZE } from './sidebar';
 import { getContentViewportSize } from './capture';
 import { clamp } from './flip';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
-import { DISABLED_CSS, FOCUS_RING_CSS, getThemeCSS, registerThemedHost, STATE_TRANSITION_CSS } from './theme';
+import { DISABLED_CSS, FOCUS_RING_CSS, getThemeCSS, RADII, registerThemedHost, STATE_TRANSITION_CSS } from './theme';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -108,7 +108,20 @@ const COUNTER_DANGER_AT = 980;
 const EDGE_ZONE = 10;
 const SAVE_LABEL = 'save';
 const SAVING_LABEL = 'saving\u2026';
+const SVG_NS = 'http://www.w3.org/2000/svg';
 const CORNER_ZONE = 16;
+/** Selection outline: a 2px line whose length alternates 4px accent, 4px
+ *  ink. CSS cannot express that — `dashed`/`dotted` derive their dash length
+ *  from the line's thickness and give no control over it, and border-image
+ *  with a repeating gradient ignores border-radius, which this box has. So
+ *  the line is an SVG stroke: a solid ink rect with the accent dashed over
+ *  it at the same width, which fills the gaps rather than leaving holes. */
+const OUTLINE_W = 2;
+const OUTLINE_DASH = 4;
+/** How far the SVG extends past the box on each side: the 2px line sits
+ *  just outside the box (so the selection itself is never covered), and the
+ *  1px keyline shadow sits outside that. */
+const OUTLINE_PAD = 3;
 
 /** Preview tooltip (design spec \u00a7G): fixed lowercase copy (\u00a73.4), offset
  *  down-right of the cursor, flipped/clamped like computeCommentPosition()
@@ -192,19 +205,16 @@ const ADD_MODE_CSS = `
     pointer-events: none;
   }
 
-  /* Selection outline: a 2px dotted accent line with a 1px keyline outside
-     it, so it reads on both light and dark pages. Drawn with outline rather
-     than border: the box's rect IS the selection, and a border would eat 2px
-     of it on every side (box-sizing is border-box here), moving what gets
-     captured. The keyline stays a box-shadow, sitting just outside the
-     dotted line rather than between it and the page. No hover/press styling
-     — only the cursor over the hit zones below changes. */
+  /* Selection outline (see OUTLINE_W): the alternating line itself is the
+     .box-dash SVG below; this rule keeps the 1px keyline just outside it, so
+     the whole thing reads on a white page as well as a dark one. The box's
+     own rect IS the selection, so nothing here may cover it — the line is
+     drawn OUTSIDE the box, which is why the SVG overhangs. No hover/press
+     styling — only the cursor over the hit zones below changes. */
   .box {
     position: absolute;
     border-radius: var(--sal-radius-md);
-    outline: 2px dotted var(--sal-accent);
-    outline-offset: 0;
-    box-shadow: 0 0 0 3px var(--sal-keyline);
+    box-shadow: 0 0 0 ${OUTLINE_PAD}px var(--sal-keyline);
     background: transparent;
     pointer-events: none;
   }
@@ -268,6 +278,22 @@ const ADD_MODE_CSS = `
     transition: opacity 120ms ease-out;
   }
   .preview-tooltip[data-visible="true"] { opacity: 1; }
+
+  /* The alternating outline. Two rects on the same path at the same stroke
+     width: ink underneath, accent dashed on top, so the "gaps" are ink
+     rather than holes and the line never gets thicker than OUTLINE_W. Sized
+     in JS (paintBoxOutline) because the dash length has to stay 4px whatever
+     the box's size — a viewBox that scaled would stretch it. */
+  .box-dash {
+    position: absolute;
+    left: -${OUTLINE_PAD}px;
+    top: -${OUTLINE_PAD}px;
+    overflow: visible;
+    pointer-events: none;
+  }
+  .box-dash rect { fill: none; stroke-width: ${OUTLINE_W}; }
+  .box-dash .dash-ink { stroke: var(--sal-on-accent); }
+  .box-dash .dash-accent { stroke: var(--sal-accent); stroke-dasharray: ${OUTLINE_DASH} ${OUTLINE_DASH}; }
 
   /* The wrapper itself has no fill/border/radius of its own (design spec
      §3.2 v2 §C): it just positions and drop-shadows its two block children,
@@ -437,6 +463,9 @@ let elScrim: HTMLDivElement | null = null;
 let elBox: HTMLDivElement | null = null;
 let elZones: Partial<Record<ZoneKey, HTMLDivElement>> = {};
 let elComment: HTMLDivElement | null = null;
+let elBoxDash: SVGSVGElement | null = null;
+let elDashInk: SVGRectElement | null = null;
+let elDashAccent: SVGRectElement | null = null;
 let elTextarea: HTMLTextAreaElement | null = null;
 let elCounter: HTMLSpanElement | null = null;
 let elCancelBtn: HTMLButtonElement | null = null;
@@ -667,6 +696,16 @@ function buildDOM(): void {
 
   elBox = document.createElement('div');
   elBox.className = 'box';
+  elBoxDash = document.createElementNS(SVG_NS, 'svg');
+  elBoxDash.setAttribute('class', 'box-dash');
+  elBoxDash.setAttribute('aria-hidden', 'true');
+  elDashInk = document.createElementNS(SVG_NS, 'rect');
+  elDashInk.setAttribute('class', 'dash-ink');
+  elDashAccent = document.createElementNS(SVG_NS, 'rect');
+  elDashAccent.setAttribute('class', 'dash-accent');
+  elBoxDash.appendChild(elDashInk);
+  elBoxDash.appendChild(elDashAccent);
+  elBox.appendChild(elBoxDash);
 
   // Invisible resize hit zones (design spec §3.2) — purely a pointer
   // affordance, so hidden from assistive tech. There was no keyboard resize
@@ -788,6 +827,7 @@ function renderBox(): void {
 
   if (!elBox) return;
   setRectStyle(elBox, box.x, box.y, box.width, box.height);
+  paintBoxOutline(box.width, box.height);
   // The scrim's hole is exactly the box rect (same radius in CSS); the
   // outline's box-shadow is drawn outside it, on top of the dimming.
   if (elScrim) setRectStyle(elScrim, box.x, box.y, box.width, box.height);
@@ -845,6 +885,36 @@ function renderZones(): void {
   }
 }
 
+/** Resize the outline SVG to match the box. The stroke is centred on the
+ *  rect's own path, so the path sits half a stroke outside the box: the line
+ *  lands entirely outside the selection and never covers what gets captured.
+ *  1:1 with CSS pixels (no viewBox scaling) so the 4px dashes stay 4px at
+ *  every box size. */
+function paintBoxOutline(width: number, height: number): void {
+  if (!elBoxDash || !elDashInk || !elDashAccent) return;
+  const w = Math.max(0, width);
+  const h = Math.max(0, height);
+  const svgW = w + OUTLINE_PAD * 2;
+  const svgH = h + OUTLINE_PAD * 2;
+  elBoxDash.setAttribute('width', `${svgW}`);
+  elBoxDash.setAttribute('height', `${svgH}`);
+  // Path inset OUTLINE_W/2 from the SVG's own edge minus the keyline's 1px:
+  // the stroke then spans exactly the 2px immediately outside the box.
+  const inset = OUTLINE_PAD - OUTLINE_W / 2;
+  const rw = Math.max(0, w + (OUTLINE_PAD - inset) * 2);
+  const rh = Math.max(0, h + (OUTLINE_PAD - inset) * 2);
+  // The box's own radius, grown by however far the path sits outside it, so
+  // the line stays concentric with the rounded selection.
+  const radius = RADII.md + (OUTLINE_PAD - inset);
+  for (const rect of [elDashInk, elDashAccent]) {
+    rect.setAttribute('x', `${inset}`);
+    rect.setAttribute('y', `${inset}`);
+    rect.setAttribute('width', `${rw}`);
+    rect.setAttribute('height', `${rh}`);
+    rect.setAttribute('rx', `${radius}`);
+  }
+}
+
 function setRectStyle(el: HTMLDivElement, x: number, y: number, width: number, height: number): void {
   el.style.left = `${x}px`;
   el.style.top = `${y}px`;
@@ -878,6 +948,7 @@ function showPreview(rect: Rect, bounds: { width: number; height: number }): voi
   if (!elBox || !elScrim || !elVisuals) return;
   layoutHost(bounds);
   setRectStyle(elBox, rect.x, rect.y, rect.width, rect.height);
+  paintBoxOutline(rect.width, rect.height);
   setRectStyle(elScrim, rect.x, rect.y, rect.width, rect.height);
 
   if (!previewVisible) {
@@ -1228,6 +1299,9 @@ export function exitAddMode(): void {
   elScrimLayer = null;
   elScrim = null;
   elBox = null;
+  elBoxDash = null;
+  elDashInk = null;
+  elDashAccent = null;
   elZones = {};
   elComment = null;
   elTextarea = null;
