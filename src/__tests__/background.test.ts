@@ -27,6 +27,7 @@ jest.mock('../storage', () => ({
   getNextItemId: jest.fn().mockResolvedValue(1),
   addItem: jest.fn().mockResolvedValue(undefined),
   getPageItems: jest.fn().mockResolvedValue([]),
+  updateItem: jest.fn().mockResolvedValue(true),
   updateNote: jest.fn().mockResolvedValue(undefined),
   deleteItem: jest.fn().mockResolvedValue(undefined),
 }));
@@ -212,6 +213,7 @@ beforeEach(() => {
   mockedStorage.getNextItemId.mockResolvedValue(1);
   mockedStorage.addItem.mockResolvedValue(undefined);
   mockedStorage.getPageItems.mockResolvedValue([]);
+  mockedStorage.updateItem.mockResolvedValue(true);
   mockedStorage.updateNote.mockResolvedValue(undefined);
   mockedStorage.deleteItem.mockResolvedValue(undefined);
   sendMessageMock.mockImplementation(
@@ -387,6 +389,18 @@ describe('handleRuntimeMessage', () => {
     expect(keepOpen).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(sendResponse.mock.calls[0][0]).toEqual({ ok: true, dataUrl: 'data:image/png;base64,ZnVsbA==' });
+  });
+
+  it('dispatches UPDATE_ITEM asynchronously and keeps the channel open', async () => {
+    const sendResponse = jest.fn();
+    const keepOpen = background.handleRuntimeMessage(
+      { type: 'UPDATE_ITEM', domain: 'example.com', normalisedUrl: 'example.com/a', itemId: 1, patch: { note: 'edited' } },
+      makeSender(3),
+      sendResponse,
+    );
+    expect(keepOpen).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sendResponse.mock.calls[0][0]).toEqual({ ok: true });
   });
 
   it('dispatches UPDATE_NOTE asynchronously and keeps the channel open', async () => {
@@ -893,6 +907,71 @@ describe('handleGetImage', () => {
 
     expect(response).toEqual({ ok: false, message: "couldn't load screenshot. try again." });
     warn.mockRestore();
+  });
+});
+
+describe('handleUpdateItem', () => {
+  it('forwards the patch to storage.ts\'s updateItem and reports success', async () => {
+    const response = await background.handleUpdateItem({
+      type: 'UPDATE_ITEM',
+      domain: 'example.com',
+      normalisedUrl: 'example.com/a',
+      itemId: 3,
+      patch: { note: 'edited note' },
+    });
+
+    expect(mockedStorage.updateItem).toHaveBeenCalledWith('example.com', 'example.com/a', 3, { note: 'edited note' });
+    expect(response).toEqual({ ok: true });
+  });
+
+  it('maps a write failure to the same lowercase error as UPDATE_NOTE', async () => {
+    mockedStorage.updateItem.mockRejectedValue(new Error('quota exceeded'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const response = await background.handleUpdateItem({
+      type: 'UPDATE_ITEM',
+      domain: 'example.com',
+      normalisedUrl: 'example.com/a',
+      itemId: 3,
+      patch: { note: 'edited note' },
+    });
+
+    expect(response).toEqual({ ok: false, message: "couldn't save note. try again." });
+    warn.mockRestore();
+  });
+
+  it('shares the save queue with SAVE_ITEM (no overlapping read-modify-write)', async () => {
+    const order: string[] = [];
+    let releaseAdd!: () => void;
+    mockedStorage.addItem.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          order.push('add:start');
+          releaseAdd = () => {
+            order.push('add:end');
+            resolve();
+          };
+        }),
+    );
+    mockedStorage.updateItem.mockImplementation(async () => {
+      order.push('update');
+      return true;
+    });
+
+    const save = background.handleSaveItem({ type: 'SAVE_ITEM', domain: 'example.com', item: makeNewItem() });
+    const update = background.handleUpdateItem({
+      type: 'UPDATE_ITEM',
+      domain: 'example.com',
+      normalisedUrl: 'example.com/a',
+      itemId: 3,
+      patch: { note: 'edited' },
+    });
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(order).toEqual(['add:start']);
+
+    releaseAdd();
+    await Promise.all([save, update]);
+    expect(order).toEqual(['add:start', 'add:end', 'update']);
   });
 });
 

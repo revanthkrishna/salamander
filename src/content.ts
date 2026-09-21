@@ -64,8 +64,8 @@ import {
   GetPageItemsResponse,
   GetImageMessage,
   GetImageResponse,
-  UpdateNoteMessage,
-  UpdateNoteResponse,
+  UpdateItemMessage,
+  UpdateItemResponse,
   DeleteItemMessage,
   DeleteItemResponse,
   ExportMessage,
@@ -686,7 +686,7 @@ async function handleImportFile(file: File): Promise<void> {
 }
 
 /** Expand the sidebar into the enlarged view on one note (design spec v2
- *  §D), wiring its callbacks onto the GET_IMAGE / UPDATE_NOTE / DELETE_ITEM
+ *  §D), wiring its callbacks onto the GET_IMAGE / UPDATE_ITEM / DELETE_ITEM
  *  round trips (enlargedView.ts itself never touches chrome.runtime — gotcha
  *  #1/#3). The view navigates between notes itself, so every callback takes
  *  the note it's acting on. */
@@ -700,14 +700,14 @@ function openItemEnlarged(item: FeedbackItem): void {
       return response && response.ok ? response.dataUrl : null;
     },
     onSaveNote: async (target, note) => {
-      const updateNote: UpdateNoteMessage = {
-        type: 'UPDATE_NOTE',
+      const updateItem: UpdateItemMessage = {
+        type: 'UPDATE_ITEM',
         domain,
         normalisedUrl: target.normalisedUrl,
         itemId: target.id,
-        note,
+        patch: { note },
       };
-      const response = await sendMessage<UpdateNoteResponse>(updateNote);
+      const response = await sendMessage<UpdateItemResponse>(updateItem);
       return response?.ok === true;
     },
     onDelete: async (target) => {

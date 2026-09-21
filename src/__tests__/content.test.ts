@@ -549,7 +549,7 @@ describe('content.ts: enlarged view wiring (design spec v2 §D)', () => {
     expect(addMode.isAddModeActive()).toBe(true);
   });
 
-  test('autosave and delete go through UPDATE_NOTE / DELETE_ITEM', async () => {
+  test('autosave and delete go through UPDATE_ITEM / DELETE_ITEM', async () => {
     await openFirstNote();
     jest.useFakeTimers();
     const ta = sidebarShadow().querySelector('.xp-note-input') as HTMLTextAreaElement;
@@ -558,7 +558,7 @@ describe('content.ts: enlarged view wiring (design spec v2 §D)', () => {
     jest.advanceTimersByTime(700);
     (sidebarShadow().querySelector('.xp-delete') as HTMLButtonElement).click();
     const sent = (chrome.runtime.sendMessage as jest.Mock).mock.calls.map((c) => c[0]);
-    expect(sent).toContainEqual(expect.objectContaining({ type: 'UPDATE_NOTE', itemId: 7, note: 'changed' }));
+    expect(sent).toContainEqual(expect.objectContaining({ type: 'UPDATE_ITEM', itemId: 7, patch: { note: 'changed' } }));
     expect(sent).toContainEqual(expect.objectContaining({ type: 'DELETE_ITEM', itemId: 7 }));
   });
 
@@ -709,7 +709,7 @@ describe('content.ts: review fixes', () => {
     const updates = (chrome.runtime.sendMessage as jest.Mock).mock.calls
       .map((c) => c[0])
       // (Earlier tests' content.ts instances still listen on this window.)
-      .filter((m) => m?.type === 'UPDATE_NOTE' && m.note === 'typed before unload');
+      .filter((m) => m?.type === 'UPDATE_ITEM' && m.patch?.note === 'typed before unload');
     expect(updates).toHaveLength(1); // beforeunload + pagehide: sent once
   });
 });

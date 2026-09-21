@@ -121,6 +121,17 @@ export interface FeedbackItem {
   context: CapturedContext;
 }
 
+/**
+ * The fields of a stored item that may change after capture, as a partial
+ * patch. This is the ONE place the set of mutable fields is declared: the
+ * storage write (storage.updateItem), the message (UpdateItemMessage) and
+ * its handler all take this type, so a new per-item document (e.g. an
+ * annotations model) is added to the Pick here and nowhere else. Identity
+ * (`id`, `normalisedUrl`), the capture geometry and the storage handles
+ * (`screenshotKey`, `thumbnailDataUrl`) are deliberately not patchable.
+ */
+export type ItemPatch = Partial<Pick<FeedbackItem, 'note'>>;
+
 // ---------------------------------------------------------------------------
 // Domain-keyed storage (extends v1's DomainData/DomainMeta pattern)
 // ---------------------------------------------------------------------------
@@ -129,7 +140,10 @@ export interface DomainMeta {
   /** Always max(all item ids in this domain) + 1; starts at 1. Sequential
    *  across all URLs of the domain (§1.2), mirroring v1's pin numbering. */
   nextItemNumber: number;
-  /** Storage schema version, currently 1. */
+  /** Storage schema version (storage.ts's STORAGE_VERSION at write time).
+   *  Read back by storage.ts's migrateDomainData on every load, which is
+   *  where a record written by an older build is brought up to the current
+   *  shape. */
   version: number;
 }
 

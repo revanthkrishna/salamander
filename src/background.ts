@@ -13,6 +13,7 @@ import {
   getNextItemId,
   addItem,
   getPageItems,
+  updateItem,
   updateNote,
   deleteItem,
   getDomainData,
@@ -44,6 +45,8 @@ import {
   GetPageItemsResponse,
   GetImageMessage,
   GetImageResponse,
+  UpdateItemMessage,
+  UpdateItemResponse,
   UpdateNoteMessage,
   UpdateNoteResponse,
   DeleteItemMessage,
@@ -177,6 +180,10 @@ export function handleRuntimeMessage(
     }
     case 'GET_IMAGE': {
       handleGetImage(message as GetImageMessage).then(sendResponse);
+      return true; // keep the message channel open for the async response
+    }
+    case 'UPDATE_ITEM': {
+      handleUpdateItem(message as UpdateItemMessage).then(sendResponse);
       return true; // keep the message channel open for the async response
     }
     case 'UPDATE_NOTE': {
@@ -365,6 +372,20 @@ export async function handleGetImage(message: GetImageMessage): Promise<GetImage
   }
 }
 
+export async function handleUpdateItem(message: UpdateItemMessage): Promise<UpdateItemResponse> {
+  try {
+    // A vanished item (the domain was replaced by an import in another tab
+    // while the view was open) currently reports ok — storage's `found`
+    // result is not yet surfaced; see the technical review's F-14.
+    await enqueueSave(() => updateItem(message.domain, message.normalisedUrl, message.itemId, message.patch));
+    return { ok: true };
+  } catch (err) {
+    console.warn('[Annotator] could not save note:', err);
+    return { ok: false, message: SAVE_ERROR_MESSAGE };
+  }
+}
+
+/** The note-only alias of UPDATE_ITEM (see UpdateNoteMessage). */
 export async function handleUpdateNote(message: UpdateNoteMessage): Promise<UpdateNoteResponse> {
   try {
     await enqueueSave(() => updateNote(message.domain, message.normalisedUrl, message.itemId, message.note));

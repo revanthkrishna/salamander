@@ -16,9 +16,12 @@
 // chrome.storage.local directly: they are not domain data, a round trip
 // for them would be silly, and nothing here ever touches those keys.
 
-import { DomainData, DomainMeta, FeedbackItem } from './types';
+import { DomainData, DomainMeta, FeedbackItem, ItemPatch } from './types';
 import * as imageStore from './imageStore';
 
+/** The schema version stamped on every domain record this build writes.
+ *  Bump it the first time DomainData's stored shape changes, and add the
+ *  matching step to migrateDomainData below. */
 export const STORAGE_VERSION = 1;
 
 function domainKey(domain: string): string {
@@ -55,16 +58,59 @@ function emptyDomainData(): DomainData {
 // Domain CRUD
 // ---------------------------------------------------------------------------
 
-/** Read a domain's full record, or null if nothing has been captured for it yet. */
+/**
+ * Bring a raw stored record up to the current DomainData shape. Pure, so the
+ * version steps can be tested against frozen fixtures of what older builds
+ * actually wrote. Returns null for anything that is not a domain record at
+ * all (nothing stored, or a value with no `meta`/`pages`).
+ *
+ * Each `case` is one version step and runs in sequence, so a record from
+ * several versions back walks every step. A record stamped with a version
+ * NEWER than this build (an extension downgrade) is passed through as-is:
+ * there is no way to reshape it correctly, and refusing it would make the
+ * user's feedback vanish rather than degrade.
+ */
+export function migrateDomainData(raw: unknown): DomainData | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const record = raw as Partial<DomainData>;
+  if (!record.meta || typeof record.meta !== 'object' || !record.pages || typeof record.pages !== 'object') {
+    return null;
+  }
+  let data = record as DomainData;
+  // A record with no version at all predates the stamp (or was hand-edited)
+  // and is treated as the first versioned shape.
+  const version = typeof data.meta.version === 'number' ? data.meta.version : 0;
+  switch (version) {
+    case 0:
+      data = { ...data, meta: { ...data.meta, version: 1 } };
+    // falls through — version 1 is the current shape.
+    case 1:
+      break;
+    default:
+      break;
+  }
+  return data;
+}
+
+/** Read a domain's full record, or null if nothing has been captured for it
+ *  yet. A record written by an older build is migrated on the way in and,
+ *  if the migration changed it, written straight back so the upgrade
+ *  happens once rather than on every read. */
 export async function getDomainData(domain: string): Promise<DomainData | null> {
   const key = domainKey(domain);
   const result = await storageGet(key);
-  const data = result[key] as DomainData | undefined;
-  return data ?? null;
+  const raw = result[key];
+  const data = migrateDomainData(raw);
+  if (!data) return null;
+  const storedVersion = (raw as Partial<DomainData>).meta?.version;
+  if (storedVersion !== data.meta.version) {
+    await saveDomainData(domain, data);
+  }
+  return data;
 }
 
 /** Overwrite a domain's full record verbatim. Low-level primitive — prefer
- *  addItem/updateNote/deleteItem/replaceDomainData for normal mutation. */
+ *  addItem/updateItem/deleteItem/replaceDomainData for normal mutation. */
 export async function saveDomainData(domain: string, data: DomainData): Promise<void> {
   await storageSet({ [domainKey(domain)]: data });
 }
@@ -119,22 +165,40 @@ export async function addItem(domain: string, item: FeedbackItem): Promise<void>
   await saveDomainData(domain, data);
 }
 
-/** Edit an item's note text in place (modal autosave, §1.5). No-op if the
- *  item can't be found. */
+/**
+ * Apply a partial update to one stored item (the enlarged view's autosave,
+ * §1.5). `patch` is an ItemPatch (src/types.ts) — the one declaration of
+ * which fields are mutable — so a new per-item field needs no new storage
+ * function. Resolves true if the item was found and written, false if the
+ * domain, URL or item does not exist (nothing is written then).
+ */
+export async function updateItem(
+  domain: string,
+  normalisedUrl: string,
+  itemId: number,
+  patch: ItemPatch,
+): Promise<boolean> {
+  const data = await getDomainData(domain);
+  if (!data) return false;
+  const pageItems = data.pages[normalisedUrl];
+  if (!pageItems) return false;
+  const idx = pageItems.findIndex((it) => it.id === itemId);
+  if (idx === -1) return false;
+  pageItems[idx] = { ...pageItems[idx], ...patch };
+  await saveDomainData(domain, data);
+  return true;
+}
+
+/** Edit an item's note text in place — `updateItem` with a `{ note }` patch.
+ *  Kept as the UPDATE_NOTE message's storage half. No-op if the item can't
+ *  be found. */
 export async function updateNote(
   domain: string,
   normalisedUrl: string,
   itemId: number,
   note: string,
 ): Promise<void> {
-  const data = await getDomainData(domain);
-  if (!data) return;
-  const pageItems = data.pages[normalisedUrl];
-  if (!pageItems) return;
-  const idx = pageItems.findIndex((it) => it.id === itemId);
-  if (idx === -1) return;
-  pageItems[idx] = { ...pageItems[idx], note };
-  await saveDomainData(domain, data);
+  await updateItem(domain, normalisedUrl, itemId, { note });
 }
 
 /** Remove an item and its screenshot blob (§1.5 — deleting a feedback item

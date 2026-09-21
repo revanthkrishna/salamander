@@ -8,7 +8,7 @@
 // Blob/File/ArrayBuffer do not survive. Every payload below is plain JSON;
 // images cross as data-URL strings.
 
-import { FeedbackItem, Rect, ViewportSize } from './types';
+import { FeedbackItem, ItemPatch, Rect, ViewportSize } from './types';
 
 // ---------------------------------------------------------------------------
 // Background -> content script
@@ -253,7 +253,33 @@ export interface GetImageErrorResponse {
 
 export type GetImageResponse = GetImageSuccessResponse | GetImageErrorResponse;
 
-/** Edit a note's text (enlarged-view autosave, §3.3). */
+/** Apply a partial update to one stored item (enlarged-view autosave, §3.3).
+ *  `patch` is an ItemPatch (src/types.ts), the single declaration of which
+ *  fields are mutable — a new per-item field (an annotations document, say)
+ *  travels through this same message rather than a new one. */
+export interface UpdateItemMessage {
+  type: 'UPDATE_ITEM';
+  domain: string;
+  normalisedUrl: string;
+  itemId: number;
+  patch: ItemPatch;
+}
+
+export interface UpdateItemSuccessResponse {
+  ok: true;
+}
+
+export interface UpdateItemErrorResponse {
+  ok: false;
+  message: string;
+}
+
+export type UpdateItemResponse = UpdateItemSuccessResponse | UpdateItemErrorResponse;
+
+/** The note-only predecessor of UpdateItemMessage: `{ note }` as a flat
+ *  field instead of a patch. Nothing in the content script sends it any
+ *  more; the handler stays as a thin alias of UPDATE_ITEM so an older
+ *  content script still on a page keeps saving. */
 export interface UpdateNoteMessage {
   type: 'UPDATE_NOTE';
   domain: string;
@@ -262,16 +288,7 @@ export interface UpdateNoteMessage {
   note: string;
 }
 
-export interface UpdateNoteSuccessResponse {
-  ok: true;
-}
-
-export interface UpdateNoteErrorResponse {
-  ok: false;
-  message: string;
-}
-
-export type UpdateNoteResponse = UpdateNoteSuccessResponse | UpdateNoteErrorResponse;
+export type UpdateNoteResponse = UpdateItemResponse;
 
 /** Delete a feedback item and its screenshot blob (§1.5 — immediate, no
  *  confirmation, no orphaned image). */
@@ -409,6 +426,7 @@ export type ContentToBackgroundMessage =
   | SaveItemMessage
   | GetPageItemsMessage
   | GetImageMessage
+  | UpdateItemMessage
   | UpdateNoteMessage
   | DeleteItemMessage
   | ExportMessage

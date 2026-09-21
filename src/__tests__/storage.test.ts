@@ -4,6 +4,9 @@
 import {
   addItem,
   deleteItem,
+  migrateDomainData,
+  STORAGE_VERSION,
+  updateItem,
   updateNote,
   getPageItems,
   getNextItemId,
@@ -102,6 +105,35 @@ describe('storage.ts — domain/item CRUD', () => {
     const items = await getPageItems(DOMAIN, a.normalisedUrl);
     expect(items.find((i) => i.id === 1)!.note).toBe('note text');
     expect(items.find((i) => i.id === 2)!.note).toBe('edited note');
+  });
+
+  test('updateItem applies a patch to the targeted item only and reports it was found', async () => {
+    const a = makeItem({ id: 1 });
+    const b = makeItem({ id: 2 });
+    await seedImage(a.screenshotKey);
+    await seedImage(b.screenshotKey);
+    await addItem(DOMAIN, a);
+    await addItem(DOMAIN, b);
+
+    await expect(updateItem(DOMAIN, a.normalisedUrl, 2, { note: 'patched' })).resolves.toBe(true);
+
+    const items = await getPageItems(DOMAIN, a.normalisedUrl);
+    expect(items.find((i) => i.id === 1)).toEqual(a);
+    expect(items.find((i) => i.id === 2)).toEqual({ ...b, note: 'patched' });
+  });
+
+  test('updateItem reports false and writes nothing for a missing domain, URL or item', async () => {
+    const item = makeItem({ id: 1 });
+    await seedImage(item.screenshotKey);
+    await addItem(DOMAIN, item);
+    (chrome.storage.local.set as jest.Mock).mockClear();
+
+    await expect(updateItem('nope.example', item.normalisedUrl, 1, { note: 'x' })).resolves.toBe(false);
+    await expect(updateItem(DOMAIN, 'https://example.com/other', 1, { note: 'x' })).resolves.toBe(false);
+    await expect(updateItem(DOMAIN, item.normalisedUrl, 999, { note: 'x' })).resolves.toBe(false);
+
+    expect(chrome.storage.local.set).not.toHaveBeenCalled();
+    expect((await getPageItems(DOMAIN, item.normalisedUrl))[0].note).toBe('note text');
   });
 
   test('updateNote is a no-op for an item that does not exist', async () => {
@@ -216,6 +248,66 @@ describe('storage.ts — domain/item CRUD', () => {
     expect((await getDomainData('fresh.example'))!.pages[incoming.normalisedUrl]).toEqual([
       incoming,
     ]);
+  });
+});
+
+describe('storage.ts — schema migration on read', () => {
+  /** A domain record exactly as this build writes it (frozen: if this shape
+   *  changes, STORAGE_VERSION must be bumped and a migration step added). */
+  const V1_RECORD = {
+    meta: { nextItemNumber: 3, version: 1 },
+    pages: {
+      'https://example.com/page': [makeItem({ id: 1 }), makeItem({ id: 2 })],
+    },
+  };
+
+  test('STORAGE_VERSION is the version emptyDomainData/addItem stamp on a new record', async () => {
+    const item = makeItem({ id: 1 });
+    await seedImage(item.screenshotKey);
+    await addItem(DOMAIN, item);
+    expect((await getDomainData(DOMAIN))!.meta.version).toBe(STORAGE_VERSION);
+  });
+
+  test('a current-version record passes through migrateDomainData unchanged', () => {
+    expect(migrateDomainData(V1_RECORD)).toEqual(V1_RECORD);
+  });
+
+  test('anything that is not a domain record migrates to null', () => {
+    expect(migrateDomainData(undefined)).toBeNull();
+    expect(migrateDomainData(null)).toBeNull();
+    expect(migrateDomainData('domain:example.com')).toBeNull();
+    expect(migrateDomainData({ meta: { nextItemNumber: 1, version: 1 } })).toBeNull();
+    expect(migrateDomainData({ pages: {} })).toBeNull();
+  });
+
+  test('a record with no version stamp is treated as version 1 and stamped', () => {
+    const unstamped = { meta: { nextItemNumber: 3 }, pages: V1_RECORD.pages };
+    expect(migrateDomainData(unstamped)).toEqual(V1_RECORD);
+  });
+
+  test('a record from a newer build passes through as-is rather than being refused', () => {
+    const newer = { ...V1_RECORD, meta: { ...V1_RECORD.meta, version: STORAGE_VERSION + 5 } };
+    expect(migrateDomainData(newer)).toEqual(newer);
+  });
+
+  test('getDomainData migrates a stored record once and writes the upgrade back', async () => {
+    const unstamped = { meta: { nextItemNumber: 3 }, pages: V1_RECORD.pages };
+    await new Promise<void>((resolve) => chrome.storage.local.set({ [`domain:${DOMAIN}`]: unstamped }, resolve));
+    (chrome.storage.local.set as jest.Mock).mockClear();
+
+    expect(await getDomainData(DOMAIN)).toEqual(V1_RECORD);
+    expect(chrome.storage.local.set).toHaveBeenCalledTimes(1);
+
+    // The second read finds the upgraded record and writes nothing.
+    (chrome.storage.local.set as jest.Mock).mockClear();
+    expect(await getDomainData(DOMAIN)).toEqual(V1_RECORD);
+    expect(chrome.storage.local.set).not.toHaveBeenCalled();
+  });
+
+  test('getPageItems sees migrated items', async () => {
+    const unstamped = { meta: { nextItemNumber: 3 }, pages: V1_RECORD.pages };
+    await new Promise<void>((resolve) => chrome.storage.local.set({ [`domain:${DOMAIN}`]: unstamped }, resolve));
+    expect(await getPageItems(DOMAIN, 'https://example.com/page')).toEqual(V1_RECORD.pages['https://example.com/page']);
   });
 });
 
