@@ -1,14 +1,13 @@
-// src/bundle.ts
-// Phase 8 — feedback.md serialisation *and* the shared section/fence grammar
-// (REQUIREMENTS §1.6). Phase 9's importer parses against exactly this
-// grammar, so the format is defined once, here, rather than splitting the
-// contract across two phases' worth of assumptions. Phase 9 extends
-// `parseFeedbackMarkdown` with the full §5 validation ladder (domain
-// mismatch, duplicate ids, version warnings, etc.) — what's here is the
-// shape-level grammar both sides already have to agree on for a round trip
-// to work at all.
+// src/bundle/v1.ts
+// FROZEN — schema version 1 of feedback.md: the section/fence grammar, the
+// snake_case yaml mirror types, both codecs and the parser, exactly as every
+// bundle exported so far was written. Nothing in this file changes shape any
+// more: a change to the format is a new `bundle/v2.ts` plus a step in
+// src/bundle/index.ts's dispatcher, and this file keeps reading the bundles
+// already on disk. src/__tests__/fixtures/feedback-v1.md is the golden copy
+// of what this writer produces; bundleV1.test.ts holds both halves to it.
 //
-// Format (§1.6):
+// Format (REQUIREMENTS §1.6):
 //   - one "## {normalised url}" section per URL, ordered by that URL's
 //     first-captured item (lowest item id, since ids are assigned
 //     sequentially at capture time — §1.2)
@@ -18,14 +17,83 @@
 //     markdown viewer), the note as plain prose, and the §1.4 captured
 //     context embedded directly below as a fenced ```yaml block
 //
-// Known limitation (accepted, not fixed here): a note whose text contains a
-// line that is *exactly* "```yaml" would be misread as the start of the
-// context fence. Notes are free-text user input and this extension doesn't
-// escape/fence them specially — considered acceptable given how narrow and
-// deliberate a note would have to be to hit it.
+// Known limitations (accepted in v1, not fixed here — fixing them is a
+// grammar change and therefore a v2): a note whose text contains a line that
+// is *exactly* "```yaml" is misread as the start of the context fence, and a
+// note line starting with "## " or "### item " is read as structure and
+// truncates the item. Notes are free-text user input and this format doesn't
+// escape/fence them specially.
 
 import * as yaml from 'js-yaml';
-import { FeedbackItem, YamlFeedbackItem } from './types';
+import { FeedbackItem } from '../types';
+import { versionComment } from './version';
+
+/** The schema version this file writes and reads. */
+export const SCHEMA_VERSION_V1 = 1;
+
+// ---------------------------------------------------------------------------
+// Bundle serialisation mirror types (REQUIREMENTS §1.6/§1.7)
+// ---------------------------------------------------------------------------
+// snake_case field names, for the fenced ```yaml blocks embedded per-item in
+// feedback.md. The note text and screenshot image are NOT part of this
+// object — they live as plain markdown prose / an image reference alongside
+// it (§1.6) — this yaml block is exactly the §1.4 captured context plus the
+// item-identifying fields an importer needs to reconstruct a FeedbackItem.
+
+export interface YamlRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface YamlPrimaryTarget {
+  css_selector: string;
+  xpath: string;
+  outer_html_snippet: string;
+  truncated: boolean;
+}
+
+export interface YamlContainedElement {
+  tag: string;
+  id?: string;
+  classes?: {
+    semantic: string[];
+    generated: string[];
+  };
+  attrs?: Record<string, string>;
+  text?: string;
+}
+
+export interface YamlPageMeta {
+  url: string;
+  normalised_url: string;
+  title: string;
+  viewport: { width: number; height: number };
+  dpr: number;
+  selection_rect: YamlRect;
+  captured_at: string;
+}
+
+export interface YamlCapturedContext {
+  primary_target: YamlPrimaryTarget;
+  contained_elements: YamlContainedElement[];
+  area_text: string;
+  page_meta: YamlPageMeta;
+  contained_elements_truncated?: boolean;
+}
+
+/** One item's fenced yaml block. `id` maps to `screenshots/{id}.png` (§1.6). */
+export interface YamlFeedbackItem {
+  id: number;
+  page_url: string;
+  normalised_url: string;
+  created_at: string;
+  selection_rect: YamlRect;
+  viewport: { width: number; height: number };
+  dpr: number;
+  context: YamlCapturedContext;
+}
 
 const FENCE_OPEN = '```yaml';
 const FENCE_CLOSE = '```';
@@ -33,19 +101,6 @@ const FENCE_CLOSE = '```';
 const SECTION_HEADING_RE = /^## (.+)$/;
 const ITEM_HEADING_RE = /^### item (\d+)$/;
 const IMAGE_LINE_RE = /^!\[\]\(screenshots\/(\d+)\.png\)$/;
-
-/**
- * Bundle schema version (§5 #6 — "bundle schema version newer than current
- * extension"). Bumped whenever a change to this file's grammar or the
- * `Yaml*` mirror types in src/types.ts would make an older importer
- * misread a newer bundle. Embedded as an HTML comment on the first line of
- * `feedback.md` (invisible in a rendered markdown viewer, exactly like the
- * fenced yaml blocks are meant to be inert prose to a human reader) so
- * Phase 9's importer can compare without touching the human-facing content.
- */
-export const SCHEMA_VERSION = 1;
-
-const VERSION_COMMENT_RE = /^<!--\s*annotator-schema-version:\s*(\d+)\s*-->\s*$/;
 
 // ---------------------------------------------------------------------------
 // Serialise: DomainData.pages -> feedback.md
@@ -63,23 +118,7 @@ export function buildFeedbackMarkdown(pages: Record<string, FeedbackItem[]>): st
     .filter((section) => section.items.length > 0)
     .sort((a, b) => a.items[0].id - b.items[0].id);
 
-  const versionComment = `<!-- annotator-schema-version: ${SCHEMA_VERSION} -->`;
-  return `${versionComment}\n\n${sections.map(renderSection).join('\n')}`;
-}
-
-/**
- * Read the schema version stamped on a `feedback.md` (see `SCHEMA_VERSION`
- * above). Absent entirely (a hand-authored bundle, or one predating this
- * marker) is treated as version 1 rather than an error — the marker is a
- * forward-compatibility aid, not a required field (§5's #6 only fires on a
- * bundle *newer* than this build, never on one that's silent about it).
- */
-export function parseSchemaVersion(markdown: string): number {
-  for (const line of markdown.split('\n', 5)) {
-    const match = VERSION_COMMENT_RE.exec(line.trim());
-    if (match) return parseInt(match[1], 10);
-  }
-  return 1;
+  return `${versionComment(SCHEMA_VERSION_V1)}\n\n${sections.map(renderSection).join('\n')}`;
 }
 
 function byId(a: FeedbackItem, b: FeedbackItem): number {
@@ -110,9 +149,9 @@ function renderItem(item: FeedbackItem): string {
   ].join('\n');
 }
 
-/** FeedbackItem -> its snake_case yaml-block mirror (§1.6). Exported so
- *  Phase 9's importer (and this file's own round-trip test) can build the
- *  same shape independently of the markdown text around it. */
+/** FeedbackItem -> its snake_case yaml-block mirror (§1.6). Exported so the
+ *  round-trip tests can build the same shape independently of the markdown
+ *  text around it. */
 export function toYamlFeedbackItem(item: FeedbackItem): YamlFeedbackItem {
   const ctx = item.context;
   return {
@@ -155,7 +194,7 @@ export function toYamlFeedbackItem(item: FeedbackItem): YamlFeedbackItem {
 }
 
 /**
- * Inverse of `toYamlFeedbackItem` (Phase 9): a parsed fence's yaml object
+ * Inverse of `toYamlFeedbackItem`: a parsed fence's yaml object
  * plus the prose note sitting above it -> everything a `FeedbackItem` needs
  * except `screenshotKey`/`thumbnailDataUrl`. Those two are deliberately not
  * part of the yaml block (they're internal storage handles, not information
@@ -247,10 +286,10 @@ export interface ParsedBundleSection {
 /**
  * Parse `feedback.md`'s grammar back into structured sections. Deliberately
  * permissive about *values* (deciding whether those values are valid is
- * Phase 9's §5 error ladder) but strict about *shape*: a missing image
+ * src/import.ts's §5 error ladder) but strict about *shape*: a missing image
  * reference or an unterminated/malformed yaml fence throws, since that shape
  * mismatch is exactly what §5 #4b ("this bundle appears to be corrupted —
- * couldn't read feedback data") means. Phase 9 wraps these throws in that
+ * couldn't read feedback data") means. import.ts wraps these throws in that
  * ImportError.
  */
 export function parseFeedbackMarkdown(markdown: string): ParsedBundleSection[] {

@@ -153,69 +153,8 @@ export interface DomainData {
   pages: Record<string, FeedbackItem[]>;
 }
 
-// ---------------------------------------------------------------------------
-// Bundle serialisation mirror types (REQUIREMENTS §1.6/§1.7)
-// ---------------------------------------------------------------------------
-// snake_case field names, for the fenced ```yaml blocks embedded per-item in
-// feedback.md. The note text and screenshot image are NOT part of this
-// object — they live as plain markdown prose / an image reference alongside
-// it (§1.6) — this yaml block is exactly the §1.4 captured context plus the
-// item-identifying fields an importer needs to reconstruct a FeedbackItem.
-
-export interface YamlRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export interface YamlPrimaryTarget {
-  css_selector: string;
-  xpath: string;
-  outer_html_snippet: string;
-  truncated: boolean;
-}
-
-export interface YamlContainedElement {
-  tag: string;
-  id?: string;
-  classes?: {
-    semantic: string[];
-    generated: string[];
-  };
-  attrs?: Record<string, string>;
-  text?: string;
-}
-
-export interface YamlPageMeta {
-  url: string;
-  normalised_url: string;
-  title: string;
-  viewport: { width: number; height: number };
-  dpr: number;
-  selection_rect: YamlRect;
-  captured_at: string;
-}
-
-export interface YamlCapturedContext {
-  primary_target: YamlPrimaryTarget;
-  contained_elements: YamlContainedElement[];
-  area_text: string;
-  page_meta: YamlPageMeta;
-  contained_elements_truncated?: boolean;
-}
-
-/** One item's fenced yaml block. `id` maps to `screenshots/{id}.png` (§1.6). */
-export interface YamlFeedbackItem {
-  id: number;
-  page_url: string;
-  normalised_url: string;
-  created_at: string;
-  selection_rect: YamlRect;
-  viewport: { width: number; height: number };
-  dpr: number;
-  context: YamlCapturedContext;
-}
+// The bundle's snake_case yaml mirror types live with the grammar they
+// belong to, per format version: src/bundle/v1.ts.
 
 // ---------------------------------------------------------------------------
 // Import errors (REQUIREMENTS §5 — 11 cases; only the 🔴 error rows and the

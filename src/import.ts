@@ -30,7 +30,7 @@
 
 import { unzipSync, strFromU8 } from 'fflate';
 import { ImportError } from './types';
-import { parseFeedbackMarkdown, parseSchemaVersion, fromYamlFeedbackItem, SCHEMA_VERSION } from './bundle';
+import { decodeFeedbackMarkdown, DecodedBundleItem } from './bundle';
 import { normaliseDomain } from './urlNorm';
 import { ImportItemPayload } from './messages';
 import { bytesToDataUrl } from './dataUrl';
@@ -85,32 +85,20 @@ export async function parseImportBundle(
   }
 
   // §5 #4b — malformed/missing fence (grammar-level: bad image ref,
-  // unterminated or unparsable yaml fence). parseFeedbackMarkdown throws a
+  // unterminated or unparsable yaml fence) or a well-formed fence missing a
+  // field the shape requires. The versioned reader (src/bundle) throws a
   // plain Error for all of these; this is the one place that maps to the
-  // user-facing code.
-  let sections;
+  // user-facing code. It also reports the file's schema version for #6.
+  let decoded;
   try {
-    sections = parseFeedbackMarkdown(markdown);
+    decoded = decodeFeedbackMarkdown(markdown);
   } catch {
     throw new ImportError('MALFORMED_CONTEXT');
   }
-
-  const flatParsed = sections.flatMap((section) => section.items);
-
-  // §5 #4b, continued — field-level malformed yaml (well-formed fence, but
-  // missing a field this shape requires).
-  const withNotes: Array<{ note: string; item: Omit<ImportItemPayload, 'screenshotDataUrl'>; id: number }> = [];
-  for (const parsed of flatParsed) {
-    try {
-      const item = fromYamlFeedbackItem(parsed.note, parsed.yaml);
-      withNotes.push({ note: parsed.note, item, id: parsed.id });
-    } catch {
-      throw new ImportError('MALFORMED_CONTEXT');
-    }
-  }
+  const decodedItems: DecodedBundleItem[] = decoded.items;
 
   // §5 #4 — an item's metadata references a screenshot not in the zip.
-  for (const { id } of withNotes) {
+  for (const { id } of decodedItems) {
     if (!entries[`screenshots/${id}.png`]) {
       throw new ImportError('MISSING_SCREENSHOT');
     }
@@ -118,7 +106,7 @@ export async function parseImportBundle(
 
   // §5 #11 — duplicate ids within the bundle.
   const seenIds = new Set<number>();
-  for (const { id } of withNotes) {
+  for (const { id } of decodedItems) {
     if (seenIds.has(id)) {
       throw new ImportError('DUPLICATE_IDS');
     }
@@ -129,7 +117,7 @@ export async function parseImportBundle(
   // (§1.6), so any item's page_url is representative; an empty bundle has
   // no domain to compare and is treated as matching (nothing to replace
   // against anyway).
-  const bundleDomain = withNotes.length > 0 ? domainOf(withNotes[0].item.pageUrl) : currentDomain;
+  const bundleDomain = decodedItems.length > 0 ? domainOf(decodedItems[0].pageUrl) : currentDomain;
   if (bundleDomain !== currentDomain) {
     throw new ImportError('DOMAIN_MISMATCH', {
       fileDomain: bundleDomain,
@@ -137,21 +125,19 @@ export async function parseImportBundle(
     });
   }
 
-  const items: ImportItemPayload[] = withNotes.map(({ item, id }) => ({
+  const items: ImportItemPayload[] = decodedItems.map((item) => ({
     ...item,
     // Raw PNG bytes -> a data URL, so they can cross the chrome.runtime
     // boundary as JSON (gotcha #2) and land in imageStore exactly like every
     // other stored screenshot.
-    screenshotDataUrl: bytesToDataUrl(entries[`screenshots/${id}.png`], 'image/png'),
+    screenshotDataUrl: bytesToDataUrl(entries[`screenshots/${item.id}.png`], 'image/png'),
   }));
 
   // §5 #6 — newer schema version. Warning only; import proceeds.
-  const bundleVersion = parseSchemaVersion(markdown);
-
   return {
     domain: bundleDomain,
     items,
-    versionWarning: bundleVersion > SCHEMA_VERSION,
+    versionWarning: decoded.versionWarning,
   };
 }
 

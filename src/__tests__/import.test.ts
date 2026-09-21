@@ -6,7 +6,8 @@
 
 import { zipSync, strToU8 } from 'fflate';
 import { parseImportBundle } from '../import';
-import { buildFeedbackMarkdown, toYamlFeedbackItem, SCHEMA_VERSION } from '../bundle';
+import { buildFeedbackMarkdown, SCHEMA_VERSION } from '../bundle';
+import { toYamlFeedbackItem } from '../bundle/v1';
 import { ImportError, FeedbackItem } from '../types';
 
 // jsdom's File (like its Blob) has no arrayBuffer() implementation — a
