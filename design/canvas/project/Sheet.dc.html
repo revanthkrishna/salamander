@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Design direction sheet</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&amp;family=Geist:wght@400..700&amp;family=Geist+Mono:wght@400;500&amp;family=Instrument+Serif:ital@0;1&amp;family=Instrument+Sans:wght@400..700&amp;family=JetBrains+Mono:wght@400;500&amp;family=Figtree:wght@400..800&amp;family=DM+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 1784px; height: 940px; box-sizing: border-box; padding: 56px; display: flex; flex-direction: column; gap: 32px; background: {{L.bg}}; color: {{L.text}}; font-family: {{f.body}};">
+<div style="display: flex; align-items: flex-end; gap: 24px;">
+<h1 style="margin: 0; font-family: {{f.display}}; font-style: {{f.displayStyle}}; font-weight: {{f.displayWeight}}; font-size: 76px; line-height: 0.95; letter-spacing: -0.03em;">{{name}}</h1>
+<div style="display: flex; gap: 8px; padding-bottom: 8px;">
+<sc-for list="{{keywords}}" as="k" hint-placeholder-count="3">
+<span style="height: 28px; padding: 0 12px; border-radius: {{r.sm}}px; border: 1px solid {{L.line}}; background: {{L.surface}}; color: {{L.muted}}; font-size: 13px; line-height: 26px; box-sizing: border-box;">{{k}}</span>
+</sc-for>
+</div>
+</div>
+<div style="display: flex; gap: 48px; align-items: flex-start;">
+<div style="width: 560px; flex-shrink: 0; display: flex; flex-direction: column; gap: 28px;">
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<div style="font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: {{L.muted}};">Palette · light / dark</div>
+<div style="display: flex; gap: 8px;">
+<sc-for list="{{lightSwatches}}" as="s" hint-placeholder-count="8">
+<div style="width: 62px; display: flex; flex-direction: column; gap: 6px;">
+<div style="height: 48px; border-radius: 10px; background: {{s.hex}}; box-shadow: inset 0 0 0 1px {{L.line}};"></div>
+<div style="font-family: {{f.mono}}; font-size: 10px; line-height: 1.3; color: {{L.muted}}; word-break: break-all;">{{s.label}}<br>{{s.hex}}</div>
+</div>
+</sc-for>
+</div>
+<div style="display: flex; gap: 8px;">
+<sc-for list="{{darkSwatches}}" as="s" hint-placeholder-count="8">
+<div style="width: 62px; display: flex; flex-direction: column; gap: 6px;">
+<div style="height: 48px; border-radius: 10px; background: {{s.hex}}; box-shadow: inset 0 0 0 1px {{L.line}};"></div>
+<div style="font-family: {{f.mono}}; font-size: 10px; line-height: 1.3; color: {{L.muted}}; word-break: break-all;">{{s.label}}<br>{{s.hex}}</div>
+</div>
+</sc-for>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<div style="font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: {{L.muted}};">Type</div>
+<div style="font-family: {{f.display}}; font-style: {{f.displayStyle}}; font-weight: {{f.displayWeight}}; font-size: 44px; line-height: 1.05; letter-spacing: -0.02em;">notes, not noise.</div>
+<p style="margin: 0; font-size: 15px; line-height: 1.5; max-width: 480px;">select any part of a page, say what should change, and hand it to a developer or an agent.</p>
+<div style="font-family: {{f.mono}}; font-size: 12px; color: {{L.muted}};">942/1000 · feedback #12 · trailhead.app/pricing</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<div style="font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: {{L.muted}};">Components</div>
+<div style="padding: 20px; border-radius: {{r.lg}}px; background: {{L.surface}}; border: 1px solid {{L.line}}; display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; align-items: center; gap: 10px;">
+<button type="button" aria-pressed="false" aria-label="add note" title="add note" style="width: 36px; height: 36px; padding: 0; border: 1px solid {{L.line}}; border-radius: {{r.btn}}px; background: {{L.surface}}; color: {{L.text}}; display: flex; align-items: center; justify-content: center; cursor: pointer;"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0;"><path d="M20 14a2 2 0 0 1-2 2H8.5L4 19.5V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"></path></svg></button>
+<button type="button" style="height: 36px; padding: 0 16px; border-radius: {{r.btn}}px; border: 1px solid {{L.line}}; background: {{L.surface}}; color: {{L.text}}; font-family: {{f.body}}; font-size: 13px; font-weight: 500; cursor: pointer;">cancel</button>
+<button type="button" style="height: 36px; padding: 0 16px; border: none; border-radius: {{r.btn}}px; background: {{L.dangerSoft}}; color: {{L.danger}}; font-family: {{f.body}}; font-size: 13px; font-weight: 600; cursor: pointer;">delete</button>
+<button type="button" aria-label="export feedback" style="width: 36px; height: 36px; padding: 0; border-radius: {{r.btn}}px; border: 1px solid {{L.line}}; background: {{L.surface}}; color: {{L.text}}; display: flex; align-items: center; justify-content: center; cursor: pointer;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14"></path></svg></button>
+<span style="min-width: 22px; height: 22px; box-sizing: border-box; padding: 0 7px; border-radius: {{r.sm}}px; background: {{L.accent}}; color: {{L.onAccent}}; font-family: {{f.mono}}; font-size: 11px; font-weight: 600; line-height: 22px; text-align: center;">12</span>
+</div>
+<div role="alert" style="padding: 10px 12px; border-radius: {{r.md}}px; background: {{L.dangerSoft}}; color: {{L.danger}}; display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; line-height: 1.4;">
+<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 1px;"><circle cx="12" cy="12" r="9"></circle><path d="M9 9l6 6M15 9l-6 6"></path></svg>
+<span>this bundle is for 'staging.trailhead.app', but you're on 'trailhead.app'.</span>
+</div>
+<div role="status" style="padding: 10px 12px; border-radius: {{r.md}}px; background: {{L.warnSoft}}; color: {{L.warn}}; display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; line-height: 1.4;">
+<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 1px;"><circle cx="12" cy="12" r="9"></circle><path d="M12 7.5v5.5M12 16.5v.01"></path></svg>
+<span>made with a newer version. some notes may not display correctly.</span>
+</div>
+<div role="group" aria-label="comment box near the limit" style="position: relative; width: 100%; height: calc(106px - {{r.lg}}px); box-sizing: border-box; border-radius: {{r.lg}}px; box-shadow: 0 18px 40px rgba(0,0,0,0.28);">
+<div style="position: absolute; left: 0; right: 0; top: calc(64px - {{r.lg}}px); bottom: 0; z-index: 0; box-sizing: border-box; border-radius: 0 0 {{r.lg}}px {{r.lg}}px; background: {{L.raised}}; padding: 6px; display: flex; align-items: center; gap: 8px;">
+<span style="flex-grow: 1; padding: 0 6px; font-family: {{f.mono}}; font-size: 11px; color: {{L.muted}};">942/1000</span>
+<button type="button" style="height: 30px; margin: 0; padding: 0 12px; border: none; border-radius: {{r.sm}}px; background: transparent; color: {{L.muted}}; font-family: {{f.body}}; font-size: 13px; font-weight: 500; cursor: pointer;">cancel</button>
+<button type="button" style="height: 30px; margin: 0; padding: 0 12px; border: none; border-radius: {{r.sm}}px; background: transparent; color: {{L.accentInk}}; font-family: {{f.body}}; font-size: 13px; font-weight: 700; cursor: pointer;">save</button>
+</div>
+<textarea aria-label="note" placeholder="what should change here?" style="position: relative; z-index: 1; display: block; width: 100%; height: 64px; box-sizing: border-box; margin: 0; padding: 10px 12px; resize: none; border: 1px solid {{L.line}}; border-radius: {{r.lg}}px; outline: none; background: {{L.surface}}; color: {{L.text}}; font-family: {{f.body}}; font-size: 13px; line-height: 1.4;">the pricing toggle resets to yearly on every reload, even after picking monthly. it should remember the last choice for the session, and the crew card border should match the others…</textarea>
+</div>
+</div>
+</div>
+</div>
+<div style="display: flex; gap: 24px;">
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<div style="font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: {{L.muted}};">Light</div>
+<dc-import name="Scene" t="{{L}}" f="{{f}}" r="{{r}}" hint-size="520px,680px"></dc-import>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<div style="font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: {{L.muted}};">Dark</div>
+<dc-import name="Scene" t="{{D}}" f="{{f}}" r="{{r}}" hint-size="520px,680px"></dc-import>
+</div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"direction":{"editor":"enum","options":["salamander","glow","ember","newt"],"default":"salamander"},"$preview":{"width":1784,"height":940}}'>
+class Component extends DCLogic {
+renderVals() {
+const dirs = {
+salamander: {
+name: 'Salamander', keywords: ['black + yellow', 'serif accents', 'rounded rects'],
+f: { display: "'Instrument Serif', serif", body: "'Instrument Sans', sans-serif", mono: "'JetBrains Mono', monospace", displayStyle: 'italic', displayWeight: 400, wordSize: 22 },
+r: { sm: 6, md: 10, lg: 14, btn: 10, logo: '6px' },
+L: { bg: '#FFFCF5', surface: '#FFFFFF', raised: '#FFFFFF', line: '#EAE3D2', text: '#1A1712', muted: '#6E6656', accent: '#FEC800', accentSoft: 'rgba(254,200,0,0.30)', onAccent: '#1A1712', pop: '#F3EDDF', onPop: '#1A1712', keyline: 'rgba(26,23,18,0.55)', scrim: 'rgba(26,23,18,0.42)', warn: '#8A5A00', warnSoft: '#FFF1CC', danger: '#B42318', dangerSoft: '#FDE7E4', pageBg: '#FFFFFF', pageInk: '#2B2A27', pageCard: '#EDEAE3', accentInk: '#1A1712', logoSrc: '/_blob/a9c852774105e097a5bd14c898d8a1a3' },
+D: { bg: '#14120D', surface: '#1D1A13', raised: '#2A261C', line: '#3A3427', text: '#FBF6EA', muted: '#B3AA96', accent: '#FEC800', accentSoft: 'rgba(254,200,0,0.22)', onAccent: '#1A1712', pop: '#2A261C', onPop: '#FBF6EA', keyline: 'rgba(0,0,0,0.6)', scrim: 'rgba(0,0,0,0.5)', warn: '#F5C35B', warnSoft: 'rgba(245,195,91,0.12)', danger: '#FF7A6B', dangerSoft: 'rgba(255,122,107,0.14)', pageBg: '#1E1E20', pageInk: '#D8D8DC', pageCard: '#2C2C30', accentInk: '#FEC800', logoSrc: '/_blob/07614eeb4a9afab77d6d8541f5938c87' }
+},
+glow: {
+name: 'Glow', keywords: ['warm', 'luminous', 'soft'],
+f: { display: "'Bricolage Grotesque', sans-serif", body: "'Geist', sans-serif", mono: "'Geist Mono', monospace", displayStyle: 'normal', displayWeight: 700, wordSize: 17 },
+r: { sm: 8, md: 12, lg: 18, btn: 999, logo: '7px' },
+L: { bg: '#FFFCF5', surface: '#FFFFFF', raised: '#FFFFFF', line: '#EAE3D2', text: '#1A1712', muted: '#6E6656', accent: '#FFC700', accentSoft: 'rgba(255,199,0,0.30)', onAccent: '#1A1712', pop: '#FF8A5B', onPop: '#1A1712', keyline: 'rgba(26,23,18,0.55)', scrim: 'rgba(26,23,18,0.42)', warn: '#8A5A00', warnSoft: '#FFF1CC', danger: '#B42318', dangerSoft: '#FDE7E4', pageBg: '#FFFFFF', pageInk: '#2B2A27', pageCard: '#EDEAE3', accentInk: '#8F6D00', logoSrc: '/_blob/a9c852774105e097a5bd14c898d8a1a3' },
+D: { bg: '#14120D', surface: '#1D1A13', raised: '#2A261C', line: '#3A3427', text: '#FBF6EA', muted: '#B3AA96', accent: '#FFC700', accentSoft: 'rgba(255,199,0,0.22)', onAccent: '#1A1712', pop: '#FF9A70', onPop: '#1A1712', keyline: 'rgba(0,0,0,0.6)', scrim: 'rgba(0,0,0,0.5)', warn: '#F5C35B', warnSoft: 'rgba(245,195,91,0.12)', danger: '#FF7A6B', dangerSoft: 'rgba(255,122,107,0.14)', pageBg: '#1E1E20', pageInk: '#D8D8DC', pageCard: '#2C2C30', accentInk: '#FFC700', logoSrc: '/_blob/07614eeb4a9afab77d6d8541f5938c87' }
+},
+ember: {
+name: 'Ember', keywords: ['crisp', 'editorial', 'spirited'],
+f: { display: "'Instrument Serif', serif", body: "'Instrument Sans', sans-serif", mono: "'JetBrains Mono', monospace", displayStyle: 'italic', displayWeight: 400, wordSize: 22 },
+r: { sm: 6, md: 10, lg: 14, btn: 10, logo: '50%' },
+L: { bg: '#F7F7F9', surface: '#FFFFFF', raised: '#FFFFFF', line: '#E2E2E8', text: '#16161A', muted: '#5F5F6B', accent: '#FF5A36', accentSoft: 'rgba(255,90,54,0.22)', onAccent: '#16161A', pop: '#C4B5FD', onPop: '#16161A', keyline: 'rgba(22,22,26,0.5)', scrim: 'rgba(22,22,26,0.42)', warn: '#8A5300', warnSoft: '#FCEFD9', danger: '#B42318', dangerSoft: '#FDE8E4', pageBg: '#FFFFFF', pageInk: '#2A2A30', pageCard: '#ECECF1', accentInk: '#B83A1B', logoSrc: '/_blob/a9c852774105e097a5bd14c898d8a1a3' },
+D: { bg: '#111114', surface: '#1A1A1F', raised: '#24242B', line: '#32323A', text: '#F4F4F6', muted: '#A2A2AE', accent: '#FF6A48', accentSoft: 'rgba(255,106,72,0.24)', onAccent: '#16161A', pop: '#C9BCFF', onPop: '#16161A', keyline: 'rgba(0,0,0,0.6)', scrim: 'rgba(0,0,0,0.5)', warn: '#F2C063', warnSoft: 'rgba(242,192,99,0.12)', danger: '#FF8A7A', dangerSoft: 'rgba(255,138,122,0.14)', pageBg: '#1E1E22', pageInk: '#D6D6DC', pageCard: '#2C2C32', accentInk: '#FF6A48', logoSrc: '/_blob/07614eeb4a9afab77d6d8541f5938c87' }
+},
+newt: {
+name: 'Newt', keywords: ['glassy', 'fresh', 'bouncy'],
+f: { display: "'Figtree', sans-serif", body: "'Figtree', sans-serif", mono: "'DM Mono', monospace", displayStyle: 'normal', displayWeight: 800, wordSize: 17 },
+r: { sm: 10, md: 16, lg: 22, btn: 999, logo: '50% 50% 50% 14%' },
+L: { bg: '#EEF3EE', surface: '#FFFFFF', raised: 'rgba(250,253,250,0.82)', line: 'rgba(15,26,20,0.10)', text: '#0F1A14', muted: '#53645A', accent: '#B8F04A', accentSoft: 'rgba(150,220,40,0.32)', onAccent: '#0F2A12', pop: '#FF9BC0', onPop: '#2A0E1A', keyline: 'rgba(15,42,18,0.7)', scrim: 'rgba(12,20,16,0.40)', warn: '#7A4E00', warnSoft: '#FBEFD3', danger: '#B8173F', dangerSoft: '#FCE4EA', pageBg: '#FFFFFF', pageInk: '#25302A', pageCard: '#E6ECE7', accentInk: '#3F6B00', logoSrc: '/_blob/a9c852774105e097a5bd14c898d8a1a3' },
+D: { bg: '#0C120F', surface: '#141C18', raised: 'rgba(28,38,32,0.86)', line: 'rgba(234,242,236,0.10)', text: '#EAF2EC', muted: '#94A59A', accent: '#C4F55C', accentSoft: 'rgba(196,245,92,0.22)', onAccent: '#0F2A12', pop: '#FFA3C6', onPop: '#2A0E1A', keyline: 'rgba(0,0,0,0.6)', scrim: 'rgba(0,0,0,0.5)', warn: '#F3C866', warnSoft: 'rgba(243,200,102,0.12)', danger: '#FF7C9C', dangerSoft: 'rgba(255,124,156,0.14)', pageBg: '#1C201E', pageInk: '#D5DDD8', pageCard: '#2A302C', accentInk: '#C4F55C', logoSrc: '/_blob/07614eeb4a9afab77d6d8541f5938c87' }
+}
+};
+const d = dirs[this.props.direction ?? 'salamander'] ?? dirs.salamander;
+const sw = (t) => [
+{ label: 'bg', hex: t.bg }, { label: 'surface', hex: t.surface }, { label: 'line', hex: t.line },
+{ label: 'text', hex: t.text }, { label: 'muted', hex: t.muted }, { label: 'accent', hex: t.accent },
+{ label: 'warn', hex: t.warn }, { label: 'danger', hex: t.danger }
+];
+return { name: d.name, keywords: d.keywords, f: d.f, r: d.r, L: d.L, D: d.D, lightSwatches: sw(d.L), darkSwatches: sw(d.D) };
+}
+}
+</script>
+</body>
+</html>

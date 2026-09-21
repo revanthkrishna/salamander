@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Salamander · enlarged view</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Instrument+Sans:wght@400..700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 2720px; height: 840px; display: flex; overflow: hidden; font-family: {{f.body}};">
+<sc-for list="{{frames}}" as="fr" hint-placeholder-count="2">
+<div style="position: relative; width: 1360px; height: 840px; flex-shrink: 0; overflow: hidden; background: {{fr.t.pageBg}}; font-family: {{f.body}}; color: {{fr.t.text}};">
+
+<div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1060px; height: 840px; overflow: hidden; background: {{fr.t.pageBg}};">
+<div style="height: 64px; box-sizing: border-box; display: flex; align-items: center; gap: 28px; padding: 0 40px; border-bottom: 1px solid {{fr.t.pageCard}};">
+<div style="width: 26px; height: 26px; border-radius: 7px; background: {{fr.t.pageInk}};"></div>
+<div style="width: 96px; height: 12px; border-radius: 6px; background: {{fr.t.pageInk}};"></div>
+<div style="flex-grow: 1;"></div>
+<div style="width: 60px; height: 9px; border-radius: 5px; background: {{fr.t.pageInk}}; opacity: 0.4;"></div>
+<div style="width: 104px; height: 36px; border-radius: 10px; background: {{fr.t.pageInk}};"></div>
+</div>
+<div style="padding: 64px 40px 0;">
+<div style="width: 110px; height: 10px; border-radius: 5px; background: {{fr.t.pageInk}}; opacity: 0.45;"></div>
+<div style="width: 250px; height: 34px; border-radius: 10px; background: {{fr.t.pageInk}}; margin-top: 24px;"></div>
+<div style="width: 200px; height: 34px; border-radius: 10px; background: {{fr.t.pageInk}}; margin-top: 12px;"></div>
+<div style="width: 240px; height: 10px; border-radius: 5px; background: {{fr.t.pageInk}}; opacity: 0.3; margin-top: 28px;"></div>
+<div style="width: 210px; height: 10px; border-radius: 5px; background: {{fr.t.pageInk}}; opacity: 0.3; margin-top: 10px;"></div>
+<div style="width: 170px; height: 46px; border-radius: 10px; background: {{fr.t.accent}}; margin-top: 30px;"></div>
+<div style="width: 260px; height: 250px; border-radius: 14px; background: {{fr.t.pageCard}}; margin-top: 56px;"></div>
+</div>
+</div>
+
+<div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1360px; height: 840px; background: {{fr.t.scrim}};"></div>
+
+<aside aria-label="salamander sidebar (enlarged)" style="position: absolute; top: 0; right: 0; width: 1020px; height: 840px; box-sizing: border-box; overflow: hidden; background: {{fr.t.bg}}; border-left: 1px solid {{fr.t.line}};">
+
+<div style="position: absolute; z-index: 2; top: 0; left: 0; height: 56px; box-sizing: border-box; padding: 0 0 0 16px; display: flex; align-items: center; gap: 10px;">
+<img src="{{fr.t.logoSrc}}" alt="" style="width: 35px; height: 20px; flex-shrink: 0; display: block;">
+<span style="font-family: {{f.display}}; font-style: italic; font-size: 22px; font-weight: 400; letter-spacing: -0.01em; color: {{fr.t.text}}; white-space: nowrap;">salamander</span>
+</div>
+
+<button type="button" aria-label="previous note: feedback #2" title="previous note" style="position: absolute; left: 360px; top: -168px; width: 540px; height: 248px; margin: 0; padding: 0; border: none; background: transparent; color: {{fr.t.text}}; font: inherit; text-align: left; cursor: pointer;">
+<div style="position: absolute; left: 0; top: 0; width: 540px; height: 248px; border-radius: {{r.md}}px; overflow: hidden; background: {{fr.t.raised}}; display: flex; align-items: center; justify-content: center">
+<div style="position: relative; flex-shrink: 0; width: {{fr.prev.shot.w}}; height: {{fr.prev.shot.h}}; border-radius: {{fr.prev.shot.r}}; background: {{fr.t.pageBg}}; overflow: hidden;"><sc-for list="{{fr.prev.shot.blocks}}" as="b" hint-placeholder-count="6"><div style="position: absolute; left: {{b.l}}; top: {{b.t}}; width: {{b.w}}; height: {{b.h}}; border-radius: {{b.r}}; background: {{b.bg}}; opacity: {{b.o}};"></div></sc-for></div>
+</div>
+<p style="position: absolute; left: 0; right: 0; top: 256px; margin: 0; padding: 0 10px; font-size: 13px; line-height: 18px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; width: 540px">{{fr.prev.text}}</p>
+</button>
+
+<div style="position: absolute; left: 120px; top: 144px; width: 720px; height: 34px; display: flex; align-items: baseline; gap: 12px;">
+<h2 style="margin: 0; font-family: {{f.display}}; font-style: italic; font-weight: 400; font-size: 28px; line-height: 34px; letter-spacing: -0.01em; color: {{fr.t.text}};">feedback #3</h2>
+<span style="font-family: {{f.mono}}; font-size: 12px; color: {{fr.t.muted}};">3 / 5</span>
+</div>
+
+<div style="position: absolute; left: 120px; top: 190px; width: 720px; height: 330px; border-radius: {{r.md}}px; background: {{fr.t.raised}}; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+<div style="position: relative; flex-shrink: 0; width: {{fr.cur.shot.w}}; height: {{fr.cur.shot.h}}; border-radius: {{fr.cur.shot.r}}; background: {{fr.t.pageBg}}; overflow: hidden;"><sc-for list="{{fr.cur.shot.blocks}}" as="b" hint-placeholder-count="6"><div style="position: absolute; left: {{b.l}}; top: {{b.t}}; width: {{b.w}}; height: {{b.h}}; border-radius: {{b.r}}; background: {{b.bg}}; opacity: {{b.o}};"></div></sc-for></div>
+</div>
+
+<div style="position: absolute; left: 120px; top: 536px; width: 720px; display: flex; flex-direction: column;">
+<textarea aria-label="note" placeholder="what should change here?" style="position: relative; z-index: 1; display: block; width: 100%; height: 96px; box-sizing: border-box; margin: 0; padding: 12px 14px; resize: none; border: 1px solid {{fr.taBorder}}; border-radius: {{r.lg}}px; outline: none; background: {{fr.t.surface}}; color: {{fr.t.text}}; font-family: {{f.body}}; font-size: 14px; line-height: 1.45;">{{fr.cur.text}}</textarea>
+<div style="position: relative; z-index: 0; height: 62px; margin-top: -14px; padding: 22px 8px 8px 8px; box-sizing: border-box; background: {{fr.t.raised}}; border-radius: 0 0 {{r.lg}}px {{r.lg}}px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+<button type="button" aria-label="delete note" style="height: 32px; margin: 0; padding: 0 12px; border: none; border-radius: {{r.md}}px; background: transparent; color: {{fr.t.danger}}; font-family: {{f.body}}; font-size: 13px; font-weight: 600; cursor: pointer;">delete</button>
+<span role="status" style="display: flex; align-items: center; gap: 4px; padding: 0 10px; font-size: 12px; color: {{fr.t.muted}}; opacity: {{fr.savedO}};"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>saved</span>
+</div>
+</div>
+
+<button type="button" aria-label="next note: feedback #4" title="next note" style="position: absolute; left: 360px; top: 710px; width: 540px; height: 248px; margin: 0; padding: 0; border: none; background: transparent; color: {{fr.t.text}}; font: inherit; text-align: left; cursor: pointer;">
+<div style="position: absolute; left: 0; top: 0; width: 540px; height: 248px; border-radius: {{r.md}}px; overflow: hidden; background: {{fr.t.raised}}; display: flex; align-items: center; justify-content: center">
+<div style="position: relative; flex-shrink: 0; width: {{fr.next.shot.w}}; height: {{fr.next.shot.h}}; border-radius: {{fr.next.shot.r}}; background: {{fr.t.pageBg}}; overflow: hidden;"><sc-for list="{{fr.next.shot.blocks}}" as="b" hint-placeholder-count="6"><div style="position: absolute; left: {{b.l}}; top: {{b.t}}; width: {{b.w}}; height: {{b.h}}; border-radius: {{b.r}}; background: {{b.bg}}; opacity: {{b.o}};"></div></sc-for></div>
+</div>
+</button>
+
+<div style="position: absolute; left: 860px; top: 144px; display: flex; flex-direction: column; gap: 8px;">
+<button type="button" aria-label="exit enlarged view" title="exit enlarged view (esc)" style="width: 40px; height: 40px; margin: 0 0 8px; padding: 0; box-sizing: border-box; border: 1px solid {{fr.t.line}}; border-radius: {{r.md}}px; background: {{fr.t.surface}}; color: {{fr.t.text}}; display: flex; align-items: center; justify-content: center; cursor: pointer;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+<button type="button" aria-label="previous note" title="previous note (↑)" style="width: 40px; height: 40px; margin: 0; padding: 0; box-sizing: border-box; border: 1px solid {{fr.t.line}}; border-radius: {{r.md}}px; background: {{fr.t.surface}}; color: {{fr.t.text}}; display: flex; align-items: center; justify-content: center; cursor: pointer;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6"></path></svg></button>
+<button type="button" aria-label="next note" title="next note (↓)" style="width: 40px; height: 40px; margin: 0; padding: 0; box-sizing: border-box; border: 1px solid {{fr.t.line}}; border-radius: {{r.md}}px; background: {{fr.t.surface}}; color: {{fr.t.text}}; display: flex; align-items: center; justify-content: center; cursor: pointer;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+</div>
+
+</aside>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2720,"height":840}}'>
+class Component extends DCLogic {
+shot(note, AW, AH, pad, t) {
+let w = AW - pad * 2; let h = w / note.aspect;
+if (h > AH - pad * 2) { h = AH - pad * 2; w = h * note.aspect; }
+const rad = Math.max(2, Math.round(h * 0.03));
+return { w: Math.round(w) + 'px', h: Math.round(h) + 'px', r: Math.max(3, Math.round(h * 0.035)) + 'px', blocks: note.blocks.map(b => ({ l: b[0] + '%', t: b[1] + '%', w: b[2] + '%', h: b[3] + '%', bg: t[b[4]], o: b[5], r: b[6] === 'c' ? '50%' : rad + 'px' })) };
+}
+renderVals() {
+const f = { display: "'Instrument Serif', serif", body: "'Instrument Sans', system-ui, sans-serif", mono: "'JetBrains Mono', ui-monospace, monospace" };
+const r = { sm: 6, md: 10, lg: 14 };
+const L = { pageBg: '#FFFFFF', pageInk: '#2B2A27', pageCard: '#EDEAE3', bg: '#FFFCF5', bgClear: 'rgba(255,252,245,0)', surface: '#FFFFFF', raised: '#F6F1E4', line: '#EAE3D2', lineStrong: '#CFC5AE', text: '#1A1712', muted: '#6E6656', accent: '#FEC800', onAccent: '#1A1712', accentInk: '#1A1712', danger: '#B42318', dangerSoft: '#FDE7E4', scrim: 'rgba(26,23,18,0.42)', logoSrc: '/_blob/a9c852774105e097a5bd14c898d8a1a3' };
+const D = { pageBg: '#1E1E20', pageInk: '#D8D8DC', pageCard: '#2C2C30', bg: '#14120D', bgClear: 'rgba(20,18,13,0)', surface: '#1D1A13', raised: '#2A261C', line: '#3A3427', lineStrong: '#56503F', text: '#FBF6EA', muted: '#B3AA96', accent: '#FEC800', onAccent: '#1A1712', accentInk: '#FEC800', danger: '#FF7A6B', dangerSoft: 'rgba(255,122,107,0.14)', scrim: 'rgba(0,0,0,0.5)', logoSrc: '/_blob/07614eeb4a9afab77d6d8541f5938c87' };
+const notes = [
+{ text: 'hero cta wraps onto two lines at 1024px wide. keep it on one line.', aspect: 1.9, blocks: [[8, 12, 64, 13, 'pageInk', 1], [8, 29, 48, 13, 'pageInk', 1], [8, 50, 72, 5, 'pageInk', 0.3], [8, 59, 60, 5, 'pageInk', 0.3], [8, 70, 22, 22, 'accent', 1], [33, 70, 20, 11, 'pageInk', 0.35]] },
+{ text: 'price should read per month, not per year. also the popular badge overlaps the plan title on narrow screens.', aspect: 1.45, blocks: [[14, 7, 72, 86, 'pageCard', 1], [22, 15, 26, 8, 'pageInk', 1], [40, 12, 26, 11, 'accent', 1], [22, 31, 42, 11, 'pageInk', 1], [22, 50, 54, 4, 'pageInk', 0.3], [22, 58, 44, 4, 'pageInk', 0.3], [22, 73, 56, 12, 'accent', 1]] },
+{ text: 'footer links are too low-contrast in dark mode. bump them to the muted token.', aspect: 3.4, blocks: [[4, 18, 18, 12, 'pageInk', 0.6], [4, 42, 13, 8, 'pageInk', 0.2], [4, 58, 16, 8, 'pageInk', 0.2], [34, 18, 14, 12, 'pageInk', 0.6], [34, 42, 12, 8, 'pageInk', 0.2], [34, 58, 15, 8, 'pageInk', 0.2], [62, 18, 16, 12, 'pageInk', 0.6], [62, 42, 18, 8, 'pageInk', 0.2], [62, 58, 10, 8, 'pageInk', 0.2], [4, 84, 92, 3, 'pageInk', 0.15]] }
+];
+const frame = (t, focused) => ({
+t,
+taBorder: focused ? t.accent : t.line,
+savedO: focused ? 1 : 0,
+prev: { text: notes[0].text, shot: this.shot(notes[0], 540, 248, 18, t) },
+cur: { text: 'price should read per month, not per year. the popular badge also overlaps the plan title below 420px wide.', shot: this.shot(notes[1], 720, 330, 24, t) },
+next: { text: notes[2].text, shot: this.shot(notes[2], 540, 248, 18, t) }
+});
+return { f, r, frames: [frame(L, false), frame(D, true)] };
+}
+}
+</script>
+</body>
+</html>

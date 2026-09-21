@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Salamander · enlarged view prototype</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Instrument+Sans:wght@400..700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0}
+.sm-scroll{scrollbar-width:thin}
+@media (prefers-reduced-motion: reduce){
+.sm-rm-still{transform:none !important}
+}
+</style>
+</helmet>
+<div style="position: relative; width: 1440px; height: 900px; overflow: hidden; background: {{t.pageBg}}; font-family: {{f.body}}; color: {{t.text}};">
+
+<div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1140px; height: 900px; overflow: hidden; background: {{t.pageBg}};">
+<div style="height: 64px; box-sizing: border-box; display: flex; align-items: center; gap: 28px; padding: 0 48px; border-bottom: 1px solid {{t.pageCard}};">
+<div style="width: 26px; height: 26px; border-radius: 7px; background: {{t.pageInk}};"></div>
+<div style="width: 96px; height: 12px; border-radius: 6px; background: {{t.pageInk}};"></div>
+<div style="flex-grow: 1;"></div>
+<div style="width: 60px; height: 9px; border-radius: 5px; background: {{t.pageInk}}; opacity: 0.4;"></div>
+<div style="width: 60px; height: 9px; border-radius: 5px; background: {{t.pageInk}}; opacity: 0.4;"></div>
+<div style="width: 60px; height: 9px; border-radius: 5px; background: {{t.pageInk}}; opacity: 0.4;"></div>
+<div style="width: 104px; height: 36px; border-radius: 10px; background: {{t.pageInk}};"></div>
+</div>
+<div style="padding: 72px 48px 0;">
+<div style="width: 110px; height: 10px; border-radius: 5px; background: {{t.pageInk}}; opacity: 0.45;"></div>
+<div style="width: 580px; height: 36px; border-radius: 10px; background: {{t.pageInk}}; margin-top: 24px;"></div>
+<div style="width: 430px; height: 36px; border-radius: 10px; background: {{t.pageInk}}; margin-top: 12px;"></div>
+<div style="width: 520px; height: 10px; border-radius: 5px; background: {{t.pageInk}}; opacity: 0.3; margin-top: 28px;"></div>
+<div style="width: 470px; height: 10px; border-radius: 5px; background: {{t.pageInk}}; opacity: 0.3; margin-top: 10px;"></div>
+<div style="display: flex; gap: 12px; margin-top: 30px;"><div style="width: 170px; height: 46px; border-radius: 10px; background: {{t.accent}};"></div><div style="width: 140px; height: 46px; border-radius: 10px; box-shadow: inset 0 0 0 1.5px {{t.pageInk}}; opacity: 0.5;"></div></div>
+</div>
+<div style="display: flex; gap: 20px; padding: 64px 48px 0;">
+<div style="width: 330px; height: 280px; border-radius: 14px; background: {{t.pageCard}}; padding: 26px; box-sizing: border-box;"><div style="width: 80px; height: 12px; border-radius: 6px; background: {{t.pageInk}};"></div><div style="width: 130px; height: 26px; border-radius: 8px; background: {{t.pageInk}}; margin-top: 20px;"></div><div style="width: 220px; height: 8px; border-radius: 4px; background: {{t.pageInk}}; opacity: 0.3; margin-top: 26px;"></div><div style="width: 190px; height: 8px; border-radius: 4px; background: {{t.pageInk}}; opacity: 0.3; margin-top: 10px;"></div><div style="width: 100%; height: 40px; border-radius: 10px; background: {{t.pageInk}}; opacity: 0.85; margin-top: 60px;"></div></div>
+<div style="width: 330px; height: 280px; border-radius: 14px; background: {{t.pageCard}}; padding: 26px; box-sizing: border-box; box-shadow: inset 0 0 0 2px {{t.accent}};"><div style="width: 80px; height: 12px; border-radius: 6px; background: {{t.pageInk}};"></div><div style="width: 130px; height: 26px; border-radius: 8px; background: {{t.pageInk}}; margin-top: 20px;"></div><div style="width: 220px; height: 8px; border-radius: 4px; background: {{t.pageInk}}; opacity: 0.3; margin-top: 26px;"></div><div style="width: 190px; height: 8px; border-radius: 4px; background: {{t.pageInk}}; opacity: 0.3; margin-top: 10px;"></div><div style="width: 100%; height: 40px; border-radius: 10px; background: {{t.accent}}; margin-top: 60px;"></div></div>
+<div style="width: 330px; height: 280px; border-radius: 14px; background: {{t.pageCard}}; padding: 26px; box-sizing: border-box;"><div style="width: 80px; height: 12px; border-radius: 6px; background: {{t.pageInk}};"></div><div style="width: 130px; height: 26px; border-radius: 8px; background: {{t.pageInk}}; margin-top: 20px;"></div><div style="width: 220px; height: 8px; border-radius: 4px; background: {{t.pageInk}}; opacity: 0.3; margin-top: 26px;"></div><div style="width: 190px; height: 8px; border-radius: 4px; background: {{t.pageInk}}; opacity: 0.3; margin-top: 10px;"></div><div style="width: 100%; height: 40px; border-radius: 10px; background: {{t.pageInk}}; opacity: 0.85; margin-top: 60px;"></div></div>
+</div>
+</div>
+
+
+<div aria-hidden="true" onClick="{{close}}" style="position: absolute; left: 0; top: 0; width: 1440px; height: 900px; background: {{t.scrim}}; opacity: {{scrim.opacity}}; pointer-events: {{scrim.pe}}; transition: {{scrim.trans}};"></div>
+
+<aside aria-label="salamander sidebar" onKeyDown="{{onPanelKey}}" style="position: absolute; top: 0; right: 0; height: 900px; width: {{panel.w}}; box-sizing: border-box; overflow: hidden; background: {{t.bg}}; border-left: 1px solid {{t.line}}; transition: {{panel.trans}};">
+
+<div style="position: absolute; top: 0; right: 0; width: 299px; height: 900px; display: flex; flex-direction: column; opacity: {{list.opacity}}; pointer-events: {{list.pe}}; transition: {{list.trans}};">
+<div style="height: 56px; flex-shrink: 0; box-sizing: border-box; padding: 0 10px 0 16px; display: flex; align-items: center; justify-content: flex-end; gap: 2px;">
+<button type="button" aria-label="theme: {{themeName}}" title="theme: {{themeName}}" style="width: 32px; height: 32px; padding: 0; border: none; border-radius: {{r.md}}px; background: transparent; color: {{t.muted}}; display: flex; align-items: center; justify-content: center; cursor: pointer;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none"></path></svg></button>
+<button type="button" aria-label="close sidebar" style="width: 32px; height: 32px; padding: 0; border: none; border-radius: {{r.md}}px; background: transparent; color: {{t.muted}}; display: flex; align-items: center; justify-content: center; cursor: pointer;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+<div style="height: 56px; flex-shrink: 0; box-sizing: border-box; padding: 4px 16px 16px; display: flex; gap: 8px;">
+<button type="button" aria-pressed="false" aria-label="add feedback" style="flex-grow: 1; height: 36px; border: 1px solid {{t.line}}; border-radius: {{r.md}}px; background: {{t.surface}}; color: {{t.text}}; font-family: {{f.body}}; font-size: 13px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>add note</button>
+<button type="button" aria-label="export feedback" style="width: 36px; height: 36px; padding: 0; border-radius: {{r.md}}px; border: 1px solid {{t.line}}; background: {{t.surface}}; color: {{t.text}}; display: flex; align-items: center; justify-content: center; cursor: pointer;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14"></path></svg></button>
+<button type="button" aria-label="import feedback" style="width: 36px; height: 36px; padding: 0; border-radius: {{r.md}}px; border: 1px solid {{t.line}}; background: {{t.surface}}; color: {{t.text}}; display: flex; align-items: center; justify-content: center; cursor: pointer;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M5 19h14"></path></svg></button>
+</div>
+<sc-if value="{{hasNotes}}" hint-placeholder-val="{{true}}">
+<h2 style="flex-shrink: 0; height: 26px; box-sizing: border-box; margin: 0; padding: 0 16px 10px; font-size: 12px; line-height: 16px; font-weight: 600; color: {{t.muted}};">this page ({{count}})</h2>
+<div id="sm-list" class="sm-scroll" style="position: relative; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 16px 24px;">
+<ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 16px;">
+<sc-for list="{{items}}" as="item" hint-placeholder-count="5">
+<li id="{{item.domId}}" style="position: relative; z-index: {{item.z}};">
+<button type="button" aria-label="{{item.aria}}" onClick="{{item.open}}" onMouseEnter="{{item.enter}}" onMouseLeave="{{item.leave}}" onFocus="{{item.enter}}" onBlur="{{item.leave}}" style="width: 100%; height: 178px; margin: 0; padding: 0; border: none; background: transparent; color: {{t.text}}; font: inherit; text-align: left; display: flex; flex-direction: column; gap: 8px; cursor: pointer; outline: none; transform-origin: right center; transform: {{item.transform}}; transition: {{item.trans}};">
+<div style="position: relative; flex-shrink: 0; width: 100%; height: 100px; border-radius: {{r.md}}px; overflow: hidden; background: {{t.raised}}; display: flex; align-items: center; justify-content: center; visibility: {{item.thumbVis}};">
+<div style="position: relative; flex-shrink: 0; width: {{item.shot.w}}; height: {{item.shot.h}}; border-radius: {{item.shot.r}}; background: {{t.pageBg}}; overflow: hidden;"><sc-for list="{{item.shot.blocks}}" as="b" hint-placeholder-count="6"><div style="position: absolute; left: {{b.l}}; top: {{b.t}}; width: {{b.w}}; height: {{b.h}}; border-radius: {{b.r}}; background: {{b.bg}}; opacity: {{b.o}};"></div></sc-for></div>
+<span style="position: absolute; top: 8px; left: 8px; min-width: 20px; height: 20px; box-sizing: border-box; padding: 0 6px; border-radius: {{r.sm}}px; background: {{t.accent}}; color: {{t.onAccent}}; font-family: {{f.mono}}; font-size: 11px; font-weight: 600; line-height: 20px; text-align: center;">{{item.n}}</span>
+</div>
+<p style="flex-shrink: 0; height: 70px; box-sizing: border-box; margin: 0; padding: 8px 10px; border-radius: {{r.md}}px; font-size: 13px; line-height: 18px; background: {{item.noteBg}}; box-shadow: {{item.noteShadow}}; transition: {{item.noteTrans}}; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">{{item.text}}</p>
+</button>
+</li>
+</sc-for>
+</ul>
+</div>
+</sc-if>
+<sc-if value="{{noNotes}}" hint-placeholder-val="{{false}}">
+<p style="margin: 0; padding: 80px 24px 0; text-align: center; font-size: 13px; color: {{t.muted}};">no feedback on this page yet</p>
+</sc-if>
+</div>
+
+<div style="position: absolute; z-index: 2; top: 0; left: 0; height: 56px; box-sizing: border-box; padding: 0 0 0 16px; display: flex; align-items: center; gap: 10px; pointer-events: none;">
+<img src="{{t.logoSrc}}" alt="" style="width: 35px; height: 20px; flex-shrink: 0; display: block;">
+<span style="font-family: {{f.display}}; font-style: italic; font-size: 22px; font-weight: 400; letter-spacing: -0.01em; color: {{t.text}}; white-space: nowrap;">salamander</span>
+</div>
+
+<sc-if value="{{showEnl}}" hint-placeholder-val="{{false}}">
+<div role="region" aria-label="enlarged note" style="position: absolute; top: 0; right: 0; width: 1079px; height: 900px; pointer-events: none;">
+
+<div style="position: absolute; left: 150px; top: 152px; width: 720px; height: 34px; display: flex; align-items: baseline; gap: 12px; opacity: {{aTitle.o}}; transition: {{aTitle.trans}};">
+<h2 style="margin: 0; font-family: {{f.display}}; font-style: italic; font-weight: 400; font-size: 28px; line-height: 34px; letter-spacing: -0.01em; color: {{t.text}};">feedback #{{cur.n}}</h2>
+<span style="font-family: {{f.mono}}; font-size: 12px; color: {{t.muted}};">{{cur.n}} / {{count}}</span>
+</div>
+
+<div style="position: absolute; left: 150px; top: 594px; width: 720px; display: flex; flex-direction: column; pointer-events: {{enl.pe}}; opacity: {{aEditor.o}}; transition: {{aEditor.trans}};">
+<textarea aria-label="note" placeholder="what should change here?" value="{{cur.draft}}" onChange="{{onDraft}}" onFocus="{{taFocus}}" onBlur="{{taBlur}}" onMouseEnter="{{taEnter}}" onMouseLeave="{{taLeave}}" style="position: relative; z-index: 1; display: block; width: 100%; height: 96px; box-sizing: border-box; margin: 0; padding: 12px 14px; resize: none; border: 1px solid {{cur.taBorder}}; border-radius: {{r.lg}}px; outline: none; background: {{t.surface}}; color: {{t.text}}; font-family: {{f.body}}; font-size: 14px; line-height: 1.45; transition: {{cur.taTrans}};">{{cur.draft}}</textarea>
+<div style="position: relative; z-index: 0; height: 62px; margin-top: -14px; padding: 22px 8px 8px 8px; box-sizing: border-box; background: {{t.raised}}; border-radius: 0 0 {{r.lg}}px {{r.lg}}px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+<button type="button" aria-label="delete note" onClick="{{del}}" onMouseEnter="{{bDel.enter}}" onMouseLeave="{{bDel.leave}}" onMouseDown="{{bDel.down}}" onMouseUp="{{bDel.up}}" style="height: 32px; margin: 0; padding: 0 12px; border: none; border-radius: {{r.md}}px; background: {{bDel.bg}}; color: {{t.danger}}; font-family: {{f.body}}; font-size: 13px; font-weight: 600; cursor: pointer; transform: {{bDel.transform}}; transition: {{bDel.trans}};">delete</button>
+<span role="status" aria-live="polite" style="display: flex; align-items: center; gap: 4px; padding: 0 10px; font-size: 12px; color: {{t.muted}}; opacity: {{saved.o}}; transition: {{saved.trans}};"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>{{saved.label}}</span>
+</div>
+</div>
+
+<div style="position: absolute; left: 890px; top: 152px; display: flex; flex-direction: column; gap: 8px; pointer-events: {{enl.pe}}; opacity: {{aRail.o}}; transition: {{aRail.trans}};">
+<button type="button" id="sm-exit" aria-label="exit enlarged view" title="exit enlarged view (esc)" onClick="{{close}}" onMouseEnter="{{bX.enter}}" onMouseLeave="{{bX.leave}}" onMouseDown="{{bX.down}}" onMouseUp="{{bX.up}}" style="width: 40px; height: 40px; margin: 0 0 8px; padding: 0; box-sizing: border-box; border: 1px solid {{bX.border}}; border-radius: {{r.md}}px; background: {{bX.bg}}; color: {{t.text}}; display: flex; align-items: center; justify-content: center; cursor: pointer; transform: {{bX.transform}}; transition: {{bX.trans}};"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+<button type="button" aria-label="previous note" title="previous note (↑)" aria-disabled="{{bUp.disabled}}" onClick="{{goPrev}}" onMouseEnter="{{bUp.enter}}" onMouseLeave="{{bUp.leave}}" onMouseDown="{{bUp.down}}" onMouseUp="{{bUp.up}}" style="width: 40px; height: 40px; margin: 0; padding: 0; box-sizing: border-box; border: 1px solid {{bUp.border}}; border-radius: {{r.md}}px; background: {{bUp.bg}}; color: {{t.text}}; opacity: {{bUp.opacity}}; display: flex; align-items: center; justify-content: center; cursor: {{bUp.cursor}}; transform: {{bUp.transform}}; transition: {{bUp.trans}};"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6"></path></svg></button>
+<button type="button" aria-label="next note" title="next note (↓)" aria-disabled="{{bDown.disabled}}" onClick="{{goNext}}" onMouseEnter="{{bDown.enter}}" onMouseLeave="{{bDown.leave}}" onMouseDown="{{bDown.down}}" onMouseUp="{{bDown.up}}" style="width: 40px; height: 40px; margin: 0; padding: 0; box-sizing: border-box; border: 1px solid {{bDown.border}}; border-radius: {{r.md}}px; background: {{bDown.bg}}; color: {{t.text}}; opacity: {{bDown.opacity}}; display: flex; align-items: center; justify-content: center; cursor: {{bDown.cursor}}; transform: {{bDown.transform}}; transition: {{bDown.trans}};"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+</div>
+
+</div>
+
+<div style="position: absolute; left: 0; top: 0; right: 0; bottom: 0; pointer-events: none; opacity: {{cardsLayer.o}}; transition: {{cardsLayer.trans}};">
+<sc-for list="{{cards}}" as="c" hint-placeholder-count="5">
+<button type="button" aria-label="{{c.aria}}" aria-hidden="{{c.ariaHidden}}" tabindex="{{c.tab}}" title="{{c.title}}" onClick="{{c.click}}" onMouseEnter="{{c.enter}}" onMouseLeave="{{c.leave}}" onFocus="{{c.focus}}" onBlur="{{c.blur}}" style="position: absolute; right: {{c.right}}; top: {{c.top}}; width: {{c.w}}; height: {{c.h}}; z-index: {{c.z}}; margin: 0; padding: 0; border: none; background: transparent; color: {{t.text}}; font: inherit; text-align: left; cursor: pointer; outline: none; opacity: {{c.op}}; pointer-events: {{c.pe}}; transition: {{c.trans}};">
+<div class="sm-rm-still" style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform: {{c.lift}}; transition: {{c.liftTrans}};">
+<div style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; border-radius: {{r.md}}px; overflow: hidden; background: {{t.raised}}; display: flex; align-items: center; justify-content: center; box-shadow: {{c.ring}};">
+<div style="position: relative; flex-shrink: 0; width: {{c.shot.w}}; height: {{c.shot.h}}; border-radius: {{c.shot.r}}; background: {{t.pageBg}}; overflow: hidden; transition: {{c.shotTrans}};"><sc-for list="{{c.shot.blocks}}" as="b" hint-placeholder-count="6"><div style="position: absolute; left: {{b.l}}; top: {{b.t}}; width: {{b.w}}; height: {{b.h}}; border-radius: {{b.r}}; background: {{b.bg}}; opacity: {{b.o}};"></div></sc-for></div>
+<span style="position: absolute; top: 8px; left: 8px; min-width: 20px; height: 20px; box-sizing: border-box; padding: 0 6px; border-radius: {{r.sm}}px; background: {{t.accent}}; color: {{t.onAccent}}; font-family: {{f.mono}}; font-size: 11px; font-weight: 600; line-height: 20px; text-align: center; opacity: {{c.badgeO}}; transition: {{c.badgeT}};">{{c.n}}</span>
+</div>
+<p style="position: absolute; left: 0; right: 0; top: calc(100% + 8px); margin: 0; padding: 0 10px; font-size: 13px; line-height: 18px; color: {{t.text}}; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; opacity: {{c.capO}}; transition: {{c.capT}};">{{c.text}}</p>
+</div>
+</button>
+</sc-for>
+</div>
+</sc-if>
+
+</aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"motion":{"editor":"enum","options":["normal","slow (4x)"],"default":"normal"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+constructor(props) {
+super(props);
+this.timers = [];
+this.saveT = null;
+this.hideT = null;
+let reduce = false;
+try { reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (e) { reduce = false; }
+this.reduce = reduce;
+this.state = { mode: 'list', idx: 0, shownIdx: 0, notes: this.seed(), morphIds: [], openScroll: 0, closeScroll: 0, hovId: null, swap: false, stage: 'none', busy: false, deleting: null, hov: null, press: null, focusCard: null, taFocus: false, saved: false };
+}
+componentWillUnmount() { this.clearTimers(); this.clearSave(); }
+seed() {
+return [
+{ id: 'a', text: 'logo looks blurry on retina screens. swap in the svg version.', aspect: 2.6, blocks: [[4, 30, 9, 40, 'accent', 1], [16, 38, 18, 24, 'pageInk', 1], [50, 42, 8, 16, 'pageInk', 0.4], [61, 42, 8, 16, 'pageInk', 0.4], [72, 42, 8, 16, 'pageInk', 0.4], [85, 28, 11, 44, 'pageInk', 1]] },
+{ id: 'b', text: 'hero cta wraps onto two lines at 1024px wide. keep it on one line.', aspect: 1.9, blocks: [[8, 12, 64, 13, 'pageInk', 1], [8, 29, 48, 13, 'pageInk', 1], [8, 50, 72, 5, 'pageInk', 0.3], [8, 59, 60, 5, 'pageInk', 0.3], [8, 70, 22, 22, 'accent', 1], [33, 70, 20, 11, 'pageInk', 0.35]] },
+{ id: 'c', text: 'price should read per month, not per year. also the popular badge overlaps the plan title on narrow screens.', aspect: 1.45, blocks: [[14, 7, 72, 86, 'pageCard', 1], [22, 15, 26, 8, 'pageInk', 1], [40, 12, 26, 11, 'accent', 1], [22, 31, 42, 11, 'pageInk', 1], [22, 50, 54, 4, 'pageInk', 0.3], [22, 58, 44, 4, 'pageInk', 0.3], [22, 73, 56, 12, 'accent', 1]] },
+{ id: 'd', text: 'footer links are too low-contrast in dark mode. bump them to the muted token.', aspect: 3.4, blocks: [[4, 18, 18, 12, 'pageInk', 0.6], [4, 42, 13, 8, 'pageInk', 0.2], [4, 58, 16, 8, 'pageInk', 0.2], [34, 18, 14, 12, 'pageInk', 0.6], [34, 42, 12, 8, 'pageInk', 0.2], [34, 58, 15, 8, 'pageInk', 0.2], [62, 18, 16, 12, 'pageInk', 0.6], [62, 42, 18, 8, 'pageInk', 0.2], [62, 58, 10, 8, 'pageInk', 0.2], [4, 84, 92, 3, 'pageInk', 0.15]] },
+{ id: 'e', text: 'the testimonial carousel arrows overlap the quote text on mobile.', aspect: 1.8, blocks: [[14, 16, 72, 7, 'pageInk', 0.8], [14, 29, 66, 7, 'pageInk', 0.8], [14, 42, 52, 7, 'pageInk', 0.8], [10, 36, 8, 14, 'pageInk', 1, 'c'], [82, 36, 8, 14, 'pageInk', 1, 'c'], [14, 64, 10, 18, 'pageCard', 1, 'c'], [27, 67, 22, 6, 'pageInk', 0.5], [27, 77, 14, 5, 'pageInk', 0.3]] }
+];
+}
+later(fn, ms) { const id = setTimeout(() => { this.timers = this.timers.filter(x => x !== id); fn(); }, ms); this.timers.push(id); }
+clearTimers() { this.timers.forEach(id => clearTimeout(id)); this.timers = []; }
+clearSave() { if (this.saveT) clearTimeout(this.saveT); if (this.hideT) clearTimeout(this.hideT); this.saveT = null; this.hideT = null; }
+ms(v) { return Math.round(v * (this.props.motion === 'slow (4x)' ? 4 : 1)); }
+vis(notes) { return (notes || this.state.notes).filter(n => !n.deleted); }
+// Layout constants (px). Everything is right-anchored inside the panel's padding box, so a rect
+// never depends on the panel's animated width. List: header 56 + action row 56 + heading 26 = 138.
+// List item = 100 thumb + 8 gap + 70 note = 178, pitch 194, list viewport 762 tall.
+listRect(v, scroll, mag) {
+const top = 138 + v * 194 - scroll;
+if (mag) return { right: 22, top: top - 2.67, w: 275, h: 103, pad: 10.3 };
+return { right: 16, top, w: 267, h: 100, pad: 10 };
+}
+slot(role) {
+if (role === 'main') return { right: 209, top: 198, w: 720, h: 380, pad: 28 };
+if (role === 'prev') return { right: 149, top: -201, w: 540, h: 285, pad: 21 };
+return { right: 149, top: 762, w: 540, h: 285, pad: 21 };
+}
+morphSet(vis, i, sc) {
+const out = [];
+[i - 1, i, i + 1].forEach(j => {
+if (j < 0 || j >= vis.length) return;
+const top = 138 + j * 194 - sc;
+if (j === i || (top >= 137.5 && top + 100 <= 900.5)) out.push(vis[j].id);
+});
+return out;
+}
+centerScroll(v, n) {
+const max = Math.max(0, n * 194 + 8 - 762);
+return Math.max(0, Math.min(max, v * 194 - (762 - 178) / 2));
+}
+shot(note, W, H, pad, t) {
+let w = W - pad * 2; let h = w / note.aspect;
+if (h > H - pad * 2) { h = H - pad * 2; w = h * note.aspect; }
+const rad = Math.max(2, Math.round(h * 0.03));
+return { w: w.toFixed(2) + 'px', h: h.toFixed(2) + 'px', r: Math.max(3, Math.round(h * 0.035)) + 'px', blocks: note.blocks.map(b => ({ l: b[0] + '%', t: b[1] + '%', w: b[2] + '%', h: b[3] + '%', bg: t[b[4]], o: b[5], r: b[6] === 'c' ? '50%' : rad + 'px' })) };
+}
+focusById(id) { try { const el = document.getElementById(id); if (el && el.focus) el.focus({ preventScroll: true }); } catch (e) {} }
+focusListItem(id) { try { const el = document.getElementById('sm-note-' + id); const b = el && el.querySelector('button'); if (b && b.focus) b.focus({ preventScroll: true }); } catch (e) {} }
+open(i) {
+if (this.state.mode !== 'list') return;
+const vis = this.vis();
+if (!vis[i]) return;
+this.clearTimers(); this.clearSave();
+let sc = 0;
+try { const el = document.getElementById('sm-list'); if (el) sc = el.scrollTop || 0; } catch (e) { sc = 0; }
+const hovId = this.state.hov === 'item-' + i ? vis[i].id : null;
+this.setState({ mode: 'pre', idx: i, shownIdx: i, openScroll: sc, hovId, morphIds: this.morphSet(vis, i, sc), hov: null, press: null, focusCard: null, swap: false, stage: 'none', busy: false, deleting: null, saved: false, taFocus: false });
+this.later(() => this.setState({ mode: 'opening' }), 34);
+this.later(() => { this.setState({ mode: 'open' }); this.focusById('sm-exit'); }, 34 + this.ms(this.reduce ? 150 : 520));
+}
+close() {
+const m = this.state.mode;
+if (m !== 'open' && m !== 'opening') return;
+this.clearTimers(); this.clearSave();
+const vis = this.vis();
+const idx = Math.max(0, Math.min(this.state.idx, vis.length - 1));
+const sc = vis.length ? this.centerScroll(idx, vis.length) : 0;
+const curId = vis[idx] ? vis[idx].id : null;
+this.setState({ mode: 'closing', idx, closeScroll: sc, morphIds: vis.length ? this.morphSet(vis, idx, sc) : [], hovId: null, hov: null, press: null, focusCard: null, busy: false, saved: false, swap: false, stage: 'none', deleting: null, taFocus: false });
+this.later(() => { try { const el = document.getElementById('sm-list'); if (el) el.scrollTop = sc; } catch (e) {} }, 0);
+this.later(() => {
+const notes = this.state.notes.filter(n => !n.deleted);
+this.setState({ mode: 'list', notes, morphIds: [], idx: Math.max(0, Math.min(idx, notes.length - 1)) });
+if (curId) this.focusListItem(curId);
+}, this.ms(this.reduce ? 200 : 360));
+}
+go(dir) {
+const s = this.state;
+if (s.mode !== 'open' || s.busy) return;
+const to = s.idx + dir;
+if (to < 0 || to >= this.vis().length) return;
+this.clearSave();
+if (this.reduce) {
+this.setState({ busy: true, stage: 'rmOut', saved: false, press: null, hov: null });
+this.later(() => this.setState({ idx: to, shownIdx: to, stage: 'none' }), this.ms(80));
+this.later(() => this.setState({ busy: false }), this.ms(220));
+return;
+}
+this.setState({ busy: true, idx: to, swap: true, saved: false, press: null, hov: null });
+this.later(() => this.setState({ shownIdx: to, swap: false }), this.ms(120));
+this.later(() => this.setState({ busy: false }), this.ms(400));
+}
+del() {
+const s = this.state;
+if (s.mode !== 'open' || s.busy) return;
+const cur = this.vis()[s.idx];
+if (!cur) return;
+this.clearSave();
+this.setState({ busy: true, deleting: cur.id, swap: true, press: null, hov: null, saved: false });
+this.later(() => {
+const notes = this.state.notes.map(n => n.id === cur.id ? Object.assign({}, n, { deleted: true }) : n);
+const left = this.vis(notes);
+if (!left.length) { this.setState({ notes, deleting: null }); this.close(); return; }
+const idx = Math.min(s.idx, left.length - 1);
+this.setState({ notes, deleting: null, idx, shownIdx: idx, swap: false });
+}, this.ms(180));
+this.later(() => this.setState({ busy: false }), this.ms(600));
+}
+edit(v) {
+const s = this.state;
+const c = this.vis()[s.shownIdx];
+if (!c || s.mode !== 'open') return;
+const notes = s.notes.map(n => n.id === c.id ? Object.assign({}, n, { text: v }) : n);
+this.setState({ notes, saved: false });
+this.clearSave();
+this.saveT = setTimeout(() => { this.saveT = null; this.setState({ saved: true }); this.hideT = setTimeout(() => { this.hideT = null; this.setState({ saved: false }); }, this.ms(1400)); }, this.ms(700));
+}
+renderVals() {
+const dark = this.props.theme === 'dark';
+const L = { pageBg: '#FFFFFF', pageInk: '#2B2A27', pageCard: '#EDEAE3', bg: '#FFFCF5', surface: '#FFFFFF', raised: '#F6F1E4', line: '#EAE3D2', lineStrong: '#CFC5AE', text: '#1A1712', muted: '#6E6656', accent: '#FEC800', onAccent: '#1A1712', hover: '#F6F1E4', press: '#ECE4D1', focus: '#1A1712', danger: '#B42318', dangerSoft: '#FDE7E4', dangerPress: '#FBD2CC', scrim: 'rgba(26,23,18,0.42)', shadowNote: '0 10px 28px rgba(0,0,0,0.18), 0 0 0 1px #EAE3D2', logoSrc: '/_blob/a9c852774105e097a5bd14c898d8a1a3' };
+const D = { pageBg: '#1E1E20', pageInk: '#D8D8DC', pageCard: '#2C2C30', bg: '#14120D', surface: '#1D1A13', raised: '#2A261C', line: '#3A3427', lineStrong: '#56503F', text: '#FBF6EA', muted: '#B3AA96', accent: '#FEC800', onAccent: '#1A1712', hover: '#2A261C', press: '#353024', focus: '#FBF6EA', danger: '#FF7A6B', dangerSoft: 'rgba(255,122,107,0.14)', dangerPress: 'rgba(255,122,107,0.24)', scrim: 'rgba(0,0,0,0.5)', shadowNote: '0 10px 28px rgba(0,0,0,0.18), 0 0 0 1px #3A3427', logoSrc: '/_blob/07614eeb4a9afab77d6d8541f5938c87' };
+const t = dark ? D : L;
+const f = { display: "'Instrument Serif', serif", body: "'Instrument Sans', system-ui, sans-serif", mono: "'JetBrains Mono', ui-monospace, monospace" };
+const r = { sm: 6, md: 10, lg: 14 };
+// LottieFiles motion-design skill, reference/timing-easing-tables.md: MD3 Standard for on-screen
+// moves (every shared-element morph + the panel edge), MD3 Accelerate for exits/fade-outs.
+const STD = 'cubic-bezier(0.2, 0, 0, 1)', ACC = 'cubic-bezier(0.3, 0, 1, 1)';
+const ms = v => this.ms(v);
+const rd = this.reduce;
+const s = this.state;
+const mode = s.mode;
+const wide = mode === 'opening' || mode === 'open';
+const hovIn = ms(90), hovOut = ms(180);
+const vis = this.vis();
+const fade = (d, e, delay) => 'opacity ' + ms(d) + 'ms ' + e + (delay ? ' ' + ms(delay) + 'ms' : '');
+const rectT = (d) => ['right', 'top', 'width', 'height'].map(p => p + ' ' + ms(d) + 'ms ' + STD).join(', ');
+const shotT = (d) => ['width', 'height', 'border-radius'].map(p => p + ' ' + ms(d) + 'ms ' + STD).join(', ');
+
+const setHov = k => () => { if (this.state.hov !== k) this.setState({ hov: k }); };
+const clrHov = k => () => { if (this.state.hov === k || this.state.press === k) this.setState({ hov: this.state.hov === k ? null : this.state.hov, press: null }); };
+const ctl = (k, disabled) => {
+const hv = s.hov === k && !disabled, pr = s.press === k && !disabled;
+return {
+hv, pr, disabled: disabled ? 'true' : 'false',
+enter: setHov(k), leave: clrHov(k),
+down: () => { if (!disabled) this.setState({ press: k }); }, up: () => { if (this.state.press === k) this.setState({ press: null }); },
+transform: pr && !rd ? 'scale(0.97)' : 'none',
+opacity: disabled ? 0.4 : 1, cursor: disabled ? 'default' : 'pointer',
+trans: 'background-color ' + (hv || pr ? hovIn : ms(160)) + 'ms ' + STD + ', border-color ' + (hv || pr ? hovIn : ms(160)) + 'ms ' + STD + ', color ' + hovIn + 'ms ' + STD + ', transform ' + (pr ? ms(60) : ms(100)) + 'ms ' + STD
+};
+};
+
+// Panel background: grows leftward 300 → 1080 (75% of 1440) on the SAME duration + curve as the
+// thumbnail morphs, so a morphing card never leaves the panel. Collapse is the exact reverse.
+const panel = {
+w: (wide ? 1080 : 300) + 'px',
+trans: rd ? 'none' : wide ? 'width ' + ms(450) + 'ms ' + STD : mode === 'closing' ? 'width ' + ms(340) + 'ms ' + STD : 'none'
+};
+const scrim = { opacity: wide ? 1 : 0, pe: wide ? 'auto' : 'none', trans: wide ? fade(rd ? 100 : 200, STD) : mode === 'closing' ? fade(rd ? 75 : 150, ACC, rd ? 0 : 150) : 'none' };
+const listOn = mode === 'list' || mode === 'pre' || mode === 'closing';
+const list = { opacity: listOn ? 1 : 0, pe: mode === 'list' ? 'auto' : 'none', trans: wide ? fade(rd ? 75 : 150, ACC) : mode === 'closing' ? fade(rd ? 100 : 200, STD, rd ? 50 : 150) : 'none' };
+
+const morph = rd ? [] : (s.morphIds || []);
+const items = vis.map((n, i) => {
+const k = 'item-' + i;
+const hv = s.hov === k && mode === 'list';
+return {
+n: i + 1, text: n.text || 'no note', domId: 'sm-note-' + n.id, aria: 'feedback item ' + (i + 1),
+shot: this.shot(n, 267, 100, 10, t),
+z: hv ? 3 : 1,
+thumbVis: mode !== 'list' && morph.indexOf(n.id) >= 0 ? 'hidden' : 'visible',
+open: () => this.open(i), enter: setHov(k), leave: clrHov(k),
+transform: hv && !rd ? 'translateX(-6px) scale(1.03)' : 'none',
+trans: 'transform ' + (hv ? hovIn : hovOut) + 'ms ' + STD,
+noteBg: hv ? t.surface : 'transparent',
+noteShadow: hv ? t.shadowNote : 'none',
+noteTrans: 'background-color ' + (hv ? hovIn : hovOut) + 'ms ' + STD + ', box-shadow ' + (hv ? hovIn : hovOut) + 'ms ' + STD
+};
+});
+
+// Shared elements: one floating card per note (array order is stable; deleted notes stay as
+// invisible tombstones until the view collapses, so DOM nodes never swap identity mid-morph).
+const cards = s.notes.map(n => {
+const p = vis.indexOf(n);
+const role = p < 0 ? 'gone' : p === s.idx ? 'main' : p === s.idx - 1 ? 'prev' : p === s.idx + 1 ? 'next' : p < s.idx ? 'hidPrev' : 'hidNext';
+const slotRole = role === 'hidPrev' ? 'prev' : role === 'hidNext' ? 'next' : role === 'gone' ? 'main' : role;
+const peek = role === 'prev' || role === 'next';
+const shown = role === 'main' || peek;
+const deleting = s.deleting === n.id;
+const isMorph = morph.indexOf(n.id) >= 0;
+let rect = this.slot(slotRole);
+let op = shown && !deleting ? 1 : 0;
+let capO = peek ? 1 : 0;
+let badgeO = (role === 'main' || peek) ? 0 : 1;
+let rT = 'none', sT = 'none', oT = 'none', capT = 'none', badgeT = 'none';
+if (mode === 'pre') {
+if (isMorph) { rect = this.listRect(p, s.openScroll, s.hovId === n.id); capO = 0; badgeO = 1; }
+else { op = 0; capO = peek ? 0 : capO; }
+} else if (mode === 'opening') {
+if (!rd) { rT = rectT(450); sT = shotT(450); }
+oT = isMorph ? 'none' : fade(rd ? 125 : 200, STD, rd ? 0 : 150);
+capT = fade(rd ? 125 : 200, STD, rd ? 0 : 250);
+badgeT = fade(120, ACC);
+} else if (mode === 'open') {
+if (!rd) { rT = rectT(400); sT = shotT(400); }
+oT = deleting ? fade(180, ACC) : op ? fade(rd ? 125 : 200, STD, rd ? 0 : 200) : fade(rd ? 75 : 150, ACC);
+capT = capO ? fade(200, STD, rd ? 0 : 200) : fade(100, ACC);
+badgeT = badgeO ? fade(200, STD, rd ? 0 : 200) : fade(100, ACC);
+} else if (mode === 'closing') {
+if (isMorph && shown) { rect = this.listRect(p, s.closeScroll, false); op = 1; capO = 0; badgeO = 1; rT = rectT(340); sT = shotT(340); }
+else { op = 0; }
+oT = fade(rd ? 75 : 120, ACC); capT = fade(100, ACC); badgeT = fade(150, STD);
+}
+const hovered = s.hov === 'card-' + n.id && mode === 'open' && peek && !rd;
+const lift = deleting && !rd ? 'scale(0.95)' : hovered ? (role === 'prev' ? 'translateY(7px)' : 'translateY(-7px)') : 'none';
+const act = mode === 'open' && peek;
+const go = role === 'prev' ? -1 : 1;
+return {
+n: p + 1, text: n.text || 'no note',
+right: rect.right + 'px', top: rect.top + 'px', w: rect.w + 'px', h: rect.h + 'px',
+shot: this.shot(n, rect.w, rect.h, rect.pad, t),
+z: (mode === 'pre' || mode === 'closing') && isMorph ? 4 : role === 'main' ? 3 : peek ? 2 : 1,
+op, capO, badgeO,
+trans: [rT, oT].filter(x => x !== 'none').join(', ') || 'none',
+shotTrans: sT, capT, badgeT,
+lift, liftTrans: deleting ? 'transform ' + ms(180) + 'ms ' + ACC : 'transform ' + (hovered ? hovIn : hovOut) + 'ms ' + STD,
+ring: s.focusCard === n.id && act ? '0 0 0 2px ' + t.bg + ', 0 0 0 4px ' + t.focus : 'none',
+pe: act ? 'auto' : 'none', tab: act ? '0' : '-1', ariaHidden: act ? 'false' : 'true',
+aria: role === 'prev' ? 'previous note: feedback #' + (p + 1) : role === 'next' ? 'next note: feedback #' + (p + 1) : 'feedback #' + (p + 1) + ' screenshot',
+title: role === 'prev' ? 'previous note' : role === 'next' ? 'next note' : '',
+click: () => { if (act) this.go(go); },
+enter: setHov('card-' + n.id), leave: clrHov('card-' + n.id),
+focus: () => this.setState({ focusCard: n.id, hov: 'card-' + n.id }),
+blur: () => this.setState({ focusCard: this.state.focusCard === n.id ? null : this.state.focusCard, hov: this.state.hov === 'card-' + n.id ? null : this.state.hov })
+};
+});
+
+const showEnl = mode !== 'list';
+// Fades-only elements (exist in the enlarged view only): title, editor, rail.
+const enlFade = (delay, swappable) => {
+if (mode === 'pre') return { o: 0, trans: 'none' };
+if (mode === 'closing') return { o: 0, trans: fade(rd ? 75 : 120, ACC) };
+if (mode === 'opening') return { o: 1, trans: fade(rd ? 125 : 200, STD, rd ? 0 : delay) };
+if (swappable && (s.swap || s.stage === 'rmOut')) return { o: 0, trans: fade(rd ? 75 : 120, ACC) };
+return { o: 1, trans: fade(rd ? 100 : 180, STD) };
+};
+const aTitle = enlFade(200, true), aEditor = enlFade(250, true), aRail = enlFade(300, false);
+const cardsLayer = { o: s.stage === 'rmOut' ? 0 : 1, trans: s.stage === 'rmOut' ? fade(75, ACC) : fade(120, STD) };
+const enl = { pe: mode === 'open' ? 'auto' : 'none' };
+
+const shownNote = vis[s.shownIdx] || { id: 'x', text: '' };
+const taHover = s.hov === 'ta';
+const cur = {
+n: Math.min(s.shownIdx, Math.max(0, vis.length - 1)) + 1, draft: shownNote.text,
+taBorder: s.taFocus ? t.accent : taHover ? t.lineStrong : t.line,
+taTrans: 'border-color ' + (s.taFocus || taHover ? hovIn : ms(160)) + 'ms ' + STD
+};
+const saved = { o: s.saved ? 1 : 0, label: 'saved', trans: s.saved ? fade(150, STD) : fade(300, ACC) };
+
+const bDel = ctl('del', false);
+bDel.bg = bDel.pr ? t.dangerPress : bDel.hv ? t.dangerSoft : 'transparent';
+const railSkin = c => { c.bg = c.pr ? t.press : c.hv ? t.hover : t.surface; c.border = c.hv || c.pr ? t.lineStrong : t.line; return c; };
+const bX = railSkin(ctl('x', false));
+const bUp = railSkin(ctl('up', s.idx <= 0));
+const bDown = railSkin(ctl('down', s.idx >= vis.length - 1));
+
+return {
+t, f, r, panel, scrim, list, items, cards, cardsLayer, enl, aTitle, aEditor, aRail, cur, saved, bDel, bX, bUp, bDown, showEnl,
+themeName: dark ? 'dark' : 'light',
+count: vis.length, hasNotes: vis.length > 0, noNotes: vis.length === 0,
+close: () => this.close(),
+goPrev: () => this.go(-1), goNext: () => this.go(1),
+del: () => this.del(),
+onDraft: e => { const v = e && e.target ? e.target.value : null; if (v === null || v === undefined) return; this.edit(v); },
+taFocus: () => this.setState({ taFocus: true }), taBlur: () => this.setState({ taFocus: false }),
+taEnter: setHov('ta'), taLeave: clrHov('ta'),
+onPanelKey: e => {
+if (!e || this.state.mode === 'list') return;
+const tag = e.target && e.target.tagName ? String(e.target.tagName).toUpperCase() : '';
+if (e.key === 'Escape') { if (e.preventDefault) e.preventDefault(); this.close(); return; }
+if (tag === 'TEXTAREA') return;
+if (e.key === 'ArrowUp') { if (e.preventDefault) e.preventDefault(); this.go(-1); }
+else if (e.key === 'ArrowDown') { if (e.preventDefault) e.preventDefault(); this.go(1); }
+}
+};
+}
+}
+</script>
+</body>
+</html>

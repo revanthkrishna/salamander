@@ -1,0 +1,491 @@
+{
+ "v": 3,
+ "attachments": {},
+ "boards": {
+  "AddMode.dc.html": {
+   "h": 800,
+   "title": "Add mode \u00b7 box placed, comment flipped above",
+   "w": 1280,
+   "x": 0,
+   "y": 920
+  },
+  "CommentStates.dc.html": {
+   "h": 214,
+   "title": "Comment box \u00b7 empty / near limit / at limit",
+   "w": 952,
+   "x": 800,
+   "y": 1840
+  },
+  "DirectionEmber.dc.html": {
+   "h": 940,
+   "page": "language",
+   "title": "B \u00b7 Ember \u2014 coral + serif",
+   "w": 1784,
+   "x": -184,
+   "y": 9112
+  },
+  "DirectionGlow.dc.html": {
+   "h": 940,
+   "page": "language",
+   "title": "A \u00b7 Glow \u2014 evolved yellow",
+   "w": 1784,
+   "x": -184,
+   "y": 8052
+  },
+  "DirectionNewt.dc.html": {
+   "h": 940,
+   "page": "language",
+   "title": "C \u00b7 Newt \u2014 lime + glass",
+   "w": 1784,
+   "x": -184,
+   "y": 10172
+  },
+  "DirectionSalamander.dc.html": {
+   "h": 940,
+   "is_interactive": true,
+   "page": "language",
+   "title": "Salamander \u2014 A colours + B type & shapes",
+   "w": 1784,
+   "x": 0,
+   "y": 0
+  },
+  "EnlargedPrototype.dc.html": {
+   "h": 900,
+   "is_interactive": true,
+   "page": "language",
+   "title": "Salamander \u00b7 enlarged view prototype (click a note)",
+   "w": 1440,
+   "x": 1600,
+   "y": 3700
+  },
+  "Main.dc.html": {
+   "h": 800,
+   "title": "Sidebar \u00b7 empty",
+   "w": 1280,
+   "x": 0,
+   "y": 0
+  },
+  "Modal.dc.html": {
+   "h": 800,
+   "title": "Enlarged modal \u00b7 feedback #3",
+   "w": 1280,
+   "x": 1360,
+   "y": 920
+  },
+  "NotifError.dc.html": {
+   "h": 240,
+   "title": "Sidebar \u00b7 error bar",
+   "w": 320,
+   "x": 0,
+   "y": 1840
+  },
+  "NotifWarning.dc.html": {
+   "h": 240,
+   "title": "Sidebar \u00b7 warning bar",
+   "w": 320,
+   "x": 400,
+   "y": 1840
+  },
+  "Page.dc.html": {
+   "h": 800,
+   "title": "Sample host page (stand-in)",
+   "w": 960,
+   "x": 1832,
+   "y": 1840
+  },
+  "SalamanderModal.dc.html": {
+   "h": 840,
+   "page": "language",
+   "title": "Salamander \u00b7 enlarged view (light + dark)",
+   "w": 2720,
+   "x": 0,
+   "y": 2700
+  },
+  "Scene.dc.html": {
+   "h": 680,
+   "is_interactive": true,
+   "page": "parts",
+   "title": "Themed scene (component)",
+   "w": 520,
+   "x": 1864,
+   "y": 0
+  },
+  "Sheet.dc.html": {
+   "h": 940,
+   "page": "parts",
+   "title": "Direction sheet (component \u00b7 direction tweak)",
+   "w": 1784,
+   "x": 0,
+   "y": 0
+  },
+  "Sidebar.dc.html": {
+   "h": 800,
+   "title": "Sidebar component (variant tweak)",
+   "w": 320,
+   "x": 2872,
+   "y": 1840
+  },
+  "States.dc.html": {
+   "h": 1720,
+   "page": "language",
+   "title": "Salamander \u00b7 states (light + dark)",
+   "w": 2752,
+   "x": 0,
+   "y": 1060
+  },
+  "Thumbnails.dc.html": {
+   "h": 800,
+   "title": "Sidebar \u00b7 with feedback",
+   "w": 1280,
+   "x": 1360,
+   "y": 0
+  }
+ },
+ "createdOnFiles": {
+  "at": "2026-09-19T02:53:53Z",
+  "v": 1
+ },
+ "designSystems": [],
+ "launch": {
+  "view": "canvas"
+ },
+ "notes": {
+  "motion-spec": {
+   "page": "language",
+   "text": "Full spec in repo: design/MOTION_SPEC.md. Part 1/2 (curves, model, fades-only, geometry, expand, collapse) \u2014 see \"motion-spec-2\" for prev/next, delete, peek hover, autosave, empty-note error, reduced motion, implementation notes.\n\nMOTION SPEC \u00b7 ENLARGED SIDEBAR VIEW (v2 \u2014 shared-element morphs)\nSource: LottieFiles motion-design skill. Personality: Corporate / \"Enterprise SaaS\" (director/context-adaptation.md: 200\u2013400ms, low intensity). All values at 1x; the prototype has a \"slow (4x)\" tweak.\n\nCURVES (reference/timing-easing-tables.md, directional rules)\n\u00b7 std = cubic-bezier(.2,0,0,1), MD3 Standard. \"On-screen\" rule: every element that exists in BOTH views starts and ends on screen, so every morph uses std.\n\u00b7 acc = cubic-bezier(.3,0,1,1), MD3 Accelerate. Exits and fade-outs.\n\u00b7 No bounce and no overshoot anywhere (Corporate: 0\u20133%).\n\nMODEL: SHARED ELEMENTS vs FADES\nElements that exist in both views never fade. They travel from their old rect to their new one:\n1. the sidebar background (panel)\n2. the clicked note's thumbnail\n3. the thumbnails of its list neighbours (the previous and next notes)\n4. the logo and wordmark, which ride the panel's left edge\nEverything that exists in only one view fades in place. No slide, no scale.\n\nFADES ONLY (never move)\n\u00b7 list view only: theme and close buttons, the \"add note / export / import\" row, \"this page (n)\", every other list item (thumbnail and text), and the list note text of the three shared notes\n\u00b7 enlarged view only: rail buttons (x, \u2191, \u2193), \"feedback #n\" and \"n / total\", the note editor (textarea and bar), delete, the \"saved\" hint, the empty-note error\n\u00b7 both: the number badge on a thumbnail (fades out as it settles into the main slot or either peek \u2014 NEVER visible at rest on main or peeks), and the 2-line caption under a peek\n\nGEOMETRY (1440 viewport; panel = 75% = 1080)\n\u00b7 list slot: 267\u00d7100, radius 10\n\u00b7 main slot: 720\u00d7380, radius 10, screenshot inset 28\n\u00b7 peek slots: 540\u00d7285 (75% of main, exactly), right edge flush with the right edge of the x/\u2191/\u2193 rail. The prev peek sits above the title and is cut off by the panel's top edge. The next peek sits below the editor and is cut off by the bottom edge. No number badge on peeks (or on the main slot) \u2014 see FADES ONLY.\n\u00b7 hard clip only: the panel has overflow:hidden. No gradients, masks, blur or backdrop-filter anywhere.\n\nEXPAND (click a list note)   total \u2248 500ms\n\u00b7 t0: capture the list rects of the note and of its prev/next (after scroll; include the dock-magnified transform if hovered). Hide the real list thumbnails (visibility:hidden) and put the floating clones exactly on top.\n\u00b7 0\u2013450ms, std: the panel grows leftward, width 300 \u2192 1080 (duration table: page transition 400\u2013600 = Corporate \"slow\" 450; distance scaling: full screen = 1.8x of 250).\n\u00b7 0\u2013450ms, std, same curve: the clicked thumbnail morphs from its list slot into the main slot. Prev and next morph from their list slots into the peek slots. Same curve and duration as the panel, so the cards never outrun the panel edge. The panel's left edge is always left of the cards.\n\u00b7 0\u2013200ms, std: the scrim fades in (multi-element: Modal with Content, backdrop first)\n\u00b7 0\u2013150ms, acc: the list-only elements fade out (entrance-exit: Dissolve Exit, no scale)\n\u00b7 150ms+: the peek captions fade in over 250ms\n\u00b7 200 / 250 / 300ms: the title, editor and rail fade in over 200ms, std (multi-element: List Items, Corporate 200ms with 50ms stagger in reading order; total stagger 100ms)\n\u00b7 edge case: if a neighbour's list slot is scrolled out of view, it does not morph. It fades into its peek slot (200ms, std, 150ms delay).\n\u00b7 at the end: focus moves to x\n\nCOLLAPSE (x, esc or a scrim click) = the exact reverse, about 75% of the duration (entrance-exit: exits are 65\u201375% of the entrance)\n\u00b7 0: scroll the list (still hidden) so the current note is centred. Recompute its list rect and its neighbours' list rects.\n\u00b7 0\u2013120ms, acc: the title, editor, rail and peek captions fade out\n\u00b7 0\u2013340ms, std: the panel contracts rightward 1080 \u2192 300, while the main card shrinks back into its list slot and the peeks shrink into theirs (same curve, same duration)\n\u00b7 150\u2013300ms: the scrim fades out, acc\n\u00b7 150\u2013350ms: the list-only elements fade back in, std (100\u2013150ms overlap: entrance-exit continuity)\n\u00b7 at the end: swap the clones for the real list thumbnails. They are pixel-identical, so there is no visible change. Focus goes to the list item.",
+   "w": 1000,
+   "x": 1600,
+   "y": 4660
+  },
+  "motion-spec-2": {
+   "page": "language",
+   "text": "Full spec in repo: design/MOTION_SPEC.md. Part 2/2 (prev/next, delete, peek hover, autosave, empty-note error, reduced motion, implementation notes) \u2014 see \"motion-spec\" for curves, model, fades-only, geometry, expand, collapse.\n\nPREV / NEXT (\u2191/\u2193, rail buttons, or click a peek): a carousel of morphs, 400ms, std\n\u00b7 next: the next peek grows into main. Main shrinks into the prev peek slot. Old prev peek fades out in place (150ms acc). The note after next fades into the vacated next-peek slot (200ms std, 200ms delay). \"prev\" is the mirror.\n\u00b7 title/editor content crossfades (not morphs): out 120ms acc, swap, in 180ms std. Rail and panel stay still.\n\u00b7 400ms = \"shared element morph\" in multi-element: Page Transition. Block input until it settles.\n\nDELETE\n\u00b7 0\u2013180ms acc: main card shrinks to scale(.95) and fades out (Collapse Exit). Title/editor fade out same window.\n\u00b7 at 180ms note is removed. If notes remain: index snaps to min(old, len-1) \u2014 normally \"next\" becomes main; if the LAST note was deleted, the prev peek morphs into main instead (mirrors \"prev\") and the note before it fades into the vacated prev-peek slot. Same 400ms std carousel as NEXT; title/editor crossfade back in (180ms std). Total \u2248580ms, input blocked to 600ms.\n\u00b7 if that was the ONLY note left: skip the carousel \u2014 run COLLAPSE directly back to the list's empty state. Delete is exempt from the empty-note nav lock below.\n\nPEEK HOVER (open view, pointer only)\n\u00b7 hovered peek moves by transform ONLY: prev (top) peek translateY(+7px) down; next (bottom) peek translateY(\u22127px) up. Nothing else changes.\n\u00b7 enter 90ms, leave 180ms, both std \u2014 tighter than the general hover band (single-property transform).\n\u00b7 keyboard focus shows the normal ring but does NOT trigger the lift. Reduced motion: no lift ever, ring only.\n\nAUTOSAVE (\"\u2713 saved\" hint)\n\u00b7 typing updates the draft immediately; only the hint is debounced. 700ms after the last keystroke: hint (check icon + \"saved\", aria-live polite) fades in 150ms std, holds 1400ms, fades out 300ms acc (opacity-only, no scale/bounce).\n\u00b7 blur / navigation / collapse force an immediate save (skip the debounce) before their own transition starts, so the hint is never clipped mid-fade.\n\u00b7 failure: same slot shows \"couldn't save note. try again.\" (danger, 150ms std fade-in), stays until the next save succeeds.\n\nEMPTY-NOTE ERROR (blocked navigation \u2014 \"a note can never be empty\")\nInline Validation recipe (state-feedback.md), scaled to Corporate/low-intensity and non-spatial (no slide):\n\u00b7 textarea border \u2192 danger, 150ms std, colour only.\n\u00b7 error text (\"a note can't be empty. add some text to continue.\") fades in 200ms std, in place, in the saved-hint's slot.\n\u00b7 optional: ONE tiny shake on the first blocked attempt only \u2014 \u00b14px, 2 cycles, ease-in-out, 200ms total (toned-down Error Shake: normally \u00b110\u201315px/300\u2013400ms). Never under reduced motion; never repeats while already showing.\n\u00b7 clears on first non-whitespace keystroke: border 150ms std, error text fades out 120ms acc.\n\nREDUCED MOTION: no spatial motion, crossfades only, ~halved durations. Expand ~184ms, collapse ~200ms, prev/next & delete's carousel \u2192 fade-out(75ms acc)-snap-fade-in ~220ms. Peek lift and dock magnification (src/dockMotion.ts) fully off. Autosave hint / empty-note error unaffected (opacity/colour-only) except the shake, always suppressed.\n\nIMPLEMENTATION NOTES (condensed \u2014 full detail in design/MOTION_SPEC.md \u00a713)\n\u00b7 FLIP with real DOM in the closed shadow root: measure source rects once at t0 (never in rAF); destinations are pure math (slot()); key clones by note id, identity never swaps mid-flight.\n\u00b7 screenshot: counter-scale the inner image (tween its own w/h/radius) rather than scaling the whole card \u2014 list (2.67:1) vs peek (1.89:1) aspects differ; interpolate border-radius as its own px value, not via transform scale.\n\u00b7 panel: width 300\u21921080 (simplest, matches resize code) vs clip-path/translateX (compositor-only, needs pointer-events care) \u2014 ship width first.\n\u00b7 prefer Web Animations API over CSS transitions for morphs (currentTime/finished/reverse enable retargeting); CSS transitions are fine for plain fades.\n\u00b7 interruptibility: don't just drop a second \u2193/delete under a busy flag \u2014 retarget the live animation (preferred) or queue one pending step; entering add mode cancels the enlarged view instantly, no half-collapse frame.\n\u00b7 teardown: one cancel() per gesture clears every timer/rAF/Animation and removes clone DOM/restores visibility, called before each new gesture and on unmount/navigation.\n\u00b7 capture: hide the ENTIRE shadow root before any screenshot via hideOverlayUI()/showOverlayUI() (src/addMode.ts) \u2014 enlarged view and add mode are mutually exclusive so one flag suffices.",
+   "w": 1000,
+   "x": 2680,
+   "y": 4660
+  },
+  "note-20m75f": {
+   "bold": false,
+   "kind": "title1",
+   "page": "language",
+   "size": 24,
+   "text": "<next thumbnail peeking>",
+   "w": 240,
+   "x": 899,
+   "y": 4388
+  },
+  "note-46bcx1": {
+   "bold": false,
+   "kind": "title1",
+   "page": "language",
+   "size": 24,
+   "text": "<text area input>",
+   "w": 240,
+   "x": 660,
+   "y": 4261
+  },
+  "note-7hz5gj": {
+   "bold": false,
+   "kind": "title1",
+   "page": "language",
+   "size": 24,
+   "text": "<logo>",
+   "w": 240,
+   "x": 451,
+   "y": 3793
+  },
+  "note-826c6h": {
+   "bold": false,
+   "kind": "title1",
+   "page": "language",
+   "size": 24,
+   "text": "<thumbnail here>",
+   "w": 240,
+   "x": 715,
+   "y": 4113
+  },
+  "note-cfkxiy": {
+   "bold": false,
+   "kind": "title1",
+   "page": "language",
+   "size": 24,
+   "text": "feedback x",
+   "w": 240,
+   "x": 540,
+   "y": 3882
+  },
+  "note-g2y753": {
+   "bold": false,
+   "kind": "title1",
+   "page": "language",
+   "size": 14,
+   "text": "delete",
+   "w": 240,
+   "x": 582,
+   "y": 4331
+  },
+  "note-m7r93y": {
+   "bold": false,
+   "kind": "title1",
+   "page": "language",
+   "size": 24,
+   "text": "x",
+   "w": 240,
+   "x": 1282,
+   "y": 3992
+  },
+  "note-p1rgvo": {
+   "bold": false,
+   "kind": "title1",
+   "page": "language",
+   "size": 24,
+   "text": "<previous thumbnail+text peeking>",
+   "w": 240,
+   "x": 844,
+   "y": 3768
+  },
+  "note-u6qha5": {
+   "bold": false,
+   "kind": "title1",
+   "page": "language",
+   "size": 24,
+   "text": "<scrim>",
+   "w": 240,
+   "x": 163,
+   "y": 4085
+  },
+  "note-uldkrn": {
+   "bold": false,
+   "kind": "title1",
+   "page": "language",
+   "size": 14,
+   "text": "save",
+   "w": 240,
+   "x": 1173,
+   "y": 4324
+  },
+  "shape-5juj63": {
+   "h": 24,
+   "kind": "rect",
+   "page": "language",
+   "w": 90,
+   "x": 1155,
+   "y": 4332
+  },
+  "shape-63v98r": {
+   "h": 37,
+   "kind": "rect",
+   "page": "language",
+   "w": 705,
+   "x": 540,
+   "y": 3890
+  },
+  "shape-7qr2cl": {
+   "d": "M0.3 80.5 C0.3 76.1 0 71.5 0 66.8 C0 60.9 0.5 55 2.9 49.8 C9.2 35.7 25.1 26.5 39.1 21.6 C54.9 16 71.6 14.3 88.6 14.3 C113 14.3 137.9 17.9 161.5 18.6 C168 18.8 174.4 18.8 180.9 18.8 C190.6 18.8 200.2 18.7 209.8 18.7 C218.6 18.7 227.3 18.8 236 19.2 C257.4 20.3 278.8 21.6 300.2 22 C304.1 22.1 307.9 22.2 311.8 22.2 C335.2 22.2 358.3 20.7 381.7 18.1 C422.3 13.6 463.2 10.2 504 8 C516 7.4 528 6.5 540 5.7 C558.9 4.3 580.3 0 600.7 0 C620.6 0 639.4 4.2 653.9 19.5 C661.6 27.7 665.8 36.4 666.7 47.6 C666.9 50.1 667 52.5 667 54.9 C667 62 666.2 69 664.9 76",
+   "h": 80.5,
+   "kind": "pen",
+   "page": "language",
+   "w": 667,
+   "x": 687.2,
+   "y": 4374.9
+  },
+  "shape-8crxlf": {
+   "d": "M0 0 C0 3.3 0 6.6 0 9.9",
+   "h": 9.9,
+   "kind": "pen",
+   "page": "language",
+   "w": 2,
+   "x": 374.8,
+   "y": 3769
+  },
+  "shape-8jpqzk": {
+   "h": 311,
+   "kind": "rect",
+   "page": "language",
+   "w": 705,
+   "x": 540,
+   "y": 3937
+  },
+  "shape-a732px": {
+   "d": "M0 0 C0 117.3 8.9 233 16.7 350 C24.5 467.6 30 584.9 39.7 702.5",
+   "h": 702.5,
+   "kind": "pen",
+   "page": "language",
+   "w": 39.7,
+   "x": 376.1,
+   "y": 3773.5
+  },
+  "shape-cmvgll": {
+   "h": 37,
+   "kind": "rect",
+   "page": "language",
+   "w": 37,
+   "x": 1284,
+   "y": 4074
+  },
+  "shape-cpdk88": {
+   "h": 26,
+   "kind": "rect",
+   "page": "language",
+   "w": 116,
+   "x": 557,
+   "y": 4336
+  },
+  "shape-fc82ps": {
+   "d": "M0 3.3 C4.7 7.1 8.8 10.6 12 15.7 C14.5 9.8 16.9 4.9 21.1 0",
+   "h": 15.7,
+   "kind": "pen",
+   "page": "language",
+   "w": 21.1,
+   "x": 1291.1,
+   "y": 4130
+  },
+  "shape-fqw7rp": {
+   "d": "M1.9 13.3 C1.9 20.2 0 31.2 0 40.7 C0 46.4 0.6 51.5 2.7 55.1 C8.8 65.6 28.7 70.3 39.5 72.7 C60 77.2 81.7 78.4 103.3 78.4 C118.8 78.4 134.2 77.8 149 77.2 C169.2 76.5 189.2 73.2 209.3 72.4 C258 70.3 306.8 69.2 355.5 67.5 C389.1 66.4 423 62.6 456.8 62.6 C465.4 62.6 474 62.8 482.6 63.4 C497.3 64.5 511.8 67.3 526.7 68 C532 68.2 537.3 68.3 542.6 68.3 C562.7 68.3 582.7 66.8 602.8 65.5 C603.8 65.4 605 65.4 606.2 65.4 C612.1 65.4 619.6 66.1 626.8 66.1 C633.6 66.1 640.2 65.5 644.9 62.9 C651.5 59.1 653.2 44.2 653.2 29.4 C653.2 17.5 652.1 5.8 651.7 0",
+   "h": 78.4,
+   "kind": "pen",
+   "page": "language",
+   "w": 653.2,
+   "x": 683.5,
+   "y": 3755.9
+  },
+  "shape-oikxu9": {
+   "d": "M3.2 0 C2.2 6.2 0 14.5 0 21.9 C0 25.3 0.5 28.6 1.7 31.4 C6.4 41.8 21 42.5 31.7 42.5 C33.5 42.5 35.2 42.5 36.8 42.5 C70.9 42.5 105 41 139 40 C160 39.3 181 39.1 202 39.1 C254.3 39.1 306.7 40.5 359.1 40.5 C380.6 40.5 402.1 40.3 423.6 39.6 C481.1 37.7 538.5 34.1 596 31.6",
+   "h": 42.5,
+   "kind": "pen",
+   "page": "language",
+   "w": 596,
+   "x": 537.8,
+   "y": 4330.2
+  },
+  "shape-ostgau": {
+   "h": 37,
+   "kind": "rect",
+   "page": "language",
+   "w": 37,
+   "x": 1284,
+   "y": 4004
+  },
+  "shape-qc75ys": {
+   "h": 37,
+   "kind": "rect",
+   "page": "language",
+   "w": 37,
+   "x": 1284,
+   "y": 4120
+  },
+  "shape-rd8xlg": {
+   "d": "M0.1 1.6 C0.1 3.7 0 5.9 0 8.2 C0 14.1 0.4 20.3 3.4 25.3 C9.1 34.7 23.6 36.3 36.9 36.3 C43.7 36.3 50.2 35.9 55 35.9 C91.1 35.9 127 33.8 163.1 33.8 C171.7 33.8 180.2 34 188.8 34 C194.8 34 200.7 33.9 206.7 33.6 C211.5 33.4 217.7 34.2 222 31.6 C224.6 30.1 225.1 27.9 225.1 25.5 C225.1 24.3 225 23.1 225 21.9 C225 21.7 224.9 21.5 224.9 21.3 C224.9 17.1 225.7 12.7 225.7 8.4 C225.7 5.5 225.3 2.7 224.2 0",
+   "h": 36.3,
+   "kind": "pen",
+   "page": "language",
+   "w": 225.7,
+   "x": 1935.7,
+   "y": 549.9
+  },
+  "shape-rlusd2": {
+   "h": 102,
+   "kind": "rect",
+   "page": "language",
+   "w": 223,
+   "x": 1936,
+   "y": 454
+  },
+  "shape-rzlspg": {
+   "d": "M3.8 13.9 C3.8 264.1 33.8 512.5 44.2 762.5 C89.2 758 136.6 757 182.6 752.9 C384.6 734.7 585.3 707 788.3 700.6 C822.5 699.6 856.8 699.1 891 699.1 C1003.5 699.1 1116 703.6 1228.4 703.6 C1261.3 703.6 1294.1 703.2 1327 702.2 C1360.7 701.2 1394.3 697 1428 695.7 C1423.9 674.2 1412.9 655.2 1410.3 632.8 C1407.3 607.6 1406.6 581.9 1406.6 556.3 C1406.6 530.8 1407.3 505.4 1407.3 480.2 C1407.3 424 1408.6 367.6 1408.6 311.2 C1408.6 246.8 1406.9 182.4 1400 118.5 C1395.6 78.3 1398.8 39.5 1388.3 0 C1368.2 4.7 1347.3 5.8 1326.3 5.8 C1305.7 5.8 1285 4.7 1265 4.7 C1181.5 4.7 1098.1 4.7 1014.7 4.7 C890.3 4.7 766.2 13.9 642 17.8 C615.4 18.6 588.8 18.9 562.2 18.9 C486.1 18.9 410 16.4 334 16.4 C285.9 16.4 238.2 15.2 190.2 11.1 C152 7.9 111.2 1.7 71.2 1.7 C46.9 1.7 22.9 4 0 10.6",
+   "h": 762.5,
+   "kind": "pen",
+   "page": "language",
+   "w": 1428,
+   "x": 11.4,
+   "y": 3747.8
+  },
+  "shape-srlazs": {
+   "d": "M0 11.2 C1.6 7.4 3.9 3.9 5.6 0 C10.2 4.4 14.9 8.8 19.7 13",
+   "h": 13,
+   "kind": "pen",
+   "page": "language",
+   "w": 19.7,
+   "x": 1293.9,
+   "y": 4088.1
+  },
+  "shape-ue50ji": {
+   "d": "M0 34.4 C28.1 34.4 56.1 36.6 84.1 36.6 C87.6 36.6 92.3 37.1 97 37.1 C103.1 37.1 109.3 36.3 112.8 32.7 C115.8 29.6 116.9 25.4 116.9 20.9 C116.9 13.6 114.1 5.5 112.4 0",
+   "h": 37.1,
+   "kind": "pen",
+   "page": "language",
+   "w": 116.9,
+   "x": 1134.5,
+   "y": 4327.2
+  },
+  "shape-usywzc": {
+   "d": "M0 8.1 C0 10 0 12 0 13.9 C0 26.9 0.1 39.7 1.5 52.7 C43.2 57.8 84.4 58.9 126.5 58.9 C134.6 58.9 142.8 59.1 150.9 59.1 C161.9 59.1 172.8 58.7 183.6 56.8 C184.2 52.6 184.5 48.4 184.5 44.3 C184.5 31.8 181.8 19.7 177.8 7.4 C160.4 5.1 142.6 1.7 125.2 0.4 C120.8 0.1 116.4 0 112 0 C90.8 0 69.5 3 48.6 4.4 C33 5.4 17.4 4.8 1.8 5.7",
+   "h": 59.1,
+   "kind": "pen",
+   "page": "language",
+   "w": 184.5,
+   "x": 396.6,
+   "y": 3788.4
+  },
+  "shape-wfgd8r": {
+   "h": 67,
+   "kind": "rect",
+   "page": "language",
+   "w": 705,
+   "x": 540,
+   "y": 4261
+  },
+  "t1": {
+   "kind": "title1",
+   "maxW": 3192,
+   "text": "salamander \u2014 current ui",
+   "w": 240,
+   "x": 0,
+   "y": -300
+  },
+  "t2": {
+   "kind": "title1",
+   "maxW": 1784,
+   "page": "language",
+   "text": "design language",
+   "w": 240,
+   "x": 0,
+   "y": -300
+  }
+ },
+ "order": [
+  "Main.dc.html",
+  "Thumbnails.dc.html",
+  "AddMode.dc.html",
+  "Modal.dc.html",
+  "NotifError.dc.html",
+  "NotifWarning.dc.html",
+  "CommentStates.dc.html",
+  "Page.dc.html",
+  "Sidebar.dc.html",
+  "DirectionSalamander.dc.html",
+  "States.dc.html",
+  "SalamanderModal.dc.html",
+  "DirectionGlow.dc.html",
+  "DirectionEmber.dc.html",
+  "DirectionNewt.dc.html",
+  "EnlargedPrototype.dc.html",
+  "Sheet.dc.html",
+  "Scene.dc.html"
+ ],
+ "pages": [
+  {
+   "id": "current",
+   "name": "Current UI"
+  },
+  {
+   "id": "language",
+   "name": "Design language"
+  },
+  {
+   "id": "parts",
+   "name": "Shared parts"
+  }
+ ],
+ "title": "Annotator Mockups"
+}
