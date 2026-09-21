@@ -208,6 +208,12 @@ export interface SidebarCallbacks {
   /** A thumbnail was activated (click or Enter/Space) — the caller opens the
    *  enlarged view for this item (openEnlargedView(), design spec v2 §D). */
   onOpenItem: (item: FeedbackItem) => void;
+  /** The hover delete on a list item was activated (design spec v4 §L). No
+   *  confirmation, exactly like the enlarged view's delete: the caller runs
+   *  the same DELETE_ITEM round trip and repaints the list.
+   *  Optional for the same reason as onAddDoubleClick — other modules' test
+   *  doubles shouldn't have to stub a callback they'll never receive. */
+  onDeleteItem?: (item: FeedbackItem) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -298,6 +304,13 @@ const PANEL_BORDER_PX = 1;
  *  thumbnail's width from the exact same number the list is actually padded
  *  with, instead of a second hardcoded copy drifting from the CSS. */
 const THUMBNAIL_LIST_PAD_X = 16;
+
+/** The note text's inset inside its hover "extension" background (design
+ *  spec v4 §L): the same on all four sides, so the text sits the same
+ *  distance below the thumbnail as the background's bottom edge sits below
+ *  the last line. Matches radius md, which is the background's own corner
+ *  radius — a text inset equal to the corner it sits in. */
+const NOTE_INSET_PX = 10;
 
 /** The note-list thumbnail's box size *at the default sidebar width*
  *  (SIDEBAR_DEFAULT_WIDTH): that width minus the panel's left border minus
@@ -409,13 +422,35 @@ const EASE_STD = 'cubic-bezier(.2, 0, 0, 1)';
 const EASE_ACC = 'cubic-bezier(.3, 0, 1, 1)';
 
 /** The "keep on" switch's two reveal states (design spec v3 §A2). Kept as
- *  snippets rather than repeated blocks because three selectors reveal it
- *  (hover, focus-within, on) and the narrow breakpoint has to re-collapse and
- *  then re-reveal the same declarations at a higher specificity. */
+ *  snippets rather than repeated blocks because several selectors reveal it
+ *  (hover, focus-within, on, and hover-less pointers).
+ *
+ *  `transition-delay: 0s` in the shown state is the grace period (§A2 micro
+ *  states): the base rule below delays every collapse-ward transition by
+ *  ADD_SWITCH_GRACE_MS, so the switch holds open that long after the pointer
+ *  leaves and a diagonal path back onto it never loses the target. Revealing
+ *  zeroes the delay, so opening is still immediate.
+ *
+ *  `border-left-width: 0` while hidden is load-bearing, not tidiness: with
+ *  the global `box-sizing: border-box`, a `width: 0` box still cannot be
+ *  narrower than its own border, so the collapsed switch used to occupy 1px
+ *  — enough to make the resting group 39px instead of 38px (the button half
+ *  then sat off-centre) and to draw a stray `line`-coloured hairline down the
+ *  button's right edge at rest, where nothing should be visible at all.
+ *  ADD_SWITCH_WIDTH_PX already counts that 1px, so restoring it on reveal
+ *  leaves the revealed geometry untouched. */
 const ADD_SWITCH_HIDDEN_CSS =
-  'width: 0; padding: 0; opacity: 0; visibility: hidden; overflow: hidden;';
+  'width: 0; padding: 0; border-left-width: 0; opacity: 0; visibility: hidden; overflow: hidden;';
 const ADD_SWITCH_SHOWN_CSS =
-  `width: ${ADD_SWITCH_WIDTH_PX}px; padding: 0 10px; opacity: 1; visibility: visible; overflow: visible;`;
+  `width: ${ADD_SWITCH_WIDTH_PX}px; padding: 0 10px; border-left-width: ${GROUP_BORDER_PX}px; opacity: 1; visibility: visible; overflow: visible; transition-delay: 0s;`;
+/** How long the revealed switch holds open after the pointer leaves (§A2). */
+const ADD_SWITCH_GRACE_MS = 250;
+/** The reveal/collapse itself. */
+const ADD_SWITCH_REVEAL_MS = 160;
+/** Interior radius of an action-row group: the group's radius less its 1px
+ *  border. Each half rounds its own fill with this, because the group can no
+ *  longer clip them — it has to let a per-half focus ring out (§A2). */
+const GROUP_INNER_RADIUS_CSS = `calc(var(--sal-radius-md) - ${GROUP_BORDER_PX}px)`;
 
 /** The chevron menu (§C2) floats over the note list, whose dock-magnified
  *  items carry z-index 0–100 (dockMotion.ts); one above the resize handle so
@@ -513,6 +548,9 @@ const SIDEBAR_CSS = `
 
   /* ─── Header: logo + wordmark, theme toggle, close (§3.1) ────────────── */
 
+  /* No border of its own (design spec v4 §J): the header and the action row
+     are one fixed block above the scrolling list, and the single rule under
+     that block lives at the bottom of .action-row. */
   .header {
     display: flex;
     flex-direction: row;
@@ -521,7 +559,6 @@ const SIDEBAR_CSS = `
     height: 56px;
     padding: 0 10px 0 16px;
     gap: 10px;
-    border-bottom: 1px solid var(--sal-line);
   }
   .sidebar.is-compact .header { padding: 0 8px; gap: 6px; }
 
@@ -596,6 +633,9 @@ const SIDEBAR_CSS = `
     flex-wrap: wrap;
     padding: 4px ${ACTION_ROW_PAD_X}px 16px;
     gap: ${ACTION_ROW_GAP}px;
+    /* §J: the one divider of the fixed top block, under the whole of it
+       (header + action row) rather than between the two. */
+    border-bottom: 1px solid var(--sal-line);
   }
   .sidebar.is-compact .action-row {
     padding-left: ${ACTION_ROW_PAD_X_COMPACT}px;
@@ -615,15 +655,19 @@ const SIDEBAR_CSS = `
     height: ${ACTION_BUTTON_PX}px;
     border: ${GROUP_BORDER_PX}px solid var(--sal-line);
     border-radius: var(--sal-radius-md);
-    overflow: hidden;
+    /* Not clipped: a focus ring sits 4px outside its half, and the halves
+       round their own fills instead (§A2 micro states). */
+    overflow: visible;
     background: var(--sal-surface);
     color: var(--sal-text);
     ${STATE_TRANSITION_CSS}
   }
-  /* Off hover/press use the SECONDARY fills, never yellow — yellow means
-     "add mode is on" (§A2). */
-  .add-group:hover { border-color: var(--sal-line-strong); background: var(--sal-hover); }
-  .add-group:active { border-color: var(--sal-line-strong); background: var(--sal-press); ${PRESS_SCALE_CSS} }
+  /* Hover and press are per half (§A2 micro states): the group acknowledges
+     with its border only, the fill lands on the half actually under the
+     pointer, and nothing scales — so flicking the switch never moves the
+     button next to it. The off-state fills are the SECONDARY ones, never
+     yellow: yellow means "add mode is on". */
+  .add-group:hover { border-color: var(--sal-line-strong); }
   /* On (add mode active). The border stays in the box as a transparent one
      rather than being dropped, so the group is exactly the same size on as
      off — §A2's "the button never changes size in any state". */
@@ -632,21 +676,16 @@ const SIDEBAR_CSS = `
     background: var(--sal-accent);
     color: var(--sal-on-accent);
   }
-  .add-group.is-on:hover { background: var(--sal-accent-hover); }
-  .add-group.is-on:active { background: var(--sal-accent-press); ${PRESS_SCALE_CSS} }
-  /* The ring wraps the whole rounded group whichever half has focus (§A2) —
-     :has(:focus-visible) rather than :focus-within so it stays keyboard-only,
-     like every other control here. */
-  .add-group:has(:focus-visible) { ${FOCUS_RING_CSS} }
+  .add-group.is-on:hover { border-color: transparent; }
   .add-group.is-disabled { ${DISABLED_CSS} }
-  .add-group.is-disabled:hover,
-  .add-group.is-disabled:active {
-    border-color: var(--sal-line);
-    background: var(--sal-surface);
-    transform: none;
-  }
+  .add-group.is-disabled:hover { border-color: var(--sal-line); }
 
   .btn-add {
+    /* Above the switch, so the button's own rounded fill paints over the
+       switch's square left edge and the switch reads as an extension
+       emerging from behind it (§A2 micro states). */
+    position: relative;
+    z-index: 1;
     width: ${ACTION_BUTTON_PX}px;
     height: 100%;
     flex-shrink: 0;
@@ -658,11 +697,24 @@ const SIDEBAR_CSS = `
     white-space: nowrap;
     background: transparent;
     border: none;
+    border-radius: ${GROUP_INNER_RADIUS_CSS};
     color: inherit;
     cursor: pointer;
+    ${STATE_TRANSITION_CSS}
   }
-  .btn-add:focus-visible { outline: none; }
+  /* Per-half hover/press (§A2 micro states), in both the off and the on
+     (yellow) group — the .is-on rules outrank the bare ones by specificity. */
+  .btn-add:hover { background: var(--sal-hover); }
+  .btn-add:active { background: var(--sal-press); }
+  .add-group.is-on .btn-add:hover { background: var(--sal-accent-hover); }
+  .add-group.is-on .btn-add:active { background: var(--sal-accent-press); }
+  /* The ring hugs the focused half rather than the group, so it says which
+     of the two Enter will hit (§A2 micro states). Keyboard-only, like every
+     other control here. */
+  .btn-add:focus-visible { ${FOCUS_RING_CSS} outline: none; }
   .btn-add[disabled] { cursor: default; }
+  .add-group.is-disabled .btn-add:hover,
+  .add-group.is-disabled .btn-add:active { background: transparent; }
   .btn-add .icon { width: 17px; height: 17px; flex-shrink: 0; display: inline-flex; }
   .btn-add .icon svg { width: 100%; height: 100%; display: block; }
 
@@ -678,52 +730,110 @@ const SIDEBAR_CSS = `
     display: flex;
     align-items: center;
     border: none;
+    /* The ONE mechanism that draws the divider between the two halves. §A2
+       also gave the off segment an "inset 0 0 0 1px line" hairline, which is
+       gone: an inset shadow paints inside the border, so on this edge it
+       stacked on top of the border and the divider read 2px, and on the
+       other three edges it doubled the group's own 1px line border — a
+       border that visibly thickened halfway along the group. Those three
+       edges are already drawn by the group; the divider is the only edge
+       this segment has to draw for itself. */
     border-left: ${GROUP_BORDER_PX}px solid var(--sal-line);
+    /* Off: neutral segment — it stays neutral even when the button half is
+       yellow, and only goes yellow when the switch itself is on (§A2). */
     background: var(--sal-surface);
     color: var(--sal-text);
     cursor: pointer;
-    /* Off: neutral segment with an inner hairline — it stays neutral even
-       when the button half is yellow, and only goes yellow when the switch
-       itself is on (§A2). */
-    box-shadow: inset 0 0 0 1px var(--sal-line);
+    border-radius: 0 ${GROUP_INNER_RADIUS_CSS} ${GROUP_INNER_RADIUS_CSS} 0;
     ${ADD_SWITCH_HIDDEN_CSS}
+    /* Every collapse-ward transition carries the grace delay; the reveal
+       selectors below zero it (see ADD_SWITCH_SHOWN_CSS). visibility is in
+       the list so it flips only once the collapse has finished — without it
+       the switch would blink out of existence the moment the pointer left,
+       taking both the grace period and the animation with it. */
     transition:
-      width 160ms ${EASE_STD},
-      padding 160ms ${EASE_STD},
-      opacity 160ms ${EASE_STD},
-      background-color 140ms ease-out,
-      border-color 140ms ease-out;
+      width ${ADD_SWITCH_REVEAL_MS}ms ${EASE_STD} ${ADD_SWITCH_GRACE_MS}ms,
+      padding ${ADD_SWITCH_REVEAL_MS}ms ${EASE_STD} ${ADD_SWITCH_GRACE_MS}ms,
+      border-left-width ${ADD_SWITCH_REVEAL_MS}ms ${EASE_STD} ${ADD_SWITCH_GRACE_MS}ms,
+      opacity ${ADD_SWITCH_REVEAL_MS}ms ${EASE_STD} ${ADD_SWITCH_GRACE_MS}ms,
+      visibility 0s linear ${ADD_SWITCH_GRACE_MS + ADD_SWITCH_REVEAL_MS}ms,
+      background-color 150ms ${EASE_STD} 0s,
+      border-color 150ms ${EASE_STD} 0s;
   }
-  .add-switch:focus-visible { outline: none; }
+  .add-switch:hover { background: var(--sal-hover); }
+  .add-switch:active { background: var(--sal-press); }
+  .add-switch:focus-visible { ${FOCUS_RING_CSS} outline: none; }
+  .add-group.is-disabled .add-switch:hover,
+  .add-group.is-disabled .add-switch:active { background: var(--sal-surface); }
 
   .add-group.is-switch-on .add-switch {
-    background: var(--sal-accent);
-    color: var(--sal-on-accent);
-    /* onAccent at 25% — the only divider that reads on the yellow segment
-       (§A2's table); it is the same ink in both themes, so no token exists
-       for it and none is invented. */
-    border-left-color: rgba(26, 23, 18, 0.25);
-    box-shadow: none;
+    /* Merged (§A2 micro states): once the switch is on the two halves are one
+       button, and the group owns the fill — so this segment is transparent
+       and lets whichever yellow the group is currently painting show
+       through. An opaque accent here would stay flat while the group went
+       accentHover under the pointer, putting two different yellows side by
+       side in what is supposed to be one control. The colour override is
+       gone for the same reason — it inherits the group's, which is already
+       on-accent whenever this class is set. */
+    background: transparent;
+    /* The divider goes. It is made transparent rather than removed — the 1px
+       is still in the box, so the group is exactly as wide merged as it is
+       split, and nothing shifts at the moment it merges. */
+    border-left-color: transparent;
   }
 
+  /* Merged (§A2 micro states): with the switch on, the group is a single
+     button — so hover, press and the focus ring go back to the whole group,
+     and the per-half fills above are cancelled. Clicking either half means
+     "stop": the click handler routes both to the add button's own callback,
+     which exits add mode and turns the switch off together. */
+  .add-group.is-switch-on:hover { background: var(--sal-accent-hover); }
+  .add-group.is-switch-on:active { background: var(--sal-accent-press); }
+  /* Only the button half needs cancelling — the switch half is already
+     unconditionally transparent while merged (see above). */
+  .add-group.is-switch-on .btn-add:hover,
+  .add-group.is-switch-on .btn-add:active { background: transparent; }
+  .add-group.is-switch-on .btn-add:focus-visible { box-shadow: none; }
+  .add-group.is-switch-on:has(.btn-add:focus-visible) { ${FOCUS_RING_CSS} }
+
   /* Reveal (§A2): hidden at rest, shown on hover or keyboard focus anywhere
-     in the group, and always shown once the switch is on. */
+     in the group, and always shown once the switch is on. The add button
+     keeps all four of its corners rounded throughout — the switch reads as
+     an extension sliding out from behind it, not as the right half of a
+     split pill (§A2 micro states). No breakpoint suppresses the reveal any
+     more — at a width where the revealed switch no longer fits, the action
+     row wraps instead, which it already does below the compact breakpoint. */
   .add-group:hover .add-switch,
   .add-group:focus-within .add-switch,
   .add-group.is-switch-on .add-switch { ${ADD_SWITCH_SHOWN_CSS} }
-  /* Below the narrow breakpoint the row has no spare width, so hover alone
-     no longer reveals it — keyboard focus and "on" still do (§A2). */
-  .sidebar.is-narrow .add-group:hover .add-switch { ${ADD_SWITCH_HIDDEN_CSS} }
-  .sidebar.is-narrow .add-group:focus-within .add-switch,
-  .sidebar.is-narrow .add-group.is-switch-on .add-switch { ${ADD_SWITCH_SHOWN_CSS} }
 
+  /* Nothing to hover with, so nothing would ever reveal it: on touch and
+     other hover-less pointers the switch is simply always out (§A2 micro
+     states). */
+  @media (hover: none) {
+    .add-switch { ${ADD_SWITCH_SHOWN_CSS} }
+  }
+
+  /* The switch's own colours (design spec v4 §P). Each pair either inverts
+     with the theme together or is theme-independent, so the knob always
+     contrasts with its track in BOTH themes:
+       off — track muted, knob surface: muted (#6E6656 / #B3AA96) and
+             surface (#FFFFFF / #1D1A13) invert together, so it is a light
+             knob in a dark slot on light and a dark knob in a light slot on
+             dark. The old lineStrong track was a hairline colour, too close
+             to the segment to read as a live control at all.
+       on  — track onAccent, knob accent: both are the same value in either
+             theme (#1A1712 and #FEC800), so it is a yellow knob in a lit
+             slot on the yellow segment everywhere. The old pairing put a
+             surface knob on an onAccent track, which in dark theme is
+             near-black on black — one unreadable blob. */
   .add-switch-track {
     position: relative;
     width: 28px;
     height: 16px;
     flex-shrink: 0;
     border-radius: 8px;
-    background: var(--sal-line-strong);
+    background: var(--sal-muted);
     transition: background-color 150ms ${EASE_STD};
   }
   .add-group.is-switch-on .add-switch-track { background: var(--sal-on-accent); }
@@ -736,9 +846,12 @@ const SIDEBAR_CSS = `
     height: 12px;
     border-radius: 50%;
     background: var(--sal-surface);
-    transition: left 150ms ${EASE_STD};
+    transition: left 150ms ${EASE_STD}, background-color 150ms ${EASE_STD};
   }
-  .add-group.is-switch-on .add-switch-knob { left: 14px; }
+  .add-group.is-switch-on .add-switch-knob {
+    left: 14px;
+    background: var(--sal-accent);
+  }
 
   /* ── export + chevron menu (§C2) ──────────────────────────────────────── */
 
@@ -756,25 +869,34 @@ const SIDEBAR_CSS = `
     color: var(--sal-text);
     ${STATE_TRANSITION_CSS}
   }
-  /* Hover/press/focus are scoped to the group's own two halves rather than
+  /* Hover and press are per half (design spec v4 §K — the same rule §I gives
+     the add group): the fill lands on the half actually under the pointer
+     (see .btn-export / .btn-menu below) and the group acknowledges with its
+     border alone, so hovering the chevron never lights up export.
+
+     Every one of these is scoped to the group's own two halves rather than
      the whole box, because the menu is a child of it: an unscoped :hover
      would light the group up whenever the pointer was merely inside the open
      menu, and an unscoped :active would apply the press scale to the group
      *and* the menu, sliding the item out from under the pointer between
      mousedown and mouseup so the click never landed on it. */
-  .export-group:has(> button:hover) { border-color: var(--sal-line-strong); background: var(--sal-hover); }
-  .export-group:has(> button:active) { border-color: var(--sal-line-strong); background: var(--sal-press); }
-  /* Same reason, for the chevron itself: pressing it to close an open menu
-     must not shift the menu it is closing. */
+  .export-group:has(> button:hover) { border-color: var(--sal-line-strong); }
+  .export-group:has(> button:active) { border-color: var(--sal-line-strong); }
+  /* The press scale stays on the group (scaling one half alone would tear
+     the group's border), and is suppressed while the menu is open — for the
+     same reason as above, an open menu must not move under the pointer. */
   .export-group:not(.is-menu-open):has(> button:active) { ${PRESS_SCALE_CSS} }
   .export-group:has(> button:focus-visible) { ${FOCUS_RING_CSS} }
   .export-group.is-disabled { ${DISABLED_CSS} }
   .export-group.is-disabled:has(> button:hover),
   .export-group.is-disabled:has(> button:active) {
     border-color: var(--sal-line);
-    background: var(--sal-surface);
     transform: none;
   }
+  .export-group.is-disabled .btn-export:hover,
+  .export-group.is-disabled .btn-export:active,
+  .export-group.is-disabled .btn-menu:hover,
+  .export-group.is-disabled .btn-menu:active { background: transparent; }
 
   .btn-export {
     width: ${ACTION_BUTTON_PX}px;
@@ -792,7 +914,11 @@ const SIDEBAR_CSS = `
     border-radius: 9px 0 0 9px;
     color: inherit;
     cursor: pointer;
+    ${STATE_TRANSITION_CSS}
   }
+  /* §K: the fill lands here, not on the group. */
+  .btn-export:hover { background: var(--sal-hover); }
+  .btn-export:active { background: var(--sal-press); }
   .btn-export:focus-visible { outline: none; }
   .btn-export[disabled] { cursor: default; }
   .btn-export .icon { width: 16px; height: 16px; display: inline-flex; }
@@ -818,8 +944,13 @@ const SIDEBAR_CSS = `
   .btn-menu:focus-visible { outline: none; }
   .btn-menu[disabled] { cursor: default; }
   /* Open takes the hover fill so the chevron reads as the active control
-     while its menu is down (§C2). */
+     while its menu is down (§C2/§K: the open-menu state keeps its own
+     treatment on this half). Written before the :hover/:active rules so the
+     equal-specificity press fill still reads while the menu is open. */
   .btn-menu[aria-expanded="true"] { background: var(--sal-hover); }
+  /* §K: the fill lands here, not on the group. */
+  .btn-menu:hover { background: var(--sal-hover); }
+  .btn-menu:active { background: var(--sal-press); }
   .btn-menu .icon { width: 12px; height: 12px; display: inline-flex; }
   .btn-menu .icon svg { width: 100%; height: 100%; display: block; }
 
@@ -1008,7 +1139,8 @@ const SIDEBAR_CSS = `
      able to stop, change theme or close. */
   .body.is-on-hold { opacity: 0.5; }
   .body.is-on-hold .thumbnail-list,
-  .body.is-on-hold .thumbnail { pointer-events: none; }
+  .body.is-on-hold .thumbnail,
+  .body.is-on-hold .thumbnail-delete { pointer-events: none; }
 
   .section-heading {
     margin: 0 16px 12px;
@@ -1123,10 +1255,16 @@ const SIDEBAR_CSS = `
     text-align: center;
   }
 
+  /* No margin of its own (design spec v4 §L). It used to open an 8px gap
+     between the thumbnail and the note — but the hover extension's top edge
+     is the thumbnail's bottom edge, so that gap fell *inside* the background
+     and stacked on top of the note's own 8px padding-top: 16px of visible
+     inset above the first line against 8px below the last. The whole inset
+     is the note's padding now, and it is the same number on all four
+     sides. */
   .thumbnail-note-wrap {
     display: block;
     position: relative;
-    margin-top: 8px;
   }
   /* The note's hover/focus "extension" (design spec v2 §B): a separate layer
      so it can fade on opacity alone, exactly as before — dockMotion.ts still
@@ -1135,12 +1273,11 @@ const SIDEBAR_CSS = `
      rule below takes over under prefers-reduced-motion), so none of that
      wiring changed. What changed is the box itself: rather than a rectangle
      matching the note text's own area, it starts tucked one radius-md *up*
-     under the thumbnail's bottom edge (through the 8px gap
-     .thumbnail-note-wrap's margin-top opens up, and one radius-md further
-     into the thumbnail itself, where .thumbnail-image-wrap's higher z-index
-     and opaque fill hide the overlap completely) and runs down to the
-     button's bottom edge — same width as the thumbnail throughout, so its
-     edges land exactly flush with the thumbnail's own. Only the bottom
+     under the thumbnail's bottom edge (the wrap has no margin of its own any
+     more, §L, so that edge is also the wrap's top — and .thumbnail-image-wrap's
+     higher z-index and opaque fill hide the overlap completely) and runs down
+     to the note's bottom padding edge — same width as the thumbnail
+     throughout, so its edges land exactly flush with the thumbnail's own. Only the bottom
      corners are rounded (the top is hidden under the thumbnail regardless).
      The note text itself never moves between rest and hover — only this
      layer's opacity changes. */
@@ -1148,10 +1285,13 @@ const SIDEBAR_CSS = `
     position: absolute;
     left: 0;
     right: 0;
-    /* 8px = .thumbnail-note-wrap's own margin-top, i.e. the gap this reaches
-       back through before it goes one radius-md further up, under the
-       thumbnail's bottom edge. */
-    top: calc(-8px - var(--sal-radius-md));
+    /* One radius-md up, i.e. entirely under the thumbnail's bottom edge
+       (which is now also the wrap's top edge, §L) — far enough that the
+       rounded top corners are hidden behind .thumbnail-image-wrap's higher
+       z-index and opaque fill. Its visible top edge is therefore the
+       thumbnail's, and "bottom: 0" is the note's own bottom padding edge, so
+       the background sits NOTE_INSET_PX from the text at both ends. */
+    top: calc(-1 * var(--sal-radius-md));
     bottom: 0;
     border-radius: 0 0 var(--sal-radius-md) var(--sal-radius-md);
     background: var(--sal-surface);
@@ -1170,7 +1310,9 @@ const SIDEBAR_CSS = `
   .thumbnail-note {
     position: relative;
     margin: 0;
-    padding: 8px 10px;
+    /* Uniform on all four sides (§L) — the whole of the note's inset, in
+       both rest and hover. */
+    padding: ${NOTE_INSET_PX}px;
     max-width: 100%;
     border-radius: var(--sal-radius-md);
     background: transparent;
@@ -1195,17 +1337,93 @@ const SIDEBAR_CSS = `
     opacity: 1;
   }
 
+  /* ─── Delete on hover (design spec v4 §L) ──────────────────────────────
+     A sibling of the item's <button class="thumbnail">, not a child of it:
+     nested buttons are invalid HTML and break activation, so this sits in
+     the <li> and is absolutely positioned over the thumbnail's top-right
+     corner (mirroring the number badge's 8px inset on the left).
+
+     It is inside the <li> dockMotion.ts transforms, so it rides the
+     magnification with its item for free, and dockMotion fades it on the
+     same spring as the note extension (see .thumbnail-note-bg) — hence
+     opacity in the transition here, for the reduced-motion/no-dock case
+     where the CSS below is the only thing that shows it.
+
+     pointer-events: none while it is faded out is what keeps it out of
+     the thumbnail's hit area: an opacity-0 button is still clickable, and
+     an invisible delete over every screenshot's corner would be a trap. It
+     stays tabbable throughout, though — §L wants it reachable by Tab after
+     its own item, and :focus-visible below brings it into view. */
+  .thumbnail-delete {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    /* Above .thumbnail-image-wrap's z-index: 1, which is what it overlays. */
+    z-index: 2;
+    width: 24px;
+    height: 24px;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--sal-line);
+    border-radius: var(--sal-radius-sm);
+    background: var(--sal-surface);
+    color: var(--sal-muted);
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    /* STATE_TRANSITION_CSS's timings plus the extension's own opacity fade:
+       one shorthand, because a second transition declaration would replace
+       the first rather than add to it. */
+    ${STATE_TRANSITION_CSS.replace(/;$/, ', opacity 140ms ease-out;')}
+  }
+  .thumbnail-delete .icon { width: 14px; height: 14px; display: inline-flex; }
+  .thumbnail-delete .icon svg { width: 100%; height: 100%; display: block; }
+  .thumbnail-item:hover .thumbnail-delete,
+  .thumbnail-item:focus-within .thumbnail-delete {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .thumbnail-delete:hover { background: var(--sal-danger-soft); color: var(--sal-danger); }
+  .thumbnail-delete:active {
+    background: var(--sal-danger-press);
+    color: var(--sal-danger);
+    ${PRESS_SCALE_CSS}
+  }
+  /* Visible whenever it has focus (§L) — :focus-within above already covers
+     this, but the ring must never paint on an invisible control. */
+  .thumbnail-delete:focus-visible {
+    opacity: 1;
+    pointer-events: auto;
+    ${FOCUS_RING_CSS}
+    outline: none;
+  }
+  /* While the dock spring owns this element's opacity (inline), the CSS
+     transition would fight it frame by frame — same reason .thumbnail-note-bg
+     drops its transition. Only the opacity part goes; the fill/border/colour
+     states are still the shared ones. */
+  .thumbnail-list[data-dock="on"] .thumbnail-delete { ${STATE_TRANSITION_CSS} }
+
   /* Reduced motion (design spec §4, and v3 §A2/§C2's "reduced motion →
      instant"): every state change added by the action row still *happens*,
      it just happens at once. dockMotion.ts switches itself off separately. */
   @media (prefers-reduced-motion: reduce) {
-    .add-switch,
     .add-switch-track,
     .add-switch-knob,
     .action-menu,
     .action-menu[data-open="true"],
     .body {
       transition: none;
+    }
+    /* The switch appears and collapses instantly, but the grace period is a
+       usability affordance rather than motion — without it the switch would
+       vanish the instant the pointer clipped the group's edge on the way to
+       it, which is exactly the problem the grace exists to solve. So the
+       delay stays and only the animation goes. */
+    .add-switch {
+      transition: visibility 0s linear ${ADD_SWITCH_GRACE_MS}ms, width 0s linear ${ADD_SWITCH_GRACE_MS}ms, padding 0s linear ${ADD_SWITCH_GRACE_MS}ms, opacity 0s linear ${ADD_SWITCH_GRACE_MS}ms;
     }
     .action-menu { transform: none; }
     .action-menu[data-open="true"] { transform: none; }
@@ -1578,6 +1796,14 @@ export function setAddButtonState(state: AddButtonState): void {
   elBtnAdd.setAttribute('aria-label', ADD_BUTTON_LABELS[state]);
   elBtnAdd.title = ADD_BUTTON_LABELS[state];
   elAddSwitch?.setAttribute('aria-checked', String(keepOn));
+  // Merged: while the switch is on the group is one button, so it is one tab
+  // stop too — the button half carries it, and both halves do the same thing
+  // (§A2 micro states). The switch stays in the accessibility tree, checked,
+  // so its state is still announced.
+  if (elAddSwitch) {
+    if (keepOn) elAddSwitch.setAttribute('tabindex', '-1');
+    else elAddSwitch.removeAttribute('tabindex');
+  }
   if (elAddDesc) elAddDesc.textContent = ADD_BUTTON_DESCRIPTIONS[state];
 }
 
@@ -1651,10 +1877,21 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
 
   // The switch reports the value the user asked for; content.ts decides what
   // that does to add mode and paints the result back (§A2).
+  //
+  // Except once it is on: the divider goes, the two halves merge into a
+  // single yellow control, and a click anywhere on it means "stop" (§A2
+  // micro states). Routing that through the button's own callback rather
+  // than reporting `false` here is what makes the merged control honest —
+  // onAdd while the switch is on exits add mode AND turns the switch off,
+  // whereas onAddSwitchChange(false) would leave add mode running.
   elAddSwitch!.addEventListener('click', (e) => {
     e.stopPropagation();
     const on = elAddSwitch!.getAttribute('aria-checked') !== 'true';
-    callbacksRef?.onAddSwitchChange?.(on);
+    if (!on) {
+      callbacksRef?.onAdd();
+      return;
+    }
+    callbacksRef?.onAddSwitchChange?.(true);
   });
 
   elBtnExport!.addEventListener('click', (e) => {
@@ -2058,10 +2295,16 @@ export function setAddModeHold(hold: boolean): void {
  *  back after). `pointer-events: none` covers the mouse but leaves a button
  *  perfectly reachable with Tab, so this is the other half of §H's "list
  *  items not tabbable". Re-applied after every repaint — renderItems() calls
- *  it — since a fresh list starts with default tabindexes. */
+ *  it — since a fresh list starts with default tabindexes.
+ *
+ *  Covers each item's hover delete (design spec v4 §L) as well as the
+ *  thumbnail itself: it is a second real button in the same <li>, so it
+ *  needs the same treatment or add mode would leave a live "delete" one Tab
+ *  away from a held list. */
 function applyListHold(): void {
   if (!elThumbnailList) return;
-  for (const btn of Array.from(elThumbnailList.querySelectorAll<HTMLButtonElement>('button.thumbnail'))) {
+  const held = elThumbnailList.querySelectorAll<HTMLButtonElement>('button.thumbnail, button.thumbnail-delete');
+  for (const btn of Array.from(held)) {
     if (addModeHold) btn.setAttribute('tabindex', '-1');
     else btn.removeAttribute('tabindex');
   }
@@ -2114,6 +2357,16 @@ function renderItems(items: FeedbackItem[]): void {
       const state = enlargedView?.getState();
       if (state === 'opening' || state === 'open') return;
       callbacksRef?.onOpenItem(item);
+    },
+    onDelete: (item) => {
+      // Same two guards as onOpen, for the same reasons: §H holds the whole
+      // list inert for the duration of add mode, and the enlarged view owns
+      // the list's items while it is up. Deleting behind the user's back
+      // would be worse than opening behind it.
+      if (addModeHold) return;
+      const state = enlargedView?.getState();
+      if (state === 'opening' || state === 'open') return;
+      callbacksRef?.onDeleteItem?.(item);
     },
   });
   // A fresh list starts with default tabindexes — re-assert the §H hold if

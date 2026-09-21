@@ -245,6 +245,28 @@ the same page.
 - [ ] **3.9. (Note hover)** Hover a note in the list — the thumbnail keeps all four rounded corners
       and the note text gains a background that tucks under the thumbnail (same width, edges
       aligned); the text itself doesn't move.
+- [ ] **3.9a. (Note padding, §L)** With a note hovered so the background is visible, check the gap
+      between the thumbnail's bottom edge and the first line of text against the gap between the
+      last line and the background's bottom edge — they must look identical, and both must match
+      the gap at the left and right edges. Check it on a one-line note and on a three-line
+      (clamped) one. Nothing may shift position between rest and hover.
+- [ ] **3.10. (List delete, §L)** Hover a note in the list — a small delete (trash) button fades in
+      over the **top-right** corner of the thumbnail, at the same time as the note background, and
+      grows with the item as the dock magnification swells it. At rest it must be completely
+      invisible, and clicking where it would be must open the note, not delete it.
+      - Hover it: it turns red-tinted with a red icon. Press it: it darkens and dips slightly.
+      - Click it: the note disappears **immediately**, with no confirmation, and the list
+        renumbers/repaints. Reload to confirm it is really gone. The enlarged view must **not**
+        open at any point.
+      - Keyboard: Tab from a note's thumbnail — focus lands on that note's delete button next,
+        with a visible focus ring, and the button is visible while focused. Enter deletes.
+      - Start add mode: the dimmed list's delete buttons must not respond to a click, and Tab must
+        skip them entirely. Leave add mode — both work again.
+      - Capture a new note while the delete is showing: no trace of the button may appear in the
+        screenshot.
+      - Disconnect the network / reload the extension mid-click if you can force a failure — the
+        sidebar should show "couldn't delete item. try again." (the same wording the enlarged
+        view's delete uses).
 
 ## 4. Exporting (§1.6)
 
@@ -332,6 +354,37 @@ the same page.
       its player using viewport units and `window.innerWidth`, which a content script cannot force
       to shrink) — not something to file as a new bug unless the sidebar itself becomes unusable
       or the page breaks/errors.
+
+## 6a. Salamander v4 styling fixes (design/SALAMANDER_SPEC.md §J–§P)
+
+Run each of these in **both** light and dark theme (cycle with the theme toggle in the header).
+
+- [ ] **6a.1. (§J — one fixed block)** There must be exactly one 1px rule in the top of the
+      sidebar: under the action row, below the add/export controls. No line between the header
+      (logo + theme + close) and the action row, and none anywhere inside them.
+- [ ] **6a.2. (§K — export group per half)** Hover the export icon: only the left half fills, and
+      the group's border darkens. Hover the chevron: only the chevron half fills. Press either —
+      only that half darkens, and the whole group dips slightly. Open the menu, then press the
+      chevron to close it: the menu must **not** move under the pointer (no press dip while open).
+      The chevron keeps its own lit state for as long as the menu is open.
+- [ ] **6a.3. (§P — the "keep on" switch's colours)** Hover the add-note group to reveal the
+      switch. **Off:** the track must read as a real, filled control (mid-grey), with the knob
+      clearly standing out against it — in dark theme too, where it must not look like one dark
+      blob. **On:** the segment is yellow, the track is dark ink, and the knob is brand yellow;
+      identical in both themes.
+- [ ] **6a.4. (Collapsed switch)** With the pointer away from the add-note group, look closely at
+      the button's right edge: there must be **no** hairline there at all, and the icon must sit
+      dead-centre in the button. The group should measure the same as a plain 36px icon button
+      plus its border (38px). Hover — the switch slides out and its 1px divider appears with it,
+      and the button must not shift.
+- [ ] **6a.5. (Merged switch)** Turn the switch on, then hover the **button** half: the whole
+      group must go to a single, uniform lighter yellow — no visible seam or second shade over the
+      switch half. Press it: the whole group darkens uniformly. The divider between the halves
+      must be invisible while merged, and the group must not change width as it merges.
+- [ ] **6a.6. (Divider weight)** With the switch off and revealed, the line between the button and
+      the switch must be a single hairline, the same weight as the group's own border — not a
+      double/2px line, and the group's border must not look thicker over the switch than over the
+      button.
 
 ## 7. Text case convention (§3.4)
 

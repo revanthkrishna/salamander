@@ -63,7 +63,7 @@ describe('renderThumbnailList', () => {
   });
 
   it('renders one <li> wrapping a real <button class="thumbnail"> per item, in the order given', () => {
-    renderThumbnailList(listEl, [makeItem({ id: 1 }), makeItem({ id: 2 })], { onOpen: jest.fn() });
+    renderThumbnailList(listEl, [makeItem({ id: 1 }), makeItem({ id: 2 })], { onOpen: jest.fn(), onDelete: jest.fn() });
     const items = listEl.querySelectorAll('li > button.thumbnail');
     expect(items.length).toBe(2);
     expect(items[0].tagName).toBe('BUTTON');
@@ -72,21 +72,22 @@ describe('renderThumbnailList', () => {
   });
 
   it('clears previous content before rendering (no accumulation across calls)', () => {
-    renderThumbnailList(listEl, [makeItem({ id: 1 })], { onOpen: jest.fn() });
-    renderThumbnailList(listEl, [makeItem({ id: 2 }), makeItem({ id: 3 })], { onOpen: jest.fn() });
+    renderThumbnailList(listEl, [makeItem({ id: 1 })], { onOpen: jest.fn(), onDelete: jest.fn() });
+    renderThumbnailList(listEl, [makeItem({ id: 2 }), makeItem({ id: 3 })], { onOpen: jest.fn(), onDelete: jest.fn() });
     expect(listEl.querySelectorAll('button.thumbnail').length).toBe(2);
   });
 
   it('sets the thumbnail image src from thumbnailDataUrl', () => {
     renderThumbnailList(listEl, [makeItem({ thumbnailDataUrl: 'data:image/jpeg;base64,ZZZZ' })], {
       onOpen: jest.fn(),
+      onDelete: jest.fn(),
     });
     const img = listEl.querySelector('img.thumbnail-image') as HTMLImageElement;
     expect(img.getAttribute('src')).toBe('data:image/jpeg;base64,ZZZZ');
   });
 
   it('gives the image wrap a fixed height and scales the image to fit via object-fit: contain', () => {
-    renderThumbnailList(listEl, [makeItem()], { onOpen: jest.fn() });
+    renderThumbnailList(listEl, [makeItem()], { onOpen: jest.fn(), onDelete: jest.fn() });
     const wrap = listEl.querySelector('.thumbnail-image-wrap') as HTMLElement;
     const img = listEl.querySelector('img.thumbnail-image') as HTMLImageElement;
 
@@ -102,14 +103,14 @@ describe('renderThumbnailList', () => {
   });
 
   it('shows the lowercase "no note" placeholder for an empty note, styled distinctly', () => {
-    renderThumbnailList(listEl, [makeItem({ note: '' })], { onOpen: jest.fn() });
+    renderThumbnailList(listEl, [makeItem({ note: '' })], { onOpen: jest.fn(), onDelete: jest.fn() });
     const note = listEl.querySelector('.thumbnail-note') as HTMLElement;
     expect(note.textContent).toBe('no note');
     expect(note.classList.contains('thumbnail-note-empty')).toBe(true);
   });
 
   it('shows the truncated note text for a populated note', () => {
-    renderThumbnailList(listEl, [makeItem({ note: 'looks off-centre on mobile' })], { onOpen: jest.fn() });
+    renderThumbnailList(listEl, [makeItem({ note: 'looks off-centre on mobile' })], { onOpen: jest.fn(), onDelete: jest.fn() });
     const note = listEl.querySelector('.thumbnail-note') as HTMLElement;
     expect(note.textContent).toBe('looks off-centre on mobile');
     expect(note.classList.contains('thumbnail-note-empty')).toBe(false);
@@ -118,7 +119,7 @@ describe('renderThumbnailList', () => {
   it('fires onOpen with the item on click', () => {
     const onOpen = jest.fn();
     const item = makeItem({ id: 42 });
-    renderThumbnailList(listEl, [item], { onOpen });
+    renderThumbnailList(listEl, [item], { onOpen, onDelete: jest.fn() });
 
     (listEl.querySelector('button.thumbnail') as HTMLButtonElement).click();
 
@@ -128,7 +129,7 @@ describe('renderThumbnailList', () => {
   it('fires onOpen on Enter and Space, but not on other keys', () => {
     const onOpen = jest.fn();
     const item = makeItem({ id: 5 });
-    renderThumbnailList(listEl, [item], { onOpen });
+    renderThumbnailList(listEl, [item], { onOpen, onDelete: jest.fn() });
     const btn = listEl.querySelector('button.thumbnail') as HTMLButtonElement;
 
     btn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
@@ -140,7 +141,7 @@ describe('renderThumbnailList', () => {
   });
 
   it('gives each note a separate, aria-hidden background layer for the dock motion to fade (design spec §4)', () => {
-    renderThumbnailList(listEl, [makeItem()], { onOpen: jest.fn() });
+    renderThumbnailList(listEl, [makeItem()], { onOpen: jest.fn(), onDelete: jest.fn() });
     const wrap = listEl.querySelector('button.thumbnail > .thumbnail-note-wrap') as HTMLElement;
     expect(wrap).not.toBeNull();
     const bg = wrap.querySelector('.thumbnail-note-bg') as HTMLElement;
@@ -150,8 +151,59 @@ describe('renderThumbnailList', () => {
     expect(wrap.querySelector('.thumbnail-note')?.textContent).toBe('a note');
   });
 
+  it("builds each item's hover delete as a SIBLING of the thumbnail button (design spec v4 §L)", () => {
+    renderThumbnailList(listEl, [makeItem({ id: 7 })], { onOpen: jest.fn(), onDelete: jest.fn() });
+    const li = listEl.querySelector('li.thumbnail-item') as HTMLLIElement;
+    const del = li.querySelector('button.thumbnail-delete') as HTMLButtonElement;
+
+    // Nested buttons are invalid HTML and break activation, so this cannot
+    // live inside <button class="thumbnail">.
+    expect(del.parentElement).toBe(li);
+    expect((li.querySelector('button.thumbnail') as HTMLElement).contains(del)).toBe(false);
+
+    expect(del.type).toBe('button');
+    expect(del.getAttribute('aria-label')).toBe('delete feedback item 7');
+    // Every visible string is lowercase (REQUIREMENTS §3.4).
+    expect(del.title).toBe('delete');
+    expect(del.title).toBe(del.title.toLowerCase());
+    expect(del.dataset.itemId).toBe('7');
+    // The §1 icon language: 1.8px stroke, round caps/joins, currentColor.
+    const svg = del.querySelector('svg') as SVGElement;
+    expect(svg.getAttribute('stroke')).toBe('currentColor');
+    expect(svg.getAttribute('stroke-width')).toBe('1.8');
+    expect(svg.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('fires onDelete with the item, and never onOpen, when the delete is clicked', () => {
+    const onOpen = jest.fn();
+    const onDelete = jest.fn();
+    const item = makeItem({ id: 9 });
+    renderThumbnailList(listEl, [item], { onOpen, onDelete });
+
+    (listEl.querySelector('button.thumbnail-delete') as HTMLButtonElement).click();
+
+    expect(onDelete).toHaveBeenCalledWith(item);
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it('gives every item a delete, and rebuilds them all on a repaint', () => {
+    renderThumbnailList(listEl, [makeItem({ id: 1 }), makeItem({ id: 2 })], {
+      onOpen: jest.fn(),
+      onDelete: jest.fn(),
+    });
+    expect(listEl.querySelectorAll('button.thumbnail-delete').length).toBe(2);
+
+    const onDelete = jest.fn();
+    const fresh = makeItem({ id: 3 });
+    renderThumbnailList(listEl, [fresh], { onOpen: jest.fn(), onDelete });
+    expect(listEl.querySelectorAll('button.thumbnail-delete').length).toBe(1);
+    // The rebuilt button is wired to the NEW callback, not the old one.
+    (listEl.querySelector('button.thumbnail-delete') as HTMLButtonElement).click();
+    expect(onDelete).toHaveBeenCalledWith(fresh);
+  });
+
   it('marks each thumbnail as a real, labelled <button> (native focusability/activation)', () => {
-    renderThumbnailList(listEl, [makeItem({ id: 3 })], { onOpen: jest.fn() });
+    renderThumbnailList(listEl, [makeItem({ id: 3 })], { onOpen: jest.fn(), onDelete: jest.fn() });
     const btn = listEl.querySelector('button.thumbnail') as HTMLButtonElement;
     expect(btn.tagName).toBe('BUTTON');
     expect(btn.type).toBe('button');

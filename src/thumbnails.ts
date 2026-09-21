@@ -3,9 +3,10 @@
 //
 // Pure DOM builder: given the shadow-root <ul> sidebar.ts already owns and a
 // list of FeedbackItem for the current URL, (re)builds one <li> per item —
-// each wrapping a real <button class="thumbnail"> (screenshot + number badge
-// + note text below, no card/box around it) — and wires its click/keyboard
-// "open" activation. No chrome.runtime, no module-level state: sidebar.ts
+// each holding a real <button class="thumbnail"> (screenshot + number badge
+// + note text below, no card/box around it) and, as its sibling, the hover
+// <button class="thumbnail-delete"> (design spec v4 §L) — and wires their
+// click/keyboard activation. No chrome.runtime, no module-level state: sidebar.ts
 // calls renderThumbnailList on every refresh and this module just repaints
 // the list from scratch, mirroring how addMode/modal own their own DOM but
 // this one owns none of its own — the <ul> belongs to sidebar.ts's shadow
@@ -37,7 +38,24 @@ import { FeedbackItem } from './types';
 export interface ThumbnailCallbacks {
   /** Fired when a thumbnail is activated (click or Enter/Space). */
   onOpen: (item: FeedbackItem) => void;
+  /** Fired when an item's hover delete is activated (design spec v4 §L).
+   *  Deletes immediately, with no confirmation — the caller owns the
+   *  DELETE_ITEM round trip and the repaint that follows. */
+  onDelete: (item: FeedbackItem) => void;
 }
+
+/** Trash glyph for the per-item delete (design spec §1's icon language:
+ *  1.8px stroke, round caps/joins, currentColor, 24-unit viewBox). Written
+ *  out here rather than imported from sidebar.ts's icon set, because
+ *  sidebar.ts imports *this* module — the dependency only runs one way. */
+const ICON_TRASH =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" ' +
+  'stroke="currentColor" stroke-width="1.8" stroke-linecap="round" ' +
+  'stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M4 7h16"/>' +
+  '<path d="M9.5 7V5.5a1.5 1.5 0 0 1 1.5-1.5h2a1.5 1.5 0 0 1 1.5 1.5V7"/>' +
+  '<path d="M6.5 7l.8 12a1.5 1.5 0 0 0 1.5 1.4h6.4a1.5 1.5 0 0 0 1.5-1.4l.8-12"/>' +
+  '</svg>';
 
 /** Hard cap on the note text handed to the DOM (design spec §3.1's visual
  *  3-line clamp is CSS's job now — sidebar.ts's `.thumbnail-note` rule sets
@@ -153,6 +171,28 @@ function buildThumbnailEl(item: FeedbackItem, callbacks: ThumbnailCallbacks): HT
   btn.appendChild(noteWrap);
   li.appendChild(btn);
 
+  // The hover delete (design spec v4 §L). A SIBLING of the thumbnail button
+  // inside the <li>, never a child of it: nested buttons are invalid HTML
+  // and break activation. sidebar.ts's `.thumbnail-delete` rule floats it
+  // over the thumbnail's top-right corner and fades it in with the note's
+  // hover extension; dockMotion.ts springs that opacity and, because this
+  // lives inside the transformed <li>, magnifies it along with its item.
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'thumbnail-delete';
+  del.setAttribute('aria-label', `delete feedback item ${item.id}`);
+  del.title = 'delete';
+  // Same hook sidebar.focusThumbnail() uses on the item's own button, so a
+  // caller can find this one again after a repaint.
+  del.dataset.itemId = String(item.id);
+  // Same shape as sidebar.ts's makeIconButton: a `.icon` span the stylesheet
+  // sizes, holding the raw SVG markup.
+  const delIcon = document.createElement('span');
+  delIcon.className = 'icon';
+  delIcon.innerHTML = ICON_TRASH;
+  del.appendChild(delIcon);
+  li.appendChild(del);
+
   const open = (): void => callbacks.onOpen(item);
   btn.addEventListener('click', open);
   btn.addEventListener('keydown', (e) => {
@@ -163,6 +203,16 @@ function buildThumbnailEl(item: FeedbackItem, callbacks: ThumbnailCallbacks): HT
       e.preventDefault();
       open();
     }
+  });
+
+  del.addEventListener('click', (e) => {
+    // It sits outside the thumbnail button's own hit area, so this is a
+    // belt-and-braces guard rather than the main defence — but a click on
+    // "delete" must never also read as "open this note", however the event
+    // reaches here (a synthetic click, a future wrapper listener).
+    e.stopPropagation();
+    e.preventDefault();
+    callbacks.onDelete(item);
   });
 
   return li;

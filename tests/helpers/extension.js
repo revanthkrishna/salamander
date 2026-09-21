@@ -53,6 +53,10 @@ const SELECTORS = {
   thumbnail: '#annotator-sidebar-host .thumbnail',
   thumbnailBadge: '#annotator-sidebar-host .thumbnail-badge',
   thumbnailNote: '#annotator-sidebar-host .thumbnail-note',
+  // Each item's hover delete (design spec v4 §L): a SIBLING of .thumbnail
+  // inside the <li>, opacity 0 and pointer-events: none until the item is
+  // hovered or focused — hover the item first, or click with `force`.
+  thumbnailDelete: '#annotator-sidebar-host button.thumbnail-delete',
   notif: '#annotator-sidebar-host .notif',
   notifText: '#annotator-sidebar-host .notif-text',
 
@@ -76,7 +80,6 @@ const SELECTORS = {
   enlarged: '#annotator-sidebar-host .enlarged',
   enlargedOpen: '#annotator-sidebar-host .enlarged[data-state="open"]',
   enlargedTitle: '#annotator-sidebar-host .xp-title',
-  enlargedCount: '#annotator-sidebar-host .xp-count',
   enlargedExit: '#annotator-sidebar-host .xp-exit',
   enlargedPrev: '#annotator-sidebar-host .xp-prev',
   enlargedNext: '#annotator-sidebar-host .xp-next',

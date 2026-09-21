@@ -22,6 +22,8 @@
 // would silently point at a stale, disconnected module object.
 
 import { FeedbackItem } from '../types';
+// The list delete reuses the enlarged view's failure copy (design spec v4 §L).
+import { DELETE_ERROR_MESSAGE } from '../enlargedView';
 
 jest.mock('../capture', () => ({
   ...jest.requireActual('../capture'),
@@ -374,19 +376,30 @@ describe('content.ts: "add note" toggle + "keep on" switch (design spec v3 §A2)
     expect(addButton().getAttribute('aria-label')).toBe('add note (kept on)');
   });
 
-  test('flicking the switch off while add mode is on leaves it running for the current note', async () => {
+  test('clicking the merged control (either half) stops everything', () => {
     loadContent();
     activate();
 
-    addSwitch().click(); // on + kept on
-    addSwitch().click(); // kept on -> off
+    addSwitch().click(); // on + kept on — the two halves are now one button
+    addSwitch().click(); // a click on the switch half of a merged control
 
-    expect(addMode.isAddModeActive()).toBe(true); // still placing
-    expect(addGroup().classList.contains('is-on')).toBe(true);
+    // Merged means the switch is no longer its own control: clicking it is
+    // clicking the button, which exits add mode and clears the switch
+    // together (§A2 micro states).
+    expect(addMode.isAddModeActive()).toBe(false);
+    expect(addGroup().classList.contains('is-on')).toBe(false);
+    expect(addGroup().classList.contains('is-switch-on')).toBe(false);
+    expect(addSwitch().getAttribute('aria-checked')).toBe('false');
+  });
+
+  test('add mode with the switch off ends at the next successful capture', async () => {
+    loadContent();
+    activate();
+
+    addButton().click(); // on, switch off
+    expect(addMode.isAddModeActive()).toBe(true);
     expect(addGroup().classList.contains('is-switch-on')).toBe(false);
 
-    // …and the next successful capture now ends add mode, rather than
-    // putting the user straight back into placing.
     placeSelection();
     const textarea = addModeShadow()!.querySelector('.note-input') as HTMLTextAreaElement;
     textarea.value = 'one and done';
@@ -563,6 +576,58 @@ describe('content.ts: enlarged view wiring (design spec v2 §D)', () => {
     onMessageListener({ type: 'ICON_CLICKED' }, {}, () => {});
     expect(sidebarApi.isEnlargedViewOpen()).toBe(false);
     expect(sidebarApi.isSidebarVisible()).toBe(false);
+  });
+});
+
+describe("content.ts: the note list's hover delete (design spec v4 §L)", () => {
+  /** Two notes in the list, sidebar open, nothing else in flight. */
+  async function openList(): Promise<void> {
+    pageItems = [makeItem({ id: 7 }), makeItem({ id: 8, screenshotKey: 'key-8' })];
+    loadContent();
+    activate();
+    await flushMicrotasks();
+  }
+
+  function deletes(): HTMLButtonElement[] {
+    return Array.from(sidebarShadow().querySelectorAll('button.thumbnail-delete'));
+  }
+
+  test('it deletes through the same DELETE_ITEM path as the enlarged view, then refreshes', async () => {
+    await openList();
+    (chrome.runtime.sendMessage as jest.Mock).mockClear();
+
+    deletes()[1].click();
+    await flushMicrotasks();
+
+    const sent = (chrome.runtime.sendMessage as jest.Mock).mock.calls.map((c) => c[0]);
+    expect(sent).toContainEqual(
+      expect.objectContaining({
+        type: 'DELETE_ITEM',
+        itemId: 8,
+        normalisedUrl: 'https://example.com/page',
+      }),
+    );
+    // No confirmation step of any kind stands between the click and the send.
+    expect(sidebarApi.isEnlargedViewOpen()).toBe(false);
+  });
+
+  test('a failed delete shows the enlarged view\'s own error copy, and nothing else', async () => {
+    await openList();
+    // The shared mock answers every non-GET_PAGE_ITEMS message with
+    // `undefined`, which is exactly the "round trip failed" case.
+    deletes()[0].click();
+    await flushMicrotasks();
+
+    const notif = sidebarShadow().querySelector('.notif-text') as HTMLElement;
+    expect(notif.textContent).toBe(DELETE_ERROR_MESSAGE);
+    expect(notif.textContent).toBe(notif.textContent!.toLowerCase());
+  });
+
+  test('it never opens the note it is deleting', async () => {
+    await openList();
+    deletes()[0].click();
+    await flushMicrotasks();
+    expect(sidebarApi.isEnlargedViewOpen()).toBe(false);
   });
 });
 

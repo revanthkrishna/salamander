@@ -47,6 +47,7 @@ function makeCallbacks(): sidebar.SidebarCallbacks & {
     importFile: File[];
     close: number;
     openItem: FeedbackItem[];
+    deleteItem: FeedbackItem[];
   };
 } {
   const calls = {
@@ -57,6 +58,7 @@ function makeCallbacks(): sidebar.SidebarCallbacks & {
     importFile: [] as File[],
     close: 0,
     openItem: [] as FeedbackItem[],
+    deleteItem: [] as FeedbackItem[],
   };
   return {
     calls,
@@ -67,6 +69,7 @@ function makeCallbacks(): sidebar.SidebarCallbacks & {
     onImportFile: (file: File) => { calls.importFile.push(file); },
     onClose: () => { calls.close++; },
     onOpenItem: (item: FeedbackItem) => { calls.openItem.push(item); },
+    onDeleteItem: (item: FeedbackItem) => { calls.deleteItem.push(item); },
   };
 }
 
@@ -1178,11 +1181,13 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     // Nothing moved: content.ts owns the state and paints it back.
     expect(addSwitch().getAttribute('aria-checked')).toBe('false');
 
+    // While on, the halves are merged and the switch stops reporting its own
+    // value — see "clicking either half of the merged control stops
+    // everything" below.
     sidebar.setAddButtonState('locked');
     addSwitch().click();
-    expect(cb.calls.addSwitch).toEqual([true, false]);
-    // The button's own callback is untouched by the switch.
-    expect(cb.calls.add).toBe(0);
+    expect(cb.calls.addSwitch).toEqual([true]);
+    expect(cb.calls.add).toBe(1);
   });
 
   test('click fires onAdd; the v2 gestures (dblclick, shift+click, shift+Enter/Space) still drive the switch', () => {
@@ -1214,36 +1219,159 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     const base = cssRule('.add-group');
     expect(base).toMatch(/background:\s*var\(--sal-surface\)/);
     expect(base).toMatch(/border:\s*1px solid var\(--sal-line\)/);
-    expect(cssRule('.add-group:hover')).toMatch(/background:\s*var\(--sal-hover\)/);
-    expect(cssRule('.add-group:hover')).toMatch(/border-color:\s*var\(--sal-line-strong\)/);
-    expect(cssRule('.add-group:active')).toMatch(/background:\s*var\(--sal-press\)/);
-    expect(cssRule('.add-group:active')).toMatch(/scale\(0\.97\)/);
 
     const on = cssRule('.add-group.is-on');
     expect(on).toMatch(/background:\s*var\(--sal-accent\)/);
     expect(on).toMatch(/color:\s*var\(--sal-on-accent\)/);
     // The border stays in the box (transparent) so on and off are the same size.
     expect(on).toMatch(/border-color:\s*transparent/);
-    expect(cssRule('.add-group.is-on:hover')).toMatch(/background:\s*var\(--sal-accent-hover\)/);
-    expect(cssRule('.add-group.is-on:active')).toMatch(/background:\s*var\(--sal-accent-press\)/);
+  });
 
-    // The ring wraps the whole group, not the focused half.
-    expect(cssRule('.add-group:has(:focus-visible)')).toContain('0 0 0 4px var(--sal-focus)');
+  test('hover and press land on the half under the pointer, and nothing scales', () => {
+    sidebar.initSidebar(makeCallbacks());
+    // The group acknowledges with its border only — no fill, no scale.
+    const groupHover = cssRule('.add-group:hover');
+    expect(groupHover).toMatch(/border-color:\s*var\(--sal-line-strong\)/);
+    expect(groupHover).not.toMatch(/background:/);
+    expect(css()).not.toMatch(/\.add-group:active\s*\{/);
+    expect(cssRule('.add-group')).not.toMatch(/scale\(0\.97\)/);
+
+    // Each half takes its own fill, in both the off and the yellow group.
+    expect(cssRule('.btn-add:hover')).toMatch(/background:\s*var\(--sal-hover\)/);
+    expect(cssRule('.btn-add:active')).toMatch(/background:\s*var\(--sal-press\)/);
+    expect(cssRule('.add-switch:hover')).toMatch(/background:\s*var\(--sal-hover\)/);
+    expect(cssRule('.add-switch:active')).toMatch(/background:\s*var\(--sal-press\)/);
+    expect(cssRule('.add-group.is-on .btn-add:hover')).toMatch(/background:\s*var\(--sal-accent-hover\)/);
+    expect(cssRule('.add-group.is-on .btn-add:active')).toMatch(/background:\s*var\(--sal-accent-press\)/);
+    // ...except once the switch is on: the two halves are then one button and
+    // the group owns the fill, so the switch half has no fill of its own (see
+    // the merged test below).
+
+    // Hovering the switch must not light up the button, so the only rule
+    // that fills on a group-level hover is the border one checked above.
+    expect(css()).not.toMatch(/\.add-group:hover\s*\{[^}]*background:\s*var\(--sal-hover\)/);
+  });
+
+  test('the focus ring hugs the focused half, and the group lets it out', () => {
+    sidebar.initSidebar(makeCallbacks());
+    // A ring 4px outside a half would be clipped by a scrolling/hidden group.
+    expect(cssRule('.add-group')).toMatch(/overflow:\s*visible/);
+    expect(css()).not.toMatch(/\.add-group:has\(:focus-visible\)/);
+
+    expect(cssRule('.btn-add:focus-visible')).toContain('0 0 0 4px var(--sal-focus)');
+    // The segment carries no box-shadow of its own any more (its divider is a
+    // border-left), so the ring is the plain shared snippet on both halves in
+    // both states — nothing to spell out alongside it.
+    const switchFocus = cssRule('.add-switch:focus-visible');
+    expect(switchFocus).toContain('0 0 0 4px var(--sal-focus)');
+    expect(switchFocus).not.toContain('inset');
+    // Merged, the group is one tab stop and one control, so the ring belongs
+    // to the group — there is no per-half override for the switch any more.
+    expect(css()).not.toMatch(/\.add-group\.is-switch-on \.add-switch:focus-visible/);
+    expect(cssRule('.add-group.is-switch-on:has(.btn-add:focus-visible)')).toContain('0 0 0 4px var(--sal-focus)');
+
+    // Each half rounds its own fill, since the group no longer clips them.
+    expect(cssRule('.btn-add')).toMatch(/border-radius:\s*calc\(var\(--sal-radius-md\) - 1px\)/);
+    expect(cssRule('.add-switch')).toMatch(/border-radius:\s*0 calc\(var\(--sal-radius-md\) - 1px\)/);
+  });
+
+  test('the add button never squares off; the switch is an extension behind it', () => {
+    sidebar.initSidebar(makeCallbacks());
+    // No rule anywhere gives the button a half-rounded (right-square) radius.
+    expect(css()).not.toMatch(/\.btn-add[^{]*\{[^}]*border-radius:[^;]*0 0 calc/);
+    // It paints above the switch, so its rounded fill covers the switch's
+    // square left edge.
+    const btn = cssRule('.btn-add');
+    expect(btn).toMatch(/position:\s*relative/);
+    expect(btn).toMatch(/z-index:\s*1/);
+  });
+
+  test('switch on merges the two halves into one button of the same width', () => {
+    const cb = makeCallbacks();
+    sidebar.initSidebar(cb);
+
+    // The divider is made transparent rather than removed, so merging cannot
+    // change the group's width.
+    const merged = cssRule('.add-group.is-switch-on .add-switch');
+    expect(merged).toMatch(/border-left-color:\s*transparent/);
+    expect(merged).not.toMatch(/border-left-width:\s*0/);
+
+    // Hover/press/focus go back to the whole group, and the per-half fills
+    // are cancelled — it is one control now.
+    expect(cssRule('.add-group.is-switch-on:hover')).toMatch(/background:\s*var\(--sal-accent-hover\)/);
+    expect(cssRule('.add-group.is-switch-on:active')).toMatch(/background:\s*var\(--sal-accent-press\)/);
+    expect(cssRule('.add-group.is-switch-on:has(.btn-add:focus-visible)')).toContain('0 0 0 4px var(--sal-focus)');
+
+    // One tab stop while merged: the button half carries it.
+    const sw = shadowRoot().querySelector('.add-switch') as HTMLButtonElement;
+    sidebar.setAddButtonState('locked');
+    expect(sw.getAttribute('tabindex')).toBe('-1');
+    expect(sw.getAttribute('aria-checked')).toBe('true');
+    sidebar.setAddButtonState('on');
+    expect(sw.hasAttribute('tabindex')).toBe(false);
+  });
+
+  test('clicking either half of the merged control stops everything', () => {
+    const cb = makeCallbacks();
+    sidebar.initSidebar(cb);
+    const sw = shadowRoot().querySelector('.add-switch') as HTMLButtonElement;
+
+    // Switch off: a click on it asks to turn it ON.
+    sidebar.setAddButtonState('on');
+    sw.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(cb.calls.addSwitch).toEqual([true]);
+    expect(cb.calls.add).toBe(0);
+
+    // Switch on (merged): a click on the switch half is a click on the
+    // button — content.ts's add handler exits add mode and clears the switch
+    // together, which reporting `false` here would not do.
+    sidebar.setAddButtonState('locked');
+    sw.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(cb.calls.addSwitch).toEqual([true]);
+    expect(cb.calls.add).toBe(1);
   });
 
   test('the switch segment stays neutral while off even when the button half is yellow', () => {
     sidebar.initSidebar(makeCallbacks());
     const off = cssRule('.add-switch');
     expect(off).toMatch(/background:\s*var\(--sal-surface\)/);
-    expect(off).toMatch(/box-shadow:\s*inset 0 0 0 1px var\(--sal-line\)/);
     // No ".add-group.is-on .add-switch" rule: only the switch's own state
     // turns the segment yellow.
     expect(css()).not.toMatch(/\.add-group\.is-on \.add-switch\s*\{/);
+  });
 
+  test('the divider between the halves is drawn exactly once', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const off = cssRule('.add-switch');
+    // One mechanism only. The segment used to carry an `inset 0 0 0 1px line`
+    // hairline *as well as* its border-left: an inset shadow paints inside
+    // the border, so the left edge came out 2px where every other divider in
+    // this UI is 1px — and on the other three edges it doubled the group's
+    // own 1px border, thickening it halfway along the group.
+    expect(off).toMatch(/border-left:\s*1px solid var\(--sal-line\)/);
+    expect(off).not.toMatch(/box-shadow:/);
+    // Nothing anywhere puts a second hairline back on this element.
+    expect(css()).not.toMatch(/\.add-switch[^{]*\{[^}]*box-shadow:\s*inset/);
+  });
+
+  test('the merged switch half shows the group\'s yellow rather than a second one', () => {
+    sidebar.initSidebar(makeCallbacks());
     const on = cssRule('.add-group.is-switch-on .add-switch');
-    expect(on).toMatch(/background:\s*var\(--sal-accent\)/);
-    expect(on).toMatch(/border-left-color:\s*rgba\(26, 23, 18, 0\.25\)/);
-    expect(on).toMatch(/box-shadow:\s*none/);
+    // Transparent, not accent: the group is already accent, and an opaque
+    // fill here stayed flat while the group went accentHover under the
+    // pointer — two different yellows in one control.
+    expect(on).toMatch(/background:\s*transparent/);
+    expect(on).not.toMatch(/background:\s*var\(--sal-accent\)/);
+    // Same class of bug for colour: the group is on-accent when merged, so
+    // this inherits rather than restating it.
+    expect(on).not.toMatch(/\n\s+color:/);
+    // Merged: the divider goes transparent rather than away, so the width
+    // does not change at the moment the two halves become one button.
+    expect(on).toMatch(/border-left-color:\s*transparent/);
+    // The per-half overrides that used to cancel an opaque fill are gone
+    // rather than left behind as dead rules.
+    expect(css()).not.toMatch(/\.add-group\.is-switch-on \.add-switch:hover\s*\{/);
+    expect(css()).not.toMatch(/\.add-group\.is-switch-on \.add-switch:active\s*\{/);
   });
 
   test('the track and knob follow §A2\'s geometry, and the knob slides on the standard curve', () => {
@@ -1252,8 +1380,6 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     expect(track).toMatch(/width:\s*28px/);
     expect(track).toMatch(/height:\s*16px/);
     expect(track).toMatch(/border-radius:\s*8px/);
-    expect(track).toMatch(/background:\s*var\(--sal-line-strong\)/);
-    expect(cssRule('.add-group.is-switch-on .add-switch-track')).toMatch(/background:\s*var\(--sal-on-accent\)/);
 
     const knob = cssRule('.add-switch-knob');
     expect(knob).toMatch(/width:\s*12px/);
@@ -1269,6 +1395,60 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     expect(knobEl.parentElement!.className).toBe('add-switch-track');
   });
 
+  test("the track and knob contrast with each other in BOTH themes (design spec v4 §P)", () => {
+    sidebar.initSidebar(makeCallbacks());
+    // Off: muted (#6E6656 light / #B3AA96 dark) and surface (#FFFFFF /
+    // #1D1A13) invert together, so the knob always contrasts with its track.
+    // The old lineStrong track was a hairline colour — too close to the
+    // segment to read as a live control at all.
+    expect(cssRule('.add-switch-track')).toMatch(/background:\s*var\(--sal-muted\)/);
+    expect(cssRule('.add-switch-track')).not.toMatch(/var\(--sal-line-strong\)/);
+    expect(cssRule('.add-switch-knob')).toMatch(/background:\s*var\(--sal-surface\)/);
+
+    // On: onAccent (#1A1712) and accent (#FEC800) are theme-independent, so
+    // this pairing is identical in light and dark. The old on-state put a
+    // `surface` knob on an `onAccent` track, which in dark theme is
+    // near-black on black.
+    expect(cssRule('.add-group.is-switch-on .add-switch-track')).toMatch(/background:\s*var\(--sal-on-accent\)/);
+    const onKnob = cssRule('.add-group.is-switch-on .add-switch-knob');
+    expect(onKnob).toMatch(/background:\s*var\(--sal-accent\)/);
+    expect(onKnob).not.toMatch(/var\(--sal-surface\)/);
+    // The crossfade between the two tracks needs the knob's fill animated too.
+    expect(cssRule('.add-switch-knob')).toMatch(/background-color 150ms/);
+  });
+
+  test('the collapsed switch takes up no width at all, so the resting group is 38px', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const hidden = cssRule('.add-switch');
+    // `box-sizing: border-box` is global here, so a `width: 0` box still
+    // cannot be narrower than its own border — the collapsed switch used to
+    // measure 1px, pushing the group to 39px, knocking the button half
+    // off-centre and drawing a stray `line` hairline at the button's right
+    // edge at rest. The border has to leave the box entirely.
+    expect(cssRule('*, *::before, *::after')).toMatch(/box-sizing:\s*border-box/);
+    expect(hidden).toMatch(/width:\s*0/);
+    expect(hidden).toMatch(/border-left-width:\s*0/);
+    expect(hidden).toMatch(/padding:\s*0/);
+
+    // Resting group width, from the stylesheet: the 36px button half, the
+    // group's own 1px border on each side, and nothing from the switch.
+    const px = (rule: string, prop: string): number =>
+      Number(new RegExp(`${prop}:\\s*(\\d+)px`).exec(cssRule(rule))?.[1] ?? NaN);
+    const buttonHalf = px('.btn-add', 'width');
+    const groupBorder = Number(/border:\s*(\d+)px solid/.exec(cssRule('.add-group'))?.[1] ?? NaN);
+    expect(buttonHalf).toBe(36);
+    expect(groupBorder).toBe(1);
+    expect(buttonHalf + groupBorder * 2).toBe(38);
+
+    // Revealing puts that same 1px back, and ADD_SWITCH_WIDTH_PX already
+    // counts it — so the revealed geometry is untouched by the fix.
+    const reveal = css().match(
+      /\.add-group:hover \.add-switch,\s*\.add-group:focus-within \.add-switch,\s*\.add-group\.is-switch-on \.add-switch \{[^}]*\}/,
+    )?.[0];
+    expect(reveal).toMatch(new RegExp(`border-left-width:\\s*${groupBorder}px`));
+    expect(sidebar.ADD_SWITCH_WIDTH_PX).toBe(groupBorder + 10 + 28 + 10);
+  });
+
   test('the switch is hidden (and untabbable) at rest, revealed on hover/focus, and always visible once on', () => {
     sidebar.initSidebar(makeCallbacks());
     // visibility, not just opacity — Tab must not land on an invisible control.
@@ -1282,16 +1462,30 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     expect(reveal).toMatch(/visibility:\s*visible/);
     expect(reveal).toMatch(new RegExp(`width:\\s*${sidebar.ADD_SWITCH_WIDTH_PX}px`));
 
-    // Below the narrow breakpoint hover alone no longer reveals it...
-    expect(cssRule('.sidebar.is-narrow .add-group:hover .add-switch')).toMatch(/visibility:\s*hidden/);
-    // ...but focus and "on" still do, and they come later so they win the tie.
-    const narrowReveal = css().match(
-      /\.sidebar\.is-narrow \.add-group:focus-within \.add-switch,\s*\.sidebar\.is-narrow \.add-group\.is-switch-on \.add-switch \{[^}]*\}/,
+    // No breakpoint suppresses the reveal any more (§A2 micro states): the
+    // action row wraps at a width where the revealed switch will not fit.
+    expect(css()).not.toMatch(/\.sidebar\.is-narrow \.add-group/);
+
+    // Hover-less pointers have nothing to reveal it with, so it is always out.
+    const hoverNone = css().match(/@media \(hover: none\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
+    expect(hoverNone).toMatch(/\.add-switch/);
+    expect(hoverNone).toMatch(/visibility:\s*visible/);
+  });
+
+  test('the revealed switch holds open briefly after the pointer leaves', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const base = cssRule('.add-switch');
+    // The grace period is a delay on every collapse-ward transition...
+    expect(base).toMatch(/width 160ms cubic-bezier\(\.2, 0, 0, 1\) 250ms/);
+    // ...including visibility, which otherwise flips instantly and takes both
+    // the grace period and the collapse animation with it.
+    expect(base).toMatch(/visibility 0s linear 410ms/);
+
+    // Revealing zeroes the delay, so opening stays immediate.
+    const reveal = css().match(
+      /\.add-group:hover \.add-switch,\s*\.add-group:focus-within \.add-switch,\s*\.add-group\.is-switch-on \.add-switch \{[^}]*\}/,
     )?.[0];
-    expect(narrowReveal).toMatch(/visibility:\s*visible/);
-    expect(css().indexOf(narrowReveal!)).toBeGreaterThan(
-      css().indexOf(cssRule('.sidebar.is-narrow .add-group:hover .add-switch')),
-    );
+    expect(reveal).toMatch(/transition-delay:\s*0s/);
   });
 
   test('reduced motion makes the reveal and the knob instant', () => {
@@ -1434,7 +1628,7 @@ describe('export + chevron menu (design spec v3 §C2)', () => {
     // an unscoped :active would press-scale the open menu out from under the
     // pointer between mousedown and mouseup and the click would never land.
     expect(cssRule('.export-group:has(> button:hover)')).toMatch(/border-color:\s*var\(--sal-line-strong\)/);
-    expect(cssRule('.export-group:has(> button:active)')).toMatch(/background:\s*var\(--sal-press\)/);
+    expect(cssRule('.export-group:has(> button:active)')).toMatch(/border-color:\s*var\(--sal-line-strong\)/);
     expect(cssRule('.export-group:not(.is-menu-open):has(> button:active)')).toMatch(/scale\(0\.97\)/);
     expect(css()).not.toMatch(/\n\s*\.export-group:active\s*\{/);
     expect(cssRule('.export-group:has(> button:focus-visible)')).toContain('0 0 0 4px var(--sal-focus)');
@@ -1466,6 +1660,45 @@ describe('export + chevron menu (design spec v3 §C2)', () => {
     expect(item).toMatch(/gap:\s*8px/);
     expect(item).toMatch(/white-space:\s*nowrap/);
   });
+
+  test('hover and press land on the half under the pointer (design spec v4 §K)', () => {
+    sidebar.initSidebar(makeCallbacks());
+    // Same rule as the add group's §I: the fill is per half, so hovering the
+    // chevron never lights export up (and vice versa).
+    expect(cssRule('.btn-export:hover')).toMatch(/background:\s*var\(--sal-hover\)/);
+    expect(cssRule('.btn-export:active')).toMatch(/background:\s*var\(--sal-press\)/);
+    expect(cssRule('.btn-menu:hover')).toMatch(/background:\s*var\(--sal-hover\)/);
+    expect(cssRule('.btn-menu:active')).toMatch(/background:\s*var\(--sal-press\)/);
+
+    // The group acknowledges with its border alone — no fill of its own.
+    expect(cssRule('.export-group:has(> button:hover)')).not.toMatch(/background:/);
+    expect(cssRule('.export-group:has(> button:active)')).not.toMatch(/background:/);
+
+    // The open-menu state keeps its own treatment on the chevron half, and is
+    // written before the :hover/:active rules so the equal-specificity press
+    // fill still reads while the menu is open.
+    expect(css().indexOf('.btn-menu[aria-expanded="true"]')).toBeLessThan(css().indexOf('\n  .btn-menu:active'));
+
+    // The press scale stays on the group (a half alone would tear its
+    // border) and stays suppressed while the menu is open.
+    expect(cssRule('.export-group:not(.is-menu-open):has(> button:active)')).toMatch(/scale\(0\.97\)/);
+
+    // Disabled cancels the per-half fills as well as the group's own states.
+    expect(css()).toMatch(
+      /\.export-group\.is-disabled \.btn-export:hover,[\s\S]*?\.export-group\.is-disabled \.btn-menu:active \{[^}]*background:\s*transparent/,
+    );
+  });
+
+  test('the fixed top section is one bordered block (design spec v4 §J)', () => {
+    sidebar.initSidebar(makeCallbacks());
+    // The divider that used to sit between the header and the action row is
+    // now under the whole block, so the two read as one.
+    expect(cssRule('.header')).not.toMatch(/border-bottom/);
+    expect(cssRule('.action-row')).toMatch(/border-bottom:\s*1px solid var\(--sal-line\)/);
+    // ...and nowhere inside it.
+    expect(cssRule('.add-group')).not.toMatch(/border-bottom/);
+    expect(cssRule('.export-group')).not.toMatch(/border-bottom/);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1495,6 +1728,10 @@ describe('sidebar on hold during add mode (design spec v3 §H)', () => {
   function thumbs(): HTMLButtonElement[] {
     return Array.from(list().querySelectorAll('button.thumbnail'));
   }
+  /** Each item's hover delete (design spec v4 §L). */
+  function deletes(): HTMLButtonElement[] {
+    return Array.from(list().querySelectorAll('button.thumbnail-delete'));
+  }
   function openWithItems(n = 3): void {
     sidebar.initSidebar(makeCallbacks());
     sidebar.openSidebar();
@@ -1508,12 +1745,19 @@ describe('sidebar on hold during add mode (design spec v3 §H)', () => {
     sidebar.setAddModeHold(true);
     expect(body().classList.contains('is-on-hold')).toBe(true);
     expect(cssRule('.body.is-on-hold')).toMatch(/opacity:\s*0\.5/);
-    expect(css()).toMatch(/\.body\.is-on-hold \.thumbnail-list,\s*\.body\.is-on-hold \.thumbnail \{[^}]*pointer-events:\s*none/);
+    expect(css()).toMatch(
+      /\.body\.is-on-hold \.thumbnail-list,\s*\.body\.is-on-hold \.thumbnail,\s*\.body\.is-on-hold \.thumbnail-delete \{[^}]*pointer-events:\s*none/,
+    );
     expect(thumbs().every((b) => b.getAttribute('tabindex') === '-1')).toBe(true);
+    // The hover delete (§L) is a second real button in the same <li>, so the
+    // hold has to take it out of the tab order too.
+    expect(deletes().length).toBeGreaterThan(0);
+    expect(deletes().every((b) => b.getAttribute('tabindex') === '-1')).toBe(true);
 
     sidebar.setAddModeHold(false);
     expect(body().classList.contains('is-on-hold')).toBe(false);
     expect(thumbs().every((b) => !b.hasAttribute('tabindex'))).toBe(true);
+    expect(deletes().every((b) => !b.hasAttribute('tabindex'))).toBe(true);
   });
 
   test('a repaint while on hold comes back on hold too', () => {
@@ -1522,6 +1766,22 @@ describe('sidebar on hold during add mode (design spec v3 §H)', () => {
     // e.g. the list refreshing after a capture while the switch keeps add mode on.
     sidebar.setThumbnails([makeItem({ id: 9 }), makeItem({ id: 10 })]);
     expect(thumbs().every((b) => b.getAttribute('tabindex') === '-1')).toBe(true);
+    expect(deletes().every((b) => b.getAttribute('tabindex') === '-1')).toBe(true);
+  });
+
+  test('the hover delete is refused while the list is held (design spec v4 §L)', () => {
+    const cb = makeCallbacks();
+    sidebar.initSidebar(cb);
+    sidebar.openSidebar();
+    sidebar.setThumbnails([makeItem({ id: 1 })]);
+
+    sidebar.setAddModeHold(true);
+    deletes()[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(cb.calls.deleteItem).toEqual([]);
+
+    sidebar.setAddModeHold(false);
+    deletes()[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(cb.calls.deleteItem.map((i) => i.id)).toEqual([1]);
   });
 
   test('dock magnification is switched off at the handle for the whole hold', () => {
@@ -1615,9 +1875,11 @@ describe('note-in-list hover extension (design spec v2 §B)', () => {
   test('the note extension is tucked up under the thumbnail, bottom-only radius, inset border', () => {
     sidebar.initSidebar(makeCallbacks());
     const bg = cssRule('.thumbnail-note-bg');
-    // Reaches back through the 8px gap plus one more radius-md into the
-    // thumbnail itself.
-    expect(bg).toMatch(/top:\s*calc\(-8px - var\(--sal-radius-md\)\)/);
+    // One radius-md into the thumbnail itself. There is no longer a gap to
+    // reach back through first: the note wrap has no margin of its own (v4
+    // §L), so its top edge IS the thumbnail's bottom edge.
+    expect(bg).toMatch(/top:\s*calc\(-1 \* var\(--sal-radius-md\)\)/);
+    expect(cssRule('.thumbnail-note-wrap')).not.toMatch(/margin/);
     expect(bg).toMatch(/bottom:\s*0/);
     // Only the bottom corners are rounded — the top is hidden under the
     // thumbnail regardless.
@@ -1631,9 +1893,139 @@ describe('note-in-list hover extension (design spec v2 §B)', () => {
   test('the note text itself never changes position/padding between rest and hover', () => {
     sidebar.initSidebar(makeCallbacks());
     const note = cssRule('.thumbnail-note');
-    // Same padding/position at rest as ever — no separate hover variant of
-    // this rule exists; only .thumbnail-note-bg's opacity changes.
-    expect(note).toMatch(/padding:\s*8px 10px/);
+    // Same padding/position at rest as in hover — no separate hover variant
+    // of this rule exists; only .thumbnail-note-bg's opacity changes.
+    expect(note).toMatch(/padding:\s*10px;/);
     expect(css()).not.toMatch(/\.thumbnail:hover \.thumbnail-note\s*\{[^}]*padding/);
+  });
+
+  test("the note's inset is the same on all four sides, top and bottom included (design spec v4 §L)", () => {
+    sidebar.initSidebar(makeCallbacks());
+    // One shorthand value, so the four sides cannot drift apart. It used to
+    // be `8px 10px` — and the wrap's own 8px margin-top fell INSIDE the
+    // extension background (whose visible top edge is the thumbnail's bottom
+    // edge), so the text sat 16px below the thumbnail and 8px above the
+    // background's bottom: visibly more above than below.
+    const inset = /padding:\s*(\d+)px;/.exec(cssRule('.thumbnail-note'))?.[1];
+    expect(inset).toBe('10');
+
+    // With the gap gone, the background's own box is exactly the note's
+    // padding box at the bottom (`bottom: 0`) and is hidden under the
+    // thumbnail at the top — so both visible edges sit `inset` from the text.
+    expect(cssRule('.thumbnail-note-wrap')).not.toMatch(/margin-top/);
+    expect(cssRule('.thumbnail-note-bg')).toMatch(/bottom:\s*0/);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// design spec v4 §L — the note's hover delete
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('note-in-list hover delete (design spec v4 §L)', () => {
+  afterEach(() => {
+    sidebar.destroySidebar();
+    jest.restoreAllMocks();
+    _resetThemeStateForTests();
+  });
+
+  function css(): string {
+    return shadowRoot().querySelector('style')!.textContent ?? '';
+  }
+  function cssRule(selector: string): string {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return css().match(new RegExp(`(^|\\n)\\s*${escaped}\\s*\\{[^}]*\\}`))?.[0] ?? '';
+  }
+  function openWith(ids: number[]): void {
+    sidebar.openSidebar();
+    sidebar.setThumbnails(ids.map((id) => makeItem({ id })));
+  }
+
+  test('it is a sibling of the thumbnail button, never a child of it', () => {
+    sidebar.initSidebar(makeCallbacks());
+    openWith([1, 2]);
+    const items = Array.from(shadowRoot().querySelectorAll('li.thumbnail-item'));
+    expect(items.length).toBe(2);
+    for (const li of items) {
+      const del = li.querySelector('button.thumbnail-delete') as HTMLButtonElement;
+      expect(del).not.toBeNull();
+      // Nested buttons are invalid HTML and break activation — it must be a
+      // direct child of the <li>, outside the thumbnail's own hit area.
+      expect(del.parentElement).toBe(li);
+      expect(li.querySelector('button.thumbnail')!.contains(del)).toBe(false);
+    }
+  });
+
+  test('activating it deletes that item and never opens it', () => {
+    const cb = makeCallbacks();
+    sidebar.initSidebar(cb);
+    openWith([4, 5]);
+
+    const del = shadowRoot().querySelectorAll('button.thumbnail-delete')[1] as HTMLButtonElement;
+    del.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    expect(cb.calls.deleteItem.map((i) => i.id)).toEqual([5]);
+    expect(cb.calls.openItem).toEqual([]);
+  });
+
+  test('it survives a repaint — every item gets one, every time', () => {
+    sidebar.initSidebar(makeCallbacks());
+    openWith([1]);
+    expect(shadowRoot().querySelectorAll('button.thumbnail-delete').length).toBe(1);
+    sidebar.setThumbnails([makeItem({ id: 2 }), makeItem({ id: 3 }), makeItem({ id: 4 })]);
+    expect(shadowRoot().querySelectorAll('button.thumbnail-delete').length).toBe(3);
+  });
+
+  test('it sits over the thumbnail top-right, above the image, and rides the item', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const rule = cssRule('.thumbnail-delete');
+    expect(rule).toMatch(/position:\s*absolute/);
+    expect(rule).toMatch(/top:\s*8px/);
+    expect(rule).toMatch(/right:\s*8px/);
+    // .thumbnail-image-wrap carries z-index 1; this overlays it.
+    expect(rule).toMatch(/z-index:\s*2/);
+    expect(rule).toMatch(/width:\s*24px/);
+    expect(rule).toMatch(/height:\s*24px/);
+    // Inside the <li> dockMotion.ts transforms, so it magnifies with its item.
+    expect(cssRule('.thumbnail-item')).toMatch(/transform-origin:\s*right center/);
+  });
+
+  test('its states follow §1/§L: neutral at rest, danger on hover and press', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const rest = cssRule('.thumbnail-delete');
+    expect(rest).toMatch(/background:\s*var\(--sal-surface\)/);
+    expect(rest).toMatch(/border:\s*1px solid var\(--sal-line\)/);
+    expect(rest).toMatch(/color:\s*var\(--sal-muted\)/);
+
+    const hover = cssRule('.thumbnail-delete:hover');
+    expect(hover).toMatch(/background:\s*var\(--sal-danger-soft\)/);
+    expect(hover).toMatch(/color:\s*var\(--sal-danger\)/);
+
+    const press = cssRule('.thumbnail-delete:active');
+    expect(press).toMatch(/background:\s*var\(--sal-danger-press\)/);
+    expect(press).toMatch(/scale\(0\.97\)/);
+
+    expect(cssRule('.thumbnail-delete:focus-visible')).toContain('0 0 0 4px var(--sal-focus)');
+  });
+
+  test('it is invisible and click-through at rest, and appears with the note extension', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const rest = cssRule('.thumbnail-delete');
+    expect(rest).toMatch(/opacity:\s*0/);
+    // An opacity-0 button is still clickable — without this it would be an
+    // invisible trap over every screenshot's corner.
+    expect(rest).toMatch(/pointer-events:\s*none/);
+    // Same fade timing as .thumbnail-note-bg's own CSS fallback.
+    expect(rest).toMatch(/opacity 140ms ease-out/);
+
+    expect(css()).toMatch(
+      /\.thumbnail-item:hover \.thumbnail-delete,\s*\.thumbnail-item:focus-within \.thumbnail-delete \{[^}]*opacity:\s*1/,
+    );
+    // Visible whenever it has focus (§L), so the ring never paints on an
+    // invisible control.
+    expect(cssRule('.thumbnail-delete:focus-visible')).toMatch(/opacity:\s*1/);
+    // While the dock spring owns the inline opacity, the CSS transition
+    // would fight it frame by frame — the fill/colour states stay.
+    expect(cssRule('.thumbnail-list[data-dock="on"] .thumbnail-delete')).toMatch(/transition:/);
+    expect(cssRule('.thumbnail-list[data-dock="on"] .thumbnail-delete')).not.toMatch(/opacity/);
   });
 });

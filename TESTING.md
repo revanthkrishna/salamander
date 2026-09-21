@@ -15,23 +15,23 @@ npx jest import                   # all 13 import error cases
 npx jest bundle                   # markdown serialization round-trip
 ```
 
-**Test coverage** (~395 tests, 15 test files):
-- `sidebar.test.ts` — sidebar open/close, page resize, URL tracking, resizable width (drag/keyboard, persistence, clamping), narrow-width breakpoints, theme toggle wiring, the "add note" group + its "keep on" switch (paint, reveal, gestures), the export/chevron menu (open/close routes, keyboard, outside pointerdown), and the §H "on hold" state
+**Test coverage** (~560 tests, 16 test files):
+- `sidebar.test.ts` — sidebar open/close, page resize, URL tracking, resizable width (drag/keyboard, persistence, clamping), narrow-width breakpoints, theme toggle wiring, the "add note" group + its "keep on" switch (paint, reveal, gestures, resting width, the single divider, the merged fill, the v4 §P track/knob colours), the export/chevron menu (open/close routes, keyboard, outside pointerdown, per-half hover/press), the one-bordered-block top section, the note's uniform padding and its hover delete, and the §H "on hold" state
 - `addMode.test.ts` — selection box creation, edge/corner resize hit zones, clamping to viewport, comment box positioning, counter thresholds, save/cancel state
 - `capture.test.ts` — viewport-relative CSS coordinates, CSS → device-pixel scale calculation, DPR accounting, crop verification
 - `contextCapture.test.ts` — deepest-common-ancestor selection, contained-elements prioritization (15-element cap), area-text aggregation, 2KB size governor, truncation markers
 - `selectorBuilder.test.ts` — CSS selector generation (data-* preference, ID rules, nth-of-type fallback, UUID/React hash rejection), XPath generation
 - `storage.test.ts` — domain CRUD, item CRUD (create/read/update/delete), blob orphan prevention, nextItemNumber monotonicity, session state round-trip
-- `thumbnails.test.ts` — thumbnail list rendering from FeedbackItem array
+- `thumbnails.test.ts` — thumbnail list rendering from FeedbackItem array, including each item's hover delete (a sibling of the item's button, never nested inside it) and its wiring
 - `enlargedView.test.ts` — enlarged view open/collapse (incl. interrupted transitions), prev/next and the ends, autosave debounce + flush on navigate/collapse, save failures, the empty-note rule on every exit path, delete (middle/last/only), keyboard (Esc/↑/↓/focus in and out), add mode collapsing it first, reduced-motion path, teardown
-- `content.test.ts` — add-note toggle / "keep add mode on" switch state machine end to end (switch on from off, switch off mid-session, capture re-entry and per-note cancel while it is on, the v2 dblclick/shift gestures, Esc, sidebar close, opening a note), plus the §H "sidebar on hold" wiring
+- `content.test.ts` — add-note toggle / "keep add mode on" switch state machine end to end (switch on from off, switch off mid-session, capture re-entry and per-note cancel while it is on, the v2 dblclick/shift gestures, Esc, sidebar close, opening a note), plus the §H "sidebar on hold" wiring and the list delete's DELETE_ITEM round trip and failure copy
 - `import.test.ts` — all 13 error cases (not-a-zip, corrupt archive, missing `feedback.md`, malformed fence, missing screenshot, duplicate IDs, domain mismatch, version mismatch, existing-data confirmation) with purpose-built fixture bundles
 - `bundle.test.ts` — markdown → YAML fence extraction, YAML → object parsing, round-trip (export → parse → deep-equal)
 - `background.test.ts` — injection, message handlers, capture relay, throttle verification, re-inject on reload
 - `urlNorm.test.ts` — normalization rules (strip query/fragment, strip `www.`, strip trailing slash, case-sensitive paths, port handling) — kept from v1
 - `keyboardIsolation.test.ts` — capture-phase window-level keydown/keyup isolation so page shortcuts can't fire while typing into the comment box / enlarged-view note editor
 - `theme.test.ts` — theme mode (`auto`/`light`/`dark`) resolution and persistence, `chrome.storage.onChanged` cross-tab sync, OS `prefers-color-scheme` fallback, CSP-safe bundled `FontFace` loading, themed-host registration
-- `dockMotion.test.ts` — pointer-position-based influence/falloff math, spring integration toward scale/translate targets, keyboard-focus magnification, `prefers-reduced-motion` bypass, rAF loop lifecycle (starts on interaction, stops at rest, cleaned up on teardown)
+- `dockMotion.test.ts` — pointer-position-based influence/falloff math, spring integration toward scale/translate targets, keyboard-focus magnification, `prefers-reduced-motion` bypass, the note background and hover delete sharing one opacity spring, rAF loop lifecycle (starts on interaction, stops at rest, cleaned up on teardown)
 
 **Jest/jsdom:** no browser launch. `chrome.storage` and IndexedDB are mocked via `src/__tests__/setup.ts`. jsdom doesn't implement layout, so layout-dependent code (e.g. `offsetWidth` for visibility checks) is stubbed to return non-zero for any connected element.
 
@@ -74,7 +74,7 @@ In Chrome:
 8. Thumbnail shows correct image + truncated note text + item number
 9. Click thumbnail → the sidebar expands (thumbnail grows into the large screenshot; neighbouring notes peek in above/below)
 10. Edit the note text → autosaves shortly after typing stops ("saved" hint); try ↑/↓ and the peeks to move between notes; clear the text entirely and try to leave → blocked with an inline error
-11. Click **delete** → item removed, thumbnail gone, blob cleaned up
+11. Click **delete** → item removed, thumbnail gone, blob cleaned up. (A note can also be deleted without opening it: hover or Tab to its list item and use the delete button over the thumbnail's top-right corner.)
 12. Repeat steps 3–7 with 2+ items, then on a *different* URL in the same domain
 13. Click **export** → `.zip` downloads
 14. Extract `.zip` and verify:

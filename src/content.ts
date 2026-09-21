@@ -45,6 +45,9 @@ import * as addMode from './addMode';
 import * as capture from './capture';
 import { ensureFontsLoaded, primeThemeMode } from './theme';
 import { parseImportBundle } from './import';
+// The list's hover delete (design spec v4 §L) reuses the enlarged view's
+// failure copy rather than declaring a second string for the same event.
+import { DELETE_ERROR_MESSAGE } from './enlargedView';
 import { FeedbackItem, ImportError, ImportErrorCode, ImportErrorDetails } from './types';
 import {
   SidebarOpenedMessage,
@@ -399,6 +402,9 @@ function ensureStarted(): void {
       if (addMode.isAddModeActive()) exitAddModeFully();
       openItemEnlarged(item);
     },
+    onDeleteItem: (item) => {
+      void handleDeleteItem(item);
+    },
   });
   setupNavigationDetection();
   window.addEventListener('beforeunload', handleBeforeUnload);
@@ -562,6 +568,29 @@ async function refreshThumbnails(): Promise<void> {
     return;
   }
   sidebar.setThumbnails(response.items);
+}
+
+/**
+ * Delete one note straight from the list's hover delete (design spec v4 §L):
+ * immediate, with no confirmation, exactly like the enlarged view's delete —
+ * the same DELETE_ITEM round trip, and the same error message on failure, so
+ * the two entry points can't drift apart. On success the list is re-read from
+ * storage rather than patched locally, which is what every other mutation
+ * here does.
+ */
+async function handleDeleteItem(item: FeedbackItem): Promise<void> {
+  const message: DeleteItemMessage = {
+    type: 'DELETE_ITEM',
+    domain: normaliseDomain(location.host),
+    normalisedUrl: item.normalisedUrl,
+    itemId: item.id,
+  };
+  const response = await sendMessage<DeleteItemResponse>(message);
+  if (response?.ok !== true) {
+    sidebar.showError(DELETE_ERROR_MESSAGE);
+    return;
+  }
+  await refreshThumbnails();
 }
 
 /**

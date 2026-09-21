@@ -93,8 +93,9 @@ The annotator is a Chrome extension that captures visual feedback from webpages.
 
 **Thumbnail list** (`src/thumbnails.ts`, magnification in `src/dockMotion.ts`)
 - Renders from `FeedbackItem[]` returned by `GET_PAGE_ITEMS` message
-- Shows inline thumbnail image + note (3-line clamp) + item number badge
-- Newest at bottom (capture order); macOS-Dock-style spring magnification on hover/focus
+- Shows inline thumbnail image + note (3-line clamp) + item number badge, plus a hover/focus delete button over the thumbnail's top-right corner (a sibling of the item's `<button class="thumbnail">` inside the `<li>` — nested buttons are invalid HTML and break activation)
+- Newest at bottom (capture order); macOS-Dock-style spring magnification on hover/focus, which also fades the note background and the delete button
+- The list delete goes through content.ts on the same `DELETE_ITEM` round trip (and the same failure copy) as the enlarged view's, and is taken out of the tab order with the rest of the list while add mode holds it
 
 **Enlarged view** (`src/enlargedView.ts`, FLIP helpers in `src/flip.ts`) — replaces v1's modal
 - Click thumbnail → the sidebar itself expands to ~75% of the viewport inside the sidebar's shadow root (page not re-laid out; scrim over the remaining strip)

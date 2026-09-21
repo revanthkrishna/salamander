@@ -22,7 +22,9 @@
 //      `.thumbnail-note-bg` layer from thumbnails.ts) has its own spring on
 //      opacity: target 1 only for the single most-influenced item, and only
 //      once its influence reaches NOTE_BG_THRESHOLD — so exactly one note
-//      lights up, fading rather than flicking.
+//      lights up, fading rather than flicking. The item's hover delete
+//      (`.thumbnail-delete`, design spec v4 §L) rides that same spring, so
+//      the two appear and go together.
 //
 // Distances are measured against the items' UNTRANSFORMED layout, so the
 // magnification never feeds back on itself. Layout is only ever read on
@@ -235,6 +237,9 @@ export interface DockMotionOptions {
 interface DockItem {
   li: HTMLElement;
   noteBg: HTMLElement | null;
+  /** The item's hover delete (design spec v4 §L) — faded on the same spring
+   *  as noteBg, so "this is the note you're on" is one gesture. */
+  deleteBtn: HTMLElement | null;
   /** Untransformed vertical centre, relative to the list's top edge. */
   centre: number;
   /** Untransformed height. */
@@ -296,6 +301,7 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
     .map((li) => ({
       li,
       noteBg: li.querySelector<HTMLElement>('.thumbnail-note-bg'),
+      deleteBtn: li.querySelector<HTMLElement>('.thumbnail-delete'),
       centre: 0,
       height: 0,
       influence: { x: 0, v: 0 },
@@ -455,9 +461,14 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
         item.li.style.zIndex = z === 0 ? '' : String(z);
         item.z = z;
       }
-      if (item.noteBg) {
+      if (item.noteBg || item.deleteBtn) {
         const o = Math.min(1, Math.max(0, item.note.x));
-        item.noteBg.style.opacity = o < 1e-3 ? '' : o.toFixed(4);
+        // Cleared rather than pinned to 0 at rest, so the plain CSS
+        // hover/focus states take back over (reduced motion, and the delete
+        // button's own :focus-visible).
+        const next = o < 1e-3 ? '' : o.toFixed(4);
+        if (item.noteBg) item.noteBg.style.opacity = next;
+        if (item.deleteBtn) item.deleteBtn.style.opacity = next;
       }
     }
   }
@@ -478,6 +489,7 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
       item.li.style.zIndex = '';
       item.li.style.willChange = '';
       if (item.noteBg) item.noteBg.style.opacity = '';
+      if (item.deleteBtn) item.deleteBtn.style.opacity = '';
     }
     setBleed(false);
   }

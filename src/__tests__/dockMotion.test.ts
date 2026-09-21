@@ -203,6 +203,12 @@ function makeList(count: number): { list: HTMLUListElement; scroller: HTMLDivEle
     bg.className = 'thumbnail-note-bg';
     btn.appendChild(bg);
     li.appendChild(btn);
+    // The item's hover delete (design spec v4 §L): a sibling of the
+    // thumbnail button inside the <li>, faded on the same spring as the
+    // note background.
+    const del = document.createElement('button');
+    del.className = 'thumbnail-delete';
+    li.appendChild(del);
     const top = LIST_TOP + i * (ITEM_H + GAP);
     // Untransformed layout box (as a real browser would report with no
     // transform applied; the controller inverts its own transform anyway).
@@ -286,6 +292,11 @@ describe('attachDockMotion', () => {
     const bgs = lis.map((li) => li.querySelector<HTMLElement>('.thumbnail-note-bg')!);
     expect(Number(bgs[1].style.opacity)).toBe(1);
     expect(bgs[0].style.opacity).toBe('');
+    // The hover delete (§L) rides that same spring, so the two appear and go
+    // together rather than on two different clocks.
+    const dels = lis.map((li) => li.querySelector<HTMLElement>('.thumbnail-delete')!);
+    expect(dels[1].style.opacity).toBe(bgs[1].style.opacity);
+    expect(dels[0].style.opacity).toBe('');
     // Loop sleeps at rest and releases will-change.
     expect(rafQueue.size).toBe(0);
     expect(lis[1].style.willChange).toBe('');
@@ -317,6 +328,9 @@ describe('attachDockMotion', () => {
       expect(li.style.transform).toBe('');
       expect(li.style.zIndex).toBe('');
       expect(li.querySelector<HTMLElement>('.thumbnail-note-bg')!.style.opacity).toBe('');
+      // Cleared, not pinned to 0, so the plain CSS hover/focus states (and
+      // the delete's own :focus-visible) take back over at rest.
+      expect(li.querySelector<HTMLElement>('.thumbnail-delete')!.style.opacity).toBe('');
     }
     expect(rafQueue.size).toBe(0);
     dock.destroy();
@@ -456,6 +470,8 @@ describe('attachDockMotion', () => {
     for (const li of lis) {
       expect(li.style.transform).toBe('');
       expect(li.style.willChange).toBe('');
+      expect(li.querySelector<HTMLElement>('.thumbnail-note-bg')!.style.opacity).toBe('');
+      expect(li.querySelector<HTMLElement>('.thumbnail-delete')!.style.opacity).toBe('');
     }
     expect(reducedMql.removeEventListener).toHaveBeenCalled();
 
