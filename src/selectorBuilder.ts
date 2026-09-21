@@ -1,6 +1,5 @@
-// Phase 6: selector/XPath builders — the surviving half of the deleted
-// src/fingerprint.ts (see DEVELOPMENT_PLAN.md's inventory table and Phase 6
-// block). These functions are lifted essentially as-is: they are mature and
+// Selector/XPath builders — the surviving half of v1's deleted
+// src/fingerprint.ts (git history). These functions are lifted essentially as-is: they are mature and
 // already hardened against framework-generated hash IDs/classes (Radix,
 // Headless UI, MUI, Chakra, React's `useId`, CSS-module hash suffixes,
 // Tailwind utility classes).
@@ -21,9 +20,9 @@
 // tier — a "heading-anchored" XPath (`//h2[...]/following::button[...]`)
 // built via `buildHeadingAnchoredXPath`, which in turn depended on
 // `getPageHeading`/`getPageSubHeading` — i.e. exactly the heading signal
-// family the Phase 6 brief says to delete. Reintroducing those functions here
-// (even as private helpers) would resurrect the family the brief explicitly
-// retires. Since the brief's literal "lift as-is" list
+// family that was deliberately deleted with fingerprint.ts. Reintroducing
+// those functions here (even as private helpers) would resurrect it. Since
+// the deliberate "lift as-is" list
 // (buildCSSSelector, segmentFor, hasUsableId, idHasDictionaryWord,
 // getDataAttrSegment, getStableAttrSegment, getMeaningfulClass, isUnique,
 // buildXPath, buildPositionalXPath) does not name the heading-anchored

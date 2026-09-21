@@ -1,4 +1,4 @@
-// Phase 1: storage layer tests — domain CRUD, orphan-blob prevention, id
+// Storage layer tests — domain CRUD, orphan-blob prevention, id
 // monotonicity across URLs, and sidebar session-state round trip.
 
 import {

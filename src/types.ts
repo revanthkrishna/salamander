@@ -1,9 +1,7 @@
-// Phase 0: v2 type surface — screenshot-based feedback capture.
-//
-// This is a from-scratch rewrite for the pin → screenshot pivot (see
-// DEVELOPMENT_PLAN.md Phase 0 and REQUIREMENTS.md §1.2/§1.4/§1.6). Every later
-// phase compiles against this file, so it is frozen once Phase 0 lands — a
-// later phase needing a type change should make it and flag it explicitly.
+// The type surface — screenshot-based feedback capture (REQUIREMENTS.md
+// §1.2/§1.4/§1.6). Every module compiles against this file; a change to a
+// stored type here is a change to the data on disk (storage.ts's migration)
+// and to the export format (src/bundle), so make it deliberately.
 
 // ---------------------------------------------------------------------------
 // Geometry / page-metadata primitives
@@ -46,7 +44,7 @@ export interface ContainedElement {
   id?: string;
   /** Classes split into "semantic" (human-authored, e.g. BEM-ish names) vs.
    *  "generated" (framework hash classes, per the dictionary-word heuristic
-   *  lifted from fingerprint.ts in Phase 6). Absent entirely if the element
+   *  lifted from v1's fingerprint.ts). Absent entirely if the element
    *  has no classes. */
   classes?: {
     semantic: string[];
@@ -105,18 +103,18 @@ export interface FeedbackItem {
   /** Device pixel ratio at capture time — captures are kept at native DPR,
    *  no downscaling (§1.3). */
   dpr: number;
-  /** Key into the IndexedDB blob store (src/imageStore.ts, Phase 1) where the
+  /** Key into the IndexedDB blob store (src/imageStore.ts) where the
    *  full-resolution PNG lives. Not the image data itself — chrome.runtime
    *  messages can't carry Blob/ArrayBuffer (see cross-cutting gotcha #2). */
   screenshotKey: string;
-  /** Phase 1 design call: a small (~thumbnail-sized) data-URL cached inline
-   *  in chrome.storage.local metadata, alongside the full-resolution PNG in
-   *  IndexedDB (screenshotKey). This lets the sidebar's thumbnail list render
-   *  every item from a single storage.local read — no per-item IndexedDB
-   *  round trip just to paint the list. The modal and export still go
-   *  through imageStore.getImage(screenshotKey) for the full-resolution
-   *  image. Populated by whichever phase performs the capture (Phase 2/5);
-   *  storage.ts itself is agnostic to how the thumbnail was produced. */
+  /** Design call: a small (~thumbnail-sized) data-URL cached inline in the
+   *  item's chrome.storage.local record, alongside the full-resolution PNG
+   *  in IndexedDB (screenshotKey). This lets the sidebar's thumbnail list
+   *  render every item from one storage.local round trip — no per-item
+   *  IndexedDB read just to paint the list. The enlarged view and export
+   *  still go through imageStore.getImage(screenshotKey) for the
+   *  full-resolution image. Minted by the service worker at capture (and at
+   *  import); storage.ts itself is agnostic to how it was produced. */
   thumbnailDataUrl: string;
   context: CapturedContext;
 }

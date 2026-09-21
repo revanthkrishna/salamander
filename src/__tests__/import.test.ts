@@ -1,4 +1,4 @@
-// Phase 9 — import.ts: the §5 validation ladder (§1.7), tested against
+// import.ts: the §5 validation ladder (§1.7), tested against
 // purpose-built fixture bundles built the same way src/export.ts assembles a
 // real one (fflate zipSync + bundle.ts's buildFeedbackMarkdown/
 // toYamlFeedbackItem), so these tests exercise the real grammar rather than

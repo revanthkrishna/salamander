@@ -1,12 +1,12 @@
-// Phase 6: context capture — REQUIREMENTS.md §1.4, "fingerprint for
+// Context capture — REQUIREMENTS.md §1.4, "fingerprint for
 // explanation". Pure DOM → object module: given a selection rectangle (page
 // coordinates — see Rect/PageMeta comments in types.ts), produces the full
 // CapturedContext for one feedback item. No content.ts/background.ts surface;
-// Phase 5 is responsible for calling `captureContext` from the content script
+// src/capture.ts calls `captureContext` from the content script
 // at the moment "ok" is clicked, before the overlay UI is hidden for capture.
 //
 // Design decisions worth flagging (this module owns the schema/budget design,
-// per the Phase 6 brief's api-designer framing):
+// not its callers):
 //
 // 1. Primary target (§1.4A) is found by walking down from <body>/<html>: at
 //    each level, pick the single child whose page-rect fully contains the

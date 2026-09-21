@@ -1,4 +1,4 @@
-// Phase 2A: URL & domain normalization utilities
+// URL & domain normalization utilities
 //
 // Rules per TECH_DESIGN.md §2.4 and REQUIREMENTS.md §6 edge cases 7, 14, 15, 16, 17:
 //   1. Scheme: normalize to https://; http:// → https://

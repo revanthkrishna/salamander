@@ -206,11 +206,11 @@ export interface SidebarCallbacks {
    *  Optional so callers that never toggle add mode (e.g. other modules'
    *  test doubles) don't have to stub a callback they'll never receive. */
   onAddDoubleClick?: () => void;
-  /** "export" header button. No-op for Phase 3 — Phase 8 wires the real zip export. */
+  /** "export" header button — content.ts runs the EXPORT round trip. */
   onExport: () => void;
   /** "import" — now the one item of the export group's chevron menu (design
    *  spec v3 §C2) — fired once a file is chosen from the native picker.
-   *  content.ts (Phase 9) runs the full §5 validation ladder and the
+   *  content.ts runs the full §5 validation ladder and the
    *  confirm-then-replace round trip. */
   onImportFile: (file: File) => void;
   /** "close" header button. Fired *after* the sidebar has already hidden
@@ -2197,7 +2197,7 @@ export function isSidebarVisible(): boolean {
   return visible;
 }
 
-/** Disable/enable the export header button (Phase 8, §1.6). Assembling a
+/** Disable/enable the export header button (§1.6). Assembling a
  *  multi-URL zip is an async round trip with no other on-screen affordance,
  *  so content.ts disables this for the duration to prevent a second export
  *  starting (and downloading) before the first finishes. */
@@ -2206,7 +2206,7 @@ export function setExportButtonEnabled(enabled: boolean): void {
   syncActionAvailability();
 }
 
-/** Disable/enable the import header button (Phase 9, §1.7). Mirrors
+/** Disable/enable the import header button (§1.7). Mirrors
  *  setExportButtonEnabled: parsing + validating a zip and the confirm-then-
  *  replace round trip is asynchronous with no other on-screen affordance, so
  *  content.ts disables this for the duration to prevent a second file pick
@@ -2620,13 +2620,13 @@ function stopCountdownAnim(): void {
 }
 
 /** Native browser confirm — kept lowercase per §3.4. Async-shaped because
- *  Phase 9's import flow awaits it and may later swap in a styled dialog. */
+ *  the import flow awaits it and may later swap in a styled dialog. */
 export function showConfirmDialog(message: string): Promise<boolean> {
   return Promise.resolve(window.confirm(message));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PAGE RESIZE — the hard part of Phase 3 (DEVELOPMENT_PLAN.md §Phase 3)
+// PAGE RESIZE
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // Goal (§1.1, §3.1): the sidebar must *shrink the page's usable width* rather

@@ -1,4 +1,4 @@
-// Background service worker for the screenshot-based Annotator (Phase 2).
+// Background service worker for the screenshot-based Annotator.
 //
 // Owns everything that can only run in the extension context: content-script
 // injection/lifecycle, per-tab sidebar state (chrome.storage.session, §1.1),
@@ -77,7 +77,7 @@ export async function handleActionClicked(tab: chrome.tabs.Tab): Promise<void> {
   if (!isAlive) {
     // Content script not present — inject it. The freshly-injected script
     // opens its own sidebar and reports back via SIDEBAR_OPENED once it's
-    // up (Phase 3) — background's job here stops at getting it running.
+    // up — background's job here stops at getting it running.
     try {
       await chrome.scripting.executeScript({
         target: { tabId },
@@ -329,7 +329,7 @@ export function _resetSaveQueueForTests(): void {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 7 — thumbnail list + enlarged modal (§1.5, §3.3)
+// Thumbnail list + enlarged view (§1.5, §3.3)
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // Four small read/write handlers on top of storage.ts/imageStore.ts.
@@ -402,7 +402,7 @@ export async function handleDeleteItem(message: DeleteItemMessage): Promise<Dele
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 8 — export (§1.6): src/export.ts owns the zip assembly and the
+// Export (§1.6): src/export.ts owns the zip assembly and the
 // chrome.downloads call (both service-worker-only — gotchas #1 and #4); this
 // handler is just the message-boundary adapter.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -412,7 +412,7 @@ export async function handleExport(message: ExportMessage): Promise<ExportRespon
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 9 — import (§1.7): the content script (src/import.ts) unzips and
+// Import (§1.7): the content script (src/import.ts) unzips and
 // validates the whole §5 ladder before anything reaches here — this side's
 // job is the two things only the service worker can do: read how many items
 // a domain currently has (so content.ts can show §5 #10's confirmation
@@ -500,8 +500,8 @@ export async function handleImportReplace(
 }
 
 /** Decode an imported screenshot and render the same inline-thumbnail shape
- *  a live capture produces (src/imageStore doesn't store thumbnails — Phase
- *  1's design call keeps them inline in chrome.storage.local metadata).
+ *  a live capture produces (src/imageStore doesn't store thumbnails — they
+ *  live inline in the item's chrome.storage.local record, by design).
  *  Reuses cropCapture's drawing primitives against the *whole* decoded
  *  image, since an imported screenshot has no separate "full frame" to crop
  *  out of — the PNG from the zip already is the crop. */
@@ -575,7 +575,7 @@ function captureVisibleTabDataUrl(windowId: number): Promise<string> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Crop (⚠ the pixel-critical half of Phase 5)
+// Crop (⚠ the pixel-critical half of the capture)
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // Service workers have no DOM and no URL.createObjectURL (gotcha #4) —
@@ -642,8 +642,8 @@ function captureVisibleTabDataUrl(windowId: number): Promise<string> {
 const THUMBNAIL_MAX_EDGE = 480;
 
 /** Thumbnails are JPEG, not PNG: they live inline in chrome.storage.local
- *  (Phase 1's design call) and that record is read in full every time the
- *  sidebar refreshes, so size matters more than fidelity here. §1.3's
+ *  (by design — types.ts's thumbnailDataUrl) and are read every time the
+ *  sidebar's list refreshes, so size matters more than fidelity here. §1.3's
  *  "PNG, lossless, native DPR" requirement governs the *stored capture*,
  *  which is the PNG in IndexedDB and the one that gets exported — not this
  *  render-only copy. */

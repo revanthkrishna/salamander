@@ -1,9 +1,9 @@
 // src/export.ts
-// Phase 8 — export orchestration (§1.6). Assembles a domain's entire
+// Export orchestration (§1.6). Assembles a domain's entire
 // feedback history into a `.zip` (screenshots/{id}.png + feedback.md) and
 // triggers a chrome.downloads download, all inside the service worker.
 //
-// Key decision (per DEVELOPMENT_PLAN.md Phase 8): the zip is assembled
+// Key decision: the zip is assembled
 // *here*, not shipped piecewise to the content script to assemble. The
 // screenshot blobs already live in this context's IndexedDB (src/imageStore.ts,
 // gotcha #1), and chrome.downloads accepts a `data:` URL directly (gotcha

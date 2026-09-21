@@ -35,6 +35,8 @@ npx jest bundle                   # markdown serialization round-trip
 
 **Jest/jsdom:** no browser launch. `chrome.storage` and IndexedDB are mocked via `src/__tests__/setup.ts`. jsdom doesn't implement layout, so layout-dependent code (e.g. `offsetWidth` for visibility checks) is stubbed to return non-zero for any connected element.
 
+**Comment policy:** a comment explains a *constraint* or a *rejected alternative* — why the code is the odd shape it is, and what broke when it was simpler. It does not narrate *when* something changed or which build phase did it: git has that history, and such comments only ever go stale. The banners in `background.ts` (why the crop scale is measured), `sidebar.ts` (the page-shrink strategy) and `enlargedView.ts` (the scroll lock's exemption test) are the model.
+
 ---
 
 ## build & load in chrome

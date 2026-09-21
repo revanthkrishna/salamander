@@ -1,11 +1,11 @@
-// Phase 2: service worker tests — injection/lifecycle handlers, sidebar
+// Service worker tests — injection/lifecycle handlers, sidebar
 // session-state wiring, and the throttled capture-and-crop pipeline.
 //
 // background.ts registers its listeners (chrome.action.onClicked etc.) at
 // *import* time, so every chrome.* surface it touches must exist before the
 // module loads. setup.ts's base mock (chrome.storage/.tabs.query/.runtime)
 // is already installed globally by the time this file runs; the additional
-// surfaces Phase 2 needs (action, scripting, tabs.sendMessage/onUpdated/
+// surfaces background.ts needs (action, scripting, tabs.sendMessage/onUpdated/
 // onRemoved/captureVisibleTab, runtime.onMessage) are layered on
 // here, then the module is `require`'d so the extra mocks are in place
 // first — a static top-of-file `import` would run before that setup.
@@ -545,7 +545,7 @@ describe('handleCapture', () => {
 // ---------------------------------------------------------------------------
 // computeDeviceRect — the pixel-critical conversion (§1.3, §6 #4, §6 #5)
 //
-// This is the verification matrix the Phase 5 brief calls for (1x/2x display,
+// This is the crop's verification matrix (1x/2x display,
 // 100%/80%/150% zoom, selections at every viewport edge, scrolled pages),
 // expressed against the pure function rather than a real browser: the selection
 // is in viewport CSS px, the capture is in device px, and every case below
@@ -845,7 +845,7 @@ describe('enqueueCapture throttle', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase 7 handlers — thumbnail list + enlarged modal (§1.5, §3.3)
+// Thumbnail list + enlarged view handlers (§1.5, §3.3)
 // ---------------------------------------------------------------------------
 
 describe('handleGetPageItems', () => {

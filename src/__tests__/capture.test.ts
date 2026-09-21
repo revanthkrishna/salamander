@@ -1,4 +1,4 @@
-// Phase 5: capture pipeline (content-script half) — src/capture.ts.
+// Capture pipeline (content-script half) — src/capture.ts.
 //
 // Covers the three things that can silently produce a wrong screenshot or a
 // half-written item, none of which need a real browser to pin down:

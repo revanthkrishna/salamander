@@ -1,4 +1,4 @@
-// Phase 3: sidebar shell tests — DOM structure, open/close visibility, the
+// Sidebar shell tests — DOM structure, open/close visibility, the
 // page-resize strategy applied to <html> (its exact application, its
 // re-assertion when a page wipes it, and its per-property restoration), the
 // four header buttons' wiring, and the notification primitives carried over
@@ -7,8 +7,8 @@
 // jsdom has no layout engine, so these verify the *mechanism* — which inline
 // declarations land on document.documentElement, how they are restored, what
 // the observer does — not actual pixel reflow. Whether the shrink looks right
-// on a real site is REQUIREMENTS §1.1/§3.1's manual check (DEVELOPMENT_PLAN.md
-// Phase 3 asks for 5+ real sites), and Phase 10's Playwright suite.
+// on a real site is REQUIREMENTS §1.1/§3.1's manual check (5+ real sites),
+// and the Playwright suite.
 
 import * as sidebar from '../sidebar';
 import { FeedbackItem } from '../types';
@@ -611,7 +611,7 @@ describe('sidebar shell', () => {
     expect(cb.calls.close).toBe(1);
   });
 
-  test('add and export buttons invoke their callbacks (still no-ops of their own — Phases 4/8 fill them in)', () => {
+  test('add and export buttons invoke their callbacks', () => {
     const cb = makeCallbacks();
     sidebar.initSidebar(cb);
     (shadowRoot().querySelector('.btn-add') as HTMLButtonElement).click();

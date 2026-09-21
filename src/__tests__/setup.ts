@@ -1,6 +1,6 @@
 // Mock chrome.storage.local/session and related APIs for Jest tests
 
-// Phase 1: real IndexedDB implementation for storage.ts/imageStore.ts tests.
+// Real IndexedDB implementation for storage.ts/imageStore.ts tests.
 // Chrome extension service workers get a real IndexedDB; jsdom does not, so
 // fake-indexeddb/auto installs one on the global object (indexedDB,
 // IDBKeyRange, etc.) that behaves like the real thing.

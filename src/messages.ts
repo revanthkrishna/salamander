@@ -1,8 +1,7 @@
-// Phase 2: the typed chrome.runtime message contract between the service
-// worker (src/background.ts) and the content script (src/content.ts). Both
-// sides import this file — it is the single source of truth for what can
-// cross the extension-context boundary, and it grows as later phases add
-// their own message types.
+// The typed chrome.runtime message contract between the service worker
+// (src/background.ts) and the content script (src/content.ts). Both sides
+// import this file — it is the single source of truth for what can cross
+// the extension-context boundary.
 //
 // Cross-cutting gotcha #2: chrome.runtime messaging is JSON-serialised —
 // Blob/File/ArrayBuffer do not survive. Every payload below is plain JSON;
@@ -67,8 +66,7 @@ export interface SidebarClosedMessage {
 /**
  * Ask the service worker to capture the visible tab and crop it to `rect`.
  *
- * ── Coordinate contract (Phase 5 changed this; Phase 2 originally specified
- *    a pre-multiplied device-pixel rect) ─────────────────────────────────────
+ * ── Coordinate contract (NOT a pre-multiplied device-pixel rect) ───────────
  *
  * `rect` is in **viewport-relative CSS pixels** — exactly the space
  * `MouseEvent.clientX/clientY` live in, so no scroll offset is ever added:
@@ -102,11 +100,11 @@ export interface SidebarClosedMessage {
  * classic scrollbars sit on the right/bottom edges in LTR, so the image's
  * top-left is the CSS viewport's top-left either way.)
  *
- * The handler (Phase 2, extended in Phase 5) owns the mechanical half:
+ * The handler (background.ts) owns the mechanical half:
  * throttle so the ~2/sec capture rate limit (§2, §6 #8) is never hit,
  * capture, convert + crop, downscale a thumbnail, and persist the
  * full-resolution PNG via imageStore. It does *not* assemble the
- * FeedbackItem — that needs context data (Phase 6) and the note (Phase 4),
+ * FeedbackItem — that needs the captured context and the note,
  * and arrives separately as SaveItemMessage below.
  */
 export interface CaptureMessage {
@@ -129,18 +127,18 @@ export type CaptureErrorCode = 'RATE_LIMITED' | 'CAPTURE_FAILED' | 'CROP_FAILED'
 
 export interface CaptureSuccessResponse {
   ok: true;
-  /** Key into imageStore.ts (Phase 1) — the cropped PNG is already persisted
+  /** Key into imageStore.ts — the cropped PNG is already persisted
    *  there by the time this response is sent.
    *
-   *  Phase 2 also returned the full-resolution crop inline as a data URL;
-   *  Phase 5 dropped it. Nothing on the content-script side consumed it (the
-   *  sidebar list paints from `thumbnailDataUrl`, and Phase 7's modal will
-   *  fetch the full image by key), while every capture paid for serialising a
-   *  multi-megabyte base64 string across the boundary — gotcha #2's cost, for
-   *  a value that was thrown away on arrival. */
+   *  The full-resolution crop deliberately does NOT come back inline as a
+   *  data URL (it once did). Nothing on the content-script side consumes it
+   *  (the sidebar list paints from `thumbnailDataUrl`, and the enlarged view
+   *  fetches the full image by key), while every capture would pay for
+   *  serialising a multi-megabyte base64 string across the boundary —
+   *  gotcha #2's cost, for a value thrown away on arrival. */
   screenshotKey: string;
   /** A downscaled copy of the crop, for FeedbackItem.thumbnailDataUrl
-   *  (the Phase 1 design call: thumbnails live inline in storage.local so the
+   *  (by design, thumbnails live inline in storage.local so the
    *  sidebar list paints from one read). Produced in the service worker
    *  because that is where OffscreenCanvas and the decoded bitmap already
    *  are — gotcha #4. */
@@ -166,7 +164,7 @@ export type CaptureResponse = CaptureSuccessResponse | CaptureErrorResponse;
 export type NewFeedbackItem = Omit<FeedbackItem, 'id'>;
 
 /**
- * Persist a captured item (Phase 5). Sent immediately after a successful
+ * Persist a captured item. Sent immediately after a successful
  * CaptureMessage — `item.screenshotKey` is the key that capture returned, so
  * the blob is already in IndexedDB by the time this arrives. If the metadata
  * write fails, the handler deletes that blob again rather than leaving it
@@ -196,11 +194,11 @@ export interface SaveItemErrorResponse {
 export type SaveItemResponse = SaveItemSuccessResponse | SaveItemErrorResponse;
 
 // ---------------------------------------------------------------------------
-// Phase 7 — thumbnail list + enlarged modal (§1.5, §3.3)
+// Thumbnail list + enlarged view (§1.5, §3.3)
 // ---------------------------------------------------------------------------
 //
 // The sidebar's thumbnail list paints entirely from FeedbackItem.thumbnailDataUrl
-// (Phase 1's inline-thumbnail design call), which already lives in
+// (the inline-thumbnail design call — types.ts), which already lives in
 // chrome.storage.local — so GetPageItemsMessage is the only round trip the
 // list needs. The modal additionally wants the full-resolution PNG, which
 // lives in IndexedDB behind the service worker (gotcha #1), hence the
@@ -311,7 +309,7 @@ export interface DeleteItemErrorResponse {
 export type DeleteItemResponse = DeleteItemSuccessResponse | DeleteItemErrorResponse;
 
 // ---------------------------------------------------------------------------
-// Phase 8 — export (§1.6)
+// Export (§1.6)
 // ---------------------------------------------------------------------------
 //
 // The zip is assembled and downloaded entirely inside the service worker
@@ -353,7 +351,7 @@ export interface ExportErrorResponse {
 export type ExportResponse = ExportSuccessResponse | ExportEmptyResponse | ExportErrorResponse;
 
 // ---------------------------------------------------------------------------
-// Phase 9 — import (§1.7)
+// Import (§1.7)
 // ---------------------------------------------------------------------------
 //
 // Unzipping the picked file and validating it against §5's ladder happens in

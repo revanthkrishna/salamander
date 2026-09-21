@@ -1,11 +1,11 @@
-// Phase 4: add-mode tests — box placement/clamping, resize hit-zone geometry
+// Add-mode tests — box placement/clamping, resize hit-zone geometry
 // and edge/corner resizing, the rounded-hole scrim, the comment box's char
 // counter and save-disabled state, the never-off-screen positioning
 // guarantee, and cancel/save lifecycle (Salamander design spec §3.2).
 //
 // jsdom has no layout engine, so these verify the *mechanism* — inline
 // px values computed from window.innerWidth/innerHeight — not actual pixel
-// rendering. Real-site visual verification is Phase 10's Playwright suite.
+// rendering. Real-site visual verification is the Playwright suite.
 
 import * as addMode from '../addMode';
 import * as sidebar from '../sidebar';
@@ -1098,7 +1098,7 @@ describe('add mode', () => {
     expect(labels).not.toContain('ok');
   });
 
-  // ── hide/show overlay UI (for Phase 5's capture pipeline) ────────────────
+  // ── hide/show overlay UI (for the capture pipeline) ────────────────
 
   test('hideOverlayUI hides the visuals container; showOverlayUI restores it and re-enables buttons', () => {
     addMode.startAddMode(makeCallbacks());

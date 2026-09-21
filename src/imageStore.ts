@@ -1,4 +1,4 @@
-// Phase 1: extension-origin IndexedDB wrapper for screenshot storage.
+// Extension-origin IndexedDB wrapper for screenshot storage.
 //
 // Cross-cutting gotcha #1: IndexedDB opened from a content script belongs to
 // the *page's* origin, not the extension's, and would be readable by the

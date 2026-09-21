@@ -1,4 +1,4 @@
-// Phase 7 — thumbnail list rendering (REQUIREMENTS §1.5, §3.3).
+// Thumbnail list rendering (REQUIREMENTS §1.5, §3.3).
 
 import { renderThumbnailList, truncateNotePreview } from '../thumbnails';
 import { FeedbackItem } from '../types';

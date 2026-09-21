@@ -1,4 +1,4 @@
-// Phase 1 (Salamander design language) — src/theme.ts unit tests.
+// Salamander design language — src/theme.ts unit tests.
 //
 // Covers the two things sidebar.ts/addMode.ts/modal.ts will lean on in later
 // phases: theme *mode* resolution/persistence/sync (auto/light/dark, driven

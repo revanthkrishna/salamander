@@ -1,5 +1,5 @@
 // src/capture.ts
-// Phase 5 — the capture pipeline's content-script half (REQUIREMENTS §1.2
+// The capture pipeline's content-script half (REQUIREMENTS §1.2
 // step 4, §1.3, §1.4D, §5 #8).
 //
 // One user gesture ("ok" in add mode) becomes: read the page's geometry →

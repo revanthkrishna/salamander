@@ -1,5 +1,5 @@
 // src/import.ts
-// Phase 9 — bundle import validation (§1.7, §5). Runs entirely inside the
+// Bundle import validation (§1.7, §5). Runs entirely inside the
 // content script: the picked `File` lives in the page's JS world (a native
 // `<input type="file">`), and unzipping + validating it needs none of
 // chrome.storage/IndexedDB (gotcha #1) — only the final "write the
@@ -9,8 +9,7 @@
 // `parseImportBundle`, shows §5 #10's confirmation using the count the
 // service worker reports, then sends `IMPORT_REPLACE`.
 //
-// Validation ladder (§5, in the exact order DEVELOPMENT_PLAN.md's Phase 9
-// brief specifies): not-a-zip (#1) -> corrupt archive (#2) -> missing
+// Validation ladder (§5, in this exact order): not-a-zip (#1) -> corrupt archive (#2) -> missing
 // feedback.md (#3) -> malformed/missing fence or field (#4b) -> referenced
 // screenshot absent (#4) -> duplicate ids (#11) -> domain mismatch (#5) ->
 // newer schema version (#6, warning only — not thrown). §5 #10 (existing-data

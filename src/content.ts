@@ -1,43 +1,36 @@
 // src/content.ts
 // Content script main entry.
 //
-// Phase 3 rebuilds the sidebar shell (src/sidebar.ts) on top of the Phase 0
-// stub and wires it up to real UI: ACTIVATE / ICON_CLICKED open and toggle
-// it, SPA navigation refreshes its (currently empty) thumbnail list, and its
-// own close button restores the page and tells the service worker so a
-// later reload doesn't bring the sidebar back uninvited (§1.1).
+// Wires the sidebar shell (src/sidebar.ts) to the runtime: ACTIVATE /
+// ICON_CLICKED open and toggle it, SPA navigation refreshes its thumbnail
+// list, and its own close button restores the page and tells the service
+// worker so a later reload doesn't bring the sidebar back uninvited (§1.1).
 //
-// Phase 5 wires the sidebar's "add" button all the way through: add mode
+// Wires the sidebar's "add" button all the way through: add mode
 // (src/addMode.ts) produces a selection + note, the capture pipeline
 // (src/capture.ts) turns that into a stored feedback item, and this file
 // decides what happens to add mode and the sidebar on either outcome — see
 // handleCaptureOk below.
 //
-// Phase 7 wires the thumbnail list and the enlarged view (src/thumbnails.ts,
-// src/enlargedView.ts — design spec v2 §D, which replaced the old centred
-// modal): this file is the message-sending orchestrator for both (same role
-// it already plays for capture/save), fetching a domain's/URL's items via
-// GET_PAGE_ITEMS and handing them to sidebar.setThumbnails(), and supplying
-// the enlarged view's fetchFullImage/onSaveNote/onDelete callbacks so that
-// pure-DOM module never has to touch chrome.runtime itself.
+// Wires the thumbnail list and the enlarged view (src/thumbnails.ts,
+// src/enlargedView.ts — design spec v2 §D): this file is the message-sending
+// orchestrator for both (the same role it plays for capture/save), fetching
+// a domain's/URL's items via GET_PAGE_ITEMS and handing them to
+// sidebar.setThumbnails(), and supplying the enlarged view's
+// fetchFullImage/onSaveNote/onDelete callbacks so that pure-DOM module never
+// has to touch chrome.runtime itself.
 //
-// What survives from Phase 0/2 untouched, per the inventory table:
-//   1. The double-injection idempotency guard.
-//   2. The chrome.runtime message listener shape (PING / ACTIVATE / ICON_CLICKED).
-//   3. SPA navigation detection (history.pushState/replaceState patching +
-//      popstate/hashchange + debounce).
-//   4. Teardown on beforeunload.
+// Also here: the double-injection idempotency guard, the chrome.runtime
+// message listener (PING / ACTIVATE / ICON_CLICKED), SPA navigation
+// detection (history.pushState/replaceState patching + popstate/hashchange
+// + debounce), and teardown on beforeunload.
 //
-// What Phase 3 removes: the legacy `setTabActive` call. That was a Phase 0
-// placeholder standing in for real sidebar-open persistence; the real
-// mechanism is chrome.storage.session, keyed by tab id (§1.1), which is only
-// reachable from the extension context (service worker) — a content script
-// has no direct access to chrome.storage.session by default. So instead of
-// writing that state itself, the content script *tells* the background
+// The "sidebar open" state is deliberately not written from here: it lives
+// in chrome.storage.session, keyed by tab id (§1.1), which is only reachable
+// from the extension context. So the content script *tells* the background
 // script when the sidebar opens/closes (SIDEBAR_OPENED / SIDEBAR_CLOSED,
-// src/messages.ts), and background.ts (Phase 2) is the one that actually
-// persists it and decides whether to re-inject + re-ACTIVATE on a later
-// full-page reload.
+// src/messages.ts), and background.ts persists it and decides whether to
+// re-inject + re-ACTIVATE on a later full-page reload.
 
 import { normaliseUrl, normaliseDomain } from './urlNorm';
 import * as sidebar from './sidebar';
@@ -158,7 +151,7 @@ function enterAddMode(): void {
   sidebar.setAddModeHold(true);
   addMode.startAddMode({
     onOk: (result) => {
-      // Phase 5's capture pipeline (src/capture.ts) owns everything between
+      // The capture pipeline (src/capture.ts) owns everything between
       // "ok" and a stored item; this side only decides what happens to add
       // mode/the sidebar afterwards (handleCaptureOk below).
       void handleCaptureOk(result);
@@ -514,7 +507,7 @@ function handleUrlChange(): void {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 7 — thumbnail list + enlarged view message plumbing
+// Thumbnail list + enlarged view message plumbing
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Fetch the current URL's feedback items and repaint the sidebar's thumbnail

@@ -1,5 +1,5 @@
 // src/theme.ts
-// Salamander design language — shared foundation (Phase 1 of the redesign).
+// Salamander design language — shared foundation.
 //
 // This module owns three things that sidebar.ts, addMode.ts and enlargedView.ts all
 // need identically, so they live here once instead of being copy-pasted:
@@ -188,7 +188,7 @@ const RADII_CSS = `  --sal-radius-sm: ${RADII.sm}px;\n  --sal-radius-md: ${RADII
 
 /**
  * Returns the `:host { --sal-*: ...; }` / `:host([data-theme="dark"]) { ... }`
- * custom-property block described in Phase 1's brief. Callers prepend this
+ * custom-property block (design spec §1's tokens). Callers prepend this
  * (as its own `<style>` node, or concatenated into their existing one) inside
  * a closed shadow root, then use `var(--sal-bg)` etc. everywhere instead of
  * hard-coded colours. Light values live on the bare `:host` selector so a
