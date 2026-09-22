@@ -72,8 +72,6 @@ export interface ThemeTokens {
   warn: string;
   /** Warning banner fill. */
   warnSoft: string;
-  /** 1px outer keyline around the yellow selection outline. */
-  keyline: string;
   /** Add-mode dimming outside the selection. */
   scrim: string;
   /** Modal backdrop. */
@@ -106,7 +104,6 @@ export const LIGHT_THEME: ThemeTokens = {
   dangerPress: '#F6BAB1',
   warn: '#8A5A00',
   warnSoft: '#FFF1CC',
-  keyline: 'rgba(26,23,18,0.55)',
   scrim: 'rgba(26,23,18,0.42)',
   backdrop: 'rgba(20,18,13,0.55)',
   shadowPop: '0 18px 40px rgba(0,0,0,0.28)',
@@ -136,7 +133,6 @@ export const DARK_THEME: ThemeTokens = {
   dangerPress: 'rgba(255,122,107,0.34)',
   warn: '#F5C35B',
   warnSoft: 'rgba(245,195,91,0.12)',
-  keyline: 'rgba(0,0,0,0.6)',
   scrim: 'rgba(0,0,0,0.5)',
   backdrop: 'rgba(0,0,0,0.65)',
   shadowPop: '0 18px 40px rgba(0,0,0,0.28)',

@@ -34,7 +34,6 @@ Two themes. Theme mode is `auto | light | dark` (auto = follow `prefers-color-sc
 | dangerPress  | #F6BAB1                | rgba(255,122,107,0.34)      | |
 | warn         | #8A5A00                | #F5C35B                     | warning banner text/icon |
 | warnSoft     | #FFF1CC                | rgba(245,195,91,0.12)       | warning banner fill |
-| keyline      | rgba(26,23,18,0.55)    | rgba(0,0,0,0.6)             | 1px outer keyline around the yellow selection outline |
 | scrim        | rgba(26,23,18,0.42)    | rgba(0,0,0,0.5)             | add-mode dimming outside the selection |
 | backdrop     | rgba(20,18,13,0.55)    | rgba(0,0,0,0.65)            | modal backdrop |
 | shadowPop    | 0 18px 40px rgba(0,0,0,0.28) | same                  | comment box, modal panel |
@@ -98,7 +97,7 @@ States: regular · hover · press · focus-visible (keyboard) · disabled.
 
 ### 3.2 Add mode
 - Scrim outside the selection: `scrim` token.
-- Selection box: radius md (10px), outline = `box-shadow: 0 0 0 2px {accent}, 0 0 0 3px {keyline}` (reads on light and dark pages). NO visible square handles.
+- Selection box: radius md (10px), outline = a 2px line outside the box alternating 4px accent and 4px ink (see §Z; reads on light and dark pages). NO visible square handles.
 - Resize from ANY edge or corner: invisible hit zones — edges ~10px thick straddling the outline, corners ~16×16 — with the right resize cursors (ns/ew/nwse/nesw). Keyboard-accessible alternative must not regress if one exists today. Selection box has no hover/press styling (cursor change only). Keep min size 20×20, viewport clamping, the existing click-to-place / drag-to-draw placement, and hideOverlayUI/showOverlayUI.
 - Comment box (width 280, keep the below → above → right → left flip logic): radius lg, 1px `line` border, `surface` fill, `shadowPop`, overflow hidden, NO inner padding — the parts merge into one box:
   - textarea: full width, ~88px, padding 10px 12px, no border of its own; placeholder "what should change here?" in muted.
@@ -334,7 +333,7 @@ lineStrong + press fill, no scale — §2).
 While add mode is in the `placing` phase and nothing has been drawn yet:
 - A PREVIEW of the selection rect follows the pointer — the same default box the click would
   produce (267×100, `computeDefaultBox`, clamped to the same bounds), so what you see is what you get.
-  It uses the real box visuals (yellow outline + keyline + scrim hole) so the page under it is
+  It uses the real box visuals (the dashed outline + scrim hole) so the page under it is
   readable, but it is marked as preview (`data-preview="true"`), has NO resize zones and no comment box.
 - It appears on the first pointer move inside the viewport (fade in ~120ms), hides when the pointer
   leaves the viewport or a drag starts, and is gone for good once a rect is placed (click or drag).
@@ -668,3 +667,16 @@ would have it said twice, in two vocabularies.
 
 "add mode" stays out of the visible copy: it is a term from this spec and the code, and appears
 nowhere else in the UI.
+
+
+## Z. The selection outline (2026-09-21)
+
+A 2px line drawn just OUTSIDE the selection box, alternating 4px accent and 4px ink along its
+length, following the box's rounded corners. There is no keyline: every other 4px of the line is
+already ink, which gives the contrast on a light page that a keyline used to, and a keyline beside
+it read as a second, undashed line. The `keyline` token is removed with it.
+
+It is an SVG stroke, not a CSS border or outline: CSS `dashed`/`dotted` derive their dash length
+from the line's thickness and give no control over it, and `border-image` with a repeating gradient
+ignores `border-radius`. Two rects on the same path at the same width — ink underneath, accent dashed
+4/4 on top — so the accent's gaps are ink rather than holes and the line is exactly 2px.

@@ -118,10 +118,12 @@ const CORNER_ZONE = 16;
  *  it at the same width, which fills the gaps rather than leaving holes. */
 const OUTLINE_W = 2;
 const OUTLINE_DASH = 4;
-/** How far the SVG extends past the box on each side: the 2px line sits
- *  just outside the box (so the selection itself is never covered), and the
- *  1px keyline shadow sits outside that. */
-const OUTLINE_PAD = 3;
+/** How far the SVG extends past the box on each side: exactly the line's
+ *  width, since the line sits just outside the box so the selection itself
+ *  is never covered. There is no separate keyline — every other 4px of the
+ *  line is already ink, which gives the contrast on a light page that a
+ *  keyline used to, and a keyline beside it read as a second, undashed line. */
+const OUTLINE_PAD = OUTLINE_W;
 
 /** Preview tooltip (design spec \u00a7G): fixed lowercase copy (\u00a73.4), offset
  *  down-right of the cursor, flipped/clamped like computeCommentPosition()
@@ -205,16 +207,13 @@ const ADD_MODE_CSS = `
     pointer-events: none;
   }
 
-  /* Selection outline (see OUTLINE_W): the alternating line itself is the
-     .box-dash SVG below; this rule keeps the 1px keyline just outside it, so
-     the whole thing reads on a white page as well as a dark one. The box's
-     own rect IS the selection, so nothing here may cover it — the line is
-     drawn OUTSIDE the box, which is why the SVG overhangs. No hover/press
+  /* Selection outline (see OUTLINE_W): the alternating line is entirely the
+     .box-dash SVG below, drawn OUTSIDE the box — its rect IS the selection,
+     so nothing may cover it, which is why the SVG overhangs. No hover/press
      styling — only the cursor over the hit zones below changes. */
   .box {
     position: absolute;
     border-radius: var(--sal-radius-md);
-    box-shadow: 0 0 0 ${OUTLINE_PAD}px var(--sal-keyline);
     background: transparent;
     pointer-events: none;
   }
@@ -898,8 +897,9 @@ function paintBoxOutline(width: number, height: number): void {
   const svgH = h + OUTLINE_PAD * 2;
   elBoxDash.setAttribute('width', `${svgW}`);
   elBoxDash.setAttribute('height', `${svgH}`);
-  // Path inset OUTLINE_W/2 from the SVG's own edge minus the keyline's 1px:
-  // the stroke then spans exactly the 2px immediately outside the box.
+  // The stroke is centred on this path, so insetting it half a stroke from
+  // the SVG's edge puts the line exactly in the 2px immediately outside the
+  // box.
   const inset = OUTLINE_PAD - OUTLINE_W / 2;
   const rw = Math.max(0, w + (OUTLINE_PAD - inset) * 2);
   const rh = Math.max(0, h + (OUTLINE_PAD - inset) * 2);

@@ -748,7 +748,7 @@ describe('add mode', () => {
     expect(cssRule('.scrim-layer')).toMatch(/pointer-events:\s*none/);
   });
 
-  test('the selection outline alternates 4px accent / 4px ink at one width, over a keyline', () => {
+  test('the selection outline alternates 4px accent / 4px ink at one width, with no keyline', () => {
     addMode.startAddMode(makeCallbacks());
     const rule = cssRule('.box');
     expect(rule).toMatch(/border-radius:\s*var\(--sal-radius-md\)/);
@@ -757,7 +757,9 @@ describe('add mode', () => {
     // border-image with a repeating gradient ignores border-radius.
     expect(rule).not.toMatch(/outline:/);
     expect(rule).not.toMatch(/border:\s*2px/);
-    expect(rule).toMatch(/box-shadow:\s*0 0 0 3px var\(--sal-keyline\)/);
+    // No separate keyline: the ink dashes already give the contrast, and a
+    // keyline beside them read as a second, undashed line.
+    expect(rule).not.toMatch(/box-shadow/);
 
     // Both rects stroke the same path at the same width, so the accent's
     // gaps are ink rather than holes and the line never thickens.
@@ -778,10 +780,12 @@ describe('add mode', () => {
     const h = parseFloat(box.style.height);
     // Sized in CSS pixels with no viewBox, so nothing scales the dashes.
     expect(svg.getAttribute('viewBox')).toBeNull();
-    expect(+svg.getAttribute('width')!).toBe(w + 6);
-    expect(+svg.getAttribute('height')!).toBe(h + 6);
-    // The stroke is centred on this path, so it lands outside the selection.
-    expect(+ink.getAttribute('x')!).toBe(2);
+    // The SVG overhangs by exactly the line's 2px on each side.
+    expect(+svg.getAttribute('width')!).toBe(w + 4);
+    expect(+svg.getAttribute('height')!).toBe(h + 4);
+    // The stroke is centred on this path, so it lands in the 2px just
+    // outside the selection and never covers it.
+    expect(+ink.getAttribute('x')!).toBe(1);
     expect(+ink.getAttribute('width')!).toBe(w + 2);
     expect(addModeOwnCSS()).not.toMatch(/\.box:(hover|active)/);
     expect(addModeOwnCSS()).not.toMatch(/\.resize-zone:(hover|active)/);
