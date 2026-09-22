@@ -1,6 +1,6 @@
 // URL & domain normalization utilities
 //
-// Rules per TECH_DESIGN.md §2.4 and REQUIREMENTS.md §6 edge cases 7, 14, 15, 16, 17:
+// Rules (REQUIREMENTS.md's domain and URL definitions):
 //   1. Scheme: normalize to https://; http:// → https://
 //   2. Hostname: lowercase
 //   3. www prefix: strip www. (but NOT other subdomains)

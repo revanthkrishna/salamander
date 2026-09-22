@@ -16,8 +16,8 @@ if (typeof (global as any).structuredClone === 'undefined') {
 }
 
 // Read manifest version live so the chrome.runtime.getManifest() mock matches
-// whatever version manifest.json currently declares. Keeps the YAML
-// salamander_version field tested against the real running version.
+// whatever version manifest.json currently declares. Keeps the version line
+// in feedback.md's header tested against the real running version.
 import * as fs from 'fs';
 import * as path from 'path';
 const manifestJson = JSON.parse(
@@ -25,7 +25,7 @@ const manifestJson = JSON.parse(
 );
 
 // jsdom doesn't implement layout, so HTMLElement.offsetWidth/offsetHeight
-// always return 0 — which makes fingerprint.ts's isVisible() treat every
+// always return 0 — which makes visibility checks (contextCapture.ts) treat every
 // element in the document as invisible and disqualify it from resolution.
 // Override the prototype getters to report non-zero dimensions for any
 // element connected to the document.

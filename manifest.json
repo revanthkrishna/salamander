@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "salamander",
   "version": "2.0.0",
+  "minimum_chrome_version": "105",
   "description": "select an area of any webpage, screenshot it, attach a note, and export for developers or ai agents to act on.",
   "permissions": ["storage", "scripting", "tabs", "unlimitedStorage", "downloads"],
   "host_permissions": ["<all_urls>"],

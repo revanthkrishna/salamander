@@ -434,7 +434,7 @@ const ADD_MODE_CSS = `
      edge by exactly one radius-lg via a negative margin, with that same
      amount added back as top padding so the counter/buttons never render
      inside the hidden zone. .footer is a plain block child of .comment-box
-     just like .note-input, so both span the same 280px width and their
+     just like .note-input, so both span the same 296px width and their
      edges line up exactly. Its own 1px line border is drawn INSIDE via an
      inset shadow (design spec v4 §O, the same treatment as the note's hover
      extension in v2 §B): a real border would sit outside the padding box and
@@ -456,7 +456,7 @@ const ADD_MODE_CSS = `
 
   /* Right side (design spec §AB): the counter sits just left of cancel. It
      only takes up room once it shows — hidden, it would push the bar past
-     its 280px with the pencil tools on the left. */
+     its 296px with the pencil tools on the left. */
   .counter {
     padding: 0 4px;
     font-family: var(--sal-font-mono);

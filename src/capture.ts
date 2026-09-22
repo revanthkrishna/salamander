@@ -2,7 +2,7 @@
 // The capture pipeline's content-script half (REQUIREMENTS §1.2
 // step 4, §1.3, §1.4D, §5 #8).
 //
-// One user gesture ("ok" in add mode) becomes: read the page's geometry →
+// One user gesture ("save" in add mode) becomes: read the page's geometry →
 // capture the §1.4 context → hide the in-page overlay UI → wait for exactly
 // one painted frame → ask the service worker for a cropped screenshot → ask
 // it to persist the item → hand the stored item back. Everything that needs

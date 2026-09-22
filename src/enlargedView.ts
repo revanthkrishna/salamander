@@ -161,7 +161,7 @@ const FRAME_RADIUS = RADII.md;
 const EDITOR_HEIGHT = 96;
 const TITLE_BLOCK = 46; // 34px title row + 12px gap
 const RAIL_BTN = 36;
-/** x + ↑ + ↓ stacked: three 40px buttons, an 8px gap between each and the
+/** x + ↑ + ↓ stacked: three 36px buttons, an 8px gap between each and the
  *  extra 8px margin under x. */
 const RAIL_HEIGHT = RAIL_BTN * 3 + 8 * 3;
 /** The rail's margin from the VIEWPORT's right edge (design spec v5 §R). It
