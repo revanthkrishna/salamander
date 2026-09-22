@@ -2160,3 +2160,55 @@ describe('note-in-list hover delete (design spec v4 §L)', () => {
     expect(cssRule('.thumbnail-list[data-dock="on"] .thumbnail-delete')).not.toMatch(/opacity/);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Scroll isolation: scrolling over the sidebar never scrolls the page
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('scroll isolation', () => {
+  function cssRule(selector: string): string {
+    const text = shadowRoot().querySelector('style')!.textContent ?? '';
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return text.match(new RegExp(`(^|\\n)\\s*${escaped}\\s*\\{[^}]*\\}`))?.[0] ?? '';
+  }
+
+  test('the list never hands its scroll on to the page', () => {
+    sidebar.initSidebar(makeCallbacks());
+    expect(cssRule('.body')).toMatch(/overscroll-behavior:\s*contain/);
+  });
+
+  test("a wheel over the panel's fixed chrome scrolls the list, not the page", () => {
+    sidebar.initSidebar(makeCallbacks());
+    const root = shadowRoot();
+    const body = root.querySelector('.body') as HTMLElement;
+    const header = root.querySelector('.header') as HTMLElement;
+    const scrollBy = jest.fn();
+    body.scrollBy = scrollBy as unknown as typeof body.scrollBy;
+
+    const overChrome = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true, composed: true });
+    header.dispatchEvent(overChrome);
+    expect(overChrome.defaultPrevented).toBe(true); // the page must not scroll
+    expect(scrollBy).toHaveBeenCalledWith({ top: 120, left: 0 });
+  });
+
+  test('a wheel over the list itself is left to native scrolling', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const root = shadowRoot();
+    const body = root.querySelector('.body') as HTMLElement;
+    const scrollBy = jest.fn();
+    body.scrollBy = scrollBy as unknown as typeof body.scrollBy;
+
+    const overList = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true, composed: true });
+    body.dispatchEvent(overList);
+    expect(overList.defaultPrevented).toBe(false);
+    expect(scrollBy).not.toHaveBeenCalled();
+  });
+
+  test('ctrl+wheel is left alone, so browser zoom still works over the panel', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const header = shadowRoot().querySelector('.header') as HTMLElement;
+    const zoom = new WheelEvent('wheel', { deltaY: 120, ctrlKey: true, bubbles: true, cancelable: true, composed: true });
+    header.dispatchEvent(zoom);
+    expect(zoom.defaultPrevented).toBe(false);
+  });
+});

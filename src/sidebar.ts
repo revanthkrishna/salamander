@@ -1092,6 +1092,9 @@ const SIDEBAR_CSS = `
   .body {
     flex: 1 1 auto;
     overflow-y: auto;
+    /* Scrolling the list never carries on into the page behind it — not at
+       either end, and not while the list is too short to scroll at all. */
+    overscroll-behavior: contain;
     margin-left: -${DOCK_BLEED_PX}px;
     padding: 12px 0 16px ${DOCK_BLEED_PX}px;
     clip-path: inset(0 0 0 ${DOCK_BLEED_PX}px);
@@ -1716,6 +1719,12 @@ function buildDOM(shadow: ShadowRoot): void {
   elSidebar.appendChild(elFileInput);
 
   shadow.appendChild(elSidebar);
+  // The panel's fixed chrome (header, action row, banner, resize handle) is
+  // not a scroller, so a wheel over it used to chain straight to the PAGE —
+  // scrolling the page while the pointer was on the sidebar. Non-passive so
+  // it can cancel that. The enlarged view mounts on the shadow root, outside
+  // this element, so its own scrolling is never touched here.
+  elSidebar.addEventListener('wheel', onSidebarChromeWheel, { passive: false });
 }
 
 /** Ghost button (theme toggle / close) — transparent at rest, per design
@@ -2397,6 +2406,21 @@ function playItemRemoval(itemId: number): Promise<void> | null {
   });
 }
 
+/**
+ * A wheel over the panel's fixed chrome scrolls the note list instead of the
+ * page. Over the list itself this does nothing: native scrolling handles it,
+ * and `.body`'s overscroll-behavior stops it chaining on at the ends.
+ */
+function onSidebarChromeWheel(e: WheelEvent): void {
+  if (!elBody || e.ctrlKey) return; // ctrl+wheel is the browser's zoom
+  if (e.composedPath().includes(elBody)) return;
+  e.preventDefault();
+  // Chrome reports pixels; lines and pages are what other engines send, and
+  // cost nothing to honour.
+  const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? elBody.clientHeight : 1;
+  elBody.scrollBy({ top: e.deltaY * unit, left: 0 });
+}
+
 function applyListHold(): void {
   if (!elThumbnailList) return;
   const held = elThumbnailList.querySelectorAll<HTMLButtonElement>('button.thumbnail, button.thumbnail-delete');
@@ -2644,6 +2668,7 @@ export function destroySidebar(): void {
   unregisterThemedHost?.();
   unregisterThemedHost = null;
   document.removeEventListener('pointerdown', onDocumentPointerDown, true);
+  elSidebar?.removeEventListener('wheel', onSidebarChromeWheel);
   sidebarShadow?.removeEventListener('pointerdown', onShadowPointerDown, true);
   if (sidebarHost && sidebarHost.parentNode) {
     sidebarHost.parentNode.removeChild(sidebarHost);
