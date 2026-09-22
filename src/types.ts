@@ -117,6 +117,30 @@ export interface FeedbackItem {
    *  import); storage.ts itself is agnostic to how it was produced. */
   thumbnailDataUrl: string;
   context: CapturedContext;
+  /** What the user drew on the selection before saving (design spec §AB),
+   *  kept as its own layer on top of the untouched screenshot. Absent on an
+   *  item nothing was drawn on — optional, so older records need no
+   *  migration. Not in the bundle: export paints it into the PNG instead. */
+  drawing?: Drawing;
+}
+
+/** One pencil stroke (design spec §AB). `color` is the HEX the stroke was
+ *  drawn in, stored as-is so a later palette change can never recolour a
+ *  saved drawing. `points` are CSS px in the owning Drawing's space. */
+export interface DrawingStroke {
+  color: string;
+  points: [number, number][];
+}
+
+/** A selection's drawing: `width`/`height` are the final selection's CSS-px
+ *  size, and every point is relative to its top-left, already cropped to it
+ *  (a stroke that left and re-entered the rect is stored as two strokes).
+ *  The screenshot is at the capture's dpr, so painting this onto it scales
+ *  by image px / `width` — see src/drawing.ts. */
+export interface Drawing {
+  width: number;
+  height: number;
+  strokes: DrawingStroke[];
 }
 
 /**

@@ -697,3 +697,90 @@ What went with the switcher, and is in git history if a light theme returns: the
 `themeMode` preference and its cross-tab sync, following `prefers-color-scheme`, the `data-theme`
 attribute on each shadow host, and the gate that held the sidebar invisible until the saved mode had
 loaded (with one theme there is nothing to wait for, so the panel now shows immediately).
+
+---
+
+# AB. Drawing on the selection (2026-09-21)
+
+A pencil for drawing on the selected region before a note is saved. Every decision below was made by
+the user; where a detail was left open it is marked **(impl)** and is the implementer's call, to be
+reported back.
+
+## When and where the pencil works
+
+- Only in add mode's **editing** phase: after the selection rect has been placed, and until the note
+  is saved or cancelled. Never while placing, never while the capture is running, and **never in the
+  enlarged view** — drawings are view-only there.
+- Only **inside the selection rect**. The rect's edge resize zones keep their resize cursors and
+  keep resizing; the pencil is the interior. Outside the rect the cursor is the normal arrow.
+- The cursor inside the rect is a **pencil** (a custom SVG cursor in the §1 icon style, hotspot at
+  the pencil's tip, with a system-cursor fallback).
+
+## The stroke
+
+- **2px wide**, round caps and joins, drawn as the pointer moves (use coalesced pointer events so a
+  fast stroke stays smooth).
+- Colours — three, stored as their HEX on each stroke (so a later palette change can never recolour a
+  saved drawing):
+  | name | hex | note |
+  |---|---|---|
+  | yellow (default) | `#E8B600` | the palette's deeper yellow |
+  | black | `#1A1712` | the palette's ink |
+  | red | `#E5484D` | a vivid annotation red — NOT `danger`, which reads as pink on a screenshot |
+- **The chosen colour is remembered until the browser closes** — across reloads, pages and sites —
+  and resets to yellow in a fresh browser session. `chrome.storage.session`. **(impl)** content
+  scripts only get `storage.session` if the service worker grants it via `setAccessLevel`; check how
+  this codebase already reaches session storage and follow that.
+
+## Resizing after drawing
+
+Strokes are **pinned to the page**, not to the rect. Resizing the rect never moves them: shrinking
+crops any stroke that now falls outside it, and growing reveals more page around them. Practically,
+while editing, the drawing layer lives in the same viewport coordinates as the box and is clipped to
+the box's current rect — so a resize only changes the clip.
+
+## Undo and erase
+
+- **Cmd+Z / Ctrl+Z undoes the last stroke.** Inside the note's textarea those keys keep their own
+  meaning (undoing typed text), so stroke-undo applies when focus is not in the textarea. Starting a
+  stroke therefore moves focus off the textarea (to the drawing surface), and clicking back into the
+  textarea returns it. Stays inside add mode's existing keyboard isolation, so the page never sees
+  the keystroke.
+- **Erase all** removes every stroke on this selection. Disabled while there is nothing drawn.
+
+## The comment box's bottom bar
+
+Left side, in this order: a **pencil icon button**, then the **three colour swatches**. Right side:
+the character counter (moved here from the left), then cancel and save.
+
+- The pencil button tells people the swatches belong to the pencil, and is also a menu button: it
+  opens a small menu (same treatment as the export group's chevron menu, §C2) holding **erase all**.
+  28px (the small-small size, §X). `aria-haspopup="menu"`, `aria-expanded`, a label such as
+  "drawing options". Esc closes the menu and returns focus to the button.
+- The swatches are a **radio group** ("pencil colour"), each a small circle in its colour with a
+  clear selected state that reads in the dark theme — including for the black swatch, which needs a
+  visible edge on a dark surface. Arrow keys move between them, as a radio group should.
+
+## Storage — kept separately, on top of the screenshot
+
+The screenshot itself is saved **untouched**; the drawing is its own layer on the item.
+
+- `FeedbackItem.drawing?: { width, height, strokes: { color: string; points: [x, y][] }[] }`, with
+  `width`/`height` = the final selection's CSS-pixel size and points in that selection's own
+  coordinates (origin = its top-left), cropped to it. Optional: items without a drawing omit it, and
+  existing items need no migration. Stored inline on the item record.
+- Nothing of the drawing layer may appear in the captured screenshot — it is part of the overlay that
+  `hideOverlayUI()` hides for the capture, exactly like the outline. The saved image is clean.
+
+## Where a drawing is shown
+
+- **The note list thumbnail**: the strokes over the thumbnail image, fitted exactly the way the image
+  is (the image is `object-fit: contain`; an SVG with `viewBox="0 0 width height"` and the matching
+  `preserveAspectRatio` lines up with it).
+- **The enlarged view**: over the main image and the peeks, inside `.xp-card-media` (the wrapper that
+  exists for exactly this), view-only. It must ride the FLIP morphs and the carousel with the image.
+- **Export: the drawn image only.** At export the strokes are painted onto the exported PNG, at the
+  image's real pixel size (the PNG is at the capture's dpr, so strokes scale with it). No separate
+  drawing data goes in the bundle, and the bundle format does not change — an item without a drawing
+  exports byte-for-byte as it does today (the frozen v1 fixture must still pass). Re-importing such a
+  bundle brings the drawing back **flattened into the image**; that is accepted.

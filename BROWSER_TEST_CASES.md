@@ -193,6 +193,64 @@ the same page.
       still work. Leave add mode by every route (button, switch+button, Esc, close, cancel) and
       confirm the list comes back fully interactive each time, with magnification working again.
 
+## 2a. Drawing on the selection (design/SALAMANDER_SPEC.md §AB)
+
+Place a box first (click or drag) for each of these; the pencil only exists once a box is placed.
+
+- [ ] **2a.1. (where the pencil works)** While placing (before any box) there is no pencil anywhere.
+      Once placed: inside the box the cursor is a **pencil** whose tip is exactly where a stroke
+      starts (draw a dot and compare); on each edge and corner it is the matching **resize**
+      cursor and a drag resizes rather than draws; outside the box and over the comment box it is
+      the normal arrow / text cursor.
+- [ ] **2a.2. (the stroke)** Draw quickly in a zig-zag and slowly in a curve: the line follows the
+      pointer smoothly (no polygon corners on a fast stroke), is 2px, round-ended, and yellow by
+      default. A single click leaves a dot. Starting a stroke on top of the page's own links/text
+      never activates or selects them.
+- [ ] **2a.3. (clip)** Draw a stroke that starts inside and runs well outside the box: only the
+      inside part shows, cut cleanly at the box's rectangle.
+- [ ] **2a.4. (pinned to the page)** After drawing, drag the right edge in over a stroke: the stroke
+      is cropped, not moved. Drag it back out: the rest of the stroke reappears where it was.
+      Same from the left and top edges (the box's origin moves; the strokes must not).
+- [ ] **2a.5. (bottom bar)** Left: the pencil button (28px), then three swatches — yellow, black,
+      red. Right: cancel, save; type past 900 characters and the counter appears just left of
+      cancel. Nothing overflows the 280px bar, even at 1000 characters. The black swatch is clearly
+      visible on the dark bar, and the selected swatch has an obvious ring.
+- [ ] **2a.6. (swatches)** Click red, draw; click black, draw: each stroke keeps its own colour.
+      Tab to the swatches (one Tab stop), arrow left/right/up/down moves the selection and wraps.
+- [ ] **2a.7. (colour persistence)** Pick red, save or cancel, start a new note: red is selected.
+      Reload the page, open the sidebar on another site, start a note: still red. Quit and restart
+      Chrome: back to yellow.
+- [ ] **2a.8. (undo)** Draw three strokes; Cmd+Z (Ctrl+Z on Windows/Linux) removes them one at a
+      time, last first. Click into the textarea, type a few words, Cmd+Z: the typing is undone and
+      the strokes are not. Draw again (focus moves off the textarea), Cmd+Z undoes the stroke.
+      On a page with its own Cmd+Z handling (a docs editor, Gmail compose open behind), the page
+      never reacts.
+- [ ] **2a.9. (erase all)** With nothing drawn, open the pencil menu: **erase all** is greyed out.
+      Draw, open the menu (it fades/scales in, like the export chevron's), **erase all** → every
+      stroke is gone, the menu closes, focus is on the pencil. With the menu open, Esc closes the
+      menu only (add mode stays); a second Esc exits add mode. Keyboard: focus the pencil, ArrowDown
+      opens the menu on its item; Tab closes it. Place a box near the bottom of the window: the menu
+      opens above the pencil instead of off-screen.
+- [ ] **2a.10. (capture purity — critical)** Draw bright red strokes over a clean, known area and
+      save. Open the saved note and export: the stored screenshot shows **no** extension UI of any
+      kind; in the list and enlarged view the strokes appear as a separate layer over it. Try it
+      with the pencil menu open at the moment you press save, and with the counter visible (901+
+      characters) where the comment box overlaps the selection in a small window.
+- [ ] **2a.11. (the list thumbnail)** The strokes sit exactly on the thumbnail image — for a wide
+      and for a tall selection (letterboxed either way). Hover the list so it magnifies: the
+      drawing scales with the image. Clicking directly on a stroke opens the note.
+- [ ] **2a.12. (the enlarged view)** Open a note with a drawing: through the whole expand morph the
+      drawing stays glued to the image, and again on collapse. Navigate with ↑/↓: it rides the
+      carousel with its image, and shows on the peeks too. Nothing in the enlarged view can draw
+      (no pencil cursor, no swatches).
+- [ ] **2a.13. (export)** Export a domain with one drawn and one plain note. In the zip, the drawn
+      note's PNG has the strokes burned in at full resolution (on a 2x display the lines are 4
+      device px wide and line up with what you saw); the plain note's PNG is identical to what was
+      captured. `feedback.md` mentions no drawing. Re-import the zip: the drawn note comes back with
+      the strokes as part of the image (no separate layer), which is expected.
+- [ ] **2a.14. (reduced motion)** With "reduce motion" on in the OS, the pencil menu opens and
+      closes instantly.
+
 ## 3. Viewing & managing feedback (§1.5, §3.3)
 
 - [ ] **3.1.** Click a thumbnail → the sidebar expands leftward to ~75% of the window (the page

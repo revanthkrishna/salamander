@@ -18,8 +18,11 @@ import {
   deleteItem,
   getDomainData,
   replaceDomainData,
+  getPenColor,
+  setPenColor,
   STORAGE_VERSION,
 } from './storage';
+import { isPenColor } from './drawing';
 import * as imageStore from './imageStore';
 import { exportDomain } from './export';
 import { dataUrlToBlob, blobToDataUrl } from './dataUrl';
@@ -57,6 +60,8 @@ import {
   ImportReplaceResponse,
   GetDomainItemCountMessage,
   GetDomainItemCountResponse,
+  GetPenColorResponse,
+  SetPenColorMessage,
   MessageHandlers,
   MessageType,
 } from './messages';
@@ -177,6 +182,8 @@ const handlers: MessageHandlers = {
   EXPORT: (message) => handleExport(message),
   GET_DOMAIN_ITEM_COUNT: (message) => handleGetDomainItemCount(message),
   IMPORT_REPLACE: (message) => handleImportReplace(message),
+  GET_PEN_COLOR: () => handleGetPenColor(),
+  SET_PEN_COLOR: (message) => handleSetPenColor(message),
 };
 
 function isKnownMessageType(type: unknown): type is MessageType {
@@ -399,6 +406,30 @@ export async function handleDeleteItem(message: DeleteItemMessage): Promise<Dele
     console.warn('[Annotator] could not delete feedback item:', err);
     return { ok: false, message: DELETE_ERROR_MESSAGE };
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The pencil's colour (design spec §AB) — chrome.storage.session, reached
+// through here because a content script cannot see session storage without
+// setAccessLevel, which this extension does not grant (see messages.ts).
+// Only the three palette HEXes are ever stored or handed back.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function handleGetPenColor(): Promise<GetPenColorResponse> {
+  try {
+    const color = await getPenColor();
+    return { color: isPenColor(color) ? color : null };
+  } catch (err) {
+    console.warn('[Annotator] could not read the pencil colour:', err);
+    return { color: null };
+  }
+}
+
+export function handleSetPenColor(message: SetPenColorMessage): void {
+  if (!isPenColor(message.color)) return;
+  void setPenColor(message.color).catch((err) => {
+    console.warn('[Annotator] could not save the pencil colour:', err);
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

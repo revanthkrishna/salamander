@@ -177,4 +177,16 @@ describe('frozen v1 bundle — write', () => {
     expect(SCHEMA_VERSION_V1).toBe(1);
     expect(buildFeedbackMarkdown(pages)).toBe(fixture);
   });
+
+  test('a drawing on an item changes nothing in feedback.md (design spec §AB: no format change)', () => {
+    // The drawing reaches the bundle only as pixels in the PNG (export.ts);
+    // the markdown and its yaml blocks are the frozen v1 text either way.
+    const drawing = { width: 320, height: 180, strokes: [{ color: '#E5484D', points: [[1, 2], [3, 4]] as [number, number][] }] };
+    const drawn = {
+      [DOCS]: [{ ...withHandles(ITEM_2), drawing }],
+      [PRICING]: [{ ...withHandles(ITEM_3), drawing }, withHandles(ITEM_1)],
+    };
+    expect(buildFeedbackMarkdown(drawn)).toBe(fixture);
+    expect(fixture).not.toMatch(/drawing|strokes/);
+  });
 });

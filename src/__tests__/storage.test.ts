@@ -17,6 +17,8 @@ import {
   setSidebarOpen,
   isSidebarOpen,
   clearSidebarState,
+  getPenColor,
+  setPenColor,
 } from '../storage';
 import * as imageStore from '../imageStore';
 import { CapturedContext, FeedbackItem } from '../types';
@@ -438,5 +440,46 @@ describe('storage.ts — sidebar session state', () => {
 
     await clearSidebarState(5);
     expect(await isSidebarOpen(5)).toBe(false);
+  });
+});
+
+describe('storage.ts — an item\'s drawing (design spec §AB)', () => {
+  const drawing = {
+    width: 200,
+    height: 100,
+    strokes: [{ color: '#E5484D', points: [[10, 10], [50, 40]] as [number, number][] }],
+  };
+
+  test('stored inline on the item record and read back unchanged', async () => {
+    await addItem('example.com', makeItem({ id: 1, drawing }));
+    const [read] = await getPageItems('example.com', makeItem().normalisedUrl);
+    expect(read.drawing).toEqual(drawing);
+    // inline: no separate key for it
+    expect((await getDomainData('example.com'))!.pages[makeItem().normalisedUrl][0].drawing).toEqual(drawing);
+  });
+
+  test('an item without one reads back without the key — no migration, no default', async () => {
+    await addItem('example.com', makeItem({ id: 1 }));
+    const [read] = await getPageItems('example.com', makeItem().normalisedUrl);
+    expect(read).not.toHaveProperty('drawing');
+    expect(STORAGE_VERSION).toBe(2);
+  });
+
+  test('a note edit leaves the drawing alone', async () => {
+    await addItem('example.com', makeItem({ id: 1, drawing }));
+    await updateItem('example.com', makeItem().normalisedUrl, 1, { note: 'edited' });
+    const [read] = await getPageItems('example.com', makeItem().normalisedUrl);
+    expect(read.note).toBe('edited');
+    expect(read.drawing).toEqual(drawing);
+  });
+});
+
+describe('storage.ts — the pencil colour (chrome.storage.session)', () => {
+  test('null until set, then the value, in session storage (not local)', async () => {
+    expect(await getPenColor()).toBeNull();
+    await setPenColor('#1A1712');
+    expect(await getPenColor()).toBe('#1A1712');
+    expect(chrome.storage.session.set).toHaveBeenCalledWith({ penColor: '#1A1712' }, expect.any(Function));
+    expect(chrome.storage.local.set).not.toHaveBeenCalled();
   });
 });

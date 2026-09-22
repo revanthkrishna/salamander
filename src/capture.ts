@@ -263,6 +263,11 @@ export async function captureAndSave(
       screenshotKey: captured.screenshotKey,
       thumbnailDataUrl: captured.thumbnailDataUrl,
       context,
+      // Design spec §AB: the drawing is its own layer on the item, never in
+      // the screenshot (add mode's strokes were hidden with the rest of the
+      // overlay above). Omitted, not undefined, when nothing was drawn, so a
+      // drawing-less item is stored exactly as before.
+      ...(selection.drawing ? { drawing: selection.drawing } : {}),
     };
 
     const saveMessage: SaveItemMessage = {

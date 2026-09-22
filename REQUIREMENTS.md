@@ -43,12 +43,19 @@ All technical open items have been resolved (see inline "*(decided by: ... subag
 - [ ] Comment box contains: a textarea (placeholder `"what should change here?"`, lowercase), a character counter (see below), and two buttons: **cancel** and **save**
 - [ ] **Decision:** Text input max length 1000 characters; counter appears at 900+, turns red at 980+. **Rationale:** 1000-char limit allows richer descriptions than v1's 400; 90%/98% thresholds (900/980) provide appropriate warning and danger signals proportional to the expanded limit, giving users clear feedback before hitting the hard limit. *(decided by: frontend-developer subagent)*
 - [ ] **save** is disabled while the textarea is empty
+- [ ] **Drawing on the selection (Salamander §AB).** Once the box is placed and until the note is saved or cancelled, the box's interior is a **pencil** (a pencil cursor, hotspot at its tip): pointer strokes draw 2px round-capped lines in the chosen colour. The edge/corner hit zones keep their resize cursors and keep resizing; outside the box the cursor is the normal arrow. Never while placing, never while the capture runs, never in the enlarged view (drawings are view-only there).
+  - The comment box's bottom bar holds, on the left, a **pencil** menu button (28px, "drawing options", whose menu holds **erase all** — disabled while nothing is drawn) and three colour swatches as a radio group "pencil colour": **yellow `#E8B600`** (default), **black `#1A1712`**, **red `#E5484D`**. On the right: the character counter, then cancel and save.
+  - Each stroke stores its colour as HEX. The chosen colour is remembered until the browser closes (across reloads, pages and sites) and resets to yellow in a fresh browser session — `chrome.storage.session`, reached through the service worker.
+  - Strokes are pinned to the page, not to the box: resizing never moves them — shrinking crops what falls outside, growing reveals more around them.
+  - **Cmd+Z / Ctrl+Z undoes the last stroke** whenever focus is not in the note's textarea (there the keys keep undoing typed text). Starting a stroke moves focus off the textarea onto the drawing; clicking back into the textarea returns it. The keys stay inside add mode's keyboard isolation.
+  - Strokes alone count as unfinished work (opening a note from the list is refused, as with typed text).
 - [ ] Only clicking **cancel** discards the in-progress box and exits add mode with no feedback item created. Clicking outside the box/comment area does **nothing** — no wiggle, no dismiss, no effect at all — regardless of whether the textarea is empty or not. The user must explicitly click **save** or **cancel** to leave the in-progress state.
 - [ ] Clicking **save**:
-  1. The selection box outline, resize hit zones, dimming overlay, and comment box are hidden for the single frame of capture (these are drawn within the page area and would otherwise appear in the screenshot). The sidebar's note list also has its dock magnification suspended for the whole of add mode, since a magnified item grows out over the page and could otherwise bleed into a capture. The sidebar itself does **not** need to be hidden — since it resizes the page rather than overlaying it, the page's visible viewport never extends under the sidebar, so the sidebar can never fall inside a selection's crop bounds.
+  1. The selection box outline, resize hit zones, the drawing, dimming overlay, and comment box are hidden for the single frame of capture (these are drawn within the page area and would otherwise appear in the screenshot). The sidebar's note list also has its dock magnification suspended for the whole of add mode, since a magnified item grows out over the page and could otherwise bleed into a capture. The sidebar itself does **not** need to be hidden — since it resizes the page rather than overlaying it, the page's visible viewport never extends under the sidebar, so the sidebar can never fall inside a selection's crop bounds.
   2. Extension captures a screenshot cropped to the selection box's pixel bounds
   3. Extension captures DOM/page context for the selected area (see §1.4)
   4. Add mode exits; sidebar restores; a new thumbnail appears at the bottom of the sidebar list showing the screenshot + note text beneath it
+  5. The screenshot is stored **untouched**; whatever was drawn is saved separately on the item as `drawing` (`{ width, height, strokes: { color, points }[] }` — the final selection's CSS size, points relative to its top-left, cropped to it). An item nothing was drawn on has no `drawing`.
 - [ ] Each feedback item gets a globally unique, sequential ID (continues incrementing across all URLs of the domain — mirrors v1's continuous pin numbering — so a reference like "item #7" is unambiguous even across pages)
 
 ### 1.3 Screenshot Capture — Technical Constraints
@@ -88,7 +95,7 @@ Decision: no computed styles (e.g. `position`, `display`, `background-color`) in
 ### 1.5 Viewing & Managing Feedback
 
 - [ ] Sidebar shows thumbnails only for feedback items belonging to the current normalized URL — feedback for other URLs is stored but hidden until the user navigates there
-- [ ] Each thumbnail shows the screenshot image and the note text beneath it
+- [ ] Each thumbnail shows the screenshot image and the note text beneath it, with the note's drawing (if any) laid over the image, fitted exactly as the image is
 - [ ] Clicking a thumbnail opens the **enlarged view**: the sidebar itself expands to ~75% of the viewport (the page is not re-laid out; the remaining strip is dimmed by a scrim), showing the note's large screenshot, "feedback #n" and an editable note as one block centred in the panel. The previous and next notes peek in ~20px past the top and bottom edges, each at 3/4 of *its own* natural size and pushed right of the block along a shared arc (click to move to them); a rail of **collapse** / **↑** / **↓** buttons at the window's right edge exits or navigates, as do Esc and the arrow keys. Clicking the scrim collapses back to the list. The host page cannot be scrolled while the view is open (Salamander v5 §R/§T/§U).
 - [ ] A note can also be deleted straight from the list: hovering (or keyboard-focusing) a list item reveals a small danger-styled delete button over the thumbnail's top-right corner, which deletes that item without opening it
 - [ ] In the enlarged view: user can edit the note text, or delete the item entirely. **The screenshot/selection area itself is not editable in v1** (delete and recapture instead) — cropping/repositioning is deferred (§7)
@@ -101,7 +108,7 @@ Decision: no computed styles (e.g. `position`, `display`, `background-color`) in
 - [ ] User clicks **export** → downloads a `.zip` bundle containing **all** feedback items across **all URLs** of the current domain (not just the current page — mirrors v1's "export everything, filtered view only in the UI" model)
 - [ ] If there are zero feedback items for the domain: `alert("nothing to export")`, no download
 - [ ] Bundle contents — just two things, no separate machine-only file:
-  - `screenshots/{id}.png` — one file per feedback item
+  - `screenshots/{id}.png` — one file per feedback item. For an item with a drawing, the strokes are painted into this PNG at the image's real pixel size (the drawn image only — no separate drawing data, no format change); an item without one exports byte-for-byte as stored. Re-importing brings a drawing back flattened into the image.
   - `feedback.md` — the single source of truth, human/agent-readable **and** what the extension re-parses on import
 - [ ] `feedback.md` structure:
   - One `##` section per URL, in order of that URL's first-captured item
@@ -242,7 +249,7 @@ Decision: no computed styles (e.g. `position`, `display`, `background-color`) in
 
 ## 7. Out of Scope (v1)
 
-- Drawing/annotating directly on top of a captured screenshot (freehand markup) — planned as the **next** milestone after this one, not this one
+- Drawing on a screenshot **after** it is saved (the enlarged view shows drawings view-only), shapes/arrows/text, and any drawing tool beyond the §1.2 pencil
 - Repositioning or re-cropping an existing feedback item's screenshot after capture (delete + recapture instead) — cropping is a planned future improvement
 - Persistent visual markers/highlights on the live page for saved feedback — explicitly dropped in this rewrite (see §1.5); may revisit
 - Auto-scroll + stitch capture for selections that exceed the viewport

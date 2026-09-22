@@ -13,7 +13,10 @@
 // 'placing' and nothing has been drawn yet — a preview of the exact
 // click-to-place box plus a "click or drag to select" tooltip, both
 // following the cursor (design spec §G; the tooltip is a first-run hint
-// that retires itself after ~5s, once per page session — v4 §N).
+// that retires itself after ~5s, once per page session — v4 §N). Once the
+// box is placed, its interior is also a pencil (design spec §AB): strokes
+// drawn there, a pencil menu (erase all) and three colour swatches in the
+// comment box's bottom bar, and Cmd/Ctrl+Z to take the last stroke back.
 //
 // What this module does NOT do: capture a screenshot, talk to the service
 // worker, or build DOM/context data. That is src/capture.ts and
@@ -41,12 +44,21 @@
 // passed to the capture message unchanged — viewport CSS px is already the
 // right space for cropping a viewport screenshot.
 
-import { Rect } from './types';
+import { Drawing, DrawingStroke, Rect } from './types';
 import { getSidebarWidth, DEFAULT_THUMBNAIL_BOX_SIZE } from './sidebar';
 import { getContentViewportSize } from './capture';
 import { clamp } from './flip';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
 import { DISABLED_CSS, FOCUS_RING_CSS, getThemeCSS, RADII, STATE_TRANSITION_CSS } from './theme';
+import {
+  cropDrawing,
+  createStrokePath,
+  DEFAULT_PEN_COLOR,
+  isPenColor,
+  PEN_COLORS,
+  PenColor,
+} from './drawing';
+import { ICON_ERASER, ICON_PENCIL, PENCIL_CURSOR } from './icons';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -56,6 +68,10 @@ export interface AddModeResult {
   /** Selection rect in viewport-relative CSS px (see module doc comment). */
   rect: Rect;
   note: string;
+  /** What was drawn on the selection (design spec §AB), already cropped to
+   *  `rect` and in its own coordinates. Absent when nothing was drawn, or
+   *  when everything drawn lies outside the final rect. */
+  drawing?: Drawing;
 }
 
 export interface AddModeCallbacks {
@@ -74,6 +90,10 @@ export interface AddModeCallbacks {
   /** Fired after cancel has already fully torn down add mode (exitAddMode()
    *  has already run) — a notification hook only, nothing left to clean up. */
   onCancel: () => void;
+  /** Fired when the user picks a pencil colour (design spec §AB), so the
+   *  caller can remember it for the browser session. Not fired by
+   *  setPenColor() — only a choice made in the swatches is news. */
+  onPenColorChange?: (color: PenColor) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -86,7 +106,13 @@ const MIN_SIZE = 20;
  *  "drag" (draw a custom-sized box between mousedown and the current/mouseup
  *  point) — REQUIREMENTS §1.2. */
 const DRAG_THRESHOLD = 5;
-const COMMENT_WIDTH = 280;
+/** The comment box's width. 296, not the original 280: the bottom bar now
+ *  holds the pencil and its three swatches as well as the counter, cancel and
+ *  save, and with the counter showing (900+ characters) that row needs 279px
+ *  of content. 280 minus the bar's own 6px padding left only 268, so it
+ *  overflowed; widening the box keeps every button's padding the same as
+ *  everywhere else in the UI, where squeezing cancel/save would not. */
+const COMMENT_WIDTH = 296;
 /** Comment box height before its first layout pass (offsetHeight is 0 until
  *  then): 88px textarea + 42px of visible footer bar (design spec §3.2 v2
  *  §C — the footer's own 56px height, made of a 20px top padding that
@@ -143,6 +169,21 @@ const TOOLTIP_LIFETIME = 5000;
 const TOOLTIP_FALLBACK_WIDTH = 150;
 const TOOLTIP_FALLBACK_HEIGHT = 28;
 
+/** The pencil menu (design spec §AB, the §C2 menu's treatment): its height
+ *  before its first layout pass — 4px padding + one 32px item + 4px padding
+ *  + 1px border each side — used only to decide whether it opens below the
+ *  comment box or above the pencil. */
+const DRAW_MENU_FALLBACK_HEIGHT = 42;
+const DRAW_MENU_GAP = 6;
+/** How far above the comment box's bottom edge the menu's bottom sits when
+ *  it opens upward: the footer's visible height (42px, COMMENT_FALLBACK_HEIGHT's
+ *  footer share) plus a 4px gap, so it clears the pencil button. */
+const DRAW_MENU_ABOVE_OFFSET = 46;
+/** Pointer samples closer than this (CSS px) to the previous point add
+ *  nothing visible and are dropped, so a slow stroke with coalesced events
+ *  on a 120Hz+ pointer does not store thousands of near-duplicates. */
+const MIN_POINT_GAP = 0.5;
+
 type ZoneKey = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 /** Edges first, corners last: at small box sizes the corner squares overlap
  *  the ends of the edge strips, and later siblings win the hit test, so a
@@ -181,6 +222,11 @@ const ADD_MODE_CSS = `
   .blocker.placing { cursor: crosshair; }
 
   .visuals[data-hidden="true"] { visibility: hidden; }
+  /* A descendant that sets visibility: visible itself would override the
+     inherited hidden above and show up in the screenshot. These two are the
+     only ones that do; this out-specifies both. */
+  .visuals[data-hidden="true"] .counter,
+  .visuals[data-hidden="true"] .draw-menu { visibility: hidden; }
   /* Nothing selection-related renders until the first placement/drag gives
      the box a real rect (renderBox() sets data-has-box). Without this the
      scrim's spread shadow would dim the whole page during 'placing'. */
@@ -294,6 +340,37 @@ const ADD_MODE_CSS = `
   .box-dash .dash-ink { stroke: var(--sal-on-accent); }
   .box-dash .dash-accent { stroke: var(--sal-accent); stroke-dasharray: ${OUTLINE_DASH} ${OUTLINE_DASH}; }
 
+  /* The drawing surface (design spec §AB): exactly the selection's rect,
+     clipping a layer of strokes that lives in viewport coordinates — so the
+     strokes are pinned to the page and a resize only moves the clip. It is
+     the rect's interior only: the resize zones are later siblings and win
+     the hit test along the edges, keeping their resize cursors. A plain
+     rectangular clip, like the crop itself, so what shows is exactly what
+     the saved drawing will hold. Inside .visuals, so hideOverlayUI() takes
+     it out of the screenshot with everything else. Built with the comment
+     box, i.e. never during 'placing'. */
+  .draw-surface {
+    position: absolute;
+    overflow: hidden;
+    pointer-events: auto;
+    cursor: ${PENCIL_CURSOR};
+    outline: none;
+    touch-action: none;
+    user-select: none;
+  }
+  .visuals:not([data-has-box="true"]) .draw-surface { display: none; }
+  .draw-strokes {
+    position: absolute;
+    overflow: visible;
+    pointer-events: none;
+  }
+  /* Mid-stroke the pointer may cross a hit zone or the comment box; the
+     pencil stays the pencil until the stroke ends. (The zones' own cursor
+     is an inline style, hence !important.) */
+  .visuals[data-drawing="true"] .resize-zone,
+  .visuals[data-drawing="true"] .comment-box,
+  .visuals[data-drawing="true"] .comment-box * { cursor: ${PENCIL_CURSOR} !important; }
+
   /* The wrapper itself has no fill/border/radius of its own (design spec
      §3.2 v2 §C): it just positions and drop-shadows its two block children,
      the text area and the footer "extension", which each own their own
@@ -370,12 +447,14 @@ const ADD_MODE_CSS = `
     box-shadow: inset 0 0 0 1px var(--sal-line);
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 4px;
   }
 
+  /* Right side (design spec §AB): the counter sits just left of cancel. It
+     only takes up room once it shows — hidden, it would push the bar past
+     its 280px with the pencil tools on the left. */
   .counter {
-    margin-right: auto;
-    padding: 0 6px;
+    padding: 0 4px;
     font-family: var(--sal-font-mono);
     font-size: 11px;
     color: var(--sal-muted);
@@ -383,6 +462,152 @@ const ADD_MODE_CSS = `
   }
   .counter[data-warn="true"] { visibility: visible; }
   .counter[data-danger="true"] { color: var(--sal-danger); font-weight: 600; }
+  .counter:not([data-warn="true"]) { display: none; }
+
+  /* Left side (design spec §AB): the pencil, then its three swatches. The
+     group pushes everything after it to the right. */
+  .draw-tools {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-right: auto;
+  }
+
+  /* The pencil: a 28px ghost icon button (§X) and a menu button (§C2). */
+  .btn-pencil {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    margin: 0;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: var(--sal-radius-sm);
+    background: transparent;
+    color: var(--sal-muted);
+    cursor: pointer;
+    outline: none;
+    ${STATE_TRANSITION_CSS}
+  }
+  .btn-pencil .icon { width: 16px; height: 16px; display: inline-flex; }
+  .btn-pencil .icon svg { width: 100%; height: 100%; display: block; }
+  /* Open takes the hover fill, like the chevron's (§C2). Before :hover and
+     :active so the press fill still reads while it is open. */
+  .btn-pencil[aria-expanded="true"] { background: var(--sal-hover); color: var(--sal-text); }
+  .btn-pencil:not(:disabled):hover { background: var(--sal-hover); color: var(--sal-text); }
+  .btn-pencil:not(:disabled):active { background: var(--sal-press); color: var(--sal-text); }
+  .btn-pencil:focus-visible { color: var(--sal-text); ${FOCUS_RING_CSS} }
+  .btn-pencil:disabled { ${DISABLED_CSS} }
+
+  /* The swatches: a radio group of 18px-wide targets, each holding a 12px
+     circle in its colour. Every dot carries a 1px lineStrong edge, which is
+     what keeps the black one visible on the dark bar; the checked one adds
+     a gap and a text-coloured ring. Keyboard focus is the standard ring on
+     the target, so "checked" and "focused" never look alike. */
+  .swatches { display: flex; align-items: center; }
+  .swatch {
+    width: 18px;
+    height: 28px;
+    flex-shrink: 0;
+    margin: 0;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: var(--sal-radius-sm);
+    background: transparent;
+    cursor: pointer;
+    outline: none;
+  }
+  .swatch-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px var(--sal-line-strong);
+    transition: box-shadow 140ms ease-out;
+  }
+  .swatch:not(:disabled):hover .swatch-dot { box-shadow: 0 0 0 1px var(--sal-muted); }
+  .swatch[aria-checked="true"] .swatch-dot,
+  .swatch[aria-checked="true"]:not(:disabled):hover .swatch-dot {
+    box-shadow: 0 0 0 2px var(--sal-raised), 0 0 0 3.5px var(--sal-text);
+  }
+  .swatch:focus-visible { ${FOCUS_RING_CSS} }
+  .swatch:disabled { ${DISABLED_CSS} }
+
+  /* The pencil's menu — the export group's chevron menu (§C2), same
+     surface, item and motion: closed is the base state and carries the exit
+     (90ms, accelerating), [data-open] the entrance (120ms, standard).
+     visibility rather than [hidden] so both directions animate and nothing
+     inside is focusable while it is closed. A child of the comment box
+     rather than of the footer, whose z-index sits under the text area: it
+     opens below the box, or above the pencil when there is no room below. */
+  .draw-menu {
+    position: absolute;
+    left: 6px;
+    top: calc(100% + ${DRAW_MENU_GAP}px);
+    z-index: 2;
+    min-width: 132px;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    border: 1px solid var(--sal-line);
+    border-radius: var(--sal-radius-md);
+    background: var(--sal-surface);
+    box-shadow: var(--sal-shadow-pop);
+    transform-origin: top left;
+    opacity: 0;
+    visibility: hidden;
+    transform: scale(0.96);
+    transition:
+      opacity 90ms cubic-bezier(.3, 0, 1, 1),
+      transform 90ms cubic-bezier(.3, 0, 1, 1),
+      visibility 0s linear 90ms;
+  }
+  .draw-menu[data-placement="above"] {
+    top: auto;
+    bottom: ${DRAW_MENU_ABOVE_OFFSET}px;
+    transform-origin: bottom left;
+  }
+  .draw-menu[data-open="true"] {
+    opacity: 1;
+    visibility: visible;
+    transform: scale(1);
+    transition:
+      opacity 120ms cubic-bezier(.2, 0, 0, 1),
+      transform 120ms cubic-bezier(.2, 0, 0, 1),
+      visibility 0s;
+  }
+  .draw-menu-item {
+    height: 32px;
+    margin: 0;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-radius: var(--sal-radius-sm);
+    color: var(--sal-text);
+    font-family: var(--sal-font-body);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    cursor: pointer;
+    outline: none;
+    ${STATE_TRANSITION_CSS}
+  }
+  .draw-menu-item:not(:disabled):hover { background: var(--sal-hover); }
+  .draw-menu-item:focus-visible { background: var(--sal-hover); }
+  .draw-menu-item:not(:disabled):active { background: var(--sal-press); }
+  .draw-menu-item:disabled { ${DISABLED_CSS} }
+  .draw-menu-item .icon { width: 16px; height: 16px; flex-shrink: 0; display: inline-flex; }
+  .draw-menu-item .icon svg { width: 100%; height: 100%; display: block; }
 
   /* Ghost buttons (design spec §2 "save"/"cancel" rows, restyled per v2 §C):
      rounded-sm, ~30px tall, padded — free-floating inside the raised bar
@@ -435,9 +660,14 @@ const ADD_MODE_CSS = `
   @media (prefers-reduced-motion: reduce) {
     .visuals[data-preview="true"] .scrim-layer,
     .visuals[data-preview="true"] .box,
-    .preview-tooltip {
+    .preview-tooltip,
+    .draw-menu,
+    .draw-menu[data-open="true"],
+    .swatch-dot {
       transition: none;
     }
+    .draw-menu,
+    .draw-menu[data-open="true"] { transform: none; }
   }
 `;
 
@@ -470,6 +700,36 @@ let elCounter: HTMLSpanElement | null = null;
 let elCancelBtn: HTMLButtonElement | null = null;
 let elSaveBtn: HTMLButtonElement | null = null;
 let elPreviewTooltip: HTMLDivElement | null = null;
+let elDrawSurface: HTMLDivElement | null = null;
+let elStrokes: SVGSVGElement | null = null;
+let elPencilBtn: HTMLButtonElement | null = null;
+let elSwatches: HTMLButtonElement[] = [];
+let elDrawMenu: HTMLDivElement | null = null;
+let elEraseItem: HTMLButtonElement | null = null;
+
+// ── The pencil (design spec §AB) ────────────────────────────────────────────
+
+/** Finished strokes, oldest first, in viewport CSS px (see drawing.ts's
+ *  banner) — pinned to the page, clipped by the box. Their <path>s are kept
+ *  alongside at the same index so undo can remove exactly the last one. */
+let strokes: DrawingStroke[] = [];
+let strokePaths: SVGPathElement[] = [];
+/** The stroke under the pointer right now, if any. Joins `strokes` on
+ *  pointerup. `activeD` is its path data, grown by appending so a long
+ *  stroke is not re-serialised on every move. */
+let activeStroke: DrawingStroke | null = null;
+let activePath: SVGPathElement | null = null;
+let activeD = '';
+let activePointerId: number | undefined;
+/** Colour for the next stroke. Page-session state like tooltipDeadline —
+ *  deliberately not reset by exitAddMode(); content.ts also restores it
+ *  from the browser session on every entry (setPenColor). */
+let penColor: PenColor = DEFAULT_PEN_COLOR;
+let drawMenuOpen = false;
+/** Between a save click and either exitAddMode() (success) or
+ *  showOverlayUI() (failure): the overlay is hidden or about to be, and
+ *  nothing may be drawn, undone or erased under the capture. */
+let capturing = false;
 
 /** Whether the placing-phase preview (box/scrim + tooltip) is currently
  *  shown. Tracked separately from `elVisuals.dataset.preview` so
@@ -784,14 +1044,21 @@ function buildCommentDOM(): void {
   elSaveBtn.disabled = true;
   elSaveBtn.addEventListener('click', handleSaveClick);
 
+  // Left: the pencil and its swatches; right: counter, cancel, save
+  // (design spec §AB). The menu hangs off the comment box itself — see the
+  // .draw-menu rule for why not off the footer.
+  footer.appendChild(buildDrawTools());
   footer.appendChild(elCounter);
   footer.appendChild(elCancelBtn);
   footer.appendChild(elSaveBtn);
 
   elComment.appendChild(elTextarea);
   elComment.appendChild(footer);
+  elComment.appendChild(buildDrawMenu());
 
   elVisuals.appendChild(elComment);
+  buildDrawSurface();
+  updateDrawControls();
 
   // Capture-phase window-level keyboard isolation (see keyboardIsolation.ts)
   // so keystrokes typed into the comment textarea can't leak to — or be
@@ -799,7 +1066,117 @@ function buildCommentDOM(): void {
   // user reports on Gmail/Instagram). Installed only now, once the textarea
   // actually exists, and released in exitAddMode() — never left running
   // while add mode is idle or still in the pre-placement 'placing' phase.
-  if (host) keyboardIsolation = installKeyboardIsolation(host);
+  // The isolation stops every key before it reaches anything inside our
+  // shadow root too, so add mode's own keys (stroke undo, the swatches'
+  // arrows, the pencil menu) are handled in its keydown hook.
+  if (host) keyboardIsolation = installKeyboardIsolation(host, handleIsolatedKeydown);
+  // Outside pointerdown closes the pencil menu (§C2's rule). Two listeners
+  // for the same reason as the sidebar's: inside this closed root the root
+  // sees the real target; outside it, everything of ours retargets to host.
+  shadow?.addEventListener('pointerdown', onShadowPointerDown, true);
+  document.addEventListener('pointerdown', onDocumentPointerDown, true);
+}
+
+/** The pencil button and the colour radio group (design spec §AB). */
+function buildDrawTools(): HTMLDivElement {
+  const tools = document.createElement('div');
+  tools.className = 'draw-tools';
+
+  elPencilBtn = document.createElement('button');
+  elPencilBtn.type = 'button';
+  elPencilBtn.className = 'btn-pencil';
+  elPencilBtn.setAttribute('aria-label', 'drawing options');
+  elPencilBtn.title = 'drawing options';
+  elPencilBtn.setAttribute('aria-haspopup', 'menu');
+  elPencilBtn.setAttribute('aria-expanded', 'false');
+  const icon = document.createElement('span');
+  icon.className = 'icon';
+  icon.innerHTML = ICON_PENCIL;
+  elPencilBtn.appendChild(icon);
+  elPencilBtn.addEventListener('click', (e) => {
+    if (drawMenuOpen) {
+      closeDrawMenu();
+      return;
+    }
+    // Keyboard activation reports detail 0; only then does focus move into
+    // the menu (§C2's "open via keyboard focuses the first item").
+    openDrawMenu({ focusFirstItem: e.detail === 0 });
+  });
+
+  const group = document.createElement('div');
+  group.className = 'swatches';
+  group.setAttribute('role', 'radiogroup');
+  group.setAttribute('aria-label', 'pencil colour');
+  elSwatches = PEN_COLORS.map((c) => {
+    const sw = document.createElement('button');
+    sw.type = 'button';
+    sw.className = 'swatch';
+    sw.setAttribute('role', 'radio');
+    sw.setAttribute('aria-label', c.name);
+    sw.title = c.name;
+    sw.dataset.color = c.hex;
+    const dot = document.createElement('span');
+    dot.className = 'swatch-dot';
+    dot.style.background = c.hex;
+    dot.setAttribute('aria-hidden', 'true');
+    sw.appendChild(dot);
+    sw.addEventListener('click', () => choosePenColor(c.hex));
+    group.appendChild(sw);
+    return sw;
+  });
+  paintSwatches();
+
+  tools.appendChild(elPencilBtn);
+  tools.appendChild(group);
+  return tools;
+}
+
+function buildDrawMenu(): HTMLDivElement {
+  elDrawMenu = document.createElement('div');
+  elDrawMenu.className = 'draw-menu';
+  elDrawMenu.setAttribute('role', 'menu');
+  elDrawMenu.setAttribute('aria-label', 'drawing options');
+  elDrawMenu.dataset.open = 'false';
+
+  elEraseItem = document.createElement('button');
+  elEraseItem.type = 'button';
+  elEraseItem.className = 'draw-menu-item';
+  elEraseItem.setAttribute('role', 'menuitem');
+  const icon = document.createElement('span');
+  icon.className = 'icon';
+  icon.innerHTML = ICON_ERASER;
+  const label = document.createElement('span');
+  label.textContent = 'erase all';
+  elEraseItem.appendChild(icon);
+  elEraseItem.appendChild(label);
+  elEraseItem.addEventListener('click', () => {
+    eraseAll();
+    closeDrawMenu({ returnFocus: true });
+  });
+
+  elDrawMenu.appendChild(elEraseItem);
+  return elDrawMenu;
+}
+
+/** The surface strokes are drawn on, and the layer they live in. Inserted
+ *  before the resize zones so the zones stay on top of it along the edges. */
+function buildDrawSurface(): void {
+  if (!elVisuals) return;
+  elDrawSurface = document.createElement('div');
+  elDrawSurface.className = 'draw-surface';
+  // Focusable but not a Tab stop: a stroke moves focus here, off the
+  // textarea, so Cmd/Ctrl+Z means "undo stroke" (design spec §AB).
+  elDrawSurface.tabIndex = -1;
+  elDrawSurface.setAttribute('role', 'img');
+  elDrawSurface.setAttribute('aria-label', 'drawing on the selection');
+  elDrawSurface.addEventListener('pointerdown', handleSurfacePointerDown);
+
+  elStrokes = document.createElementNS(SVG_NS, 'svg');
+  elStrokes.setAttribute('class', 'draw-strokes');
+  elStrokes.setAttribute('aria-hidden', 'true');
+  elDrawSurface.appendChild(elStrokes);
+
+  elVisuals.insertBefore(elDrawSurface, elZones[ZONE_KEYS[0]] ?? null);
 }
 
 function layoutHost(bounds: { width: number; height: number }): void {
@@ -831,7 +1208,21 @@ function renderBox(): void {
   if (elVisuals) elVisuals.dataset.hasBox = 'true';
 
   renderZones();
+  renderDrawLayer(bounds);
   positionComment(bounds);
+}
+
+/** The surface takes the box's rect; the stroke layer inside it is shifted
+ *  back by the same amount and sized to the whole selectable area, so the
+ *  strokes stay where they were drawn on the page and the box is only ever
+ *  their clip (design spec §AB). 1:1 CSS px, no viewBox. */
+function renderDrawLayer(bounds: { width: number; height: number }): void {
+  if (!elDrawSurface || !elStrokes) return;
+  setRectStyle(elDrawSurface, box.x, box.y, box.width, box.height);
+  elStrokes.style.left = `${-box.x}px`;
+  elStrokes.style.top = `${-box.y}px`;
+  elStrokes.setAttribute('width', `${bounds.width}`);
+  elStrokes.setAttribute('height', `${bounds.height}`);
 }
 
 /** Fit a placed box back inside `bounds`: shifted first (size kept), and
@@ -1049,7 +1440,14 @@ function onPlacementMouseOut(e: MouseEvent): void {
 // ---------------------------------------------------------------------------
 
 function handleBlockerMouseDown(e: MouseEvent): void {
-  if (mode !== 'placing') return; // 'editing': clicking outside the box/comment does nothing (§1.2)
+  if (mode !== 'placing') {
+    // 'editing': clicking outside the box/comment does nothing (§1.2) — not
+    // even move focus. Left to its default, the press would blur the
+    // textarea or the drawing surface onto the page's <body>, outside the
+    // keyboard isolation, and the page would get the next Cmd/Ctrl+Z.
+    if (mode === 'editing') e.preventDefault();
+    return;
+  }
   if (e.button !== 0) return;
   e.preventDefault();
 
@@ -1130,6 +1528,9 @@ function startResize(zone: ZoneKey, e: MouseEvent): void {
   // the thin hit zone it's over the blocker, which otherwise shows the
   // default arrow mid-drag.
   if (elBlocker) elBlocker.style.cursor = ZONE_CURSORS[zone];
+  // ...and over the rect's interior, which is otherwise the pencil.
+  if (elDrawSurface) elDrawSurface.style.cursor = ZONE_CURSORS[zone];
+  closeDrawMenu();
   document.addEventListener('mousemove', onResizeMove);
   document.addEventListener('mouseup', onResizeUp);
 }
@@ -1144,8 +1545,262 @@ function onResizeMove(e: MouseEvent): void {
 function onResizeUp(): void {
   activeZone = null;
   if (elBlocker) elBlocker.style.cursor = '';
+  if (elDrawSurface) elDrawSurface.style.cursor = '';
   document.removeEventListener('mousemove', onResizeMove);
   document.removeEventListener('mouseup', onResizeUp);
+}
+
+// ---------------------------------------------------------------------------
+// The pencil (design spec §AB)
+// ---------------------------------------------------------------------------
+
+/** Whether the pencil may act right now: editing, not mid-capture, and not
+ *  mid-resize. */
+function canDraw(): boolean {
+  return mode === 'editing' && !capturing && activeZone === null;
+}
+
+/** Pointer Events rather than the mouse events the placement and resize
+ *  gestures use: only they carry coalesced samples, which is what keeps a
+ *  fast stroke smooth instead of a polygon of frame-rate corners. The
+ *  listeners are document-level like the other gestures', so a stroke that
+ *  wanders off the surface keeps drawing (the clip hides that part) — and
+ *  pointer capture, where there is one, keeps delivering it even outside
+ *  the window. */
+function handleSurfacePointerDown(e: PointerEvent): void {
+  if (!canDraw() || !elDrawSurface || !elStrokes) return;
+  if (e.button !== 0 || activeStroke) return;
+  e.preventDefault();
+  e.stopPropagation();
+  closeDrawMenu();
+  // Off the textarea, so Cmd/Ctrl+Z now undoes strokes, not typing (§AB).
+  elDrawSurface.focus({ preventScroll: true });
+
+  activeStroke = { color: penColor, points: [[e.clientX, e.clientY]] };
+  activePath = createStrokePath(document, activeStroke);
+  activeD = activePath.getAttribute('d') ?? '';
+  elStrokes.appendChild(activePath);
+  activePointerId = e.pointerId;
+  if (typeof e.pointerId === 'number' && typeof elDrawSurface.setPointerCapture === 'function') {
+    try {
+      elDrawSurface.setPointerCapture(e.pointerId);
+    } catch {
+      // Not capturable (the pointer is already gone) — the document
+      // listeners still see the rest of the stroke inside the window.
+    }
+  }
+  if (elVisuals) elVisuals.dataset.drawing = 'true';
+  if (elBlocker) elBlocker.style.cursor = PENCIL_CURSOR;
+  document.addEventListener('pointermove', onStrokeMove);
+  document.addEventListener('pointerup', onStrokeEnd);
+  document.addEventListener('pointercancel', onStrokeEnd);
+}
+
+function isActivePointer(e: PointerEvent): boolean {
+  return activePointerId === undefined || e.pointerId === undefined || e.pointerId === activePointerId;
+}
+
+/** Append one sample, unless it is too close to the last one to matter. */
+function addStrokePoint(x: number, y: number): void {
+  if (!activeStroke || !activePath) return;
+  const pts = activeStroke.points;
+  const [lx, ly] = pts[pts.length - 1];
+  if (Math.hypot(x - lx, y - ly) < MIN_POINT_GAP) return;
+  if (pts.length === 1) activeD = `M${lx} ${ly}`; // drop the lone-point dot segment
+  pts.push([x, y]);
+  activeD += `L${x} ${y}`;
+  activePath.setAttribute('d', activeD);
+}
+
+function onStrokeMove(e: PointerEvent): void {
+  if (!activeStroke || !isActivePointer(e)) return;
+  const samples = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
+  if (samples.length === 0) addStrokePoint(e.clientX, e.clientY);
+  else for (const s of samples) addStrokePoint(s.clientX, s.clientY);
+}
+
+function onStrokeEnd(e: PointerEvent): void {
+  if (!activeStroke || !isActivePointer(e)) return;
+  if (e.type === 'pointerup') addStrokePoint(e.clientX, e.clientY);
+  strokes.push(activeStroke);
+  if (activePath) strokePaths.push(activePath);
+  endStrokeGesture();
+  updateDrawControls();
+}
+
+/** Drop the in-flight stroke's listeners and pointer state (not the stroke
+ *  itself — onStrokeEnd has already kept it, exitAddMode throws it away). */
+function endStrokeGesture(): void {
+  document.removeEventListener('pointermove', onStrokeMove);
+  document.removeEventListener('pointerup', onStrokeEnd);
+  document.removeEventListener('pointercancel', onStrokeEnd);
+  if (
+    elDrawSurface &&
+    typeof activePointerId === 'number' &&
+    typeof elDrawSurface.releasePointerCapture === 'function'
+  ) {
+    try {
+      elDrawSurface.releasePointerCapture(activePointerId);
+    } catch {
+      // Already released by the browser on pointerup.
+    }
+  }
+  activeStroke = null;
+  activePath = null;
+  activeD = '';
+  activePointerId = undefined;
+  if (elVisuals) delete elVisuals.dataset.drawing;
+  if (elBlocker && activeZone === null) elBlocker.style.cursor = '';
+}
+
+/** Cmd/Ctrl+Z outside the textarea: take back the last finished stroke. */
+function undoStroke(): void {
+  if (!canDraw() || activeStroke) return;
+  const path = strokePaths.pop();
+  strokes.pop();
+  path?.remove();
+  updateDrawControls();
+}
+
+/** "erase all": every stroke on this selection. */
+function eraseAll(): void {
+  if (!canDraw() || activeStroke) return;
+  for (const path of strokePaths) path.remove();
+  strokes = [];
+  strokePaths = [];
+  updateDrawControls();
+}
+
+/** "erase all" is disabled while there is nothing drawn (§AB). */
+function updateDrawControls(): void {
+  if (elEraseItem) elEraseItem.disabled = strokes.length === 0;
+}
+
+/** Checked state and the radio group's roving tabindex: only the checked
+ *  swatch is a Tab stop; the arrows move between them. */
+function paintSwatches(): void {
+  for (const sw of elSwatches) {
+    const on = sw.dataset.color === penColor;
+    sw.setAttribute('aria-checked', String(on));
+    sw.tabIndex = on ? 0 : -1;
+  }
+}
+
+/** A colour picked in the swatches — the one path that reports it. */
+function choosePenColor(color: PenColor): void {
+  if (capturing) return;
+  const changed = color !== penColor;
+  penColor = color;
+  paintSwatches();
+  if (changed) callbacksRef?.onPenColorChange?.(color);
+}
+
+function openDrawMenu(options: { focusFirstItem?: boolean } = {}): void {
+  if (!elDrawMenu || !elPencilBtn || drawMenuOpen || capturing) return;
+  drawMenuOpen = true;
+  elDrawMenu.dataset.placement = drawMenuFitsBelow() ? 'below' : 'above';
+  elDrawMenu.dataset.open = 'true';
+  elPencilBtn.setAttribute('aria-expanded', 'true');
+  if (options.focusFirstItem) drawMenuItems()[0]?.focus();
+}
+
+/** `returnFocus` hands focus back to the pencil — right for Esc and for an
+ *  item's activation, wrong for an outside click (the user aimed elsewhere). */
+function closeDrawMenu(options: { returnFocus?: boolean } = {}): void {
+  if (!elDrawMenu || !elPencilBtn || !drawMenuOpen) return;
+  drawMenuOpen = false;
+  elDrawMenu.dataset.open = 'false';
+  elPencilBtn.setAttribute('aria-expanded', 'false');
+  if (options.returnFocus) elPencilBtn.focus();
+}
+
+/** Below the comment box unless that would run off the bottom of the
+ *  selectable area, as the comment box itself flips (computeCommentPosition). */
+function drawMenuFitsBelow(): boolean {
+  if (!elComment || !elDrawMenu) return true;
+  const top = parseFloat(elComment.style.top) || 0;
+  const menuH = elDrawMenu.offsetHeight || DRAW_MENU_FALLBACK_HEIGHT;
+  return top + commentHeight + DRAW_MENU_GAP + menuH <= getBounds().height;
+}
+
+function drawMenuItems(): HTMLButtonElement[] {
+  return elEraseItem && !elEraseItem.disabled ? [elEraseItem] : [];
+}
+
+function onShadowPointerDown(e: Event): void {
+  if (!drawMenuOpen || !elDrawMenu || !elPencilBtn) return;
+  const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+  if (path.includes(elDrawMenu) || path.includes(elPencilBtn)) return;
+  closeDrawMenu();
+}
+
+function onDocumentPointerDown(e: Event): void {
+  if (!drawMenuOpen) return;
+  if (e.target === host) return; // already seen by onShadowPointerDown
+  closeDrawMenu();
+}
+
+function isUndoChord(e: KeyboardEvent): boolean {
+  return (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z';
+}
+
+/**
+ * Every key pressed inside add mode's host, before keyboardIsolation stops
+ * it (see buildCommentDOM). Esc arrives here after content.ts's global
+ * handler has already had it — which asks dismissDrawingMenu() first, so an
+ * open menu eats one Esc before add mode does.
+ */
+function handleIsolatedKeydown(e: KeyboardEvent): void {
+  if (mode !== 'editing' || !shadow || e.isComposing) return;
+  const active = shadow.activeElement;
+
+  if (isUndoChord(e)) {
+    // In the textarea the keys keep their own meaning: undoing typing.
+    if (active === elTextarea) return;
+    e.preventDefault();
+    undoStroke();
+    return;
+  }
+
+  if (e.key === 'Escape' && drawMenuOpen) {
+    e.preventDefault();
+    closeDrawMenu({ returnFocus: true });
+    return;
+  }
+
+  if (drawMenuOpen && elDrawMenu && active instanceof Node && elDrawMenu.contains(active)) {
+    if (e.key === 'Tab') {
+      closeDrawMenu();
+      return;
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const items = drawMenuItems();
+      if (items.length === 0) return;
+      e.preventDefault();
+      const from = Math.max(0, items.indexOf(active as HTMLButtonElement));
+      items[(from + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus();
+    }
+    return;
+  }
+
+  if (active === elPencilBtn && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+    e.preventDefault();
+    openDrawMenu({ focusFirstItem: true });
+    return;
+  }
+
+  const at = elSwatches.indexOf(active as HTMLButtonElement);
+  if (at >= 0) {
+    const delta =
+      e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+    if (delta === 0) return;
+    e.preventDefault();
+    // A radio group's arrows move the checked state with the focus, and wrap.
+    const next = elSwatches[(at + delta + elSwatches.length) % elSwatches.length];
+    const color = next.dataset.color;
+    if (isPenColor(color)) choosePenColor(color);
+    next.focus();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1181,8 +1836,22 @@ function handleSaveClick(): void {
   elSaveBtn.textContent = SAVING_LABEL;
   elTextarea.readOnly = true;
   elComment?.setAttribute('aria-busy', 'true');
+  // The pencil goes quiet too: no stroke, undo, erase or colour change may
+  // land between this frame and the screenshot. The menu closes so nothing
+  // of it is left to hide.
+  capturing = true;
+  closeDrawMenu();
+  setDrawToolsDisabled(true);
 
-  callbacksRef?.onOk({ rect: { ...box }, note });
+  // The drawing travels as its own layer, cropped to the final rect; the
+  // screenshot underneath is taken with every stroke hidden (§AB).
+  const drawing = cropDrawing(strokes, box);
+  callbacksRef?.onOk({ rect: { ...box }, note, ...(drawing ? { drawing } : {}) });
+}
+
+function setDrawToolsDisabled(disabled: boolean): void {
+  if (elPencilBtn) elPencilBtn.disabled = disabled;
+  for (const sw of elSwatches) sw.disabled = disabled;
 }
 
 // ---------------------------------------------------------------------------
@@ -1232,7 +1901,30 @@ export function isAddModeActive(): boolean {
 /** True while a selection is placed and its comment box holds typed text —
  *  work content.ts must not silently throw away (e.g. by opening a note). */
 export function hasPendingComment(): boolean {
-  return mode === 'editing' && !!elTextarea && elTextarea.value.trim() !== '';
+  return mode === 'editing' && ((!!elTextarea && elTextarea.value.trim() !== '') || strokes.length > 0);
+}
+
+/** Set the pencil colour without reporting it back — content.ts restoring
+ *  the browser session's choice (design spec §AB). Anything not one of the
+ *  three palette HEXes is ignored. Safe in any mode; the swatches pick it up
+ *  whenever they exist. */
+export function setPenColor(color: unknown): void {
+  if (!isPenColor(color)) return;
+  penColor = color;
+  paintSwatches();
+}
+
+export function getPenColor(): PenColor {
+  return penColor;
+}
+
+/** Close the pencil menu if it is open, handing focus back to the pencil.
+ *  True if it was — content.ts's global Esc handler asks this first, so Esc
+ *  with the menu down closes the menu rather than add mode (§AB). */
+export function dismissDrawingMenu(): boolean {
+  if (!drawMenuOpen) return false;
+  closeDrawMenu({ returnFocus: true });
+  return true;
 }
 
 /** Hide all add-mode visuals (box outline, resize hit zones, scrim, comment box) for
@@ -1256,6 +1948,8 @@ export function showOverlayUI(): void {
     elSaveBtn.disabled = elTextarea ? elTextarea.value.trim().length === 0 : true;
   }
   if (elCancelBtn) elCancelBtn.disabled = false;
+  capturing = false;
+  setDrawToolsDisabled(false);
 }
 
 /** Full teardown: removes all add-mode DOM/listeners and returns to idle.
@@ -1285,6 +1979,14 @@ export function exitAddMode(): void {
   keyboardIsolation?.release();
   keyboardIsolation = null;
 
+  endStrokeGesture();
+  strokes = [];
+  strokePaths = [];
+  drawMenuOpen = false;
+  capturing = false;
+  shadow?.removeEventListener('pointerdown', onShadowPointerDown, true);
+  document.removeEventListener('pointerdown', onDocumentPointerDown, true);
+
   if (host && host.parentNode) host.parentNode.removeChild(host);
 
   host = null;
@@ -1304,6 +2006,12 @@ export function exitAddMode(): void {
   elCancelBtn = null;
   elSaveBtn = null;
   elPreviewTooltip = null;
+  elDrawSurface = null;
+  elStrokes = null;
+  elPencilBtn = null;
+  elSwatches = [];
+  elDrawMenu = null;
+  elEraseItem = null;
 
   mode = 'idle';
   callbacksRef = null;
@@ -1322,6 +2030,16 @@ export function _boxForTests(): Rect {
 export function _resetHintForTests(): void {
   clearTooltipTimer();
   tooltipDeadline = null;
+}
+
+/** Test-only: the finished strokes, in viewport CSS px. */
+export function _strokesForTests(): DrawingStroke[] {
+  return strokes.map((s) => ({ color: s.color, points: s.points.map(([x, y]) => [x, y] as [number, number]) }));
+}
+
+/** Test-only: back to a fresh page session's yellow. */
+export function _resetPenColorForTests(): void {
+  penColor = DEFAULT_PEN_COLOR;
 }
 
 /** Test-only: the hit-zone rects computeZoneRects() produces for the current

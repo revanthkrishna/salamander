@@ -15,9 +15,13 @@ npx jest import                   # all 13 import error cases
 npx jest bundle                   # markdown serialization round-trip
 ```
 
-**Test coverage** (669 tests, 21 test files):
+**Test coverage** (748 tests, 25 test files):
 - `sidebar.test.ts` — sidebar open/close, page resize, URL tracking, resizable width (drag/keyboard, persistence, clamping), narrow-width breakpoints, the "add note" group + its "keep on" switch (paint, reveal, gestures, resting width, the single divider, the merged fill, the v4 §P track/knob colours), the export/chevron menu (open/close routes, keyboard, outside pointerdown, per-half hover/press), the one-bordered-block top section, the note's uniform padding and its hover delete, and the §H "on hold" state
 - `addMode.test.ts` — selection box creation, edge/corner resize hit zones, clamping to viewport, comment box positioning, counter thresholds, save/cancel state
+- `addModeDrawing.test.ts` — the pencil (design spec §AB): no surface while placing, the surface exactly over the rect with the zones above it (resize still resizes, cursors kept), stroke capture incl. coalesced samples and dots, focus moving off the textarea, strokes pinned to the page through a resize (only the clip moves), the cropped `drawing` handed to `onOk` (and no key when nothing lands inside), Cmd/Ctrl+Z undo vs the textarea's own undo and the page never seeing the key, the pencil menu (erase all, disabled when empty, Esc/Tab/arrows, outside press, below/above placement), the swatch radio group (default yellow, arrows, silent `setPenColor`), and capture purity end to end (the drawing layer is hidden at the moment `CAPTURE` goes out; nothing can be drawn mid-capture)
+- `drawing.test.ts` — the palette, `cropDrawing` (edge cuts, exit/re-entry splitting, dots, rounding), the SVG builder's viewBox/`meet`, and the canvas painter's scaling (2x capture → 4px line)
+- `drawingViews.test.ts` — a saved drawing over the list thumbnail (fitted like the image, never taking the click, inside the magnified `<li>`) and over the enlarged view's main card and peeks (inside `.xp-card-media`, riding the FLIP morph's media track and the carousel with no track of its own)
+- `export.test.ts` — the drawn image only: a drawing is composited at the image's measured pixel scale, an item without one exports byte-for-byte with no canvas made, `feedback.md` is unchanged, a failed composite falls back to the clean PNG
 - `capture.test.ts` — viewport-relative CSS coordinates, CSS → device-pixel scale calculation, DPR accounting, crop verification
 - `contextCapture.test.ts` — deepest-common-ancestor selection, contained-elements prioritization (15-element cap), area-text aggregation, 2KB size governor, truncation markers
 - `selectorBuilder.test.ts` — CSS selector generation (data-* preference, ID rules, nth-of-type fallback, UUID/React hash rejection), XPath generation
@@ -27,7 +31,7 @@ npx jest bundle                   # markdown serialization round-trip
 - `content.test.ts` — add-note toggle / "keep add mode on" switch state machine end to end (switch on from off, switch off mid-session, capture re-entry and per-note cancel while it is on, the v2 dblclick/shift gestures, Esc, sidebar close, opening a note), plus the §H "sidebar on hold" wiring and the list delete's DELETE_ITEM round trip and failure copy
 - `import.test.ts` — all 13 error cases (not-a-zip, corrupt archive, missing `feedback.md`, malformed fence, missing screenshot, duplicate IDs, domain mismatch, version mismatch, existing-data confirmation) with purpose-built fixture bundles
 - `bundle.test.ts` — markdown → YAML fence extraction, YAML → object parsing, round-trip (export → parse → deep-equal), the version-dispatching reader
-- `bundleV1.test.ts` — the frozen schema-version-1 bundle: `fixtures/feedback-v1.md` (real committed text) must decode to hand-written items, and the v1 writer must reproduce it byte-for-byte
+- `bundleV1.test.ts` — the frozen schema-version-1 bundle: `fixtures/feedback-v1.md` (real committed text) must decode to hand-written items, and the v1 writer must reproduce it byte-for-byte — with or without a drawing on the items
 - `background.test.ts` — injection, message handlers, capture relay, throttle verification, re-inject on reload
 - `urlNorm.test.ts` — normalization rules (strip query/fragment, strip `www.`, strip trailing slash, case-sensitive paths, port handling) — kept from v1
 - `keyboardIsolation.test.ts` — capture-phase window-level keydown/keyup isolation so page shortcuts can't fire while typing into the comment box / enlarged-view note editor
@@ -89,6 +93,16 @@ In Chrome:
     - `feedback.md` renders correctly in a markdown viewer with inline images
     - One `##` section per URL, items chronological within section
     - Each item has number, image reference, note, and fenced yaml context block
+
+### Flow 1a: Drawing on the selection (design spec §AB)
+
+1. Enter add mode, place a box. Hover inside it → pencil cursor; hover each edge/corner → resize cursor; outside → arrow.
+2. Draw a few strokes, pick red and draw another. Resize the box smaller and larger: strokes stay where they were on the page, only the visible part changes.
+3. Cmd/Ctrl+Z (focus on the drawing) removes the last stroke. Click the textarea, type, Cmd/Ctrl+Z → undoes the typing, strokes untouched.
+4. Pencil button → **erase all** clears everything. Save a note with a drawing: the thumbnail shows the strokes over the image; open it — the drawing sits exactly on the image through the expand morph and the carousel.
+5. Export: `screenshots/{id}.png` has the strokes burned in at full resolution; `feedback.md` has no drawing data. Reload the page and start a new note: the swatch you picked last is still selected. Restart Chrome: back to yellow.
+
+Full checklist: `BROWSER_TEST_CASES.md` §2a.
 
 ### Flow 1b: Resizable sidebar + the youtube page-shrink edge case
 

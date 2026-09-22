@@ -30,6 +30,8 @@ jest.mock('../storage', () => ({
   updateItem: jest.fn().mockResolvedValue(true),
   updateNote: jest.fn().mockResolvedValue(undefined),
   deleteItem: jest.fn().mockResolvedValue(undefined),
+  getPenColor: jest.fn().mockResolvedValue(null),
+  setPenColor: jest.fn().mockResolvedValue(undefined),
 }));
 
 type Cb<T> = (result: T) => void;
@@ -1097,5 +1099,63 @@ describe('domain-record writes share the save queue', () => {
     releaseUpdate();
     await Promise.all([update, read]);
     expect(order).toEqual(['update', 'read']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The pencil's colour (design spec §AB) — chrome.storage.session, reached
+// through the service worker because content scripts are never granted
+// session access (no setAccessLevel anywhere in this extension)
+// ---------------------------------------------------------------------------
+
+describe('pencil colour (GET_PEN_COLOR / SET_PEN_COLOR)', () => {
+  it('reads back the session\'s colour through the channel', async () => {
+    mockedStorage.getPenColor.mockResolvedValue('#E5484D');
+    const sendResponse = jest.fn();
+    const keepOpen = background.handleRuntimeMessage({ type: 'GET_PEN_COLOR' }, makeSender(3), sendResponse);
+    expect(keepOpen).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sendResponse).toHaveBeenCalledWith({ color: '#E5484D' });
+  });
+
+  it('answers null when nothing was chosen yet, or the stored value is not a palette colour', async () => {
+    mockedStorage.getPenColor.mockResolvedValue(null);
+    expect(await background.handleGetPenColor()).toEqual({ color: null });
+    mockedStorage.getPenColor.mockResolvedValue('#123456');
+    expect(await background.handleGetPenColor()).toEqual({ color: null });
+    mockedStorage.getPenColor.mockRejectedValue(new Error('session gone'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(await background.handleGetPenColor()).toEqual({ color: null });
+    warn.mockRestore();
+  });
+
+  it('SET_PEN_COLOR is a notification that stores only palette colours', () => {
+    mockedStorage.setPenColor.mockResolvedValue(undefined);
+    const keepOpen = background.handleRuntimeMessage({ type: 'SET_PEN_COLOR', color: '#1A1712' }, makeSender(3), jest.fn());
+    expect(keepOpen).toBe(false);
+    expect(mockedStorage.setPenColor).toHaveBeenCalledWith('#1A1712');
+
+    mockedStorage.setPenColor.mockClear();
+    background.handleRuntimeMessage({ type: 'SET_PEN_COLOR', color: 'javascript:alert(1)' }, makeSender(3), jest.fn());
+    expect(mockedStorage.setPenColor).not.toHaveBeenCalled();
+  });
+});
+
+describe('an item\'s drawing (design spec §AB)', () => {
+  it('SAVE_ITEM stores the drawing inline on the item record, as sent', async () => {
+    const drawing = { width: 3, height: 4, strokes: [{ color: '#E8B600', points: [[1, 1], [2, 2]] as [number, number][] }] };
+    mockedStorage.getNextItemId.mockResolvedValue(2);
+    const response = await background.handleSaveItem({
+      type: 'SAVE_ITEM',
+      domain: 'example.com',
+      item: { ...makeNewItem(), drawing },
+    });
+    expect(response.ok && response.item.drawing).toEqual(drawing);
+    expect(mockedStorage.addItem).toHaveBeenCalledWith('example.com', expect.objectContaining({ id: 2, drawing }));
+  });
+
+  it('an item without one is stored without the key', async () => {
+    await background.handleSaveItem({ type: 'SAVE_ITEM', domain: 'example.com', item: makeNewItem() });
+    expect(mockedStorage.addItem.mock.calls[0][1]).not.toHaveProperty('drawing');
   });
 });

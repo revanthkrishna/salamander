@@ -17,10 +17,11 @@ import * as storage from './storage';
 import * as imageStore from './imageStore';
 import { buildFeedbackMarkdown } from './bundle';
 import { exportFilename } from './urlNorm';
-import { DomainData } from './types';
+import { DomainData, Drawing } from './types';
 import { ExportResponse } from './messages';
 import { EXPORT_FAILED_MESSAGE } from './copy';
-import { dataUrlToBytes, bytesToDataUrl } from './dataUrl';
+import { dataUrlToBytes, bytesToDataUrl, dataUrlToBlob, blobToDataUrl } from './dataUrl';
+import { hasStrokes, paintDrawing } from './drawing';
 
 /**
  * Export every feedback item across every URL of `domain` (§1.6). Returns
@@ -66,11 +67,46 @@ async function buildZipDataUrl(data: DomainData): Promise<string> {
     // than failing the whole export; the item's yaml context and note still
     // export, just without its image.
     if (!dataUrl) continue;
-    files[`screenshots/${item.id}.png`] = dataUrlToBytes(dataUrl);
+    // Design spec §AB: the drawn image only — an item's drawing is painted
+    // into its exported PNG, and the bundle carries no drawing data of its
+    // own. An item without one is exported exactly as stored, byte for byte:
+    // it never goes near a canvas.
+    const png = hasStrokes(item.drawing) ? await compositeDrawing(dataUrl, item.drawing) : dataUrl;
+    files[`screenshots/${item.id}.png`] = dataUrlToBytes(png);
   }
 
   const zipped = zipSync(files, { level: 6 });
   return bytesToDataUrl(zipped, 'application/zip');
+}
+
+/**
+ * The stored screenshot with `drawing` painted over it, as a PNG data URL.
+ * At the image's real pixel size: the capture is at its dpr (and whatever
+ * zoom), so the drawing's CSS px scale by the decoded image's width and
+ * height over the selection's — measured from the pixels, the same way the
+ * crop measures its scale rather than trusting devicePixelRatio — and the
+ * 2px line scales with them. The service worker has no DOM, so this is
+ * createImageBitmap + OffscreenCanvas, like the crop.
+ *
+ * If painting fails the clean screenshot is exported instead: one item
+ * losing its strokes beats the whole export failing.
+ */
+export async function compositeDrawing(dataUrl: string, drawing: Drawing): Promise<string> {
+  let bitmap: ImageBitmap | null = null;
+  try {
+    bitmap = await createImageBitmap(dataUrlToBlob(dataUrl));
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D | null;
+    if (!ctx) throw new Error('no 2d context available for the drawing');
+    ctx.drawImage(bitmap, 0, 0);
+    paintDrawing(ctx, drawing, bitmap.width / drawing.width, bitmap.height / drawing.height);
+    return await blobToDataUrl(await canvas.convertToBlob({ type: 'image/png' }));
+  } catch (err) {
+    console.warn('[Annotator] could not paint a drawing into its export:', err);
+    return dataUrl;
+  } finally {
+    bitmap?.close();
+  }
 }
 
 function triggerDownload(dataUrl: string, filename: string): Promise<void> {

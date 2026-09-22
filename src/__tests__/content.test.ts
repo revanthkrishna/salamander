@@ -718,3 +718,111 @@ describe('content.ts: review fixes', () => {
     expect(updates).toHaveLength(1); // beforeunload + pagehide: sent once
   });
 });
+
+describe('content.ts: the pencil colour and the pencil menu (design spec §AB)', () => {
+  let penReply: { color: string | null } | undefined;
+  let pendingPenReply: ((r: unknown) => void) | null;
+  let deferPenReply: boolean;
+
+  function installPenMocks(): void {
+    const base = (chrome.runtime.sendMessage as jest.Mock).getMockImplementation()!;
+    (chrome.runtime.sendMessage as jest.Mock).mockImplementation((message: any, callback?: (r?: unknown) => void) => {
+      if (message?.type === 'GET_PEN_COLOR') {
+        if (deferPenReply) pendingPenReply = (r) => callback?.(r);
+        else callback?.(penReply);
+        return;
+      }
+      base(message, callback);
+    });
+  }
+
+  async function enterAndPlace(): Promise<ShadowRoot> {
+    pageItems = [];
+    loadContent();
+    installPenMocks();
+    activate();
+    await flushMicrotasks();
+    addButton().click();
+    await flushMicrotasks();
+    const root = addModeShadow()!;
+    const blocker = root.querySelector('.blocker') as HTMLElement;
+    blocker.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 300, clientY: 200, button: 0 }));
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: 300, clientY: 200 }));
+    return root;
+  }
+
+  function sent(): any[] {
+    return (chrome.runtime.sendMessage as jest.Mock).mock.calls.map((c) => c[0]);
+  }
+
+  beforeEach(() => {
+    penReply = { color: null };
+    pendingPenReply = null;
+    deferPenReply = false;
+  });
+
+  test('entering add mode asks the service worker for the session\'s colour and applies it', async () => {
+    penReply = { color: '#E5484D' };
+    const root = await enterAndPlace();
+    expect(sent()).toContainEqual({ type: 'GET_PEN_COLOR' });
+    const checked = root.querySelector('.swatch[aria-checked="true"]') as HTMLElement;
+    expect(checked.dataset.color).toBe('#E5484D');
+  });
+
+  test('a fresh browser session (nothing stored) starts on yellow', async () => {
+    const root = await enterAndPlace();
+    expect((root.querySelector('.swatch[aria-checked="true"]') as HTMLElement).dataset.color).toBe('#E8B600');
+  });
+
+  test('picking a swatch remembers it for the session via SET_PEN_COLOR', async () => {
+    const root = await enterAndPlace();
+    (root.querySelector('.swatch[data-color="#1A1712"]') as HTMLButtonElement).click();
+    expect(sent()).toContainEqual({ type: 'SET_PEN_COLOR', color: '#1A1712' });
+  });
+
+  test('a late GET_PEN_COLOR reply never overrides a colour picked after asking', async () => {
+    deferPenReply = true;
+    const root = await enterAndPlace();
+    (root.querySelector('.swatch[data-color="#1A1712"]') as HTMLButtonElement).click();
+    pendingPenReply!({ color: '#E5484D' });
+    await flushMicrotasks();
+    expect(addMode.getPenColor()).toBe('#1A1712');
+  });
+
+  test('esc with the pencil menu open closes the menu, not add mode; the next esc exits', async () => {
+    const root = await enterAndPlace();
+    const pencil = root.querySelector('.btn-pencil') as HTMLButtonElement;
+    pencil.click();
+    expect((root.querySelector('.draw-menu') as HTMLElement).dataset.open).toBe('true');
+
+    pencil.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }));
+    expect((root.querySelector('.draw-menu') as HTMLElement).dataset.open).toBe('false');
+    expect(addMode.isAddModeActive()).toBe(true);
+    expect(root.activeElement).toBe(pencil);
+
+    pencil.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }));
+    expect(addMode.isAddModeActive()).toBe(false);
+  });
+
+  test('a stroke with no note yet counts as unfinished work: opening a note is refused', async () => {
+    pageItems = [makeItem({ id: 7 })];
+    loadContent();
+    installPenMocks();
+    activate();
+    await flushMicrotasks();
+    addButton().click();
+    const root = addModeShadow()!;
+    (root.querySelector('.blocker') as HTMLElement).dispatchEvent(
+      new MouseEvent('mousedown', { bubbles: true, clientX: 300, clientY: 200, button: 0 }),
+    );
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: 300, clientY: 200 }));
+    const surface = root.querySelector('.draw-surface') as HTMLElement;
+    surface.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 300, clientY: 200, button: 0 }));
+    document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 310, clientY: 210 }));
+
+    (sidebarShadow().querySelector('button.thumbnail') as HTMLButtonElement).click();
+    expect(sidebarApi.isEnlargedViewOpen()).toBe(false);
+    expect(addMode.isAddModeActive()).toBe(true);
+    expect(sidebarShadow().querySelector('.notif-text')!.textContent).toBe('finish or cancel your note first.');
+  });
+});

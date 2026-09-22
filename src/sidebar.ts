@@ -1215,6 +1215,18 @@ const SIDEBAR_CSS = `
     object-fit: contain;
     display: block;
   }
+  /* A note's drawing (design spec §AB): over the image, the same box, fitted
+     by its viewBox the way the image is by object-fit (thumbnails.ts). Never
+     a click target — the thumbnail button underneath is. */
+  .thumbnail-drawing {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    overflow: hidden;
+  }
 
   .thumbnail-badge {
     position: absolute;

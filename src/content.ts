@@ -62,7 +62,10 @@ import {
   ExportMessage,
   ImportReplaceMessage,
   GetDomainItemCountMessage,
+  GetPenColorMessage,
+  SetPenColorMessage,
 } from './messages';
+import type { PenColor } from './drawing';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Idempotency guard + runtime init (wrapped in IIFE so we can `return` instead
@@ -124,6 +127,35 @@ let lastAddClickAt = -Infinity;
  *  if a dblclick or another exit path pre-empts it. */
 let pendingAddOffTimer: ReturnType<typeof setTimeout> | null = null;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// The pencil's colour (design spec §AB)
+//
+// Remembered for the browser session in chrome.storage.session, which only
+// the service worker reaches (see messages.ts's GET_PEN_COLOR). Re-read on
+// every entry rather than cached for the page, so a colour picked in
+// another tab a moment ago is the one this tab draws with. The swatches
+// only exist once a box is placed, long after the reply lands.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Bumped by every local pick, so a GET_PEN_COLOR reply that was already in
+ *  flight cannot overwrite a colour the user chose after asking. */
+let penColorSeq = 0;
+
+function restorePenColor(): void {
+  const seq = ++penColorSeq;
+  const message: GetPenColorMessage = { type: 'GET_PEN_COLOR' };
+  void send(message).then((response) => {
+    if (seq !== penColorSeq || !response || response.color === null) return;
+    addMode.setPenColor(response.color);
+  });
+}
+
+function rememberPenColor(color: PenColor): void {
+  penColorSeq++;
+  const message: SetPenColorMessage = { type: 'SET_PEN_COLOR', color };
+  void send(message);
+}
+
 function clearPendingAddOff(): void {
   if (pendingAddOffTimer !== null) {
     clearTimeout(pendingAddOffTimer);
@@ -158,7 +190,9 @@ function enterAddMode(): void {
       void handleCaptureOk(result);
     },
     onCancel: handleAddModeCancel,
+    onPenColorChange: rememberPenColor,
   });
+  restorePenColor();
   sidebar.setAddButtonState(addKeptOn ? 'kept-on' : 'on');
 }
 
@@ -285,6 +319,9 @@ function handleGlobalKeyDown(e: KeyboardEvent): void {
   // Esc during IME composition cancels the composition, not add mode.
   if (e.isComposing || e.keyCode === 229) return;
   if (!addMode.isAddModeActive()) return;
+  // An open pencil menu takes this Esc for itself (design spec §AB, §C2):
+  // it closes and focus returns to the pencil; the next Esc exits.
+  if (addMode.dismissDrawingMenu()) return;
   exitAddModeFully();
 }
 

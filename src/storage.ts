@@ -1,5 +1,6 @@
 // Storage layer — chrome.storage.local metadata, IndexedDB blobs
-// (src/imageStore.ts), chrome.storage.session sidebar state.
+// (src/imageStore.ts), chrome.storage.session sidebar state and the
+// pencil's colour.
 //
 // Layout in chrome.storage.local (schema version 2):
 //   `domain:{domain}`     -> DomainIndex: { meta, pages: { normalisedUrl: id[] } }
@@ -354,4 +355,26 @@ export async function isSidebarOpen(tabId: number): Promise<boolean> {
 /** Clear a tab's sidebar state — called on explicit close and on tab removal. */
 export async function clearSidebarState(tabId: number): Promise<void> {
   await sessionRemove(sidebarSessionKey(tabId));
+}
+
+// ---------------------------------------------------------------------------
+// The pencil's colour (chrome.storage.session, one value for the browser)
+// ---------------------------------------------------------------------------
+// Design spec §AB: remembered until the browser closes, across reloads,
+// pages and sites, and back to yellow in a fresh session — exactly
+// chrome.storage.session's lifetime. One key for the whole browser, not per
+// tab or domain. The value is validated by the caller (background.ts), so
+// anything read back here is returned as-is.
+
+const PEN_COLOR_SESSION_KEY = 'penColor';
+
+/** The colour chosen earlier this browser session, or null if none yet. */
+export async function getPenColor(): Promise<string | null> {
+  const result = await sessionGet(PEN_COLOR_SESSION_KEY);
+  const value = result[PEN_COLOR_SESSION_KEY];
+  return typeof value === 'string' ? value : null;
+}
+
+export async function setPenColor(color: string): Promise<void> {
+  await sessionSet({ [PEN_COLOR_SESSION_KEY]: color });
 }

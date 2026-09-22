@@ -37,6 +37,7 @@ import { FeedbackItem } from './types';
 // The project's ONE trash glyph (design spec v5 §S) — the enlarged view's
 // delete draws the same one.
 import { ICON_TRASH } from './icons';
+import { buildDrawingSvg, hasStrokes } from './drawing';
 
 export interface ThumbnailCallbacks {
   /** Fired when a thumbnail is activated (click or Enter/Space). */
@@ -133,6 +134,15 @@ function buildThumbnailEl(item: FeedbackItem, callbacks: ThumbnailCallbacks): HT
   badge.textContent = String(item.id);
 
   imageWrap.appendChild(img);
+  // The note's drawing (design spec §AB), laid over the image and fitted
+  // exactly as it is: the SVG fills the same box with a viewBox of the
+  // selection's size and `xMidYMid meet`, which is object-fit: contain.
+  // Inside the <li>, so dock magnification scales it with the image, and
+  // pointer-events: none (sidebar.ts's .thumbnail-drawing rule) so the
+  // thumbnail button keeps every click.
+  if (hasStrokes(item.drawing)) {
+    imageWrap.appendChild(buildDrawingSvg(document, item.drawing, 'thumbnail-drawing'));
+  }
   imageWrap.appendChild(badge);
 
   const note = document.createElement('p');

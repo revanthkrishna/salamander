@@ -1031,10 +1031,10 @@ describe('add mode', () => {
     expect(css).toMatch(/\.counter\[data-danger="true"\]\s*\{[^}]*color:\s*var\(--sal-danger\)[^}]*font-weight:\s*600/);
   });
 
-  test('comment box wrapper is a plain 280px shadowPop container; the text area and footer form the visible surface (design spec §3.2 v2 §C)', () => {
+  test('comment box wrapper is a plain 296px shadowPop container; the text area and footer form the visible surface (design spec §3.2 v2 §C)', () => {
     addMode.startAddMode(makeCallbacks());
     const rule = cssRule('.comment-box');
-    expect(rule).toMatch(/width:\s*280px/);
+    expect(rule).toMatch(/width:\s*296px/);
     expect(rule).toMatch(/box-shadow:\s*var\(--sal-shadow-pop\)/);
     // no fill/border of its own — those live on the textarea/footer; the
     // radius only shapes the drop shadow to the merged surface (no square
@@ -1102,12 +1102,13 @@ describe('add mode', () => {
     expect(cssRule('.btn-cancel:not(:disabled):active')).toMatch(/background:\s*var\(--sal-press\)/);
     expect(cssRule('.btn-cancel:focus-visible')).toMatch(/box-shadow:\s*0 0 0 2px var\(--sal-bg\), 0 0 0 4px var\(--sal-focus\)/);
 
-    // cancel comes before save in the footer, counter first
+    // Left: the pencil tools; right: the counter, then cancel, then save
+    // (design spec §AB moved the counter over from the left).
     const footerKids = Array.from(shadowRoot().querySelectorAll('.footer > *'));
     expect(footerKids).toHaveLength(0); // not built until placement
     place(blocker(), 300, 200);
     const classes = (Array.from(shadowRoot().querySelectorAll('.footer > *')) as HTMLElement[]).map((el) => el.className);
-    expect(classes).toEqual(['counter', 'btn btn-cancel', 'btn btn-save']);
+    expect(classes).toEqual(['draw-tools', 'counter', 'btn btn-cancel', 'btn btn-save']);
   });
 
   test('textarea has a maxlength of 1000', () => {

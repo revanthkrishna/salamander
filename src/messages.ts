@@ -417,6 +417,35 @@ export type GetDomainItemCountResponse =
   | GetDomainItemCountSuccessResponse
   | GetDomainItemCountErrorResponse;
 
+// ---------------------------------------------------------------------------
+// The pencil's colour (design spec §AB)
+// ---------------------------------------------------------------------------
+//
+// Remembered until the browser closes — across reloads, pages and sites —
+// so it lives in chrome.storage.session, like "sidebar open" (§1.1). A
+// content script only gets storage.session if the service worker widens
+// its access level (setAccessLevel); this extension never does, and reaches
+// session state the way it reaches everything else behind the storage
+// boundary: by asking the service worker.
+
+/** Read the pencil colour chosen earlier in this browser session. */
+export interface GetPenColorMessage {
+  type: 'GET_PEN_COLOR';
+}
+
+export interface GetPenColorResponse {
+  /** One of the three palette HEXes (drawing.ts's PEN_COLORS), or null if
+   *  nothing has been chosen yet this session — the caller starts on yellow. */
+  color: string | null;
+}
+
+/** Remember the pencil colour just picked. Fire-and-forget: a lost write
+ *  only means the next page starts on the previous colour. */
+export interface SetPenColorMessage {
+  type: 'SET_PEN_COLOR';
+  color: string;
+}
+
 export type ContentToBackgroundMessage =
   | SidebarOpenedMessage
   | SidebarClosedMessage
@@ -429,7 +458,9 @@ export type ContentToBackgroundMessage =
   | DeleteItemMessage
   | ExportMessage
   | ImportReplaceMessage
-  | GetDomainItemCountMessage;
+  | GetDomainItemCountMessage
+  | GetPenColorMessage
+  | SetPenColorMessage;
 
 // ---------------------------------------------------------------------------
 // The request map — what makes the channel typed at both ends
@@ -441,8 +472,8 @@ export type ContentToBackgroundMessage =
 // (background.ts) is declared over these keys, so a new member of
 // ContentToBackgroundMessage without an entry here, or an entry without a
 // handler, is a compile error rather than a message that silently goes
-// unanswered. `void` marks the two fire-and-forget notifications, which
-// have no response at all.
+// unanswered. `void` marks the fire-and-forget notifications, which have
+// no response at all.
 
 export interface MessageMap {
   SIDEBAR_OPENED: [SidebarOpenedMessage, void];
@@ -457,6 +488,8 @@ export interface MessageMap {
   EXPORT: [ExportMessage, ExportResponse];
   IMPORT_REPLACE: [ImportReplaceMessage, ImportReplaceResponse];
   GET_DOMAIN_ITEM_COUNT: [GetDomainItemCountMessage, GetDomainItemCountResponse];
+  GET_PEN_COLOR: [GetPenColorMessage, GetPenColorResponse];
+  SET_PEN_COLOR: [SetPenColorMessage, void];
 }
 
 export type MessageType = keyof MessageMap;

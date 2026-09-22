@@ -81,6 +81,7 @@ import { AutosaveController } from './autosave';
 // ICON_TRASH is the project's one trash glyph (design spec v5 §S) — the same
 // one the note list's hover delete draws.
 import { ICON_ARROW_DOWN, ICON_ARROW_UP, ICON_COLLAPSE, ICON_TRASH } from './icons';
+import { buildDrawingSvg, hasStrokes } from './drawing';
 import { DELETE_ERROR_MESSAGE, EMPTY_NOTE_MESSAGE, SAVE_ERROR_MESSAGE, saveErrorFor } from './copy';
 import { cancelAnimationFrameSafe, reducedMotionQuery, requestAnimationFrameSafe } from './dom';
 import { FOCUS_RING_CSS, DISABLED_CSS, STATE_TRANSITION_CSS, RADII } from './theme';
@@ -660,8 +661,8 @@ export const ENLARGED_VIEW_CSS = `
   .xp-card:focus-visible .xp-card-frame { ${FOCUS_RING_CSS} }
   /* The media box: the contain-fit of the screenshot into the frame, and
      the element the morph's second track transforms (flip.ts). The <img>
-     fills it; a future overlay (an annotation layer) is its sibling and
-     rides the same transform for free. overflow + the radius here clip
+     fills it; the note's drawing (.xp-card-drawing, design spec §AB) is its
+     sibling and rides the same transform for free. overflow + the radius here clip
      exactly as the radius on the <img> alone used to. */
   .xp-card-media {
     position: absolute;
@@ -674,6 +675,16 @@ export const ENLARGED_VIEW_CSS = `
     width: 100%; height: 100%;
     max-width: none;
     object-fit: contain;
+  }
+  /* A note's drawing (design spec §AB), view-only: the image's sibling in
+     the media box, filling it and fitted by its viewBox exactly as the image
+     is by object-fit, so the morph's media track carries both as one. */
+  .xp-card-drawing {
+    position: absolute;
+    left: 0; top: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    overflow: hidden;
   }
   .xp-card-badge {
     position: absolute; top: 8px; left: 8px;
@@ -1401,6 +1412,10 @@ class EnlargedView {
     badge.textContent = String(item.id);
     badge.setAttribute('aria-hidden', 'true');
     media.appendChild(img);
+    // Design spec §AB: over the main image and the peeks alike, and inside
+    // the media box — the element the FLIP morph and the carousel transform
+    // — so it can never drift from the screenshot it was drawn on.
+    if (hasStrokes(item.drawing)) media.appendChild(buildDrawingSvg(document, item.drawing, 'xp-card-drawing'));
     frame.appendChild(media);
     lift.append(frame, badge);
     el.append(lift);

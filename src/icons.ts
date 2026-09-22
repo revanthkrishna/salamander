@@ -74,3 +74,37 @@ export const ICON_COLLAPSE = strokeIcon(
 /** The enlarged view's rail arrows (previous / next note). */
 export const ICON_ARROW_UP = strokeIcon(PATH_ARROW_UP);
 export const ICON_ARROW_DOWN = strokeIcon(PATH_ARROW_DOWN);
+
+// ─── Add mode: the pencil (design spec §AB) ─────────────────────────────────
+
+/** The pencil's body and tip, shared by the bottom-bar button and the
+ *  cursor so the two are visibly the same tool. The tip is at (3.5, 20.5). */
+const PATH_PENCIL = 'M3.5 20.5l1.2-4.6L15.6 5a2.1 2.1 0 0 1 3 0l.4.4a2.1 2.1 0 0 1 0 3L8.1 19.3z';
+const PATH_PENCIL_BAND = 'M13.8 6.8l3.4 3.4';
+
+/** The comment box's pencil button (§AB): the menu button the swatches
+ *  belong to. */
+export const ICON_PENCIL = strokeIcon(`<path d="${PATH_PENCIL}"/><path d="${PATH_PENCIL_BAND}"/>`);
+
+/** "erase all", the pencil menu's one item: an eraser on its baseline. */
+export const ICON_ERASER = strokeIcon(
+  '<path d="M9 20h11"/>' +
+    '<path d="M4.7 14.3l8.6-8.6a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L10 19H8.4z"/>' +
+    '<path d="M9.5 9.5l5 5"/>',
+);
+
+/** The cursor over the selection while drawing is possible (§AB): the same
+ *  pencil, ink on a wider cream halo so it reads on any page, light or dark.
+ *  A CSS `cursor` value with its hotspot on the tip and the system crosshair
+ *  as the fallback. Explicit width/height, which Chrome requires of an SVG
+ *  cursor image. */
+export const PENCIL_CURSOR = (() => {
+  const body = `<path d="${PATH_PENCIL}"/><path d="${PATH_PENCIL_BAND}"/>`;
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" ' +
+    'stroke-linecap="round" stroke-linejoin="round">' +
+    `<g stroke="#FBF6EA" stroke-width="3.8">${body}</g>` +
+    `<g stroke="#1A1712" stroke-width="1.8">${body}</g>` +
+    '</svg>';
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 3 20, crosshair`;
+})();

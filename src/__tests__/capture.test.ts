@@ -316,3 +316,30 @@ describe('captureAndSave', () => {
     warn.mockRestore();
   });
 });
+
+describe('captureAndSave: the drawing (design spec §AB)', () => {
+  const drawing = {
+    width: 200,
+    height: 150,
+    strokes: [{ color: '#E8B600', points: [[1, 2], [3, 4]] as [number, number][] }],
+  };
+
+  it('travels to SAVE_ITEM as its own layer on the item, after the capture of the clean overlay-free frame', async () => {
+    const outcome = await capture.captureAndSave({ ...selection, drawing }, overlay);
+    const sent = sendMessageMock.mock.calls.map((c) => c[0]);
+    const captureMessage = sent.find((m) => m.type === 'CAPTURE');
+    const save = sent.find((m) => m.type === 'SAVE_ITEM');
+    // The CAPTURE request knows nothing of the drawing: the screenshot is clean.
+    expect(captureMessage).not.toHaveProperty('drawing');
+    expect(JSON.stringify(captureMessage)).not.toContain('strokes');
+    expect(save.item.drawing).toEqual(drawing);
+    expect(timeline).toEqual(['hide', 'capture', 'save']);
+    expect(outcome.ok && outcome.item.drawing).toEqual(drawing);
+  });
+
+  it('an item with nothing drawn has no drawing key at all', async () => {
+    await capture.captureAndSave(selection, overlay);
+    const save = sendMessageMock.mock.calls.map((c) => c[0]).find((m) => m.type === 'SAVE_ITEM');
+    expect(save.item).not.toHaveProperty('drawing');
+  });
+});
