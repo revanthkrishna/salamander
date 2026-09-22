@@ -88,8 +88,6 @@ export interface JsonFeedbackItem {
   selector: string;
   xpath: string;
   html: string;
-  /** Present, and true, only when the html snippet was cut. */
-  html_truncated?: boolean;
   page_url: string;
   note: string;
   id: number;
@@ -100,9 +98,6 @@ export interface JsonFeedbackItem {
   viewport: ViewportSize;
   dpr: number;
   contained_elements: JsonContainedElement[];
-  /** Present whenever the item carries the flag (capture only ever sets it
-   *  true). */
-  contained_elements_truncated?: boolean;
   area_text: string;
 }
 
@@ -200,16 +195,53 @@ function pad(n: number): string {
   return String(n).padStart(2, '0');
 }
 
+/**
+ * Length caps on the free-text fields of an item's json block (design spec
+ * §AC). A container that spans the whole selection can otherwise put a
+ * page's entire copy in `text` and a kilobyte of markup in `html`, burying
+ * the record an agent reads top-down. A capped value ends in a single
+ * ellipsis instead of carrying a separate "truncated" flag.
+ *
+ * Deliberately NOT capped: the note (the user's own words), and every
+ * identifier — selector, xpath, URLs, ids, class names. A shortened selector
+ * is not a shorter selector, it is a wrong one.
+ */
+export const JSON_TEXT_LIMITS = {
+  text: 120,
+  html: 300,
+  areaText: 200,
+  /** Each nearby element's text, and each of its attribute values. */
+  element: 80,
+} as const;
+
+const ELLIPSIS = '\u2026';
+
+/** `value` cut to `limit` characters and ended with an ellipsis, or as-is
+ *  when it already fits. `forceEllipsis` marks a value that was already
+ *  cut before it got here (capture caps the html snippet too) even when it
+ *  now fits the limit. */
+export function capText(value: string, limit: number, forceEllipsis = false): string {
+  if (value.length > limit) return `${value.slice(0, limit).trimEnd()}${ELLIPSIS}`;
+  return forceEllipsis && !value.endsWith(ELLIPSIS) ? `${value.trimEnd()}${ELLIPSIS}` : value;
+}
+
+/** The stored html snippet with capture's own cut marker swapped for the
+ *  one ellipsis convention, then capped. */
+function capHtml(snippet: string): string {
+  const wasCut = snippet.endsWith(TRUNCATION_MARKER);
+  const html = wasCut ? snippet.slice(0, -TRUNCATION_MARKER.length) : snippet;
+  return capText(html, JSON_TEXT_LIMITS.html, wasCut);
+}
+
 /** FeedbackItem -> its json record, keys in §AC's order. */
 export function toJsonFeedbackItem(item: FeedbackItem): JsonFeedbackItem {
   const ctx = item.context;
   const target = ctx.primaryTarget;
   return {
-    text: primaryTargetText(target.outerHtmlSnippet),
+    text: capText(primaryTargetText(target.outerHtmlSnippet), JSON_TEXT_LIMITS.text),
     selector: target.cssSelector,
     xpath: target.xpath,
-    html: target.outerHtmlSnippet,
-    ...(target.truncated ? { html_truncated: true } : {}),
+    html: capHtml(target.outerHtmlSnippet),
     page_url: item.pageUrl,
     note: item.note,
     id: item.id,
@@ -220,10 +252,7 @@ export function toJsonFeedbackItem(item: FeedbackItem): JsonFeedbackItem {
     viewport: { width: item.viewport.width, height: item.viewport.height },
     dpr: item.dpr,
     contained_elements: ctx.containedElements.map(pickContainedElement),
-    ...(ctx.containedElementsTruncated !== undefined
-      ? { contained_elements_truncated: ctx.containedElementsTruncated }
-      : {}),
-    area_text: ctx.areaText,
+    area_text: capText(ctx.areaText, JSON_TEXT_LIMITS.areaText),
   };
 }
 
@@ -280,8 +309,14 @@ function pickContainedElement(el: ContainedElement): JsonContainedElement {
     ...(el.classes !== undefined
       ? { classes: { semantic: [...el.classes.semantic], generated: [...el.classes.generated] } }
       : {}),
-    ...(el.attrs !== undefined ? { attrs: { ...el.attrs } } : {}),
-    ...(el.text !== undefined ? { text: el.text } : {}),
+    ...(el.attrs !== undefined
+      ? {
+          attrs: Object.fromEntries(
+            Object.entries(el.attrs).map(([k, v]) => [k, capText(v, JSON_TEXT_LIMITS.element)]),
+          ),
+        }
+      : {}),
+    ...(el.text !== undefined ? { text: capText(el.text, JSON_TEXT_LIMITS.element) } : {}),
   };
 }
 
@@ -428,7 +463,7 @@ export function fromJsonFeedbackItem(json: Record<string, unknown>, id: number):
   const selectionRect = field.rect('selection_rect');
   const viewport = field.viewport('viewport');
   const dpr = field.number('dpr');
-  const containedElementsTruncated = field.optionalBoolean('contained_elements_truncated');
+  const html = field.string('html');
 
   return {
     id,
@@ -443,8 +478,10 @@ export function fromJsonFeedbackItem(json: Record<string, unknown>, id: number):
       primaryTarget: {
         cssSelector: field.string('selector'),
         xpath: field.string('xpath'),
-        outerHtmlSnippet: field.string('html'),
-        truncated: field.optionalBoolean('html_truncated') === true,
+        outerHtmlSnippet: html,
+        // No flag in the file: a cut snippet is the one that ends in the
+        // ellipsis the writer adds.
+        truncated: html.endsWith(ELLIPSIS),
       },
       containedElements: field.containedElements('contained_elements'),
       areaText: field.string('area_text'),
@@ -457,7 +494,6 @@ export function fromJsonFeedbackItem(json: Record<string, unknown>, id: number):
         selectionRect: { ...selectionRect },
         capturedAt: createdAt,
       },
-      ...(containedElementsTruncated !== undefined ? { containedElementsTruncated } : {}),
     },
   };
 }

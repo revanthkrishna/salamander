@@ -30,7 +30,7 @@ npx jest bundle                   # feedback.md: frozen fixture, round trip, rea
 - `enlargedView.test.ts` — enlarged view open/collapse (incl. interrupted transitions), prev/next and the ends, autosave debounce + flush on navigate/collapse, save failures, the empty-note rule on every exit path, delete (middle/last/only), keyboard (Esc/↑/↓/focus in and out), add mode collapsing it first, reduced-motion path, teardown
 - `content.test.ts` — add-note toggle / "keep add mode on" switch state machine end to end (switch on from off, switch off mid-session, capture re-entry and per-note cancel while it is on, the v2 dblclick/shift gestures, Esc, sidebar close, opening a note), plus the §H "sidebar on hold" wiring and the list delete's DELETE_ITEM round trip and failure copy
 - `import.test.ts` — the §5 ladder (not-a-zip, corrupt archive, missing `feedback.md`, unsupported format — a retired v1 bundle, a newer format, no stamp, and that it is checked before #4b — malformed element data, missing screenshot, duplicate IDs, domain mismatch) with purpose-built fixture bundles, plus a zip round trip
-- `bundle.test.ts` — the format-2 writer against generated input (header, page/note order, the json's field order, `(none)`, trimming, `html_truncated`), `formatExportDate` and the derived `text` field, the round trip (every stored field but the drawing), notes that look like structure or quote a whole exported item, the format dispatch (v1/newer/unstamped refused) and every malformed-file error
+- `bundle.test.ts` — the format-2 writer against generated input (header, page/note order, the json's field order, `(none)`, trimming, the free-text length caps and their single ellipsis), `formatExportDate` and the derived `text` field, the round trip (every stored field but the drawing), notes that look like structure or quote a whole exported item, the format dispatch (v1/newer/unstamped refused) and every malformed-file error
 - `bundleV2.test.ts` — the frozen format-2 bundle (design spec §AC): `fixtures/feedback-v2.md` (real committed text) must decode to hand-written items, and the writer must reproduce it byte-for-byte; the visible note line is ignored on read, CRLF/BOM copies still read, and all fixed text is lowercase
 - `background.test.ts` — injection, message handlers, capture relay, throttle verification, re-inject on reload
 - `urlNorm.test.ts` — normalization rules (strip query/fragment, strip `www.`, strip trailing slash, case-sensitive paths, port handling) — kept from v1
@@ -197,7 +197,6 @@ Full checklist: `BROWSER_TEST_CASES.md` §2a.
 - Capture and open the note in the enlarged view
 - Look at the note's json element data in the exported markdown:
   - `contained_elements` should have exactly 15 items
-  - `"contained_elements_truncated": true` should be present
   - Check that truncated elements were filtered by relevance (elements with text/attributes appear before bare divs)
 
 ### Form inputs (sensitivity warning, no masking)

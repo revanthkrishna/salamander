@@ -9,7 +9,7 @@ import {
   ExportHeader,
   UnsupportedFormatError,
 } from '../bundle';
-import { formatExportDate, primaryTargetText, toJsonFeedbackItem } from '../bundle/v2';
+import { capText, formatExportDate, JSON_TEXT_LIMITS, primaryTargetText, toJsonFeedbackItem } from '../bundle/v2';
 import { FeedbackItem } from '../types';
 
 const HEADER: ExportHeader = {
@@ -156,21 +156,81 @@ describe('buildFeedbackMarkdown', () => {
       'viewport',
       'dpr',
       'contained_elements',
-      'contained_elements_truncated',
       'area_text',
     ]);
-    expect(md).not.toMatch(/page_meta|captured_at/);
+    // no truncation flags, even for an item capture had cut
+    expect(md).not.toMatch(/page_meta|captured_at|_truncated/);
   });
 
-  test('html_truncated appears only when the snippet was cut', () => {
-    expect(toJsonFeedbackItem(makeItem())).not.toHaveProperty('html_truncated');
+  test('no truncation flags: a cut value ends in a single ellipsis instead', () => {
     const cut = makeItem({
       context: {
         ...makeItem().context,
         primaryTarget: { ...makeItem().context.primaryTarget, outerHtmlSnippet: '<b>x...[truncated]', truncated: true },
+        containedElementsTruncated: true,
       },
     });
-    expect(Object.keys(toJsonFeedbackItem(cut)).slice(3, 5)).toEqual(['html', 'html_truncated']);
+    const json = toJsonFeedbackItem(cut);
+    expect(json).not.toHaveProperty('html_truncated');
+    expect(json).not.toHaveProperty('contained_elements_truncated');
+    // capture's own cut marker becomes the one ellipsis convention
+    expect(json.html).toBe('<b>x\u2026');
+  });
+
+  test('free-text fields are capped, each ending in an ellipsis past its limit', () => {
+    const long = (n: number) => 'abcdefghij'.repeat(Math.ceil(n / 10)).slice(0, n);
+    const item = makeItem({
+      context: {
+        ...makeItem().context,
+        primaryTarget: {
+          ...makeItem().context.primaryTarget,
+          outerHtmlSnippet: `<p>${long(900)}</p>`,
+        },
+        containedElements: [{ tag: 'a', attrs: { href: `/${long(300)}` }, text: long(300) }],
+        areaText: long(900),
+      },
+    });
+    const json = toJsonFeedbackItem(item);
+    const E = '\u2026';
+    expect(json.html).toHaveLength(JSON_TEXT_LIMITS.html + 1);
+    expect(json.html.endsWith(E)).toBe(true);
+    expect(json.text).toHaveLength(JSON_TEXT_LIMITS.text + 1);
+    expect(json.text.endsWith(E)).toBe(true);
+    expect(json.area_text).toHaveLength(JSON_TEXT_LIMITS.areaText + 1);
+    expect(json.contained_elements[0].text).toHaveLength(JSON_TEXT_LIMITS.element + 1);
+    expect(json.contained_elements[0].attrs!.href).toHaveLength(JSON_TEXT_LIMITS.element + 1);
+  });
+
+  test('values within their limit are untouched', () => {
+    const json = toJsonFeedbackItem(makeItem());
+    expect(json.html).toBe(makeItem().context.primaryTarget.outerHtmlSnippet);
+    expect(json.area_text).toBe(makeItem().context.areaText);
+    expect(json.html.endsWith('\u2026')).toBe(false);
+  });
+
+  test('the note and every identifier are never capped', () => {
+    const huge = 'x'.repeat(2000);
+    const item = makeItem({
+      note: huge,
+      pageUrl: `https://example.com/${huge}`,
+      context: {
+        ...makeItem().context,
+        primaryTarget: { ...makeItem().context.primaryTarget, cssSelector: `div.${huge}`, xpath: `/html/${huge}` },
+      },
+    });
+    const json = toJsonFeedbackItem(item);
+    expect(json.note).toBe(huge);
+    expect(json.page_url).toBe(`https://example.com/${huge}`);
+    expect(json.selector).toBe(`div.${huge}`);
+    expect(json.xpath).toBe(`/html/${huge}`);
+  });
+
+  test('capText: under the limit as-is, over it cut and ended with an ellipsis', () => {
+    expect(capText('short', 10)).toBe('short');
+    expect(capText('exactly ten', 11)).toBe('exactly ten');
+    expect(capText('this is too long', 7)).toBe('this is\u2026');
+    // an already-cut value is marked even when it now fits
+    expect(capText('cut here', 20, true)).toBe('cut here\u2026');
   });
 });
 
@@ -221,7 +281,7 @@ describe('round trip: buildFeedbackMarkdown -> decodeFeedbackMarkdown', () => {
     expect(decoded.items).toEqual([asDecoded(a1), asDecoded(a2), asDecoded(b1)]);
   });
 
-  test('truncation flags, optional contained-element fields and unicode survive', () => {
+  test('optional contained-element fields and unicode survive; a cut html comes back as written', () => {
     const item = makeItem({
       note: 'emoji 🦎, “curly quotes”, a tab\there, and a backslash \\',
       context: {
@@ -244,7 +304,17 @@ describe('round trip: buildFeedbackMarkdown -> decodeFeedbackMarkdown', () => {
       },
     });
     const [decoded] = decodeFeedbackMarkdown(build({ [item.normalisedUrl]: [item] })).items;
-    expect(decoded).toEqual(asDecoded(item));
+    // The file is the record: capture's cut marker is written as the one
+    // ellipsis, so that is what comes back, still marked truncated; and the
+    // list's truncation flag, which the file no longer carries, does not.
+    const { containedElementsTruncated: _gone, ...context } = asDecoded(item).context;
+    expect(decoded).toEqual({
+      ...asDecoded(item),
+      context: {
+        ...context,
+        primaryTarget: { ...context.primaryTarget, outerHtmlSnippet: '<div class="big">\u2026', truncated: true },
+      },
+    });
   });
 
   test('notes that look like structure are skipped whole, never read as it', () => {
@@ -334,7 +404,6 @@ describe('decodeFeedbackMarkdown — malformed current-format files throw a plai
     ['a field has the wrong type', good.replace('"dpr": 2,', '"dpr": "2",')],
     ['a rect member is not a number', good.replace('"x": 10,', '"x": null,')],
     ['a contained element has no tag', good.replace('"tag": "span",', '')],
-    ['a truncation flag is not a boolean', good.replace('"area_text"', '"contained_elements_truncated": "yes",\n  "area_text"')],
     ['a note comes before any page heading', good.replace('## page "https://example.com/page-one"\n', '')],
   ])('%s', (_, markdown) => {
     expect(markdown).not.toBe(good);

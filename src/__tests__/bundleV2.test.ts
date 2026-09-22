@@ -12,9 +12,11 @@
 // The fixture deliberately covers: two pages, in first-capture order (not
 // insertion order); two notes on one page with different full urls; a note
 // with quotes; a multi-paragraph note; an empty note, shown as "(none)"; a
-// note with a drawing (the alt-text suffix); a truncated html snippet (the
-// visible "...[truncated]" marker, and a `text` read up to the cut); an
-// entity in the html (`text` decodes it); truncated contained elements;
+// note with a drawing (the alt-text suffix); an html snippet capture had
+// already cut (its "...[truncated]" marker becomes a single ellipsis in the
+// file, and `text` is read up to the cut); an entity in the html (`text`
+// decodes it); a contained-element list capture had cut (no flag for it in
+// the file);
 // classes/attrs/id/text on contained elements; a fractional selection rect
 // and dpr; and the header's local time with a negative utc offset.
 
@@ -156,6 +158,25 @@ const ITEM_3: DecodedBundleItem = {
   },
 };
 
+/** ITEM_3 as the reader gives it back. The file is the record, so what the
+ *  writer changed comes back changed: capture's cut marker is the one
+ *  ellipsis now, and the file carries no truncation flag for the list (§AC). */
+const ITEM_3_READ: DecodedBundleItem = (() => {
+  const { containedElementsTruncated: _dropped, ...context } = ITEM_3.context;
+  return {
+    ...ITEM_3,
+    context: {
+      ...context,
+      primaryTarget: {
+        ...ITEM_3.context.primaryTarget,
+        outerHtmlSnippet:
+          '<table class="compare"><thead><tr><th>feature</th><th>free</th><th class="hi\u2026',
+        truncated: true,
+      },
+    },
+  };
+})();
+
 function stored(item: DecodedBundleItem, drawing?: Drawing): FeedbackItem {
   return {
     ...item,
@@ -182,7 +203,7 @@ describe('frozen v2 bundle — read', () => {
   test('decodes to exactly the hand-written items, in document order, without the drawing', () => {
     const decoded = decodeFeedbackMarkdown(fixture);
     expect(decoded.version).toBe(2);
-    expect(decoded.items).toEqual([ITEM_1, ITEM_3, ITEM_2]);
+    expect(decoded.items).toEqual([ITEM_1, ITEM_3_READ, ITEM_2]);
   });
 
   test('a decoded item carries no storage handle and no drawing', () => {
@@ -204,7 +225,7 @@ describe('frozen v2 bundle — read', () => {
 
   test('a copy saved with windows line endings and a byte-order mark still reads', () => {
     const crlf = `\uFEFF${fixture.replace(/\n/g, '\r\n')}`;
-    expect(decodeFeedbackMarkdown(crlf).items).toEqual([ITEM_1, ITEM_3, ITEM_2]);
+    expect(decodeFeedbackMarkdown(crlf).items).toEqual([ITEM_1, ITEM_3_READ, ITEM_2]);
   });
 });
 

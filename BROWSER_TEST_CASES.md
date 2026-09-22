@@ -427,7 +427,7 @@ Place a box first (click or drag) for each of these; the pencil only exists once
       context for that region should be limited to the iframe tag's own attributes, not its
       internal DOM.
 - [ ] **6.2. (Large selection)** Select a big region with 15+ distinct child elements. In the
-      exported json, `contained_elements` should cap at 15 with `contained_elements_truncated` present —
+      exported json, `contained_elements` should cap at 15 (there is no truncation flag) —
       elements with text/attributes should be prioritized over bare `div`s.
 - [ ] **6.3. (High-DPI / zoom)** On a Retina display or at 150% browser zoom, capture a region with
       recognizable text/UI. Open the note in the enlarged view and visually compare — no offset or misalignment between

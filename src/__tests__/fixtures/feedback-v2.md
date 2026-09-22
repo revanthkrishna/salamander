@@ -83,8 +83,7 @@ second paragraph: the sticky header covers row one when you scroll
   "text": "feature free",
   "selector": "table.compare",
   "xpath": "/html/body/main/table",
-  "html": "<table class=\"compare\"><thead><tr><th>feature</th><th>free</th><th class=\"hi...[truncated]",
-  "html_truncated": true,
+  "html": "<table class=\"compare\"><thead><tr><th>feature</th><th>free</th><th class=\"hi…",
   "page_url": "https://www.example.com/pricing",
   "note": "the comparison table overflows at 1024px\n\nsecond paragraph: the sticky header covers row one when you scroll",
   "id": 3,
@@ -116,7 +115,6 @@ second paragraph: the sticky header covers row one when you scroll
       "text": "team"
     }
   ],
-  "contained_elements_truncated": true,
   "area_text": "feature free team unlimited boards 3 unlimited"
 }
 ```

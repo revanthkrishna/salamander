@@ -856,14 +856,22 @@ salamander 1.1.0\
   1. `text` — the primary target's visible text
   2. `selector` — its CSS selector
   3. `xpath`
-  4. `html` — the outer-HTML snippet (and `html_truncated` when it was cut)
+  4. `html` — the outer-HTML snippet
   5. `page_url` — this note's exact URL
   6. `note` — the full note text
   7. then `id`, `normalised_url`, `page_title`, `created_at`, `selection_rect`, `viewport`, `dpr`,
-     `contained_elements` (with its truncated flag when set), `area_text`
+     `contained_elements`, `area_text`
+  **Length caps (2026-09-21):** free-text values are cut past a limit and end in a single ellipsis
+  `…` — there are no truncation flags anywhere in the file. `html` 300 characters, `text` 120,
+  `area_text` 200, and each contained element's `text` and attribute values 80. A snippet capture
+  had already cut shows the same ellipsis in place of capture's `...[truncated]` marker. Never cut:
+  the note (the user's words) and every identifier — selector, xpath, URLs, ids, class names — since a
+  shortened selector is a wrong one. Why: a container spanning the whole selection could otherwise
+  put a page's entire copy in `text` and a kilobyte of markup in `html`.
   No field appears twice: the v1 `page_meta` block, which repeated url, normalised url, viewport,
   dpr, selection rect and capture time, is gone — only `page_title` survives from it. Keep
   snake_case names.
-- Import rebuilds each item from its JSON plus `screenshots/{id}.png`, exactly: a round trip
-  (export, wipe, import) must reproduce every stored field except the drawing, which comes back
+- Import rebuilds each item from its JSON plus `screenshots/{id}.png`: the file is the record. A
+  round trip (export, wipe, import) reproduces every stored field except (a) values the caps above
+  shortened, which come back as written, and (b) the drawing, which comes back
   flattened into the image as §AB already accepts.
