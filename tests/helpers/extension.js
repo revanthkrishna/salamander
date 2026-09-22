@@ -32,9 +32,9 @@ const SELECTORS = {
   sidebar: '#annotator-sidebar-host .sidebar',
   // The action row is two groups (design spec v3 §A2/§C2): "add note" +
   // its "keep add mode on" switch, and export + a chevron whose menu holds
-  // "import". aria-label is state-dependent on the add button ("add note" /
-  // "add note (on)" / "add note (kept on)" — see setAddButtonState() in
-  // src/sidebar.ts), so that one selects on its stable class instead.
+  // "import". The add button's aria-label is a fixed "add note" (its state is
+  // in aria-pressed; only the tooltip changes — setAddButtonState() in
+  // src/sidebar.ts); it selects on its class, which is just as stable.
   addGroup: '#annotator-sidebar-host .add-group',
   btnAdd: '#annotator-sidebar-host button.btn-add',
   // Hidden (visibility: hidden) until the group is hovered/focused, or until
@@ -487,25 +487,86 @@ async function deleteCurrentNote(page, { expectCollapse = true } = {}) {
 // Export / import (src/export.ts, src/import.ts)
 // ---------------------------------------------------------------------------
 
-/** Click "export" and wait for the resulting browser download. */
+/**
+ * Click "export" and return the bundle it downloads, as
+ * `{ suggestedFilename(), path() }` (the subset of Playwright's `Download`
+ * the specs use).
+ *
+ * Export calls `chrome.downloads.download` from the service worker with a
+ * `data:` URL. Playwright's `download` event only reports downloads a *page*
+ * starts, so it never fires for this one. Instead, the extension's own call
+ * is recorded by wrapping `chrome.downloads.download` inside the service
+ * worker (the same technique as the shadow opener below); the real download
+ * still runs. The recorded data URL is written to a temp file for import.
+ */
 async function exportAndGetDownload(context, page) {
-  const [download] = await Promise.all([
-    context.waitForEvent('download', { timeout: 10000 }),
-    page.locator(SELECTORS.btnExport).click(),
-  ]);
-  return download;
+  const sw = await getServiceWorker(context);
+  const before = await sw.evaluate(() => {
+    if (!globalThis.__salamanderDownloads) {
+      globalThis.__salamanderDownloads = [];
+      const original = chrome.downloads.download.bind(chrome.downloads);
+      chrome.downloads.download = (options, callback) => {
+        globalThis.__salamanderDownloads.push({ url: options.url, filename: options.filename });
+        return original(options, callback);
+      };
+    }
+    return globalThis.__salamanderDownloads.length;
+  });
+
+  await page.locator(SELECTORS.btnExport).click();
+
+  const deadline = Date.now() + 10000;
+  let recorded = null;
+  while (!recorded) {
+    recorded = await sw.evaluate((n) => globalThis.__salamanderDownloads[n] ?? null, before);
+    if (recorded) break;
+    if (Date.now() > deadline) throw new Error('export did not call chrome.downloads.download within 10s');
+    await new Promise((r) => setTimeout(r, 100));
+  }
+
+  const comma = recorded.url.indexOf(',');
+  const zipPath = path.join(
+    fs.mkdtempSync(path.join(require('os').tmpdir(), 'salamander-export-')),
+    recorded.filename,
+  );
+  fs.writeFileSync(zipPath, Buffer.from(recorded.url.slice(comma + 1), 'base64'));
+  return {
+    suggestedFilename: () => recorded.filename,
+    path: async () => zipPath,
+  };
 }
 
 /** Click "export" on an empty domain and capture the resulting
  *  `alert("nothing to export")` (§5 #7). Dismisses the dialog and returns its
  *  message. */
 async function exportAndGetEmptyAlert(page) {
-  const dialogPromise = page.waitForEvent('dialog', { timeout: 5000 });
+  // Dismiss inside the event: a native alert blocks the page, so if it opens
+  // before the click action returns, awaiting the click first deadlocks.
+  const message = handleNextDialog(page, (dialog) => dialog.dismiss());
   await page.locator(SELECTORS.btnExport).click();
-  const dialog = await dialogPromise;
-  const message = dialog.message();
-  await dialog.dismiss();
   return message;
+}
+
+/**
+ * Resolve with the next native dialog's message, after `respond` has
+ * answered it (accept or dismiss) from inside the `dialog` event. Answering
+ * there, rather than after awaiting whatever action opened the dialog, keeps
+ * that action from hanging on a page the dialog is blocking.
+ */
+function handleNextDialog(page, respond, timeout = 5000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      page.off('dialog', onDialog);
+      reject(new Error(`no dialog within ${timeout}ms`));
+    }, timeout);
+    async function onDialog(dialog) {
+      clearTimeout(timer);
+      const message = dialog.message();
+      await respond(dialog);
+      resolve(message);
+    }
+    page.once('dialog', onDialog);
+  });
 }
 
 /** Open the export group's chevron menu (design spec v3 §C2) and wait for it
@@ -561,6 +622,7 @@ module.exports = {
   editNoteAndBlur,
   deleteCurrentNote,
   exportAndGetDownload,
+  handleNextDialog,
   exportAndGetEmptyAlert,
   importFile,
 };

@@ -89,13 +89,12 @@ test('importing when existing feedback is present asks for confirmation before r
   // that importing the (1-item) bundle above would replace.
   await helper.captureFeedbackItem(page, { x: 400, y: 200, note: 'local unsaved item', expectedCount: 2 });
 
-  const dialogPromise = page.waitForEvent('dialog', { timeout: 5000 });
+  const confirmMessage = helper.handleNextDialog(page, (dialog) => dialog.accept());
   await helper.importFile(page, zipPath);
-  const dialog = await dialogPromise;
+  const message = await confirmMessage;
   // §5 #10, verbatim modulo the item count.
-  expect(dialog.message()).toContain('importing will replace your current 2 feedback item(s) for this site');
-  expect(dialog.message()).toContain('this cannot be undone. continue?');
-  await dialog.accept();
+  expect(message).toContain('importing will replace your current 2 feedback item(s) for this site');
+  expect(message).toContain('this cannot be undone. continue?');
 
   await expect(page.locator(helper.SELECTORS.thumbnail)).toHaveCount(1);
   await expect(page.locator(helper.SELECTORS.thumbnailNote)).toHaveText('will be exported');
