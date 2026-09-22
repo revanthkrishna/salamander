@@ -5,7 +5,8 @@ coding agent reading the exported `feedback.md` later.
 
 All code lives in `src/selectorBuilder.ts` (selector/xpath generation) and `src/contextCapture.ts`
 (everything built on top of it — primary target, contained elements, area text, page metadata,
-size governance). The on-disk shape lives in `src/types.ts` as `CapturedContext`.
+size governance). The on-disk shape is `CapturedContext` in `src/types.ts`; the exported shape is
+the json record in `src/bundle/v2.ts` (REQUIREMENTS FR-CX, FR-EX-5).
 
 ## Why this is simpler than it used to be
 
@@ -14,9 +15,9 @@ and layout drift. That required a scoring/resolution system (candidate collectio
 bonuses, heading-mismatch penalties) to pick the right lookalike out of several. See
 `docs/v1-archive/FINGERPRINTING.md` for that system's full design.
 
-v2 never re-locates anything. A screenshot is captured once and stored as a static image (§1.5 —
-no live re-rendering). The selector/xpath captured alongside it exist purely to **explain** where
-the element lives in source — for someone reading the export, not for code to resolve later. That
+The current extension never re-locates anything. A screenshot is captured once and stored as a
+static image. The selector/xpath captured alongside it exist purely to **explain** where the
+element lives in source — for someone reading the export, not for code to resolve later. That
 drops the entire resolution/scoring half of the system, and with it the "which lookalike is it"
 context signals (`closestLabel`, `pageHeading`, `headingPath`, `sectionContext`, `siblingText`,
 `domIndex`) that existed only to disambiguate structurally-identical candidates.
@@ -56,40 +57,54 @@ hardened against framework-generated hash IDs/classes.
 **Deviation from v1:** v1's `buildXPath` had a middle tier — a "heading-anchored" XPath
 (`//h2[...]/following::button[...]`) anchored on the nearest preceding heading. That tier depended
 on the heading-lookup helpers that belonged to the deleted resolution/scoring system, so it was
-dropped rather than resurrecting that dependency for a single XPath tier. XPath is documented as a
-"fallback identifier" only (§1.4A) — the primary explanatory value comes from the CSS selector, the
-sanitised `outerHTML` snippet, and `contextCapture.ts`'s contained-elements/area-text, so the loss
+dropped rather than resurrecting that dependency for a single XPath tier. XPath is a "fallback
+identifier" only (FR-CX-1) — the primary explanatory value comes from the CSS selector, the
+sanitised `outerHTML` snippet, and `contextCapture.ts`'s contained elements/area text, so the loss
 is cosmetic.
 
 ## Context capture (`contextCapture.ts`)
 
-New logic, built on top of the selectors above. Given a selection rectangle (page coordinates),
+Built on top of the selectors above. Given a selection rectangle (page coordinates),
 `captureContext()` produces:
 
 - **Primary target** — the deepest single element found by walking down from `<body>`, at each
-  level descending into the one child whose page-rect *fully contains* the selection rect. Stops
-  (and returns the current node) as soon as no single child qualifies, or the qualifying child is
-  an `<iframe>` (iframes are always treated as leaves — see below). This approximates "deepest
-  common ancestor of everything inside the box" without needing `elementsFromPoint()` or a real
-  layout engine.
-- **Contained elements** — every descendant of the primary target (any depth) whose page-rect
-  intersects the selection rect, scored (id > key attrs > direct text > semantic class) and capped
-  at 15, ties broken by document order. Iframe subtrees are never walked into.
+  level descending into the one visible child whose page-rect *fully contains* the selection rect.
+  Stops (and returns the current node) as soon as no single child qualifies, or the qualifying
+  child is an `<iframe>` (iframes are always leaves — see below); `<script>`, `<style>`,
+  `<template>` and `<noscript>` subtrees are never entered. This approximates "deepest common
+  ancestor of everything inside the box" without `elementsFromPoint()` or a real layout engine, so
+  it is testable in jsdom; it is document-order-biased for absolutely-positioned overlaps, which is
+  acceptable for an "explain where this is" feature.
+- **Contained elements** — every visible descendant of the primary target (any depth) whose
+  page-rect intersects the selection rect, scored (id 3 > key attrs 2 = direct text 2 > semantic
+  class 1) and capped at 15, ties broken by document order. Iframe subtrees are never walked into.
+  Each entry: tag, id, classes split into `semantic` vs `generated` (ALL-CAPS hashes, trailing-digit
+  hashes, CSS-module suffixes), key attributes (`data-*`, `aria-*`, `role`, `href`, `alt`, `name`,
+  `type`, `placeholder`), direct text ≤100 chars.
 - **Area text** — the direct (non-subtree) text of the primary target plus every contained element,
-  in document order, adjacent-duplicate-collapsed. A fast semantic summary, not a pixel-accurate
-  text-range extraction.
+  in document order, adjacent-duplicate-collapsed, joined with spaces. A fast semantic summary, not
+  a pixel-accurate text-range extraction.
 - **Page metadata** — URL, normalised URL, title, viewport, DPR, the selection rect itself, and an
-  ISO 8601 capture timestamp.
+  ISO 8601 capture timestamp. (In the bundle only `page_title` is written from here; the rest are
+  item-level fields and import rebuilds this block from them.)
 - **Size governance** — 2KB total budget (JSON-length proxy for bytes). If exceeded: shrink the
-  primary target's `outerHTML` snippet first (already capped at 1KB, sanitised of `<script>`/
-  `<style>` contents and base64 data-URIs), then — only if still over budget — trim the
-  contained-elements list from its lowest-priority end. Always leaves a `"...[truncated]"` marker,
-  never a silent cut.
+  primary target's `outerHTML` snippet first (already capped at 1KB and sanitised of `<script>`/
+  `<style>` bodies and base64 data-URIs) in ×0.7 steps, then — only if still over budget — trim the
+  contained-elements list from its lowest-priority end, setting `containedElementsTruncated`.
+  Always leaves a `"...[truncated]"` marker, never a silent cut.
 
-Cross-origin **and** same-origin iframes are both treated the same way: tag/attrs (including `src`)
-only, never descended into. §6 edge case 6 only requires this for cross-origin iframes; treating
-both uniformly avoids a same-origin/cross-origin branch for a same-origin case v1 doesn't require
-more thoroughness on.
+Cross-origin **and** same-origin iframes are treated the same way: tag/attrs (including `src`)
+only, never descended into. Treating both uniformly avoids a same-origin/cross-origin branch that
+would throw in the cross-origin case anyway.
+
+## What the export does on top
+
+`src/bundle/v2.ts` derives `text` (the primary target's visible text: tags dropped, entities
+decoded, whitespace collapsed) from the stored `html` snippet at export time, and caps the free
+text in the record — `text` 120, `html` 300, `area_text` 200, each contained element's `text` and
+attribute values 80 — ending a cut value in a single `…` (capture's `...[truncated]` marker is
+swapped for the same ellipsis). Selectors, xpaths, ids, class names and URLs are never cut: a
+shortened selector is a wrong one. On import, a snippet ending in `…` is read back as truncated.
 
 ## What `wordlist.ts` is for
 

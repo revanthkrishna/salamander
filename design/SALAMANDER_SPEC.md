@@ -100,7 +100,7 @@ States: regular · hover · press · focus-visible (keyboard) · disabled.
 - Scrim outside the selection: `scrim` token.
 - Selection box: radius md (10px), outline = a 2px line outside the box alternating 4px accent and 4px ink (see §Z; reads on light and dark pages). NO visible square handles.
 - Resize from ANY edge or corner: invisible hit zones — edges ~10px thick straddling the outline, corners ~16×16 — with the right resize cursors (ns/ew/nwse/nesw). Keyboard-accessible alternative must not regress if one exists today. Selection box has no hover/press styling (cursor change only). Keep min size 20×20, viewport clamping, the existing click-to-place / drag-to-draw placement, and hideOverlayUI/showOverlayUI.
-- Comment box (width 280, keep the below → above → right → left flip logic): radius lg, 1px `line` border, `surface` fill, `shadowPop`, overflow hidden, NO inner padding — the parts merge into one box:
+- Comment box (width 280 — widened to 296 by §AB's bottom bar; keep the below → above → right → left flip logic): radius lg, 1px `line` border, `surface` fill, `shadowPop`, overflow hidden, NO inner padding — the parts merge into one box:
   - textarea: full width, ~88px, padding 10px 12px, no border of its own; placeholder "what should change here?" in muted.
     - hover (pointer over the text area): only the text area's edge darkens — `box-shadow: inset 0 0 0 1px {lineStrong}` with top radius lg. The outer box never changes on hover.
     - focus: only the text area's edge turns yellow — `inset 0 0 0 1px {accent}`. No soft/secondary yellow ring anywhere.
@@ -644,11 +644,11 @@ Three sizes, and no others:
 
 | px | used by |
 |---|---|
-| 28 | the note's hover delete — it sits on a thumbnail, where 32 crowded the image |
-| 32 | close, theme toggle, the enlarged view's delete, the rail's prev/next/exit |
-| 36 | the action row: the add-note group and the export + chevron group |
+| 28 | the note's hover delete — it sits on a thumbnail, where 32 crowded the image; and the comment box's pencil button (§AB) |
+| 32 | close, the enlarged view's delete (the theme toggle is gone — §AA) |
+| 36 | the action row: the add-note group and the export + chevron group; and the enlarged view's rail (exit/prev/next), which §R moved to the viewport edge at this size |
 
-Icons stay 16px in all three (17px for the add button's comment glyph, 18px for close).
+Icons stay 16px in all three (17px for the add button's comment glyph, 18px for close and the rail's exit glyph).
 
 ## Y. The add-note group's labels (2026-09-21)
 
@@ -757,6 +757,9 @@ the character counter (moved here from the left), then cancel and save.
   opens a small menu (same treatment as the export group's chevron menu, §C2) holding **erase all**.
   28px (the small-small size, §X). `aria-haspopup="menu"`, `aria-expanded`, a label such as
   "drawing options". Esc closes the menu and returns focus to the button.
+- **(impl)** The comment box is 296px wide, not §3.2's 280: the bar now carries the pencil, three
+  swatches, the counter, cancel and save, and with the counter showing that row needs 279px of
+  content, which 280 minus the bar's own 6px padding could not hold.
 - The swatches are a **radio group** ("pencil colour"), each a small circle in its colour with a
   clear selected state that reads in the dark theme — including for the black swatch, which needs a
   visible edge on a dark surface. Arrow keys move between them, as a radio group should.

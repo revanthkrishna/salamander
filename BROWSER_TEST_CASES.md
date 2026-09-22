@@ -52,8 +52,8 @@ the same page.
 - [ ] **1.1.** Click the extension icon on a normal page → sidebar opens on the right edge.
 - [ ] **1.2.** The page itself visibly narrows/reflows to make room — the sidebar does **not**
       float on top of or cover page content.
-- [ ] **1.3.** Sidebar header shows a logo + "salamander" wordmark (display italic), a theme
-      toggle, and a close button. Below it, a separate action row holds two groups: an icon-only
+- [ ] **1.3.** Sidebar header shows a logo + "salamander" wordmark (display italic) and a close
+      button — no theme toggle (dark only). Below it, a separate action row holds two groups: an icon-only
       "add note" button (comment-bubble glyph) with a "keep add mode on" switch attached to its
       right, and an "export" icon button with a chevron attached to its right.
 - [ ] **1.4.** With no feedback captured yet on this page, sidebar body shows the empty-state
@@ -82,11 +82,12 @@ the same page.
       Every surface (the sidebar, add mode, the enlarged view) is dark regardless of your OS or
       browser appearance setting, including after flipping that setting with the sidebar open.
 - [ ] **1.15. (Narrow sidebar widths)** Drag the sidebar narrower than ~220px — the "salamander"
-      wordmark should hide, and hovering the "add note" group should no longer reveal the
-      "keep on" switch (keyboard focus still does, and it stays visible whenever it is on).
-      Keep dragging to the 188px minimum and hover the add group there — the switch should reveal
-      and BOTH groups must still sit on one line, with nothing clipped, nothing wrapped to a second
-      row and the logo mark still showing (v5 §V retired the old compact layout).
+      wordmark should hide and nothing else should change: hovering the "add note" group still
+      reveals the "keep on" switch at every width (no breakpoint suppresses it), keyboard focus
+      reveals it too, and it stays visible whenever it is on. Keep dragging to the 188px minimum
+      and hover the add group there — the switch reveals and BOTH groups must still sit on one
+      line, with nothing clipped, nothing wrapped to a second row and the logo mark still showing
+      (v5 §V retired the old compact layout).
 - [ ] **1.16. ("this page (n)" heading)** With items captured on the current page, the sidebar
       shows a small "this page (n)" heading above the list, where n matches the visible item count.
       Delete items down to zero — the heading should disappear and the empty state should show
@@ -128,8 +129,9 @@ the same page.
       (like drawing a rectangle in Figma) → the box should be exactly the rectangle you dragged,
       not the default thumbnail-matching size, updating live as you drag in any direction
       (down-right, up-left, etc.).
-- [ ] **2.3.** Box has a rounded outline (yellow `#FEC800` plus a thin dark keyline outside it) —
-      no visible square handles anywhere on the corners or edges.
+- [ ] **2.3.** Box has a rounded 2px outline just outside it, dashed in alternating 4px yellow
+      and 4px ink (no separate keyline — design spec §Z), readable on a light page and a dark one
+      — no visible square handles anywhere on the corners or edges.
 - [ ] **2.4.** Hover near an edge (roughly a 10px-thick strip straddling the outline) or a corner
       (roughly a 16×16 area centred on it) — the cursor should change to the matching resize cursor
       (↕/↔/⤡/⤢) even though nothing is drawn there, and dragging from that invisible zone should
@@ -159,9 +161,12 @@ the same page.
 - [ ] **2.13. (Restricted pages)** Try clicking the extension icon on `chrome://extensions`, a
       blank new tab, or an open PDF. The sidebar should not appear, and nothing should break on the
       page itself.
-- [ ] **2.14. (Capture failure)** Trigger 4–5 captures back-to-back as fast as you can. At least
-      one should show an error like "couldn't capture a screenshot here. try again." rather than
-      silently failing or creating a broken item — confirm no partial/blank thumbnail appears.
+- [ ] **2.14. (Rapid captures)** With "keep add mode on" on, save 4–5 notes back-to-back as fast
+      as you can. Every one should succeed — the service worker spaces captures 500ms apart rather
+      than letting them hit Chrome's rate limit — with no partial/blank thumbnail and no extension
+      UI in any screenshot. (To see the failure path instead, stop the service worker at
+      `chrome://serviceworker-internals` and save: "couldn't capture a screenshot here. try again."
+      appears, add mode stays where it was, and no item is created.)
 
 - [ ] **2.15. (add note toggle)** The **add note** group is neutral (surface fill, 1px border) when
       off, and its hover/press fills are the *secondary* greys — never yellow. Click it → the whole
@@ -213,7 +218,7 @@ Place a box first (click or drag) for each of these; the pencil only exists once
       Same from the left and top edges (the box's origin moves; the strokes must not).
 - [ ] **2a.5. (bottom bar)** Left: the pencil button (28px), then three swatches — yellow, black,
       red. Right: cancel, save; type past 900 characters and the counter appears just left of
-      cancel. Nothing overflows the 280px bar, even at 1000 characters. The black swatch is clearly
+      cancel. Nothing overflows the 296px bar, even at 1000 characters. The black swatch is clearly
       visible on the dark bar, and the selected swatch has an obvious ring.
 - [ ] **2a.6. (swatches)** Click red, draw; click black, draw: each stroke keeps its own colour.
       Tab to the swatches (one Tab stop), arrow left/right/up/down moves the selection and wraps.
@@ -458,7 +463,7 @@ Run each of these in the dark theme (the only one — design spec §AA).
 
 - [ ] **6a.1. (§J — one fixed block)** There must be exactly one 1px rule in the top of the
       sidebar: under the action row, below the add/export controls. No line between the header
-      (logo + theme + close) and the action row, and none anywhere inside them.
+      (logo + close) and the action row, and none anywhere inside them.
 - [ ] **6a.2. (§K — export group per half)** Hover the export icon: only the left half fills, and
       the group's border darkens. Hover the chevron: only the chevron half fills. Press either —
       only that half darkens, and the whole group dips slightly. Open the menu, then press the
@@ -466,9 +471,8 @@ Run each of these in the dark theme (the only one — design spec §AA).
       The chevron keeps its own lit state for as long as the menu is open.
 - [ ] **6a.3. (§P — the "keep on" switch's colours)** Hover the add-note group to reveal the
       switch. **Off:** the track must read as a real, filled control (mid-grey), with the knob
-      clearly standing out against it — in dark theme too, where it must not look like one dark
-      blob. **On:** the segment is yellow, the track is dark ink, and the knob is brand yellow;
-      identical in both themes.
+      clearly standing out against it — it must not look like one dark blob on the dark surface.
+      **On:** the segment is yellow, the track is dark ink, and the knob is brand yellow.
 - [ ] **6a.4. (Collapsed switch)** With the pointer away from the add-note group, look closely at
       the button's right edge: there must be **no** hairline there at all, and the icon must sit
       dead-centre in the button. The group should measure the same as a plain 36px icon button

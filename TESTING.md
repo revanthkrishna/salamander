@@ -1,326 +1,179 @@
 # Testing
 
-How to test the annotator extension after code changes — unit tests, builds, and manual browser verification.
+How to test salamander after a code change — unit tests, the build, and manual verification in Chrome. `BROWSER_TEST_CASES.md` is the full click-through checklist; this file covers the tooling, the shorter flows and debugging.
 
 ---
 
 ## unit tests
 
 ```bash
-npm test                          # full Jest run
-npx jest sidebar                  # just the sidebar tests
-npx jest capture                  # capture geometry and coordinate math
+npm test                          # full jest run
+npx jest sidebar                  # one suite by name
+npx jest capture                  # capture geometry and ordering
 npx jest contextCapture           # DOM context extraction
-npx jest import                   # all 13 import error cases
+npx jest import                   # the §5 validation ladder
 npx jest bundle                   # feedback.md: frozen fixture, round trip, reader errors
+npx tsc --noEmit                  # type check (strict, noUnusedLocals)
 ```
 
-**Test coverage** (786 tests, 25 test files):
-- `sidebar.test.ts` — sidebar open/close, page resize, URL tracking, resizable width (drag/keyboard, persistence, clamping), narrow-width breakpoints, the "add note" group + its "keep on" switch (paint, reveal, gestures, resting width, the single divider, the merged fill, the v4 §P track/knob colours), the export/chevron menu (open/close routes, keyboard, outside pointerdown, per-half hover/press), the one-bordered-block top section, the note's uniform padding and its hover delete, and the §H "on hold" state
-- `addMode.test.ts` — selection box creation, edge/corner resize hit zones, clamping to viewport, comment box positioning, counter thresholds, save/cancel state
-- `addModeDrawing.test.ts` — the pencil (design spec §AB): no surface while placing, the surface exactly over the rect with the zones above it (resize still resizes, cursors kept), stroke capture incl. coalesced samples and dots, focus moving off the textarea, strokes pinned to the page through a resize (only the clip moves), the cropped `drawing` handed to `onOk` (and no key when nothing lands inside), Cmd/Ctrl+Z undo vs the textarea's own undo and the page never seeing the key, the pencil menu (erase all, disabled when empty, Esc/Tab/arrows, outside press, below/above placement), the swatch radio group (default yellow, arrows, silent `setPenColor`), and capture purity end to end (the drawing layer is hidden at the moment `CAPTURE` goes out; nothing can be drawn mid-capture)
-- `drawing.test.ts` — the palette, `cropDrawing` (edge cuts, exit/re-entry splitting, dots, rounding), the SVG builder's viewBox/`meet`, and the canvas painter's scaling (2x capture → 4px line)
-- `drawingViews.test.ts` — a saved drawing over the list thumbnail (fitted like the image, never taking the click, inside the magnified `<li>`) and over the enlarged view's main card and peeks (inside `.xp-card-media`, riding the FLIP morph's media track and the carousel with no track of its own)
-- `export.test.ts` — the drawn image only: a drawing is composited at the image's measured pixel scale, an item without one exports byte-for-byte with no canvas made, `feedback.md` carries no drawing data (only the "marked up by the reviewer" alt text), a failed composite falls back to the clean PNG; the header's manifest version and local time from the injectable environment; and the §AC round trip (export → import reproduces every stored field, the drawing only in the pixels)
-- `capture.test.ts` — viewport-relative CSS coordinates, CSS → device-pixel scale calculation, DPR accounting, crop verification
-- `contextCapture.test.ts` — deepest-common-ancestor selection, contained-elements prioritization (15-element cap), area-text aggregation, 2KB size governor, truncation markers
-- `selectorBuilder.test.ts` — CSS selector generation (data-* preference, ID rules, nth-of-type fallback, UUID/React hash rejection), XPath generation
-- `storage.test.ts` — domain CRUD, item CRUD (create/read/update-by-patch/delete), blob orphan prevention, nextItemNumber monotonicity, the split layout (which keys each operation reads and writes, torn-write tolerance), the version-1 → version-2 migration against a frozen v1 record through every entry point, session state round-trip
-- `thumbnails.test.ts` — thumbnail list rendering from FeedbackItem array, including each item's hover delete (a sibling of the item's button, never nested inside it) and its wiring
-- `enlargedView.test.ts` — enlarged view open/collapse (incl. interrupted transitions), prev/next and the ends, autosave debounce + flush on navigate/collapse, save failures, the empty-note rule on every exit path, delete (middle/last/only), keyboard (Esc/↑/↓/focus in and out), add mode collapsing it first, reduced-motion path, teardown
-- `content.test.ts` — add-note toggle / "keep add mode on" switch state machine end to end (switch on from off, switch off mid-session, capture re-entry and per-note cancel while it is on, the v2 dblclick/shift gestures, Esc, sidebar close, opening a note), plus the §H "sidebar on hold" wiring and the list delete's DELETE_ITEM round trip and failure copy
-- `import.test.ts` — the §5 ladder (not-a-zip, corrupt archive, missing `feedback.md`, unsupported format — a retired v1 bundle, a newer format, no stamp, and that it is checked before #4b — malformed element data, missing screenshot, duplicate IDs, domain mismatch) with purpose-built fixture bundles, plus a zip round trip
-- `bundle.test.ts` — the format-2 writer against generated input (header, page/note order, the json's field order, `(none)`, trimming, the free-text length caps and their single ellipsis), `formatExportDate` and the derived `text` field, the round trip (every stored field but the drawing), notes that look like structure or quote a whole exported item, the format dispatch (v1/newer/unstamped refused) and every malformed-file error
-- `bundleV2.test.ts` — the frozen format-2 bundle (design spec §AC): `fixtures/feedback-v2.md` (real committed text) must decode to hand-written items, and the writer must reproduce it byte-for-byte; the visible note line is ignored on read, CRLF/BOM copies still read, and all fixed text is lowercase
-- `background.test.ts` — injection, message handlers, capture relay, throttle verification, re-inject on reload
-- `urlNorm.test.ts` — normalization rules (strip query/fragment, strip `www.`, strip trailing slash, case-sensitive paths, port handling) — kept from v1
-- `keyboardIsolation.test.ts` — capture-phase window-level keydown/keyup isolation so page shortcuts can't fire while typing into the comment box / enlarged-view note editor
-- `theme.test.ts` — theme mode (`auto`/`light`/`dark`) resolution and persistence, `chrome.storage.onChanged` cross-tab sync, OS `prefers-color-scheme` fallback, CSP-safe bundled `FontFace` loading, themed-host registration
-- `dockMotion.test.ts` — pointer-position-based influence/falloff math, spring integration toward scale/translate targets, keyboard-focus magnification, `prefers-reduced-motion` bypass, the note background and hover delete sharing one opacity spring, rAF loop lifecycle (starts on interaction, stops at rest, cleaned up on teardown)
-- `autosave.test.ts` — the per-item autosave controller: debounce, in-flight-counts-as-clean, superseded replies dropped, failed saves retried on flush, forget on delete
-- `rpc.test.ts` — the typed `send()`: never rejects, `undefined` on a dead worker / invalidated context, response type follows the request
-- `dataUrl.test.ts` — the data-URL codecs: byte-exact decode across the 0x80 boundary, percent-encoded form, >32 KiB chunking, `fetch`-free
-- `copy.test.ts` — the §5 copy, byte-exact
+**802 tests in 26 suites** (2026-09-22; `npx jest` and `npx tsc --noEmit` both clean):
 
-**Jest/jsdom:** no browser launch. `chrome.storage` and IndexedDB are mocked via `src/__tests__/setup.ts`. jsdom doesn't implement layout, so layout-dependent code (e.g. `offsetWidth` for visibility checks) is stubbed to return non-zero for any connected element.
+- `sidebar.test.ts` (117) — open/close, page shrink, URL tracking, resizable width (drag/keyboard, persistence, clamping, the derived 188px minimum), the narrow breakpoint, the add group + "keep on" switch (paint, reveal, gestures, resting width, the tuck, track/knob colours), the export/chevron menu (routes, keyboard, outside pointerdown, per-half hover/press), the one-bordered top block, note padding and hover delete, the "on hold" state
+- `addMode.test.ts` (66) — box placement (centred click, clamping, drag-to-draw), edge/corner zones, minimum size, comment box positioning, counter thresholds, save/cancel state, the preview and hint
+- `addModeDrawing.test.ts` (49) — the pencil: no surface while placing, the surface exactly over the rect with the zones above it, stroke capture incl. coalesced samples and dots, focus moving off the textarea, strokes pinned through a resize, the cropped `drawing` handed to `onOk`, Cmd/Ctrl+Z vs the textarea's own undo, the pencil menu (erase all, disabled when empty, Esc/Tab/arrows, placement above), the swatch radio group, capture purity end to end
+- `drawing.test.ts` (18) — the palette, `cropDrawing` (edge cuts, exit/re-entry splitting, dots, rounding), the SVG builder, the canvas painter's scaling
+- `drawingViews.test.ts` (10) — a saved drawing over the list thumbnail and over the enlarged view's main card and peeks
+- `enlargedView.test.ts` (82) — open/collapse incl. interrupted transitions, prev/next and the ends, autosave debounce + flush, save failures, the empty-note rule on every exit path, delete (middle/last/only), keyboard, add mode collapsing it, the scroll lock, reduced motion, teardown
+- `content.test.ts` (43) — the add-note toggle / switch state machine end to end (gestures, Esc, sidebar close, opening a note), the "on hold" wiring, the list delete round trip, the import flow (replace on an empty domain, the §5 #10 confirmation honoured both ways, a failed count read stops the import, a dead worker stops it, the menu item re-enabled)
+- `capture.test.ts` (18) — viewport-relative coordinates, the page-rect conversion, ordering (context before hide, double rAF before `CAPTURE`), failure restores the overlay
+- `background.test.ts` (70) — injection and reload re-injection, the handler table, the capture relay and throttle, `computeDeviceRect` across the DPR/zoom/scrollbar/edge matrix, blob cleanup on a failed save, import replace, pen colour validation, a `fetch()` stub that throws (the CSP regression guard)
+- `contextCapture.test.ts` (12) — deepest-containing-element selection, contained-element prioritisation and the 15 cap, area text, the 2KB governor's truncation order and markers, iframe leaves
+- `selectorBuilder.test.ts` (22) — selector priority ladder, framework-id rejection, class heuristics, XPath
+- `storage.test.ts` (31) — domain and item CRUD, the split layout (which keys each operation touches, torn-write tolerance), blob orphan prevention, `nextItemNumber` monotonicity, session state and pen colour
+- `thumbnails.test.ts` (17) — list rendering in order, open on click/Enter/Space, the note-preview DOM cap (the 3-line clamp itself is CSS), the sibling delete button firing `onDelete` and never `onOpen`
+- `import.test.ts` (16) — the ladder with purpose-built zips: not-a-zip, corrupt archive, missing `feedback.md`, unsupported format (a retired v1 bundle, a newer stamp, no stamp — checked before malformed data), malformed element data, missing screenshot, duplicate ids, domain mismatch, and a round trip
+- `bundle.test.ts` (25) — the format-2 writer against generated input (header, page/note order, field order, `(none)`, the free-text caps and their single ellipsis), `formatExportDate`, the derived `text`, the round trip, notes that look like structure or quote a whole item, reader dispatch (v1/newer/unstamped refused), every malformed-file error, and `FORMAT_VERSION === FORMAT_VERSION_V2`
+- `bundleV2.test.ts` (8) — the frozen fixture `fixtures/feedback-v2.md`: it decodes to hand-written items and the writer reproduces it byte for byte; the visible note line is ignored on read; CRLF/BOM copies still read; all fixed text is lowercase
+- `export.test.ts` (11) — a drawing composited at the image's measured scale, an undrawn item exported byte for byte with no canvas, no drawing data in `feedback.md` (only the alt text), a failed composite falling back, the injectable header, the export → import round trip
+- `urlNorm.test.ts` (31) — normalisation rules and `exportFilename`
+- `keyboardIsolation.test.ts` (5) — capture-phase isolation of events inside the host; events outside untouched; `preventDefault` never called
+- `theme.test.ts` (6) — the parked light table covers the same keys as the dark one; `RADII`; `getThemeCSS` emits only the dark tokens on `:host` (no `data-theme` selector) with the namespaced font stacks; `ensureFontsLoaded` never throws and is idempotent
+- `dockMotion.test.ts` (29) — influence/falloff math, spring integration, keyboard-focus magnification, reduced-motion bypass, the shared note-background/delete opacity spring, rAF loop lifecycle
+- `dom.test.ts` (7) — `getContentViewportSize`'s fallback and layout case, `reducedMotionQuery`'s three outcomes, the safe rAF fallback and cancel
+- `autosave.test.ts` (9) — debounce, in-flight counts as clean, superseded replies dropped, failed saves retried on flush, forget on delete
+- `rpc.test.ts` (4) — `send()` never rejects; `undefined` on a dead worker / invalidated context
+- `dataUrl.test.ts` (10) — byte-exact codecs, percent-encoded form, >32 KiB chunking, `fetch`-free
+- `copy.test.ts` (4) — the §5 copy, byte-exact
 
-**Comment policy:** a comment explains a *constraint* or a *rejected alternative* — why the code is the odd shape it is, and what broke when it was simpler. It does not narrate *when* something changed or which build phase did it: git has that history, and such comments only ever go stale. The banners in `background.ts` (why the crop scale is measured), `sidebar.ts` (the page-shrink strategy) and `enlargedView.ts` (the scroll lock's exemption test) are the model.
+**Environment:** jest + ts-jest + jsdom. `src/__tests__/setup.ts` mocks `chrome.storage.local/session`, `chrome.runtime.getManifest` (reads the real `manifest.json`) and installs `fake-indexeddb`; jsdom has no layout, so `offsetWidth`/`offsetHeight` report 100 for any connected element and `CSS.escape` is polyfilled. `src/__tests__/fixtures/feedback-v2.md` is frozen: a writer change that alters it is a format change and needs a new fixture and version.
+
+**Comment policy:** a comment explains a *constraint* or a *rejected alternative* — why the code is the odd shape it is and what broke when it was simpler — never *when* something changed (git has that). The banners in `background.ts` (the measured crop scale), `sidebar.ts` (the page-shrink strategy) and `enlargedView.ts` (the scroll lock's exemption test) are the model.
 
 ---
 
-## build & load in chrome
-
-The extension's compiled bundle lives in `dist/`. Chrome reads from there directly via "Load unpacked".
+## build and load in chrome
 
 ```bash
-npm run build       # esbuild → dist/ (every src/ module bundled, minified, into dist/*.js)
+npm run build          # esbuild → dist/background.js + dist/content.js (minified, sourcemaps)
+npm run build:watch    # rebuild on change
 ```
 
-In Chrome:
+1. `chrome://extensions` → enable **Developer mode**.
+2. First time: **Load unpacked** → the project root (with `manifest.json`).
+3. After every rebuild: the reload icon on the extension card.
+4. Then refresh the test tab — a content script injected before the reload is orphaned and cannot reach the new service worker (its messages resolve `undefined` and show "try again" banners).
 
-1. `chrome://extensions` → enable **Developer mode** (top-right toggle)
-2. **First time only:** "Load unpacked" → select the project root (directory with `manifest.json`)
-3. After every rebuild: click the **reload (↻)** icon on the extension card
-4. After reloading the extension: **refresh the test tab** (⌘⇧R / Ctrl+Shift+R)
-   - Content scripts injected into *open* tabs become orphaned when you reload the extension
-   - A page refresh re-injects the new content script and re-establish the message channel
+---
+
+## end-to-end (playwright)
+
+```bash
+npm run build && npx playwright test
+```
+
+Five specs in `tests/` (26 tests: sidebar, capture, thumbnails/enlarged view, export/import, persistence) run headed against a real Chromium with the built extension loaded (`tests/helpers/extension.js`: persistent context, service-worker handle, a local file server for `tests/fixtures/test-page.html` with SPA-style routes, and a patch that forces the extension's closed shadow roots open so plain CSS selectors reach inside). One worker, one retry. Not run in the unit loop.
+
+Known harness limitation (last recorded run, 2026-09-21: 23 passed / 3 failed): the export tests wait for a page-initiated download event, but export downloads through `chrome.downloads` from the service worker, which never raises one. Those three failures are the harness, not the extension — verify export manually.
 
 ---
 
 ## manual test flows
 
-### Flow 1: Basic capture → thumbnail → enlarged view → export
+### Flow 1: capture → thumbnail → enlarged view → export
 
-**Page:** any real website (e.g. https://github.com, https://wikipedia.org)
+**Page:** any real site (github.com, wikipedia.org).
 
-1. Click the extension icon → sidebar opens on right side of page
-2. Verify sidebar has resized the page (page is narrower, no overlay)
-3. Click **add note** (the icon-only comment-bubble button; the group turns yellow = on) → cursor becomes a crosshair. Hover the button to reveal the "keep add mode on" switch and flick it on instead: after each save you're straight back in add mode until you click the button, flick the switch back, or press Esc. (Double-click / shift+click / shift+enter still work and just turn the switch on.) While add mode is active the note list below dims and stops responding, and export is disabled
-4. Click a specific element (e.g. a button or heading) → default 267×100px box appears (the thumbnail's size at the default sidebar width)
-5. Drag from the invisible edge/corner resize zones (no visible handles) to adjust the box
-   (minimum 20×20px enforced)
-6. Type a note in the comment box (test the 1000-char counter: appears past 900, danger-coloured
-   at 980+)
-7. Click **save** → overlay hides, screenshot taken, overlay restores, thumbnail appears
-8. Thumbnail shows correct image + truncated note text + item number
-9. Click thumbnail → the sidebar expands (thumbnail grows into the large screenshot; neighbouring notes peek in above/below)
-10. Edit the note text → autosaves shortly after typing stops, silently (no confirmation); try ↑/↓ and the peeks to move between notes; clear the text entirely and try to leave → blocked with an inline error under the text area. Try to scroll the page behind the view → it must not move; the text area still scrolls
-11. Click **delete** → item removed, thumbnail gone, blob cleaned up. (A note can also be deleted without opening it: hover or Tab to its list item and use the delete button over the thumbnail's top-right corner.)
-12. Repeat steps 3–7 with 2+ items, then on a *different* URL in the same domain
-13. Click **export** → `.zip` downloads
-14. Extract `.zip` and verify:
-    - `screenshots/1.png`, `screenshots/2.png`, etc. exist (correct count)
-    - `feedback.md` renders correctly in a markdown viewer with inline images
-    - Line 1 is `<!-- salamander-feedback-format: 2 -->` (invisible when rendered); then `salamander {version}`, `**date exported:** …` in your local time with its utc offset, and `**website:** {domain}` on three separate lines
-    - One `## page "{url}"` section per URL, notes chronological within it
-    - Each note: `### feedback {id}`, the screenshot, `**note:** …` (`(none)` when empty), and a collapsed "element data" block with a ` ```json ` record — all fixed text lowercase
+1. Click the icon → the sidebar opens on the right; the page is narrower, not covered.
+2. Click **add note** (the group turns yellow) → crosshair, a preview box follows the cursor, the hint "click or drag to select" for ~5s. The list dims and export is disabled.
+3. Click → a 267×100 box centred on the click; or drag a rectangle. Resize from the invisible edge/corner zones; it refuses to go under 20×20 or past the viewport.
+4. Type past 900 characters → a muted counter appears; past 980 → danger; hard stop at 1000. **save** is disabled while empty.
+5. **save** → the overlay vanishes for a frame, the thumbnail appears at the bottom with its number and a 3-line note.
+6. Hover the add button, flick **keep add mode on**, save two more notes without clicking the button; **cancel** one (you stay in add mode); click the button → everything stops.
+7. Click a thumbnail → the sidebar expands; the thumbnail grows into the large image, neighbours peek above/below. ↑/↓ and the peeks navigate; edit the note and collapse — reopen to confirm it was kept (no save button, no "saved" text). Clear the text and try to leave → blocked with the inline error. Scroll behind the view → the page must not move.
+8. Delete from the enlarged view (moves to the next note) and from the list's hover button (no confirmation either way).
+9. Capture on a second URL of the same site, then **export** → `feedback-{domain}-{date}.zip`. Unzip: `screenshots/{id}.png` per note, `feedback.md` whose line 1 is the format stamp, three header lines, one `## page` per URL, and per note the heading, image, `**note:**` line and the collapsed json block, all fixed text lowercase.
 
-### Flow 1a: Drawing on the selection (design spec §AB)
+### Flow 1a: drawing (design spec §AB)
 
-1. Enter add mode, place a box. Hover inside it → pencil cursor; hover each edge/corner → resize cursor; outside → arrow.
-2. Draw a few strokes, pick red and draw another. Resize the box smaller and larger: strokes stay where they were on the page, only the visible part changes.
-3. Cmd/Ctrl+Z (focus on the drawing) removes the last stroke. Click the textarea, type, Cmd/Ctrl+Z → undoes the typing, strokes untouched.
-4. Pencil button → **erase all** clears everything. Save a note with a drawing: the thumbnail shows the strokes over the image; open it — the drawing sits exactly on the image through the expand morph and the carousel.
-5. Export: `screenshots/{id}.png` has the strokes burned in at full resolution; `feedback.md` has no drawing data — only that note's image alt text reads `feedback {id} — marked up by the reviewer`. Reload the page and start a new note: the swatch you picked last is still selected. Restart Chrome: back to yellow.
+1. Place a box. Inside → pencil cursor; on an edge → resize cursor; outside → arrow.
+2. Draw; pick red; draw. Resize the box over the strokes: they crop, they never move.
+3. Cmd/Ctrl+Z with focus on the drawing removes the last stroke; in the textarea it undoes typing only.
+4. Pencil button → **erase all**. Save a note with a drawing: strokes over the thumbnail, and glued to the image through the expand morph and the carousel.
+5. Export: that PNG has the strokes burned in (4px wide on a 2× display); its alt text ends " — marked up by the reviewer"; no drawing data anywhere else. Reload and start a note: the last colour is still selected. Restart Chrome: yellow.
 
-Full checklist: `BROWSER_TEST_CASES.md` §2a.
+### Flow 1b: resizable sidebar and the youtube limitation
 
-### Flow 1b: Resizable sidebar + the youtube page-shrink edge case
+1. On wikipedia.org, drag the sidebar's left edge: it stops at 188 and 300. Tab to the handle: arrows step 10px, Home/End jump to the ends. Reload: the width is remembered.
+2. Open a note and resize the window: the expanded panel stays ~75% and re-lays out; collapse → your width is back.
+3. **youtube.com** is a known limitation (REQUIREMENTS EC-13): the page bleeds under the sidebar. Check only that the sidebar paints on top and works, captures are clean, and closing restores the page.
 
-**Page:** a normal-flow site (https://wikipedia.org) *and* https://youtube.com
+### Flow 2: import
 
-1. Sidebar open on wikipedia → hover the sidebar's left edge: cursor becomes `ew-resize`
-   and a thin yellow rail appears
-2. Drag left/right → panel width follows the cursor live, page reflows to match,
-   clamped at 188px (narrowest — the width the action row needs with the "keep on" switch out) and 300px (widest) — it will not go past either
-3. Tab to the handle → arrow keys resize in 10px steps, `Home`/`End` jump to the extremes
-4. Open a note in the enlarged view, then resize the window → the expanded panel stays ~75%
-   of the viewport and its layout recomputes; collapse → the sidebar is back at your chosen width
-5. Close the sidebar, reload, reopen → the width you picked is still there
-   (persisted in `chrome.storage.local`, key `sidebarWidth`)
-6. **youtube.com — known limitation (REQUIREMENTS §6 #13), not a bug to file:**
-   the sidebar is fully visible and usable, but page content bleeds *under* it —
-   YouTube sizes containers in `vw` units and computes player width from
-   `window.innerWidth` in JS, neither of which a root-element shrink can affect.
-   What to check is only that (a) the sidebar paints on top and every button works,
-   (b) capture still produces a clean screenshot with no extension UI in it, and
-   (c) closing the sidebar leaves the page exactly as it was.
+1. On the site the bundle came from: chevron → **import** → pick the zip. With existing notes, the native confirm quotes the real count; cancel leaves everything; ok replaces.
+2. Navigate between the bundle's URLs: thumbnails appear per URL.
+3. Errors (copy in REQUIREMENTS §5): a `.txt`; a renamed non-zip; a zip without `feedback.md`; a `feedback.md` whose line 1 is another stamp or missing; a broken json block; a bundle from another site.
+4. Stop the service worker (`chrome://serviceworker-internals`) and import again: a banner, nothing replaced, **import** enabled again.
 
-### Flow 2: Import
+### Flow 3: SPA navigation
 
-**Setup:** have a `.zip` bundle from Flow 1 on disk
+On reddit.com or twitter.com: capture two notes, follow an in-app link. The sidebar stays open, the list refreshes for the new URL ("no feedback on this page yet" if none), and going back restores the original items.
 
-**Page:** same website where the bundle was created
+### Flow 4: reload persistence
 
-1. Sidebar open, domain is empty (or has old feedback)
-2. Click the chevron beside **export**, then **import** in the menu → file picker opens, accept `.zip` only
-3. Select the bundle → extension reads and validates
-4. If existing feedback: confirmation dialog appears → accept it to replace
-5. Sidebar populates with thumbnails for URLs in the bundle
-6. Navigate to other URLs in the domain → thumbnails appear/disappear per URL
+Sidebar open → F5 → it reopens by itself with the same items. Close it → F5 → it stays closed.
 
-**Error cases to test manually:**
-- Select a `.txt` file → "invalid file type. please upload a .zip feedback bundle."
-- Corrupt/truncated `.zip` → "could not read this file — it appears to be corrupted."
-- Valid `.zip` missing `feedback.md` → "this doesn't look like a feedback bundle."
-- Valid `.zip` whose `feedback.md` line 1 is another format stamp (or none — e.g. an old v1 export) → "this bundle was made by a different version of the extension and can't be imported."
-- Valid `.zip` where an item's json element data is malformed → "this bundle appears to be corrupted (couldn't read feedback data)."
-- Valid `.zip` from a different domain → "this bundle contains feedback for 'example.com', but you're currently on 'github.com'."
+### Flow 5: coordinates (DPR / zoom)
 
-### Flow 3: SPA navigation persistence
-
-**Page:** a website with client-side routing (e.g. reddit.com, twitter.com)
-
-1. Click extension icon → sidebar opens
-2. Create 2+ feedback items on the starting page
-3. Navigate to a different URL via a link (not a full page reload)
-4. Verify sidebar stays open and thumbnail list refreshes for the new URL
-5. If the new URL has no feedback: "no feedback on this page yet" message
-6. Navigate back to the starting page → thumbnails reappear (correct items, not from other URLs)
-
-### Flow 4: Reload persistence
-
-**Page:** any website
-
-1. Click extension icon → sidebar opens
-2. Create feedback items
-3. Press F5 (full reload)
-4. Verify sidebar opens automatically with the same items (no user action needed)
-5. Close sidebar, reload again → sidebar should NOT open (state was cleared by close)
-
-### Flow 5: Coordinate verification (optional, DPR-sensitive)
-
-**Setup:** use a high-DPI display (e.g. Retina Mac) or zoom the browser to 150%
-
-1. Click extension icon, **add**
-2. Select a region containing specific UI elements (e.g. a button with text)
-3. Capture and open the note in the enlarged view
-4. Visually verify the screenshot matches what's on screen (no offset/shift)
-5. Repeat at different zoom levels (80%, 100%, 150%) to catch scaling bugs
+On a Retina display and at 80% / 150% zoom: capture a region with recognisable text, open it in the enlarged view, compare — no offset. Repeat scrolled halfway down a long page and flush against the right edge next to the sidebar (no sidebar pixels).
 
 ---
 
 ## edge cases to verify
 
-### Cross-origin iframe
-**Page:** a site with an embedded iframe (e.g. an embedded video player or ad)
-
-- Select an area that includes the iframe
-- Capture and open the note in the enlarged view
-- Verify the screenshot shows the iframe content correctly (visible-tab capture includes it)
-- Verify context capture shows the `<iframe>` tag's attributes but not the iframe's internal DOM (same-origin restriction)
-
-### Large selection (context truncation)
-**Page:** any complex website with many nested elements
-
-- Select a large region that contains >15 distinct elements with text/attributes
-- Capture and open the note in the enlarged view
-- Look at the note's json element data in the exported markdown:
-  - `contained_elements` should have exactly 15 items
-  - Check that truncated elements were filtered by relevance (elements with text/attributes appear before bare divs)
-
-### Form inputs (sensitivity warning, no masking)
-**Page:** a page with password/email inputs (e.g. login form)
-
-- Select an area containing form inputs
-- Capture; verify the screenshot includes the form (no visual masking)
-- Note: masking is out of scope for v1 (REQUIREMENTS §2)
-
-### Rapid successive captures (throttle)
-**Page:** any website
-
-- Enter add mode, capture, exit → capture again, capture again (3+ times in quick succession)
-- Verify only 2/second succeed; remaining requests fail with "couldn't capture a screenshot here. try again." (rate limit error from gotcha #2)
-
-### Restricted pages (no injection)
-**Pages:** `chrome://extensions`, `chrome://new-tab`, a PDF file, Chrome Web Store
-
-- Click extension icon → no sidebar appears, icon is disabled
-- Verify the main page remains fully functional (no errors)
+- **Cross-origin iframe** — pixels captured; exported json shows only the `<iframe>` element's attributes.
+- **Large selection** — `contained_elements` caps at 15, attribute/text-bearing elements first; `html` ends in `…` at 300 characters.
+- **Form inputs** — captured as shown, no masking (known limitation).
+- **Rapid captures** — with the switch on, save as fast as you can: every capture succeeds (they are spaced 500ms apart), none shows extension UI.
+- **Restricted pages** — `chrome://extensions`, a new tab, a PDF, the Web Store: clicking the icon does nothing visible; nothing on the page breaks.
 
 ---
 
 ## debugging
 
-### Where data lives
+**Where data lives** — `chrome://extensions` → the extension's **Details** → **Inspect views: service worker**:
 
-- **Metadata:** `chrome.storage.local` under `chrome://extensions` → extension details → **Inspect views: service worker** → console
-  ```js
-  chrome.storage.local.get(null, data => console.log(data))
-  ```
-- **Blobs:** IndexedDB, also in the service worker context (right-click extension card → Inspect)
-  ```js
-  // In the service worker console
-  const db = await new Promise(r => {
-    const req = indexedDB.open('annotatorDB');
-    req.onsuccess = () => r(req.result);
-  });
-  const tx = db.transaction('screenshots', 'readonly');
-  const store = tx.objectStore('screenshots');
-  const allKeys = await new Promise(r => {
-    const req = store.getAllKeys();
-    req.onsuccess = () => r(req.result);
-  });
-  console.log(allKeys);
-  ```
+```js
+chrome.storage.local.get(null, d => console.log(d));     // domain:{domain} indexes, item:{domain}:{id} records
+chrome.storage.session.get(null, d => console.log(d));   // sidebarOpen:{tabId}, penColor
+const db = await new Promise(r => { const q = indexedDB.open('annotator-images'); q.onsuccess = () => r(q.result); });
+const keys = await new Promise(r => { const q = db.transaction('screenshots').objectStore('screenshots').getAllKeys(); q.onsuccess = () => r(q.result); });
+console.log(keys);                                        // one screenshotKey per stored PNG (data-URL strings)
+```
 
-### Inspecting message flow
+**Message flow** — every handler logs failures with `[Annotator]` in the service-worker console; the content script's failures surface as banners. To trace a message, add a `console.log(msg.type, msg)` at the top of `handleRuntimeMessage` in `src/background.ts` temporarily.
 
-1. Right-click extension icon → **Manage extension** → **Details**
-2. Under "Inspect views," click on the service worker URL
-3. The DevTools console shows all `console.warn`, `console.error`, etc. from the background
-4. Content script messages are logged with context:
-   ```js
-   chrome.runtime.onMessage.addListener((msg, sender, respond) => {
-     console.log('[BG]', msg.type, msg);
-     // ...
-   });
-   ```
+**Context capture** — export and read a note's json block: `viewport` should match `innerWidth/innerHeight`, `dpr` the page's `devicePixelRatio`, `selection_rect` page coordinates (scroll included). `TESTING` cannot check the pixels; Flow 5 does.
 
-### Inspecting DOM context capture
-
-1. Manually capture an item
-2. Extract the export `.zip` and open one note's "element data" json in `feedback.md` (abridged):
-   ```json
-   {
-     "text": "...",
-     "selector": "...",
-     "xpath": "...",
-     "html": "...",
-     "page_url": "...",
-     "note": "...",
-     "id": 1,
-     "normalised_url": "...",
-     "page_title": "...",
-     "created_at": "2026-09-18T12:34:56.000Z",
-     "selection_rect": { "x": 100, "y": 150, "width": 400, "height": 300 },
-     "viewport": { "width": 1280, "height": 720 },
-     "dpr": 2,
-     "contained_elements": [{ "tag": "div", "classes": { "semantic": [], "generated": [] }, "text": "..." }],
-     "area_text": "..."
-   }
-   ```
-   - Verify DPR matches `window.devicePixelRatio` on the page
-   - Verify viewport matches `window.innerWidth/innerHeight`
-   - Verify selection_rect is in page-relative coordinates (not CSS-relative or device-pixels)
-
-### Testing on macOS vs. Windows vs. Linux
-
-Device pixel ratio and scrollbar rendering vary by OS. Test high-DPI on Mac, verify scroll-offset handling on Windows. Coordinate math should be identical across platforms, but real-world rendering quirks (subpixel alignment, scrollbar strip inclusion) are OS-dependent.
+**Platforms** — DPR and scrollbar rendering differ by OS: check high-DPI on macOS and classic-scrollbar pages on Windows/Linux (the two viewport widths in `CAPTURE` exist for this).
 
 ---
 
 ## gotchas
 
-- **Stale dist/**  — `npm run build` is required; Chrome doesn't auto-recompile TypeScript.
-- **Orphaned content scripts** — Always refresh the tab after reloading the extension. Otherwise, the injected content script on that tab is orphaned and can't reach the new background context.
-- **IndexedDB mocking** — `fake-indexeddb` is used in tests, but the real browser uses a different backend. Test image blobs manually in the browser (see "Where data lives" above).
-- **CSP blocks external URLs** — `script-src 'self'` and `connect-src 'none'` enforce local-only code. All dependencies (fflate) are bundled by esbuild.
-- **SPA detection requires history patching** — if a site bypasses `history.pushState` (e.g. using a custom navigation library), SPA nav detection may miss the transition. Manual refresh still works, though.
-- **Storage quota** — with `unlimitedStorage` permission, the quota is unlimited, but be aware that massive exports (100s of items) may hit practical I/O limits. Tested up to 50 items per domain in unit tests.
-
----
-
-## CI/CD (if applicable)
-
-On push or PR:
-```bash
-npm install
-npm run build  # verifies TypeScript compilation
-npm test       # runs Jest suite (must pass)
-```
-
-Note: E2E tests (`npx playwright test`) are **not** run in this CI loop — they are explicitly reserved for manual verification in a real browser. See Phase 10 DEVELOPMENT_PLAN.md for the Playwright suite structure.
+- **Stale `dist/`** — Chrome loads the built files; `npm run build` after every change.
+- **Orphaned content scripts** — refresh the tab after reloading the extension.
+- **`fetch(dataUrl)` is a CSP violation** in the service worker (`connect-src 'none'`); use `src/dataUrl.ts`. `background.test.ts` keeps a throwing `fetch` stub as the guard.
+- **Closed shadow roots** — DevTools shows the hosts but not their contents; the Playwright helper's `attachShadow` patch is the way in for automation.
+- **SPA detection** relies on `history.pushState`/`replaceState`; a router that bypasses them (rare) is only picked up on `popstate`/`hashchange`.
+- **`chrome.storage.session`** is invisible to content scripts by design — read it from the service-worker console.
 
 ---
 
 ## shipping checklist
 
-- [ ] `npm test` passes (all 669 tests green)
-- [ ] `npm run build` succeeds with no errors/warnings
-- [ ] Manual flows 1–5 verified on ≥3 real websites
-- [ ] Edge cases (iframe, large selection, form inputs, rapid captures, restricted pages) spot-checked
-- [ ] High-DPI and zoom edge cases tested
-- [ ] Import error cases (13 total) tested with fixture bundles
-- [ ] Export → import round-trip verified (same-site and cross-recipient)
-- [ ] E2E Playwright suite passes (separate agent, parallel work)
+- [ ] `npm test` — 802 passing, 26 suites
+- [ ] `npx tsc --noEmit` clean; `npm run build` clean
+- [ ] Load the built `dist/` in Chrome and run `BROWSER_TEST_CASES.md` on at least three real sites
+- [ ] Flows 1–5 above, including a 2× display and 150% zoom
+- [ ] Import error cases with hand-made bundles; export → import round trip
+- [ ] The Playwright suite, allowing for the known download-event harness failures

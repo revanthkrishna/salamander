@@ -1,187 +1,189 @@
-# annotator
+# salamander
 
-> Chrome extension for capturing visual feedback on webpages. Select an area, screenshot it, attach a note, and export a bundle for developers or AI coding agents to act on.
+> Chrome extension for visual feedback on any webpage. Select an area, draw on it if you like, write a note; salamander screenshots the area, records where it sits in the DOM, and exports everything as a bundle a developer or an AI coding agent can act on without the live page.
+
+Version 2.0.0 · Manifest V3 · MIT
 
 ---
 
 ## what it does
 
-- **select & screenshot** — click a region on any webpage to capture it as a PNG
-- **annotate** — attach a text note explaining what needs to be done
-- **export** — download a `.zip` bundle with all screenshots and a `feedback.md` file
-- **import** — share bundles between team members; recipient imports and sees the same screenshots + notes
-- **context** — each capture includes DOM context (element selectors, contained elements, visible text, page metadata) so developers or AI agents can locate the code without needing the live page
+- **select and screenshot** — a sidebar opens beside the page (the page shrinks, nothing is covered). Click or drag to select an area; resize it from any edge or corner. The screenshot is cropped to the selection at native device pixels.
+- **draw** — a pencil (yellow, black or red, 2px) for marking up the selection before saving. Undo with Cmd/Ctrl+Z. The drawing is kept as its own layer on the note and burned into the PNG only at export.
+- **note** — a comment box with a 1000-character limit. Notes autosave when edited later; a note can never be empty.
+- **context** — every note carries a CSS selector, an XPath, a sanitised HTML snippet, the elements inside the selection, the visible text, and page metadata, so the code can be found without the page.
+- **review** — notes for the current URL appear as thumbnails with dock-style magnification; click one and the sidebar expands into an enlarged view to browse, edit and delete.
+- **export / import** — one `.zip` per site: `screenshots/{id}.png` plus a single `feedback.md` that people and agents read and the extension imports back.
+- **private** — no network requests at all (`connect-src 'none'`). Data lives in the browser profile until you export or delete it.
+
+---
+
+## install (unpacked)
+
+```bash
+npm install
+npm run build          # esbuild → dist/background.js, dist/content.js
+```
+
+1. Open `chrome://extensions`, enable **Developer mode**.
+2. **Load unpacked** → pick the project root (the directory with `manifest.json`).
+3. The salamander icon appears in the toolbar. After every rebuild, click the extension's reload icon and refresh any open test tab (an already-injected content script is orphaned by an extension reload).
+
+Requires Chrome 105 or newer (`chrome.storage.session`, CSS `:has()`). The `dist/` directory is not committed, so the build step is required.
 
 ---
 
 ## how to use
 
-1. Click the extension icon in your Chrome toolbar
-2. The sidebar opens on the right side of the page
-3. Click **add note** to enter add mode
-4. Click & drag to select an area on the page; a default box appears if you just click
-5. Drag from any edge or corner of the box to resize the selection (invisible hit zones, no
-   visible handles)
-6. Type a note in the comment box (up to 1000 characters)
-7. Click **save** to capture, or **cancel** to discard
-8. New screenshot appears as a thumbnail in the sidebar
-9. Repeat for other areas (sidebar stays open across page navigation)
-10. Click **export** to download a `.zip` file with all captures and a markdown file
-11. Share the `.zip` with teammates; they can **import** it to load your feedback
+1. Click the icon → the sidebar opens on the right and the page narrows to make room. Drag the sidebar's left edge to resize it (188–300px); the width is remembered.
+2. Click **add note** (the comment-bubble button). The cursor becomes a crosshair and a preview box follows it.
+3. Click to place a 267×100 box centred on the pointer, or press and drag to draw your own. Resize from the invisible edge/corner zones (minimum 20×20).
+4. Inside the box the cursor is a pencil: draw if you want, switch colour with the swatches, **erase all** from the pencil menu, Cmd/Ctrl+Z to undo a stroke.
+5. Type a note (placeholder "what should change here?") and click **save**. The overlay hides for one frame, the screenshot and DOM context are captured, and the note appears at the bottom of the list. **cancel** discards it; clicking outside the box does nothing.
+6. To capture several in a row, hover the add button and flick **keep add mode on** — after each save you are straight back in add mode. Click the button or press Esc to stop. Double-click or shift+click the button does the same as the switch.
+7. Click a thumbnail to open the enlarged view: ↑/↓ or the peeking neighbours to move between notes, edit the text (it autosaves), the trash icon to delete, Esc or the rail's exit button to collapse. Hover a thumbnail for a delete button that skips the enlarged view.
+8. Browse the site normally — the sidebar stays open across SPA navigation and full reloads, showing the notes for whatever URL you are on; numbering continues across pages.
+9. **export** downloads `feedback-{domain}-{date}.zip` with every note on the site. The chevron beside it holds **import**, which replaces the site's notes with a bundle's (after confirmation if any exist).
+
+All visible UI text is lowercase by design. The extension is dark-themed only.
 
 ---
 
-## key features
+## the bundle
 
-- **no network requests** — all data stays on your device; nothing leaves without explicit export
-- **sidebar resizes the page** — never blocks or overlaps content
-- **sidebar persists** — stays open across page reloads and SPA navigation until you close it
-- **sequential numbering** — feedback items are numbered globally per domain, so "item #7" is unambiguous across pages
-- **bundle format** — one `feedback.md` (design spec §AC) that people and AI agents read and import reads back: inline screenshots, each note, and its complete record as a collapsed json "element data" block
-- **import validation** — 13-case error handling; catches corrupted files, domain mismatches, missing data before writing anything
+```
+feedback-example_com-2026-09-22.zip
+├── feedback.md
+└── screenshots/
+    ├── 1.png
+    └── 2.png
+```
+
+`feedback.md` (format 2 — the full rules are in `design/SALAMANDER_SPEC.md` §AC, the frozen example in `src/__tests__/fixtures/feedback-v2.md`):
+
+````markdown
+<!-- salamander-feedback-format: 2 -->
+salamander 2.0.0\
+**date exported:** 2026-09-22 14:05 utc+01:00\
+**website:** example.com
+
+## page "https://example.com/pricing"
+
+### feedback 1
+
+![feedback 1 — marked up by the reviewer](screenshots/1.png)
+
+**note:** the "start trial" cta is misaligned on mobile
+
+<details>
+<summary>element data</summary>
+
+```json
+{
+  "text": "start trial",
+  "selector": "section.plans > div:nth-of-type(2) > a.btn",
+  "xpath": "/html/body/main/section[2]/div[2]/a",
+  "html": "<a class=\"btn btn-primary\" href=\"/signup?plan=team\">start trial</a>",
+  "page_url": "https://www.example.com/pricing?plan=team",
+  "note": "the \"start trial\" cta is misaligned on mobile",
+  "id": 1,
+  "normalised_url": "https://example.com/pricing",
+  "page_title": "pricing — example",
+  "created_at": "2026-09-20T10:15:30.000Z",
+  "selection_rect": { "x": 412, "y": 1188, "width": 267, "height": 100 },
+  "viewport": { "width": 1280, "height": 720 },
+  "dpr": 2,
+  "contained_elements": [ { "tag": "a", "text": "start trial" } ],
+  "area_text": "team $12 / seat start trial"
+}
+```
+
+</details>
+````
+
+- Line 1 is the format stamp import checks; only format 2 is read (no backward compatibility — the extension was never published with another format).
+- One `## page` section per normalised URL, notes in capture order. Each note's JSON is the complete record; the visible `**note:**` line is for people and ignored on import.
+- Free text in the JSON is capped (`text` 120, `html` 300, `area_text` 200, element text/attributes 80) and ends in `…` when cut. Notes and identifiers are never cut.
+- A drawing is only ever in the pixels: the alt text says "marked up by the reviewer" so a reader knows the marks are not part of the page. Re-importing keeps it flattened into the image.
+
+Import validates before writing anything, in order: file type → readable archive → `feedback.md` present → format stamp → item structure and JSON fields → every screenshot present → no duplicate ids → domain matches the current site. Every message is lowercase and listed in `REQUIREMENTS.md` §5.
 
 ---
 
-## installation
+## permissions and privacy
 
-1. Clone this repo or download it
-2. `npm install`
-3. `npm run build`
-4. Go to `chrome://extensions`, enable **Developer mode**
-5. Click **Load unpacked** and pick the project directory (the one with `manifest.json`)
-6. The extension icon appears in your Chrome toolbar
+| Permission | Why |
+|---|---|
+| `storage` | Notes and sidebar state |
+| `unlimitedStorage` | Screenshots exceed the 10MB default quickly |
+| `scripting` | Inject the content script on demand |
+| `tabs` | Re-inject after a reload while the sidebar is open; clean up on tab close |
+| `downloads` | Export the bundle |
+| `<all_urls>` | Works on any site (not `chrome://`, the Web Store or the PDF viewer, where content scripts cannot run) |
+
+CSP: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; frame-src 'none'`. The one dependency (`fflate`) is bundled. Metadata lives in `chrome.storage.local`, PNGs in extension-origin IndexedDB, per-tab sidebar state and the pencil colour in `chrome.storage.session`. Screenshots capture what is on screen, form fields included — there is no masking.
 
 ---
 
 ## development
 
-### unit tests
-
 ```bash
-npm test                  # full Jest run
-npx jest sidebar         # just the sidebar tests
+npm run build          # esbuild, minified, sourcemaps → dist/
+npm run build:watch    # rebuild on change (still reload the extension in Chrome)
+npm test               # jest, jsdom — 802 tests in 26 suites
+npx jest sidebar       # one suite
+npx tsc --noEmit       # type check (strict, noUnusedLocals)
+npx playwright test    # end-to-end against a real Chromium (see TESTING.md)
 ```
 
-Tests run in jsdom (no browser launch). `chrome.storage` and IndexedDB are mocked. Coverage includes capture geometry, context extraction, storage CRUD, bundle round-trip validation, and message handlers.
+Unit tests mock `chrome.*` and use `fake-indexeddb`; no browser is launched. The Playwright suite loads the built extension into a persistent context and needs `npm run build` first. `TESTING.md` covers the suites, manual flows and debugging; `BROWSER_TEST_CASES.md` is the click-through checklist for a release.
 
-### building
+---
 
-```bash
-npm run build            # esbuild → dist/
+## project layout
+
+```
+manifest.json            MV3 manifest (permissions, CSP, web-accessible fonts/logos)
+esbuild.config.js        two IIFE bundles: background (service worker), content
+src/
+  background.ts          service worker: injection, capture relay + crop, storage owner, export, import write
+  content.ts             content script entry: sidebar wiring, add-mode state machine, SPA detection
+  sidebar.ts             the docked panel, page shrink, action row, note list host, banners
+  addMode.ts             selection box, resize zones, scrim, comment box, the pencil
+  capture.ts             the capture pipeline's content-script half
+  contextCapture.ts      DOM context (primary target, contained elements, area text, 2KB governor)
+  selectorBuilder.ts     CSS selector + XPath generation (see FINGERPRINTING.md)
+  drawing.ts             stroke model, cropping, SVG and canvas renderers
+  thumbnails.ts          the note list's items
+  dockMotion.ts          dock-style magnification spring
+  enlargedView.ts        the expanded review/edit view
+  flip.ts                shared-element motion helpers
+  autosave.ts            debounced per-item autosave controller
+  export.ts              zip assembly, drawing composite, chrome.downloads
+  import.ts              the validation ladder
+  bundle/                feedback.md format 2 writer/reader (v2.ts), version stamp, dispatch
+  storage.ts             chrome.storage.local layout, session state
+  imageStore.ts          IndexedDB wrapper
+  messages.ts, rpc.ts    typed message contract and the content script's send()
+  theme.ts               design tokens (dark only), bundled font loading
+  keyboardIsolation.ts   capture-phase key isolation from the host page
+  copy.ts                every user-facing string
+  types.ts               the data model
+  __tests__/             jest suites + fixtures (feedback-v2.md is frozen)
+tests/                   Playwright specs, helper and fixture page
+design/                  SALAMANDER_SPEC.md, MOTION_SPEC.md, the design canvas exports
+docs/                    technical review, refactor notes, v1 archive (historical)
+fonts/, icons/           bundled assets (OFL fonts)
 ```
 
-The extension reads from `dist/` directly. After rebuilding, reload the extension in `chrome://extensions` and refresh the test tab.
-
-### manual testing
-
-- Open the extension on any real website
-- Test the full journey: add note → capture → thumbnail → enlarged view → edit note → delete
-- Test SPA navigation (e.g. Reddit, Twitter) — sidebar should persist and refresh for the new URL
-- Test export on a domain with >1 URL and >1 item per URL
-- Test import by re-importing an export (should replace cleanly)
-
-See [TESTING.md](./TESTING.md) for detailed test cases and debugging instructions.
+`TECH_DESIGN.md` describes the architecture; `REQUIREMENTS.md` the behaviour with stable IDs.
 
 ---
 
-## architecture
+## out of scope
 
-The extension is built across 21 TypeScript modules (~10,600 lines):
-
-**Background service worker** (`src/background.ts`) — owns all storage, relays captures, handles extension icon clicks and tab lifecycle.
-
-**Content script** (`src/content.ts`) — injected on demand, listens for messages, detects SPA navigation, wires up the sidebar UI.
-
-**Sidebar & add mode** (`src/sidebar.ts`, `src/addMode.ts`) — right-docked, resizable panel that resizes the page, selection box (edge/corner resize) with a merged comment input, all in a closed shadow root.
-
-**Design language** (`src/theme.ts`, `src/dockMotion.ts`) — light/dark/auto theme tokens (persisted, live-synced across tabs and surfaces) plus bundled fonts loaded via `FontFace`; macOS-Dock-style pointer/keyboard-focus magnification for the sidebar's note list.
-
-**Capture pipeline** (`src/capture.ts`) — hide UI → double-rAF → message background → crop → restore UI → persist item.
-
-**Storage** (`src/storage.ts`, `src/imageStore.ts`) — `chrome.storage.local` for metadata (domain-keyed, includes inline thumbnails), IndexedDB for PNG blobs, `chrome.storage.session` for per-tab sidebar state.
-
-**Context capture** (`src/contextCapture.ts`) — DOM walk at capture time: deepest-common-ancestor element, ≤15 descendant elements, flat area text, page metadata — all capped at 2KB.
-
-**Import/Export** (`src/import.ts`, `src/export.ts`, `src/bundle/`) — `.zip` bundles with `screenshots/{id}.png` and a single `feedback.md` (format 2: a line-1 format stamp, a three-line header, `## page` sections, and per note a screenshot, the note and a json element-data block — the only part import reads).
-
-**Thumbnails & enlarged view** (`src/thumbnails.ts`, `src/dockMotion.ts`, `src/enlargedView.ts`, `src/flip.ts`) — the note list with dock-style hover, and the enlarged view where the sidebar expands to review, navigate, edit (autosave) and delete notes.
-
-Full technical details in [TECH_DESIGN.md](./TECH_DESIGN.md).
-
----
-
-## privacy & security
-
-- **Zero network requests.** Content Security Policy enforces `connect-src 'none'`. All code is bundled by esbuild (script-src 'self').
-- **On-device only.** Screenshots and metadata are stored in `chrome.storage.local` and IndexedDB, both local to the device. Nothing leaves your machine unless you explicitly export a file.
-- **No form field masking (v1).** Screenshots capture exactly what's on screen, including form inputs. This is a known limitation; masking is deferred to a future release.
-
----
-
-## permissions
-
-| Permission | Why |
-|---|---|
-| `storage` | Saving feedback items and sidebar state across sessions |
-| `unlimitedStorage` | Screenshots exceed the 10MB default quota quickly |
-| `scripting` | Injecting the content script on demand |
-| `tabs` | Tab lifecycle (reload re-injection, cleanup on close) |
-| `downloads` | Exporting feedback bundles |
-| `<all_urls>` | Works on any website (except restricted URLs like `chrome://` or PDFs) |
-
----
-
-## error handling
-
-All errors are lowercase and user-facing:
-
-- **import errors** — 13 cases caught: wrong file type, corrupted archive, missing `feedback.md`, a different bundle format (older, newer or unstamped — refused), malformed element data, missing screenshots, duplicate IDs, domain mismatch, existing-data confirmation
-- **capture errors** — rate limit or restricted page (shows "couldn't capture a screenshot here. try again.")
-- **restricted pages** — `chrome://`, Web Store, PDF viewer, etc. → extension icon indicates unavailability
-
----
-
-## edge cases
-
-- **High-DPI displays** — captures naturally reflect device pixel ratio; no downscaling applied
-- **Browser zoom ≠ 100%** — selection coordinates and crop are computed against rendered pixels, so zoom is automatically accounted for
-- **Cross-origin iframes** — screenshot pixels include the iframe content (visible-tab capture doesn't care about origin), but DOM context is limited to the iframe element's attributes due to same-origin restriction
-- **Selection too large** — context capture has a 2KB per-item budget; truncates outerHTML first, then contained-elements list, always with visible markers
-- **SPA navigation** — sidebar refreshes its thumbnail list for the new URL while staying open
-
----
-
-## out of scope (v1)
-
-- Drawing/annotating on top of screenshots (planned for next release)
-- Repositioning or cropping existing captures (delete + recapture instead)
-- Persistent visual markers on the live page (see REQUIREMENTS §1.5 for rationale)
-- Auto-scroll + stitch capture for selections exceeding the viewport
-- Merging feedback on import (replace-only in v1; merge deferred to v2)
-- Cloud sync / backend / real-time collaboration
-- Non-Chrome browsers
-
----
+Editing a drawing after saving; re-cropping a saved screenshot; markers on the live page; capturing beyond the viewport; merging on import; reading older bundle formats; cloud sync; a light theme; non-Chrome browsers.
 
 ## license
 
-MIT
-
----
-
-## testing checklist
-
-Before shipping:
-
-- [ ] `npm test` passes (395+ tests)
-- [ ] `npm run build` succeeds
-- [ ] Sidebar opens/closes/persists on real sites (e.g. reddit.com, github.com)
-- [ ] Add mode: select, resize, comment, capture, undo (cancel)
-- [ ] Thumbnails display correctly; click expands the sidebar into the enlarged view
-- [ ] Enlarged view: prev/next, edit note (autosaves; empty note blocked), delete (removes item + blob)
-- [ ] Export: generates `.zip`, unopened on empty domain
-- [ ] Import: validates all error cases, replaces cleanly, sidebar opens for current URL
-- [ ] SPA navigation: sidebar stays open, thumbnail list refreshes for new URL
-- [ ] High-DPI display: captured pixels match selection at native DPR
-- [ ] Browser zoom 80%/150%: selection geometry and capture remain correct
-- [ ] E2E tests pass (playwright suite, separate agent)
+MIT — see `LICENSE`.

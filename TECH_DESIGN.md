@@ -1,193 +1,169 @@
-# Technical Design — Screenshot-Based Feedback Extension
+# Technical Design — Salamander
 
 ## Overview
 
-The annotator is a Chrome extension that captures visual feedback from webpages. Users select an area on a page, screenshot it, attach a note, and export as a `.zip` bundle containing the screenshots and a `feedback.md` file (plus embedded context for AI agents or developers to locate the annotated code).
+Salamander is a Chrome MV3 extension that captures visual feedback from webpages. The reviewer selects an area, optionally draws on it, attaches a note; the extension screenshots the area, records DOM context, and exports a `.zip` (screenshots + one `feedback.md`) that a person or an AI coding agent reads and that the extension imports back.
 
-**Core constraint:** all data stays on-device; no network requests. Feedback is stored locally in `chrome.storage.local` (metadata) and IndexedDB (image blobs).
+**Core constraint:** all data stays on the device; there are no network requests (CSP `connect-src 'none'`). Metadata lives in `chrome.storage.local`, image data in extension-origin IndexedDB, ephemeral state in `chrome.storage.session`.
+
+Behaviour is specified in `REQUIREMENTS.md` (IDs cited below); visual and motion decisions in `design/SALAMANDER_SPEC.md` and `design/MOTION_SPEC.md`. The code is the source of truth for all three.
 
 ---
 
 ## Architecture
 
-### Entry Points & Lifecycle
+Two bundles, built by esbuild as IIFEs (minified, sourcemaps): `dist/background.js` (the service worker) and `dist/content.js` (the content script, injected on demand). One runtime dependency, `fflate`.
 
-**Background service worker** (`src/background.ts`)
-- Handles extension icon clicks: ping content script to check if already injected; inject if not
-- Manages tab lifecycle: re-inject on `tabs.onUpdated` if sidebar was open (via `chrome.storage.session` per-tab state)
-- Owns the screenshot capture relay: receives `CAPTURE` messages from content script, calls `chrome.tabs.captureVisibleTab`, crops via `OffscreenCanvas` + `createImageBitmap`, persists full PNG + thumbnail to IndexedDB
-- Throttles captures (~2/sec rate limit), routes all storage reads/writes (metadata and blobs live in extension origin, not the page's origin)
-- Implements all message handlers for storage, export, and import
+### Service worker (`src/background.ts`)
 
-**Content script** (`src/content.ts`)
-- Injected per-tab on demand; stays idempotent (double-injection guard)
-- Listens to `chrome.runtime` messages from background
-- Detects SPA navigation (patches `history.pushState/replaceState`, listens to `popstate`)
-- When sidebar needs to open (icon click or reload after prior session), wires up the shadow-root sidebar and overlay UI
+- **Icon click:** `PING` the tab (300ms timeout). No answer → `chrome.scripting.executeScript` the content script and send `ACTIVATE { tabId }`; alive → send `ICON_CLICKED` and let the content script toggle. Injection failure (`chrome://`, Web Store, PDF viewer) is logged and otherwise silent.
+- **Reload persistence (FR-SB-9):** on `tabs.onUpdated` with `status: 'complete'`, if `chrome.storage.session` says the tab's sidebar was open, re-inject and re-`ACTIVATE`; if injection now fails, clear the stale state. `tabs.onRemoved` clears it too.
+- **Message handler table:** one handler per `MessageMap` key (`src/messages.ts`); a missing handler or a wrong response shape is a compile error. Background→content messages (`PING`/`ACTIVATE`/`ICON_CLICKED`) are typed the same way on the content side.
+- **Capture relay (FR-CP):** `CAPTURE` → a serial throttle queue spacing `chrome.tabs.captureVisibleTab` calls 500ms apart → `createImageBitmap` + `OffscreenCanvas` crop → PNG data-URL into IndexedDB under a `crypto.randomUUID()` key, plus a JPEG thumbnail (longest edge 480, quality 0.75) returned inline. `SAVE_ITEM` then allocates the id and writes the record; if that write fails the blob is deleted again.
+- **Storage owner:** every domain mutation (`SAVE_ITEM`, `UPDATE_ITEM`/`UPDATE_NOTE`, `DELETE_ITEM`, `IMPORT_REPLACE`) and every domain read that feeds a user decision (`GET_PAGE_ITEMS`, `GET_DOMAIN_ITEM_COUNT`, the export's read) goes through one promise-chain queue, because the index is read-modify-write. `GET_IMAGE` is a plain read.
+- **Export / import write:** `EXPORT` delegates to `src/export.ts`; `IMPORT_REPLACE` mints a fresh screenshot key and thumbnail per item and replaces the domain in one queued call (cleaning up its own blobs on failure). `GET_PEN_COLOR` / `SET_PEN_COLOR` keep the pencil colour in `chrome.storage.session` (only the three palette HEXes are accepted).
 
-**Message contract** (`src/messages.ts`)
-- Typed union of all messages crossing the content-script ↔ background boundary
-- JSON-serialised: images cross as data-URL strings, not Blob/ArrayBuffer
+### Content script (`src/content.ts`)
 
----
+- Idempotent: `window.__annotatorActive` guards a second injection. Wrapped in an IIFE so the guard can `return` silently.
+- Listens for `PING` / `ACTIVATE` / `ICON_CLICKED`; `init()` always means "open the sidebar" and reports `SIDEBAR_OPENED` / `SIDEBAR_CLOSED` back so the service worker can persist per-tab state (the content script never touches session storage itself).
+- Owns the **add-mode state machine** (FR-AM-1/2): the button's click/double-click disambiguation (a 400ms window), the "keep on" switch, the global capture-phase `Esc` handler (registered once, before add mode's own isolation listener, so it always sees the key first; an open pencil menu takes the first `Esc`), and every exit path funnelled through `exitAddModeFully()` / `handleAddModeCancel()` so the button's paint can never drift from `addMode.isAddModeActive()`.
+- SPA detection: `history.pushState`/`replaceState` patched, `popstate`, `hashchange`, debounced 50ms; a change of normalised URL exits add mode, collapses the enlarged view and refreshes the list.
+- Orchestrates every round trip for the list, enlarged view, export and import; the pure-DOM modules (`sidebar.ts`, `enlargedView.ts`, `thumbnails.ts`, `addMode.ts`) never import `chrome.runtime`.
+- `beforeunload`/`pagehide` flush a pending autosave.
 
-## Sidebar & Add Mode
+### Message contract (`src/messages.ts`, `src/rpc.ts`)
 
-**Sidebar shell** (`src/sidebar.ts`)
-- Right-docked panel that **resizes the page** (shrinks `<html>` width), not an overlay
-- Header: logo + wordmark, close. A separate action row below it holds two
-  icon-only groups: **add note** with an attached "keep add mode on" switch (design spec v3 §A2),
-  and **export** with an attached chevron whose menu holds **import** (§C2)
-- While add mode is active the sidebar goes "on hold" (§H): the note list dims, stops taking
-  pointer/keyboard input and loses its dock magnification; the export group is disabled
-- Body: scrollable thumbnail list for current URL only (§1.5 of REQUIREMENTS)
-- Closed shadow root (prevents page CSS bleed)
-- Persists across SPA navigation and full reloads via `chrome.storage.session` per-tab
-
-**Add mode** (`src/addMode.ts`)
-- Entered by clicking add button
-- Crosshair cursor; click-to-place a default box the size of the sidebar's thumbnail box (267×100 at the default sidebar width — `DEFAULT_THUMBNAIL_BOX_SIZE`, so a default capture fills its thumbnail exactly), clamped to the viewport; or drag-to-draw a custom size. While placing, a preview of the default box follows the cursor
-- Resize from any edge or corner through invisible hit zones — no visible handles (minimum 20×20px); a dimming scrim with a rounded hole for the selection (macOS style)
-- Comment box (textarea, 1000-char counter, cancel/save buttons — save disabled while the trimmed note is empty) with auto-flip positioning (below → above → side)
-- Suppresses all page interaction while active
-- **The pencil** (design spec §AB): once placed, a `.draw-surface` exactly over the box (the interior only — the resize zones are later siblings and win along the edges) takes Pointer Events (coalesced samples) and draws into an SVG layer sized to the whole selectable area in **viewport coordinates**, offset by `-box.x/-box.y`; the surface clips it. Strokes are therefore pinned to the page and a resize only moves the clip. Everything is inside `.visuals`, so `hideOverlayUI()` hides it for the capture. On save the strokes are cropped to the final rect (`drawing.ts`'s `cropDrawing`: Liang–Barsky per segment, a stroke that leaves and re-enters becomes two) and handed to `onOk` as `drawing`
-- Keys: keyboard isolation stops every key before it reaches anything inside the shadow root, so add mode passes it a keydown hook for its own keys — Cmd/Ctrl+Z undoes the last stroke unless `shadowRoot.activeElement` is the textarea; the swatches' arrow keys; the pencil menu's arrows/Tab/Esc. content.ts's global Esc handler asks `dismissDrawingMenu()` first, so an open pencil menu eats one Esc before add mode does
-- Pencil colour: `content.ts` asks the service worker (`GET_PEN_COLOR`) on every entry and reports picks (`SET_PEN_COLOR`); the service worker keeps it in `chrome.storage.session` under `penColor`. Content scripts are never granted session access (`setAccessLevel` is not called), which is the same boundary the per-tab sidebar state already follows
-
-**Capture pipeline** (`src/capture.ts`)
-- Hide overlay UI → requestAnimationFrame (double-rAF, not timeout) → message background → restore UI → exit add mode
-- Coordinate contract: selection rect is in **viewport-relative CSS pixels** (same frame as `MouseEvent.clientX/clientY`)
-- Service worker crops to device pixels using empirical scale (`imageWidth / cssWidth`) — self-corrects against integer rounding and browser zoom
-- Captures are kept at native device pixel ratio (no downscaling); failures create no partial item
+- `MessageMap` pairs every content→background type with its response; `send()` derives its return type from the request and **never rejects** — a dead worker or invalidated context resolves `undefined`, which every caller treats as failure.
+- JSON-serialised: images cross as data-URL strings. The full-resolution crop never travels back to the page; only the key and the thumbnail do.
+- `UPDATE_NOTE` stays as an alias of `UPDATE_ITEM` (`patch: { note }`) so an older content script still alive on a page keeps saving across an extension update. Remove in the release after 2.0.0.
 
 ---
 
-## Storage Architecture
+## Sidebar and add mode
 
-**Three-tier persistence** (cross-cutting gotcha #1):
+**Sidebar shell (`src/sidebar.ts`)**
+- Closed shadow root on `#annotator-sidebar-host` (attached to `<html>`, `z-index: 2147483645`).
+- **Page shrink:** `margin-right: {width}px`, `width: auto`, `min-width: 0` and `overflow-x: hidden`, all `!important`, on `<html>` — as inline declarations (the page's own pre-open values are snapshotted and restored on close) and as a backstop `html:root {…}` stylesheet (`#annotator-page-resize`), defended by a `MutationObserver` on the root's `style`/`class` (re-asserting up to 50 times) and followed by a synthetic `resize` event so JS-measured layouts re-run. `--annotator-sidebar-width` is also set on `<html>` (nothing reads it today but tests). Known limitation: `vw`-sized and `innerWidth`-measured layouts (youtube.com) are not moved (EC-13).
+- **Resizable width:** 188–300, default 300, persisted as `sidebarWidth` in `chrome.storage.local` directly from the content script (the one sanctioned exception to the storage boundary below), clamped on load. `SIDEBAR_MIN_WIDTH` is derived from the action row's constants (`PANEL_BORDER + ACTION_ROW_PAD_X×2 + ADD_GROUP + ADD_SWITCH_ADVANCE + ACTION_ROW_GAP + EXPORT_GROUP` = 188). Below 220px (`NARROW_WIDTH_BREAKPOINT`) only the wordmark hides.
+- Header (logo + wordmark + close), action row (add group + export group, `initSidebar`'s wiring split into `wireAddGroup` / `wireExportGroup` / `wireChrome`), one rule under the block, "this page (n)" + list or the empty state, inline `role="alert"` banners (8s).
+- **On hold** during add mode (FR-AM-9): `applyListHold` dims and inerts the list, suspends dock motion, disables the export group.
+- Hosts the enlarged view (it expands the sidebar itself) and exposes `openEnlargedView` / `collapseEnlargedView` / `flushEnlargedView`.
 
-1. **`chrome.storage.local`** (metadata) — one small index per domain plus one key per item
-   (schema version 2):
+**Add mode (`src/addMode.ts`)**
+- Own closed shadow root on `#annotator-addmode-host` (`z-index: 2147483640`, `pointer-events: none`; a full-viewport `.blocker` underneath takes page clicks). `.visuals` holds everything `hideOverlayUI()` hides for the capture: preview, scrim, box, outline, zones, drawing layer, comment box, tooltip.
+- Placement: `computeDefaultBox` (267×100 = `DEFAULT_THUMBNAIL_BOX_SIZE` from `sidebar.ts`, centred, clamped to `getContentViewportSize()` minus the sidebar), a 5px drag threshold for drag-to-draw, 20×20 minimum, edge zones 10px / corner zones 16px (`computeResizeZones`, exported for tests).
+- Outline: two SVG rects on the same rounded path — ink underneath, accent dashed 4/4 on top — so the line is exactly 2px and the gaps are ink (design spec §Z).
+- Comment box (296px): textarea (1000 max), bottom bar with the pencil button (28px), its `role="menu"` ("erase all"), the swatch radio group, the counter (`>900` muted, `≥980` danger), cancel/save; below → above → side flip.
+- **The pencil (§AB):** a `.draw-surface` exactly over the box (interior only — the resize zones are later siblings and win along the edges) takes Pointer Events with coalesced samples and draws into an SVG layer sized to the whole selectable area in **viewport coordinates**, offset by `-box.x/-box.y` and clipped by the surface; a resize only moves the clip, so strokes stay pinned to the page. On save `drawing.ts`'s `cropDrawing` (Liang–Barsky per segment; a stroke that leaves and re-enters becomes two runs) produces the stored `Drawing`. `hasPendingComment()` counts strokes as unfinished work.
+- Keys: keyboard isolation stops every key before it reaches anything inside the shadow root, so add mode passes it a keydown hook for its own keys — Cmd/Ctrl+Z undoes the last stroke unless `shadowRoot.activeElement` is the textarea; the swatches' arrows; the pencil menu's arrows/Tab/Esc.
+- Pencil colour: `content.ts` asks the service worker on every entry (`restorePenColor`, sequence-guarded so a late reply cannot overwrite a newer pick) and reports picks fire-and-forget.
+
+**Capture pipeline (`src/capture.ts`)**
+- Order: read viewport metrics once → `captureContext` (page-coordinate rect) → `overlay.hide()` → `waitForNextPaint` (double rAF, 250ms timeout for a backgrounded tab) → `CAPTURE` → `SAVE_ITEM` → hand back the stored item. On success the overlay stays hidden (add mode tears down); on any failure it is restored and add mode stays alive.
+- Coordinate contract: the crop rect is **viewport-relative CSS px** (no scroll offset — `captureVisibleTab` photographs the viewport); `selectionRect` on the item is page CSS px (`toPageRect`, the only place scroll is added); device px are computed only in the service worker (`computeDeviceRect`), where the real image size is known. Two CSS widths travel (`innerWidth` and `documentElement.clientWidth`) because a classic scrollbar makes the divisor ambiguous; the scale nearest `dpr` wins. Edges round independently and clamp inside the image.
+
+---
+
+## Storage
+
+**Three tiers**
+
+1. **`chrome.storage.local`** — schema version 2:
    ```
-   domain:{domain}    → { meta: { nextItemNumber, version }, pages: { normalisedUrl: id[] } }
-   item:{domain}:{id} → FeedbackItem   (thumbnail data-URL inline)
+   domain:{domain}    → { meta: { nextItemNumber, version: 2 }, pages: { normalisedUrl: id[] } }
+   item:{domain}:{id} → FeedbackItem   (thumbnailDataUrl inline; drawing optional)
    ```
-   Each item carries its own inline thumbnail data-URL, so the sidebar list still paints from one round
-   trip (index read + one multi-key get) without touching IndexedDB — but a note autosave rewrites only
-   that item's key, not every item of the domain. Consumers never see the split: `storage.getDomainData`
-   assembles the in-memory `DomainData` (`pages: { normalisedUrl: FeedbackItem[] }`) and the write
-   primitives split it again. An item's drawing (design spec §AB) is stored inline on its record as the
-   optional `drawing` field — `{ width, height, strokes: { color, points: [x, y][] }[] }`, CSS px of the
-   final selection — and is absent when nothing was drawn, so it needed no migration and no version
-   bump. There is no migration path from an older stored shape — no build with
-   one was ever released — but every index carries a `version` stamp so a future change has something
-   to branch on.
+   The list paints from one index read plus one multi-key get of that URL's items; an autosave rewrites only that item's key; `addItem` writes item and index in one `set`; `replaceDomainData` writes the new record before removing stale item keys, so a torn write leaves orphan keys rather than a broken index. `getDomainData` assembles the in-memory `DomainData` (`pages: { url: FeedbackItem[] }`) and the write primitives split it. There is no migration (no other stored shape was ever released); `version` is stamped so a future one has a branch point; an index stamped newer than this build is read as-is.
+2. **IndexedDB** (`annotator-images`, store `screenshots`, extension origin) — full-resolution PNGs as data-URL strings, keyed by `screenshotKey`, owned by the service worker. Data-URL strings rather than Blobs because every hop (capture API, messages, `chrome.downloads`) already deals in them and a service worker has no `FileReader`.
+3. **`chrome.storage.session`** — `sidebarOpen:{tabId}` and `penColor` (one value for the browser). Survives reloads, clears on browser restart. Never exposed to content scripts (`setAccessLevel` is not called).
 
-2. **IndexedDB** (blobs, extension origin) — full-resolution PNGs indexed by `screenshotKey`, owned exclusively by service worker
-   - Content script can't see IndexedDB; all access goes through background messages
-   - Each stored item includes `screenshotKey` (key into IDB) and `thumbnailDataUrl` (inline preview)
+**Storage boundary**
+- Feedback data and blobs only through the service worker: `src/storage.ts` and `src/imageStore.ts` are imported by `src/background.ts` alone. This keeps the write queue, id allocation and the no-orphan rules in one place, and keeps IndexedDB in the extension origin rather than the page's.
+- UI preferences may be touched from either context: `sidebarWidth` is read/written by the content script directly. Anything keyed by domain or item is not a preference.
 
-3. **`chrome.storage.session`** (ephemeral) — per-tab sidebar open/closed state, and the pencil's
-   colour (`penColor`, one value for the browser — design spec §AB)
-   - Survives page reloads within a session
-   - Clears on browser restart
-   - Enables sidebar persistence across F5 without explicit user action
-
-**Storage boundary** — which context may touch which store:
-
-- **Feedback data and blobs only through the service worker.** Domain records, items and the
-  per-tab session state (`src/storage.ts`) and screenshot PNGs (`src/imageStore.ts`) are read and
-  written by `src/background.ts` alone; a content script reaches them only over `chrome.runtime`
-  messages (`src/messages.ts`). This is what keeps the serialised write queue, id allocation and the
-  no-orphan rules in one place, and keeps IndexedDB in the extension origin rather than the page's.
-- **UI preferences may be accessed directly from either context.** `sidebarWidth` (`src/sidebar.ts`)
-  lives in `chrome.storage.local` and is read/written by the content script itself: it is not domain
-  data, it needs no serialisation against item writes, and a message round trip for a tiny preference
-  would only add a wrong-width flash on open. (There used to be a `themeMode` preference too; the
-  extension is now dark only — design spec §AA.)
-  A future preference of the same kind (e.g. which connection is selected) follows this rule; anything
-  keyed by domain or item does not.
-
-**Context capture** (`src/contextCapture.ts`)
-- Called at capture time; runs in content script (pure DOM walk, no IDB/storage access)
-- Deepest-common-ancestor (DCA) of selection rect → primary target (CSS selector + XPath + ≤1KB outerHTML snippet)
-- Descendant walk: ≤15 prioritised elements (attribute-rich or text-bearing first)
-- Flat area text (all visible text in selection rect, concatenated)
-- Page metadata: full URL, normalized URL, viewport, DPR, selection rect, timestamp
-- **Size governed:** 2KB per item; truncates outerHTML first, then contained-elements list, always with visible markers
-- CSS selector reuses v1's selector-building logic (lifted verbatim from Phase 6)
+**Context capture (`src/contextCapture.ts`)** — pure DOM walk in the content script, before anything is hidden: primary target (deepest fully-containing element, iframes as leaves), ≤15 prioritised contained elements, area text, page metadata, all under a 2KB JSON-length budget that shrinks the `outerHTML` snippet (×0.7 steps, marker kept) then trims elements. Selectors come from `src/selectorBuilder.ts` (see `FINGERPRINTING.md`).
 
 ---
 
-## Thumbnails & Enlarged View
+## Thumbnails and the enlarged view
 
-**Thumbnail list** (`src/thumbnails.ts`, magnification in `src/dockMotion.ts`)
-- Renders from `FeedbackItem[]` returned by `GET_PAGE_ITEMS` message
-- Shows inline thumbnail image + note (3-line clamp) + item number badge, plus a hover/focus delete button over the thumbnail's top-right corner (a sibling of the item's `<button class="thumbnail">` inside the `<li>` — nested buttons are invalid HTML and break activation)
-- An item's drawing is an SVG over the image (`viewBox="0 0 w h"`, `xMidYMid meet` — the same placement as the image's `object-fit: contain`), inside the `<li>` so magnification scales it, `pointer-events: none` so the button keeps the click
-- Newest at bottom (capture order); macOS-Dock-style spring magnification on hover/focus, which also fades the note background and the delete button
-- The list delete goes through content.ts on the same `DELETE_ITEM` round trip (and the same failure copy) as the enlarged view's, and is taken out of the tab order with the rest of the list while add mode holds it
+**Note list (`src/thumbnails.ts`, magnification in `src/dockMotion.ts`)**
+- Renders `FeedbackItem[]` from `GET_PAGE_ITEMS`: per `<li>`, a `<button class="thumbnail">` (100px image box, `object-fit: contain`, badge, drawing SVG with `pointer-events: none`, note text clamped to 3 lines by CSS with a 600-character DOM cap) and a sibling `<button class="thumbnail-delete">` (28px; nested buttons are invalid HTML and break activation). The delete goes through `content.ts` on the same `DELETE_ITEM` round trip and copy as the enlarged view's.
+- Dock motion: influence is a cosine falloff over 1.75 item heights from the pointer's Y (layout coordinates, read once), target scale `1 + 0.12·f`, translateX `−22px·f`, integrated by a spring (ζ 0.92 tracking, critically damped release) in one rAF loop that stops at rest; keyboard focus drives the same targets; the note background and the delete button share one opacity spring; off under reduced motion; suspended during add mode and while the enlarged view is open.
 
-**Enlarged view** (`src/enlargedView.ts`, FLIP helpers in `src/flip.ts`) — replaces v1's modal
-- Click thumbnail → the sidebar itself expands to ~75% of the viewport inside the sidebar's shadow root (page not re-laid out; scrim over the remaining strip)
-- Shared-element FLIP morphs (panel, clicked thumbnail → main slot, neighbours → peek slots); prev/next/delete run as an interruptible morphing carousel; reduced motion = instant layout + crossfades. Spec: `design/MOTION_SPEC.md`
-- Layout (design spec v5 §R): the title bar + image + text area are one block centred in the sheet both ways; the rail is pinned 20px off the viewport's right edge and vertically centred, independent of the image; each peek is its own note fitted the same way and scaled 0.75, showing 20px past the sheet's top/bottom edge, with its horizontal push taken from one circle through all three centres (`arcRadius`/`arcPush`)
-- Shows the full-resolution image (fetched via `GET_IMAGE` on open, stale-fetch guarded)
-- A drawing is shown view-only on the main card and the peeks as an SVG sibling of the `<img>` inside `.xp-card-media` — the box the morph's media track transforms — so it rides the FLIP morphs and the carousel with no track of its own
-- Note autosaves (debounced, flushed on navigate/collapse/unload) with no confirmation; empty notes are never saved and block leaving the note. Failures are plain text under the text area (a `role="status"` live region), not a bar
-- The host page's scroll is locked for as long as the view is up (v5 §T): capture-phase `wheel`/`touchmove`/scroll-key handlers with `{ passive: false }`, never `overflow: hidden` — the latter changes the content width on a page with a scrollbar, which moves both the page-shrink and the rects the FLIP morph measures. Taken in `open()`, released in `finish()`, the one teardown every exit path routes through. The exemption is "an element before the host in the composed path can really take this delta" (overflow container, room left in the direction of travel) — **not** "the path contains our host": while the view is open the scrim makes the host cover the whole viewport, so the latter exempts the entire screen and blocks nothing, while still cancelling synthetic events dispatched on `document.body` and so looking like it works
-- Immediate delete (no confirmation); deletes both record and blob via background message
+**Enlarged view (`src/enlargedView.ts`, motion helpers in `src/flip.ts`, autosave in `src/autosave.ts`)**
+- Renders inside the sidebar's shadow root; the sidebar's own width animates to `max(0.75·viewport, min(560, viewport), sidebarWidth)` with a scrim over the remaining page. Layout (`computeEnlargedGeometry`): the block (title bar + image at the selection's CSS size, clamped down, column floor 240px + editor) is centred; the rail (36px buttons) is 20px off the viewport's right edge and vertically centred; each peek is its own note fitted the same way ×0.75, showing 20px past the sheet edge, pushed right on the arc `R = (D² + P²)/2P`, `push(dy) = R − √(R² − dy²)` with `P = 60`, `D = H/2`.
+- Shared-element FLIP morphs (panel, clicked thumbnail → main, neighbours → peeks) as sampled transform-only keyframes with a counter-transform on `.xp-card-media` so the contained image never squashes; every tween keeps an analytic record so an interruption retargets from the live value (MOTION_SPEC §13). Timing table `T` in the module (expand 450, collapse 340, carousel 400, autosave 700, …). A drawing rides as an SVG sibling of the `<img>` inside `.xp-card-media`.
+- Full image via `GET_IMAGE` on open (stale-fetch guarded; falls back to the thumbnail). Autosave through `AutosaveController` (700ms debounce, dirty = differs from stored and in-flight, superseded replies dropped, failed saves retried on flush); empty notes are never savable and block every exit (FR-EV-8). Failures are plain text under the textarea (`role="status"`).
+- Scroll lock (FR-EV-7): capture-phase `wheel`/`touchmove`/`keydown` with `{ passive: false }`, taken in `open()` and released in `finish()`, the one teardown every exit path routes through. The exemption test is "an element before the host in the composed path can really take this delta" — not "the path contains our host", which would exempt the whole viewport once the scrim covers it.
+- Delete: immediate, both record and blob, then the §8 choreography (next / prev / collapse).
 
-## File Inventory
+**Keyboard isolation (`src/keyboardIsolation.ts`)** — capture-phase `window` listeners for `keydown`/`keyup`/`keypress` call `stopPropagation()` + `stopImmediatePropagation()` (never `preventDefault()`) for events whose `composedPath()` includes the host; installed only while add mode or the enlarged view is open. Reason: closed shadow roots hide the focused element from a site's `document`-level shortcut handlers (Gmail's "c", Instagram's "n"), which then fire and `preventDefault()` the keystroke.
+
+**Theme and fonts (`src/theme.ts`)** — dark only (design spec §AA): `getThemeCSS()` emits `DARK_THEME` as `--sal-*` custom properties on `:host`; `LIGHT_THEME` is kept, unused, so a light theme can return without re-deriving a palette (a test pins that the two tables share the same keys). Fonts are fetched from `chrome.runtime.getURL('fonts/…')` and registered with `FontFace` under `Salamander Serif` / `Sans` / `Mono`, once, silently falling back to the system stack.
+
+---
+
+## Export and import
+
+**Export (`src/export.ts`)** — in the service worker: read the domain (through the queue) → `buildFeedbackMarkdown` → per item `imageStore.getImage`, composited with `paintDrawing` on an `OffscreenCanvas` when the item has strokes (scale measured as image px / drawing CSS px, a failed composite falls back to the clean PNG, a missing blob skips the file) → `zipSync` (level 6) → data URL → `chrome.downloads.download({ saveAs: false })`. The header's clock and manifest version are injectable so a test can pin the bytes.
+
+**Bundle format (`src/bundle/`)** — `version.ts` owns the line-1 stamp (`<!-- salamander-feedback-format: 2 -->`, BOM/whitespace tolerant); `index.ts` dispatches the reader on it (each `case` names the codec's own version constant) and refuses any other with `UnsupportedFormatError`; `v2.ts` is the grammar, the `JsonFeedbackItem` record (keys in §AC order), the writer, the reader and its `FieldReader` type checks. `text` is derived from `html` at export (tags stripped, entities decoded) and ignored on read. `context.pageMeta` is not written — only `page_title` — and import rebuilds it from the item fields. A future format is a new `vN.ts`, a `FORMAT_VERSION` bump, a `case` and a new frozen fixture.
+
+**Why one Markdown file with JSON inside:** it is both what a person or agent reads and what import reads back, with no second file and no YAML dependency. Pretty-printed JSON can never contain a line that is exactly ` ``` `, so a note (free user text) cannot end the block early; the reader takes each item's block by its id, preferring the block whose note renders to exactly the lines above it, so a note that quotes an exported item is skipped whole.
+
+**Import (`src/import.ts`)** — in the content script (the `File` lives in the page's world; validation needs no storage): the §5 ladder in order (type → `unzipSync` → `feedback.md` present → format stamp → structure/fields → screenshots present → duplicate ids → domain), each check a full pass over every item before the next, then `content.ts` reads the existing count (`GET_DOMAIN_ITEM_COUNT`; a failed read stops the import), shows the native `confirm`, and sends `IMPORT_REPLACE` with the PNG bytes re-encoded as data URLs.
+
+---
+
+## File inventory
 
 | File | Lines | Role |
 |---|---|---|
-| `src/background.ts` | 823 | Service worker: injection, capture relay, the message handler table, storage ownership |
-| `src/sidebar.ts` | 2983 | Right-docked sidebar shell, page resize, add-note toggle + "keep on" switch, export/chevron menu, hosts the enlarged view |
-| `src/content.ts` | 734 | Content script entry: injection guard, message listener, SPA nav detection, message orchestration |
-| `src/addMode.ts` | 2043 | Selection box, resize hit zones, dimming scrim, comment box, cursor preview + hint, the pencil (drawing surface, swatches, erase-all menu, stroke undo), add mode lifecycle |
-| `src/capture.ts` | 285 | Capture pipeline: hide UI, capture, crop, restore, exit |
-| `src/contextCapture.ts` | 426 | DOM context extraction: DCA, contained elements, area text, size governance |
-| `src/import.ts` | 142 | Import validation ladder (§5's 13 cases) over the versioned bundle reader |
-| `src/export.ts` | 144 | Export coordinator: zip assembly (a drawing is painted into its PNG via `OffscreenCanvas`), the `feedback.md` header's clock + manifest version (injectable), `chrome.downloads` |
-| `src/drawing.ts` | 261 | The pencil's palette, cropping strokes to the selection, the SVG and canvas renderers (design spec §AB) |
-| `src/bundle/index.ts` | 73 | `feedback.md`: current-format writer + the reader that dispatches on the format stamp and refuses any other format |
-| `src/bundle/v2.ts` | 548 | Format 2 (design spec §AC): Markdown grammar, json record, writer, reader and field validation |
-| `src/bundle/version.ts` | 35 | The line-1 format stamp (`<!-- salamander-feedback-format: 2 -->`) and its reader |
-| `src/imageStore.ts` | 85 | IndexedDB wrapper: CRUD for PNG data-URLs |
-| `src/enlargedView.ts` | 2160 | Enlarged view: expanding sidebar note viewer/editor, carousel, scroll lock |
-| `src/autosave.ts` | 179 | Debounced per-item autosave controller (draft / in-flight / failed / sequence tracking) |
-| `src/flip.ts` | 364 | FLIP / shared-element animation helpers |
-| `src/dockMotion.ts` | 628 | Dock-style spring magnification for the note list |
-| `src/theme.ts` | 676 | Design tokens, light/dark/auto theme, bundled font loading |
-| `src/thumbnails.ts` | 209 | Thumbnail list rendering |
-| `src/keyboardIsolation.ts` | 94 | Capture-phase keyboard isolation for the extension's surfaces |
-| `src/storage.ts` | 350 | `chrome.storage.local` layout (per-domain index + per-item keys), domain/item CRUD, session state |
-| `src/messages.ts` | 485 | Typed message contract, `MessageMap`, handler types |
-| `src/rpc.ts` | 35 | The content script's typed `send()` |
-| `src/types.ts` | 203 | Data model: FeedbackItem, ItemPatch, CapturedContext, DomainData / DomainIndex, import errors |
-| `src/copy.ts` | 83 | Every user-facing string, once |
-| `src/dataUrl.ts` | 96 | data-URL ↔ bytes / Blob codecs (CSP-safe: no `fetch`) |
-| `src/icons.ts` | 88 | The stroke icon set |
-| `src/dom.ts` | 39 | Reduced-motion query, rAF with fallback |
-| `src/selectorBuilder.ts` | 341 | CSS selector + XPath generation (lifted from v1's fingerprint.ts) |
-| `src/urlNorm.ts` | 125 | URL normalization (v1's rules, unchanged) |
-| `src/wordlist.ts` | 1507 | Dictionary for classifier (semantic vs. generated class names) |
+| `src/sidebar.ts` | 3071 | Sidebar shell, page shrink, resizable width, action row, banners, list host, enlarged-view host |
+| `src/enlargedView.ts` | 2180 | Enlarged view: geometry, FLIP choreography, carousel, autosave wiring, scroll lock |
+| `src/addMode.ts` | 2053 | Selection box, zones, scrim, outline, comment box, preview + hint, the pencil |
+| `src/wordlist.ts` | 1507 | Dictionary for the "human-authored id" heuristic |
+| `src/background.ts` | 857 | Service worker: injection, capture relay + crop, handler table, storage ownership |
+| `src/content.ts` | 779 | Content script entry: add-mode state machine, SPA detection, message orchestration |
+| `src/dockMotion.ts` | 663 | Dock-style spring magnification |
+| `src/bundle/v2.ts` | 579 | feedback.md format 2: grammar, JSON record, writer, reader |
+| `src/messages.ts` | 518 | Typed message contract, `MessageMap`, handler types |
+| `src/contextCapture.ts` | 426 | DOM context extraction and the 2KB governor |
+| `src/storage.ts` | 375 | `chrome.storage.local` layout, domain/item CRUD, session state, pen colour |
+| `src/flip.ts` | 364 | Analytic tweens, morph keyframes, WAAPI wrappers |
+| `src/selectorBuilder.ts` | 341 | CSS selector + XPath generation |
+| `src/theme.ts` | 327 | Tokens (dark emitted, light parked), radii, font loading |
+| `src/capture.ts` | 270 | Capture pipeline (content-script half) |
+| `src/drawing.ts` | 261 | Pen palette, `cropDrawing`, SVG and canvas renderers |
+| `src/types.ts` | 226 | Data model, `ItemPatch`, import error codes |
+| `src/thumbnails.ts` | 219 | Note list items |
+| `src/autosave.ts` | 179 | `AutosaveController` |
+| `src/export.ts` | 144 | Zip assembly, drawing composite, download |
+| `src/import.ts` | 142 | Import validation ladder |
+| `src/urlNorm.ts` | 125 | URL/domain normalisation, export filename |
+| `src/icons.ts` | 110 | The stroke icon set and the pencil cursor |
+| `src/dataUrl.ts` | 96 | data-URL ↔ bytes/Blob (CSP-safe, no `fetch`) |
+| `src/keyboardIsolation.ts` | 94 | Capture-phase key isolation |
+| `src/copy.ts` | 80 | Every user-facing string |
+| `src/imageStore.ts` | 79 | IndexedDB wrapper |
+| `src/bundle/index.ts` | 72 | Current-format writer; reader dispatch on the stamp |
+| `src/dom.ts` | 67 | `getContentViewportSize`, reduced-motion query, safe rAF |
+| `src/rpc.ts` | 35 | The typed `send()` |
+| `src/bundle/version.ts` | 35 | The line-1 format stamp |
+
+(`wc -l` on 2026-09-22; 16,274 lines in `src/` excluding tests.)
 
 ---
 
-## Key Decisions & Rationale
+## Key decisions
 
-**Why screenshots instead of pins?** Live re-resolution of pin positions proved fragile as pages change. Screenshots plus context capture provide a stable artifact.
-
-**Why sidebar instead of overlay?** Overlay blocks page content; sidebar resizes the page so everything remains accessible. Sidebar persistence (§1.1) makes the interaction more natural across navigations.
-
-**Why IndexedDB for blobs?** `chrome.storage.local` has a quota (even with `unlimitedStorage`, it handles ~1000s of small records better than large binary data). IndexedDB is designed for flexible blob handling.
-
-**Why device pixel ratio?** Developers need pixel-perfect screenshots for their high-DPI targets. Downscaling loses information.
-
-**Why 2KB context cap?** Balances detail (selectors, contained elements, area text are meaningful) against file size and rendering speed in markdown viewers. 1KB outerHTML and 15 elements fit naturally within this budget.
-
-**Why replace-only import?** Simplifies implementation (no merge logic, no ID collision handling); users can export before importing if they want to preserve old feedback.
-
-**Why one Markdown file with json inside it?** `feedback.md` is both what a person or coding agent reads and what import reads back (design spec §AC) — no second, machine-only file. Each note's complete record is a pretty-printed ` ```json ` block inside a collapsed `<details>` ("element data"); the visible `**note:**` line is for people and ignored on import. JSON needs no dependency (the v1 format's `js-yaml` is gone from both bundles), and a pretty-printed json body can never contain a line that is exactly ` ``` `, so a note — free user text — cannot end the block early. The reader takes each item's block by its id (preferring the one whose note renders to exactly the lines above it, so a note that quotes an exported item is skipped whole). `context.pageMeta` is not written: every field but the page title repeats one on the item, so only `page_title` travels and import rebuilds the rest. The extension is unpublished, so only format 2 is read; any other stamp is refused (§5 #6). A future format is a new `src/bundle/vN.ts`, a `FORMAT_VERSION` bump, a `case` in `src/bundle/index.ts` and a new frozen fixture.
+- **Screenshots instead of live pins.** Re-resolving a pinned element after the page changed was fragile (see `docs/v1-archive/`). A screenshot plus context is a stable artefact; nothing is ever re-located.
+- **A sidebar that shrinks the page.** An overlay hides content; a shrink keeps everything reachable and means the sidebar can never be inside a capture.
+- **Closed shadow roots + keyboard isolation + event-level scroll lock.** Each exists because a real site broke without it (page CSS bleed, Gmail/Instagram shortcuts, the width shift `overflow: hidden` causes). Do not replace them with the simpler alternative.
+- **The crop scale is measured, not assumed.** `innerWidth` is an integer and the captured image is not guaranteed to be `innerWidth × devicePixelRatio`; dividing real by reported is self-correcting, and sending both viewport widths resolves the scrollbar ambiguity.
+- **Ids allocated in the service worker, preserved on import.** Sequential across a domain's URLs so "item #7" means one thing; the counter lives behind the storage boundary.
+- **Drawing as a separate layer, flattened only at export.** The stored screenshot stays clean and the bundle format does not change; the alt text is the only trace in `feedback.md`.
+- **Replace-only import, format 2 only.** No merge logic, no ID collision handling, no legacy codecs — the extension was never published with anything else.
+- **Dark only.** The switcher, `themeMode` and cross-tab sync were removed (design spec §AA); the light table is parked in `theme.ts`.

@@ -1,261 +1,247 @@
-# Annotator — Requirements
+# Salamander — Requirements
 
-> Chrome extension for capturing visual feedback on any webpage. User selects an area of the page, the extension screenshots it and attaches a note. Feedback is exported as a bundle (screenshots + human/agent-readable notes) that can be handed to a developer or an AI coding agent to locate and act on.
+> Chrome extension for capturing visual feedback on any webpage. The reviewer selects an area of the page, optionally draws on it, writes a note; the extension screenshots the area and records where in the DOM it was. Feedback is exported as a bundle (screenshots + one human/agent-readable `feedback.md`) that a developer or an AI coding agent can act on without the live page.
+
+**Status:** describes the behaviour of the shipped code (version 2.0.0). The code is the source of truth; where this file and the code disagree, this file is wrong. Design rationale lives in `design/SALAMANDER_SPEC.md` (visual, section references like §AB below) and `design/MOTION_SPEC.md`; implementation detail in `TECH_DESIGN.md`. Every requirement has a stable ID (`FR-…` functional, `NF-…` non-functional, `E-…` error cases, `EC-…` edge cases).
 
 ---
 
 ## Definitions
 
-- **Sidebar** — the extension's UI panel, docked to the right edge of the viewport. It resizes the page's viewport (shrinks the page rather than floating over it), so it never blocks/overlaps page content. Opened by clicking the extension icon.
-- **Add mode** — the transient state entered by clicking the sidebar's **add** button, during which the pointer becomes a selection tool and clicking-and-placing an area on the page is possible. All other page interaction (native clicks, links) is suppressed while in add mode. Add mode auto-exits back to normal browsing as soon as a feedback item is saved or cancelled.
-- **Feedback item** — one captured unit of feedback: a screenshot of a selected page area + a text note + captured DOM/page context. Feedback items do **not** persist any visual marker on the live page (see §1.5) — they exist only as sidebar thumbnails and export data.
-- **Bundle** — the exported/imported unit: a `.zip` containing screenshot images and a single human/agent-readable `feedback.md`, which is also what the extension re-parses on import (see §1.7) — no separate machine-only file.
+- **Sidebar** — the extension's panel, docked to the right edge of the viewport. It shrinks the page rather than floating over it. Opened by clicking the extension icon.
+- **Add mode** — the state entered from the sidebar's **add note** button, during which the page is a selection surface and all other page interaction is suppressed. Two phases: *placing* (no box yet) and *editing* (a box, its drawing surface and the comment box exist).
+- **Feedback item** (a "note") — one captured unit: a cropped screenshot + note text + captured DOM/page context + an optional drawing. Items never leave a marker on the live page; they exist only as sidebar thumbnails and export data.
+- **Bundle** — the export/import unit: a `.zip` holding `screenshots/{id}.png` and a single `feedback.md` that is both the readable document and what import parses. There is no separate machine-only file.
+- **Domain** — `location.host` normalised (`www.` and standard ports stripped). Storage, numbering and export are per domain; the list is per normalised URL within it.
 
 ---
 
-## Status: 🟢 Requirements Finalized
+## 1. Functional requirements
 
-All technical open items have been resolved (see inline "*(decided by: ... subagent)*" notes for rationale on each) and non-technical decisions were confirmed directly with the user. Ready to move into development planning.
+### 1.1 Sidebar and activation
 
----
+- **FR-SB-1** Clicking the extension icon injects the content script on demand and opens the sidebar; clicking again while it is open closes it (a toggle). No automatic injection on any page.
+- **FR-SB-2** The sidebar is docked to the right edge and **shrinks the page** (`margin-right` on `<html>`, `!important`, defended by an injected stylesheet and a `MutationObserver`, with a synthetic `resize` event after every apply). It never covers page content, except on app-shell sites that ignore a root shrink (EC-13).
+- **FR-SB-3** Width is user-resizable by a handle on its left edge: 188–300px, default 300. The minimum is derived from the action row's own metrics (the width it needs with the "keep on" switch revealed), not hardcoded. The handle takes the pointer and the keyboard (arrow keys in 10px steps, `Home` = widest, `End` = narrowest). The chosen width persists in `chrome.storage.local` (`sidebarWidth`) and is clamped into range on load. Page shrink, add-mode selection bounds and the enlarged view's geometry all track the live width.
+- **FR-SB-4** Below 220px the wordmark hides. Nothing else responds to width: both action-row groups always sit on one row with nothing clipped, and the switch's reveal is never suppressed by width.
+- **FR-SB-5** Layout, top to bottom: a header (logo + "salamander" wordmark + **close**), an action row (the **add note** group and the **export** group, see FR-SB-8), one 1px rule under that block, then a "this page (n)" heading and the note list for the current URL, or the empty state "no feedback on this page yet". The heading and the empty state never show together.
+- **FR-SB-6** Notification banners (error/warning) render inline under the action row with `role="alert"`, an icon, lowercase text and a progress line; they auto-clear after 8 seconds.
+- **FR-SB-7** **close** hides the sidebar and restores the page. The content script stays loaded; data is untouched. Closing while add mode is active exits add mode first; closing while the enlarged view holds an emptied note is refused (FR-EV-8).
+- **FR-SB-8** The action row's right group is **export** with an attached chevron (`aria-haspopup="menu"`, `aria-expanded`). The chevron opens a `role="menu"` holding one item, **import**. The menu closes on item activation, `Esc` (focus returns to the chevron), Tab, an outside `pointerdown`, the sidebar closing and entering add mode; opening it by keyboard focuses the first item and ↑/↓ move between items.
+- **FR-SB-9** The sidebar survives SPA navigation (`pushState`/`replaceState` patched, `popstate`, `hashchange`, debounced 50ms) and full reloads: "open" is recorded per tab in `chrome.storage.session` (`sidebarOpen:{tabId}`) and the service worker re-injects and re-opens on the next completed load. Only **close** (or a tab close, a browser restart, or navigating to a page that cannot be injected) clears it. On an SPA route change the list refreshes for the new URL, add mode exits fully and the enlarged view collapses.
+- **FR-SB-10** Everything the extension draws lives in closed shadow roots on hosts attached to `<html>` (`#annotator-sidebar-host`, `#annotator-addmode-host`), above the page (`z-index` near the maximum).
 
-## 1. Functional Requirements
+### 1.2 Add mode — placing and editing a selection
 
-### 1.1 Sidebar & Activation
-- [ ] Clicking the extension icon injects/opens the sidebar on the current tab (consistent with v1's on-demand activation model — no automatic injection)
-- [ ] Sidebar is docked to the right edge of the viewport and **resizes the page** (shrinks the page's available viewport width), so it never blocks or overlaps page content
-- [ ] Sidebar width is **user-resizable** by dragging a handle on its left (page-facing) edge, clamped to **188–300px** (the minimum is derived: exactly the width the action row needs with the "keep on" switch revealed, so the export group can never wrap — Salamander v5 §V), defaulting to 300px. The chosen width persists across sessions in `chrome.storage.local` (a durable UI preference, unlike the per-tab open/closed flag below which is deliberately `chrome.storage.session`). The page shrink, the add-mode selection bounds and the enlarged modal's backdrop all track the live width. The handle is also keyboard-operable (arrow keys / Home / End) for accessibility.
-- [ ] Sidebar header shows **close** (Salamander redesign: **add**/**export**/**import** moved to a separate action row below the header — see §3.1)
-- [ ] **Close** hides the sidebar (content script stays loaded; feedback data is untouched). Re-opening via the extension icon restores the sidebar showing the same state.
-- [ ] Sidebar body shows the list of thumbnails for feedback captured on the **current URL only** (see §1.5)
-- [ ] Sidebar persists across both SPA navigation **and full page reloads** — the thumbnail list refreshes for whatever URL is current, but the sidebar itself only disappears when the user explicitly clicks **close**. This is a deliberate departure from v1 (where a full reload required re-clicking the extension icon).
-- [ ] Technical implication: a full reload re-injects the content script from scratch, so "sidebar is open" is not naturally remembered — it must be persisted per-tab and re-applied automatically when the content script initializes on the new page load, with no user action required
-  - **Decision:** Use `chrome.storage.session` keyed by tab ID. **Rationale:** `chrome.storage.session` is designed exactly for ephemeral state that survives page reloads but clears on browser restart, providing the right UX balance: refreshing the page preserves sidebar open/closed state, but closing and reopening the browser clears it. *(decided by: backend-developer subagent)*
+- **FR-AM-1** **add note** is an icon-only toggle button (`aria-pressed`). Clicking it starts add mode; clicking again cancels it. Its tooltip says what a click will do next ("add note" / "cancel note" / "stop adding notes"); its accessible name is always "add note".
+- **FR-AM-2** A **"keep add mode on" switch** (`role="switch"`, `aria-checked`) is attached to the button's right, hidden at rest and revealed on hover or keyboard focus (`:has(:focus-visible)`, not a mouse click's focus), always visible while on, and always visible on hover-less pointers. Switch on: add mode starts if it isn't running and re-enters after every successful capture and every per-note cancel. Switch off mid-session: add mode continues for the current note only. A click on the button while the switch is on stops both. `Esc` stops both. The switch is never persisted; it resets per page session. Double-click, shift+click and shift+Enter/Space on the button turn the switch on (alternates, not the only path).
+- **FR-AM-3** While placing, the cursor is a crosshair and a preview of the default box follows the pointer (fading in on the first move, hidden while dragging, gone once a box is placed). A tooltip "click or drag to select" follows the cursor for the first 5 seconds of a page session's first add-mode use, then never again on that page load.
+- **FR-AM-4** A single click places a 267×100px box (the thumbnail's size at the default sidebar width — fixed, independent of the current width) **centred** on the click point, shifted (never shrunk) fully on-screen if centring would leave the viewport. A press-and-drag of 5px or more draws a custom rectangle instead, normalised for any drag direction and live-updated.
+- **FR-AM-5** The box resizes from any edge or corner through invisible hit zones (edges 10px thick straddling the outline, corners 16×16) with `ns`/`ew`/`nwse`/`nesw` cursors. No visible handles. Minimum size 20×20px. The box is clamped to the content viewport (scrollbars excluded, sidebar excluded) — no auto-scroll, no stitching.
+- **FR-AM-6** The outline is a 2px SVG stroke just outside the box, alternating 4px accent yellow and 4px ink, following the box's 10px corner radius; the page outside the box is dimmed by a scrim, the box interior is clear.
+- **FR-AM-7** A comment box (296px wide) attaches below the box and flips above or to the side when there is no room. It holds a textarea (placeholder "what should change here?", `maxlength` 1000), a bottom bar with the pencil tools on the left (FR-DR-4) and, on the right, a counter (hidden up to 900 characters, muted from 901, danger-coloured from 980, format "942/1000"), then **cancel** and **save**. **save** is disabled while the trimmed note is empty and reads "saving…" during the capture.
+- **FR-AM-8** Only **cancel** or **save** leave the editing state. Clicking outside the box and comment box does nothing at all. `Esc` exits add mode (with an open pencil menu, the first `Esc` only closes the menu). Native page clicks, links and keyboard shortcuts are suppressed for the whole of add mode (NF-ISO-1, NF-ISO-2).
+- **FR-AM-9** While add mode is active the sidebar is **on hold**: the note list dims to ~50%, takes no pointer or keyboard input (no hover, no magnification, not tabbable, no click-to-open, delete buttons inert) and the export group is disabled with its menu closed. **add note**, its switch and **close** stay enabled. Every exit path restores the list.
+- **FR-AM-10** Opening a note from the list while the comment box holds text or strokes is refused with the warning "finish or cancel your note first."; otherwise opening a note exits add mode first.
 
-### 1.2 Capturing Feedback (Add Mode) 
-- [ ] User clicks **add note** → pointer changes to a screenshot/crosshair icon → page enters add mode. **add note** is a toggle: it shows as on while add mode is active, and clicking it again cancels add mode.
-- [ ] **Decision (Salamander v3, replacing the v2 padlock):** **add note** is icon-only (comment-bubble glyph, name in the tooltip) with a **"keep add mode on" switch** attached to its right, revealed on hover or keyboard focus and always visible once on. Turning the switch on starts add mode if it isn't running and keeps it on after each successful capture, so the user can add several notes without re-clicking; **cancel** then discards only the current note and stays in add mode. Turning the switch off leaves add mode running for the current note only. One click on the button, or Esc, stops add mode *and* the switch. The switch does not persist — it resets per page session. The v2 gestures (double-click, shift+click, shift+enter) still work and simply turn the switch on; there is no padlock glyph any more. **Rationale:** batch review sessions often capture several notes in a row and re-clicking between each was friction, but the v2 lock was invisible — a hidden double-click gesture with a 9px padlock as its only affordance. A labelled switch makes the same mode discoverable, reversible and reachable by keyboard.
-- [ ] User clicks once on the page → a default-sized selection box appears **centered** on the click point (default size: fixed, matching the sidebar's note thumbnail box *at the sidebar's default width* — default sidebar width minus the list's horizontal padding, by a fixed 100px height; 267×100px, i.e. top-left = `(x - 133.5, y - 50)`. It does not change if the user resizes the sidebar). If centering would push the box outside the viewport, it is clamped by shifting (not shrinking) it fully on-screen, independently per axis — e.g. clicking at (20, 20) would naively center the box at (-113.5, -30), which clamps to (0, 0), producing a final box of (0,0)–(267,100); the same clamp applies symmetrically near the right/bottom edges.
-- [ ] User can also **click-and-drag** (Figma-style) to draw a custom-sized box directly instead of getting the default size: a 5px movement threshold (measured from mousedown) distinguishes a "click" (below threshold → center-on-click default-size behavior above) from a "drag" (at/above threshold → the box is the actual rectangle between the mousedown point and the current/mouseup point, normalized to work when dragging in any direction). The box updates live as the user drags, respecting the 20×20 minimum size and viewport clamping throughout (same clamping logic as the resize handles below).
-- [ ] User can resize the box from its corners/edges (Salamander redesign: invisible hit zones rather than visible drag handles — see §3.2). **Decision:** Minimum box size 20×20px. **Rationale:** Small enough to avoid forcing larger selections than necessary, but large enough to prevent useless captures from accidental clicks; prevents "slivers" without imposing artificial minimum interaction costs. *(decided by: frontend-developer subagent)*
-- [ ] The box **cannot** be dragged/resized past the visible viewport edges (§ decision: clamp to viewport, no auto-scroll/stitch — see §6 for rationale)
-- [ ] Alongside the box, a comment box appears (positioned below the selection by default; flips above, or to whichever side has room, if insufficient space — same overflow logic as v1's popover)
-- [ ] Comment box contains: a textarea (placeholder `"what should change here?"`, lowercase), a character counter (see below), and two buttons: **cancel** and **save**
-- [ ] **Decision:** Text input max length 1000 characters; counter appears at 900+, turns red at 980+. **Rationale:** 1000-char limit allows richer descriptions than v1's 400; 90%/98% thresholds (900/980) provide appropriate warning and danger signals proportional to the expanded limit, giving users clear feedback before hitting the hard limit. *(decided by: frontend-developer subagent)*
-- [ ] **save** is disabled while the textarea is empty
-- [ ] **Drawing on the selection (Salamander §AB).** Once the box is placed and until the note is saved or cancelled, the box's interior is a **pencil** (a pencil cursor, hotspot at its tip): pointer strokes draw 2px round-capped lines in the chosen colour. The edge/corner hit zones keep their resize cursors and keep resizing; outside the box the cursor is the normal arrow. Never while placing, never while the capture runs, never in the enlarged view (drawings are view-only there).
-  - The comment box's bottom bar holds, on the left, a **pencil** menu button (28px, "drawing options", whose menu holds **erase all** — disabled while nothing is drawn) and three colour swatches as a radio group "pencil colour": **yellow `#E8B600`** (default), **black `#1A1712`**, **red `#E5484D`**. On the right: the character counter, then cancel and save.
-  - Each stroke stores its colour as HEX. The chosen colour is remembered until the browser closes (across reloads, pages and sites) and resets to yellow in a fresh browser session — `chrome.storage.session`, reached through the service worker.
-  - Strokes are pinned to the page, not to the box: resizing never moves them — shrinking crops what falls outside, growing reveals more around them.
-  - **Cmd+Z / Ctrl+Z undoes the last stroke** whenever focus is not in the note's textarea (there the keys keep undoing typed text). Starting a stroke moves focus off the textarea onto the drawing; clicking back into the textarea returns it. The keys stay inside add mode's keyboard isolation.
-  - Strokes alone count as unfinished work (opening a note from the list is refused, as with typed text).
-- [ ] Only clicking **cancel** discards the in-progress box and exits add mode with no feedback item created. Clicking outside the box/comment area does **nothing** — no wiggle, no dismiss, no effect at all — regardless of whether the textarea is empty or not. The user must explicitly click **save** or **cancel** to leave the in-progress state.
-- [ ] Clicking **save**:
-  1. The selection box outline, resize hit zones, the drawing, dimming overlay, and comment box are hidden for the single frame of capture (these are drawn within the page area and would otherwise appear in the screenshot). The sidebar's note list also has its dock magnification suspended for the whole of add mode, since a magnified item grows out over the page and could otherwise bleed into a capture. The sidebar itself does **not** need to be hidden — since it resizes the page rather than overlaying it, the page's visible viewport never extends under the sidebar, so the sidebar can never fall inside a selection's crop bounds.
-  2. Extension captures a screenshot cropped to the selection box's pixel bounds
-  3. Extension captures DOM/page context for the selected area (see §1.4)
-  4. Add mode exits; sidebar restores; a new thumbnail appears at the bottom of the sidebar list showing the screenshot + note text beneath it
-  5. The screenshot is stored **untouched**; whatever was drawn is saved separately on the item as `drawing` (`{ width, height, strokes: { color, points }[] }` — the final selection's CSS size, points relative to its top-left, cropped to it). An item nothing was drawn on has no `drawing`.
-- [ ] Each feedback item gets a globally unique, sequential ID (continues incrementing across all URLs of the domain — mirrors v1's continuous pin numbering — so a reference like "item #7" is unambiguous even across pages)
+### 1.3 Drawing on the selection (design spec §AB)
 
-### 1.3 Screenshot Capture — Technical Constraints
-- [ ] Screenshot capture uses the browser's visible-tab capture API, which captures only the currently rendered viewport — this is why selections are clamped to the viewport (§1.2)
-- [ ] Captured images are stored as PNG (lossless — preserves text sharpness for UI screenshots, at the cost of larger file size vs JPEG)
-- [ ] **Decision:** Capture images are kept at native device pixel ratio (no downscaling to CSS pixels). **Rationale:** Developers receiving the bundle need to see exact pixel fidelity for their target platform; high-DPI captures are more useful for developers working on Retina/high-DPI screens; file size is secondary to output usefulness for this use case. *(decided by: frontend-developer subagent)*
-- [ ] If capture fails (e.g. rate-limited, or the page is a restricted URL like `chrome://` where content scripts can't run), show an error and do not create a partial feedback item (see §5)
+- **FR-DR-1** Once a box is placed and until the note is saved or cancelled, the box's interior is a **pencil** (custom SVG cursor, hotspot at the tip; system fallback). The edge/corner zones keep their resize cursors and resize; outside the box the cursor is the normal arrow. There is no pencil while placing, during capture, or in the enlarged view.
+- **FR-DR-2** Pointer strokes draw 2px round-capped, round-joined lines (coalesced pointer samples, so fast strokes stay smooth). A single click leaves a dot. Colours: yellow `#E8B600` (default), black `#1A1712`, red `#E5484D`; each stroke stores its own HEX.
+- **FR-DR-3** The chosen colour is remembered until the browser closes — across reloads, pages and sites — in `chrome.storage.session` behind the service worker (`GET_PEN_COLOR` / `SET_PEN_COLOR`), re-read on every add-mode entry; a fresh browser session starts on yellow.
+- **FR-DR-4** The comment box's bottom bar holds, left to right: a 28px **pencil** menu button (`aria-label` "drawing options", `aria-haspopup="menu"`) whose menu contains **erase all** (disabled while nothing is drawn; the menu opens above the button when there is no room below), then three swatches as a radio group named "pencil colour" (arrow keys move and wrap).
+- **FR-DR-5** Strokes are pinned to the page, not the box: resizing never moves them; shrinking crops what falls outside, growing reveals it again. On save the strokes are cropped to the final rectangle (a stroke that leaves and re-enters becomes two).
+- **FR-DR-6** `Cmd+Z` / `Ctrl+Z` undoes the last stroke whenever focus is not in the textarea (there it keeps undoing typed text). Starting a stroke moves focus to the drawing surface; clicking the textarea returns it. The page never sees the keystroke.
+- **FR-DR-7** Strokes count as unfinished work (FR-AM-10). The drawing is hidden with the rest of the overlay for the capture: the stored screenshot never contains it.
+- **FR-DR-8** The drawing is stored separately on the item as `drawing: { width, height, strokes: [{ color, points: [x, y][] }] }` — the final selection's CSS-pixel size, points relative to its top-left. An item nothing was drawn on has no `drawing` field.
+- **FR-DR-9** A saved drawing is shown, view-only, over the list thumbnail and over the enlarged view's main image and peeks, fitted exactly as the image is (`viewBox` + `xMidYMid meet` against `object-fit: contain`) and riding the morphs. Drawings cannot be edited after saving.
 
-### 1.4 Context Capture (for a human or AI agent to locate the code)
+### 1.4 Capture
 
-Since feedback items are **not** re-rendered as live pins on the page (§1.5), the DOM/page context captured here has one job: let someone reading the exported `feedback.md` — a person or a coding agent — figure out **where in the source** the selected UI lives, without needing to load the live page. This replaces v1's "fingerprint for re-resolution" purpose with a "fingerprint for explanation" purpose, which lets us be more generous/verbose than v1's resolver-oriented selectors.
+- **FR-CP-1** On **save**: DOM context is captured first (FR-CX), then the whole add-mode overlay (box, outline, zones, scrim, drawing, comment box, hint) is hidden, the pipeline waits for one painted frame (double `requestAnimationFrame`, 250ms fallback), then asks the service worker for a screenshot cropped to the selection, then to persist the item. The sidebar needs no hiding: it shrinks the page and so never lies inside a selection; its dock magnification is suspended for the whole of add mode so a magnified note cannot bleed into a capture.
+- **FR-CP-2** The screenshot is `chrome.tabs.captureVisibleTab` (PNG) cropped in the service worker with `createImageBitmap` + `OffscreenCanvas`. The crop scale is **measured** from the captured image's real dimensions against the two CSS viewport widths the content script sends (with and without scrollbars), choosing the candidate nearest `devicePixelRatio`; the selection rect is viewport-relative CSS pixels, so scroll position never enters the crop. The stored PNG is at native device pixels (DPR and browser zoom included), never downscaled.
+- **FR-CP-3** Captures are spaced at least 500ms apart by a serial queue in the service worker so the platform's rate limit is never hit; a burst waits rather than failing.
+- **FR-CP-4** Each item gets a sequential id, allocated by the service worker at write time, continuing across all URLs of the domain ("item #7" is unambiguous site-wide). Ids are never reused after a delete (`nextItemNumber` only grows).
+- **FR-CP-5** The service worker also renders an inline JPEG thumbnail (longest edge 480px, quality 0.75) stored on the item record, so the list paints without touching IndexedDB. The full PNG lives in IndexedDB under a random key.
+- **FR-CP-6** On success add mode exits (or re-enters, FR-AM-2), the sidebar comes off hold, and the new item appears at the bottom of the list. On any failure (context capture, rate limit, restricted page, storage write) no partial item exists, a blob already written is deleted, the overlay is restored, add mode stays exactly as the user left it, and the sidebar shows E-8.
 
-For each feedback item, at the moment of capture:
+### 1.5 Context capture ("fingerprint for explanation")
 
-**A. Primary target** — the smallest DOM element that fully contains the selection rectangle (deepest common ancestor of everything visually inside the box):
-- CSS selector path (reusing/extending v1's selector-building logic: prefer `id` / `data-*` attributes, fall back to tag + class + positional index; already hardened against framework-generated hash classes per the existing `pageDetectors` work)
-- XPath (fallback identifier)
-- Truncated `outerHTML` snippet. **Decision:** 1KB cap (with `<script>`/`<style>` contents and base64 data-URIs stripped, and a `"...[truncated]"` marker if cut). **Rationale:** 1KB provides sufficient context for humans and AI agents to locate and understand the element structure without bloating the export; truncation is applied first when total size governance (§1.4E) is exceeded. *(decided by: api-designer subagent)*
+Captured once, at save time, so a reader of `feedback.md` can locate the selected UI in source without the live page. Nothing is ever re-resolved against a live page.
 
-**B. Contained elements** — a lightweight list (not full HTML) of descendant elements whose bounding box intersects the selection rectangle. **Decision:** Cap at 15 elements, prioritized toward elements with distinguishing attributes or visible text over bare layout `div`s. **Rationale:** 15 elements provides meaningful detail without overwhelming context; combined with the 2KB total cap (§1.4E), this prevents both structural overgrowth and size bloat. Elements are trimmed in order of relevance (attribute-rich or text-bearing first) if the total budget is exceeded. *(decided by: api-designer subagent)*
-- tag, `id`, classes (flagged semantic vs. likely-auto-generated), key attributes (`data-*`, `aria-*`, `role`, `href`, `alt`, `name`, `type`, `placeholder`)
-- direct visible text only (not full subtree text, to avoid duplication) — trimmed, capped at ~100 chars each
+- **FR-CX-1** **Primary target**: the deepest element that fully contains the selection rectangle (walking down from `<body>`, one fully-containing child per level; `<iframe>` is always a leaf; `<script>`/`<style>`/`<template>`/`<noscript>` are never entered; hidden elements are skipped). Recorded as a CSS selector (see `FINGERPRINTING.md`), an XPath, and a sanitised `outerHTML` snippet (`<script>`/`<style>` bodies and base64 data-URIs stripped) capped at 1KB with a visible `...[truncated]` marker.
+- **FR-CX-2** **Contained elements**: up to 15 descendants of the primary target whose rect intersects the selection, scored (id > key attributes > direct text > semantic class name), ties in document order. Each carries tag, id, classes split into semantic vs generated, key attributes (`data-*`, `aria-*`, `role`, `href`, `alt`, `name`, `type`, `placeholder`) and its direct text (≤100 characters).
+- **FR-CX-3** **Area text**: the direct text of the primary target and every contained element, in document order, adjacent duplicates collapsed, joined into one line.
+- **FR-CX-4** **Page metadata**: full URL, normalised URL, page title, viewport size, device pixel ratio, the selection rectangle in page coordinates, and an ISO 8601 capture time.
+- **FR-CX-5** **Size governance**: the whole context is held under 2KB (measured as JSON length). Over budget, the `outerHTML` snippet shrinks first (always leaving the marker), then the contained-elements list is trimmed from its lowest-priority end, with a `containedElementsTruncated` flag.
+- **FR-CX-6** Iframes (cross-origin or not) contribute only their own tag and attributes; their documents are never inspected. No computed styles are captured.
 
-**C. Area text** — all visible text whose position falls within the selection rectangle, aggregated into one flat block. This is a fast semantic summary distinct from the structural dump in A/B, useful when an agent just needs "what did this say" rather than "where is this in the DOM."
+### 1.6 Viewing and managing notes
 
-**D. Page-level metadata** (attached to every item):
-- Full URL and normalized URL (see edge cases for normalization rules)
-- Page `<title>`
-- Viewport dimensions + device pixel ratio at capture time
-- Selection rectangle (x, y, width, height) in page coordinates
-- Capture timestamp (ISO 8601)
+- **FR-LS-1** The list shows only items whose normalised URL matches the current page, in capture order (newest at the bottom). Each item is a real `<button>` holding the thumbnail (a 100px-tall box, image `object-fit: contain`, never cropped), a number badge at its top-left, the drawing overlay if any, and the note text below clamped to 3 lines ("no note" when empty).
+- **FR-LS-2** Items magnify under the pointer and under keyboard focus in a continuous, macOS-Dock-style spring (up to 1.12× scale and 22px leftwards, out over the page), with the note text gaining a background that tucks under the thumbnail. Under `prefers-reduced-motion` only the background appears.
+- **FR-LS-3** Hovering or focusing an item reveals a 28px delete button over the thumbnail's top-right corner — a sibling of the item's button, never nested inside it — which deletes immediately with no confirmation (E-12 on failure) and never opens the note. It is reachable by Tab after its item.
+- **FR-LS-4** Clicking an item opens the **enlarged view**: the sidebar itself expands leftwards to 75% of the viewport (never narrower than 560px or the docked width), with a scrim over the rest of the page and no page re-layout. Shared elements morph (the thumbnail into the large image, its neighbours into peeks); everything else fades (`design/MOTION_SPEC.md`). Under reduced motion, layout changes instantly with crossfades only.
+- **FR-EV-1** The focused note is one block — a title bar ("feedback #n" with a 32px **delete** icon button at its right end), the screenshot at the selection's own CSS size (scaled down to fit, never up), and the note textarea — centred in the panel both ways. The previous and next notes peek ~20px past the top and bottom edges, each at 0.75 of its own natural size, pushed right along one shared arc; clicking a peek navigates to it; hovering nudges it 7px.
+- **FR-EV-2** A rail of three 36px buttons — **exit** (a collapse-panel glyph, "exit enlarged view (esc)"), **↑**, **↓** — sits 20px in from the viewport's right edge, vertically centred, independent of the image's size; ↑/↓ are disabled at the ends.
+- **FR-EV-3** Keyboard: focus moves to **exit** on open; `Esc` collapses; ↑/↓ navigate when focus is not in the textarea; Tab cycles exit → ↑ → ↓ → peeks → textarea → delete. On collapse, focus returns to the note's list item (or a fallback in the sidebar when it no longer exists).
+- **FR-EV-4** The note autosaves: 700ms after typing stops, and immediately (flushed) on navigate, collapse, blur, sidebar close and page unload. There is no save button and no "saved" confirmation. A failed save shows "couldn't save note. try again." as plain left-aligned text under the textarea (`role="status"`, `aria-live="polite"`) and is retried on the next flush; a failure that is still unresolved when the view collapses is reported in the sidebar's banner naming the note.
+- **FR-EV-5** Prev/next run as an interruptible carousel of the same morphs; a second ↓ mid-flight retargets from the live position rather than being dropped.
+- **FR-EV-6** **delete** is immediate, with no confirmation, from either entry point, and removes both the record and its screenshot blob. In the enlarged view it moves on to the next note (or the previous if it was last); deleting the only note collapses to the (empty) list.
+- **FR-EV-7** While the view is open the host page cannot scroll: capture-phase `wheel`/`touchmove`/scroll-key handlers cancel any scroll no element inside the view can take (the textarea still scrolls). `overflow: hidden` is deliberately not used (it would change the page's width and move the rects the morph measures). The lock is released on every exit path — collapse, `Esc`, the scrim, sidebar close, SPA navigation, entering add mode, teardown.
+- **FR-EV-8** **A note can never be empty.** An emptied note is never saved (the last text stays stored), and leaving it — ↑/↓, peeks, exit, `Esc`, the scrim, closing the sidebar — is refused with "a note can't be empty. add some text to continue." and a danger-coloured textarea border (one small shake on the first refusal, never under reduced motion) until text is entered. Deleting is still allowed.
+- **FR-EV-9** The enlarged view and add mode never coexist: entering add mode collapses the view instantly (no half-collapse frame); the view also collapses on SPA navigation.
+- **FR-LS-5** Nothing is ever placed on the live page for a saved note. The list and the bundle are the whole record.
 
-**E. Size governance** — **Decision:** Cap total captured context per item at 2KB (A + B + C + D combined). **Rationale:** 2KB keeps each item's context skimmable in a markdown viewer or IDE, balancing detail against file size (outerHTML + 15 elements + area text + metadata fit within this budget; the 1KB outerHTML cap and 15-element cap in A/B are guidance, not strict independent limits—both truncate first if total budget is approached). If exceeded, truncate in this order: outerHTML snippet first, then the contained-elements list — always with a visible truncation marker, never a silent cut. *(decided by: api-designer subagent)*
+### 1.7 Export
 
-Decision: no computed styles (e.g. `position`, `display`, `background-color`) in v1 — keeping context capture lean and structural/textual only. Revisit if visual-bug feedback (not just "add this here") turns out to need it.
+- **FR-EX-1** **export** downloads a `.zip` with every item across **every URL of the current domain**, assembled and downloaded entirely in the service worker (`chrome.downloads`, no save-as prompt). The button is disabled for the duration of the round trip.
+- **FR-EX-2** With no items on the domain: `alert("nothing to export")` and no download. Any other failure shows "couldn't export feedback. try again." in the banner.
+- **FR-EX-3** Filename `feedback-{domain}-{YYYY-MM-DD}.zip`, dots and colons in the domain replaced with underscores, the date taken from the UTC calendar day (e.g. `feedback-example_com-2026-09-22.zip`, `feedback-localhost_3000-…`).
+- **FR-EX-4** Bundle contents, and nothing else: `screenshots/{id}.png` per item, and `feedback.md`. An item with a drawing has its strokes painted into its PNG at the image's real pixel scale (a 2× capture gets a 4px line); an item without one is exported byte-for-byte as stored. A blob missing from storage is skipped (the note and its data still export); a failed composite falls back to the clean PNG.
+- **FR-EX-5** `feedback.md` is **format 2** (design spec §AC, frozen fixture `src/__tests__/fixtures/feedback-v2.md`). Every fixed label is lowercase; user content is written as captured:
+  - line 1: `<!-- salamander-feedback-format: 2 -->` (the format stamp, distinct from the extension version);
+  - a header of three lines joined by trailing `\`: `salamander {manifest version}`, `**date exported:** YYYY-MM-DD HH:MM utc±hh:mm` (local time), `**website:** {domain}`;
+  - `## page "{normalised url}"` per URL, pages in order of their first-captured item, notes in capture order;
+  - per note: `### feedback {id}`, `![feedback {id}](screenshots/{id}.png)` (alt text gains ` — marked up by the reviewer` when the note has a drawing), `**note:** {text}` as written (`(none)` when empty), then `<details><summary>element data</summary>` around a pretty-printed ` ```json ` record;
+  - the JSON is the complete item and the only thing import reads, keys in this order: `text` (the primary target's visible text, derived from `html` at export), `selector`, `xpath`, `html`, `page_url`, `note`, `id`, `normalised_url`, `page_title`, `created_at`, `selection_rect`, `viewport`, `dpr`, `contained_elements`, `area_text`. No field appears twice.
+  - Free-text values are capped and end in a single `…` past the limit — `text` 120, `html` 300, `area_text` 200, each contained element's `text` and attribute values 80. The note and every identifier (selector, xpath, URLs, ids, class names) are never cut.
 
-### 1.5 Viewing & Managing Feedback
+### 1.8 Import
 
-- [ ] Sidebar shows thumbnails only for feedback items belonging to the current normalized URL — feedback for other URLs is stored but hidden until the user navigates there
-- [ ] Each thumbnail shows the screenshot image and the note text beneath it, with the note's drawing (if any) laid over the image, fitted exactly as the image is
-- [ ] Clicking a thumbnail opens the **enlarged view**: the sidebar itself expands to ~75% of the viewport (the page is not re-laid out; the remaining strip is dimmed by a scrim), showing the note's large screenshot, "feedback #n" and an editable note as one block centred in the panel. The previous and next notes peek in ~20px past the top and bottom edges, each at 3/4 of *its own* natural size and pushed right of the block along a shared arc (click to move to them); a rail of **collapse** / **↑** / **↓** buttons at the window's right edge exits or navigates, as do Esc and the arrow keys. Clicking the scrim collapses back to the list. The host page cannot be scrolled while the view is open (Salamander v5 §R/§T/§U).
-- [ ] A note can also be deleted straight from the list: hovering (or keyboard-focusing) a list item reveals a small danger-styled delete button over the thumbnail's top-right corner, which deletes that item without opening it
-- [ ] In the enlarged view: user can edit the note text, or delete the item entirely. **The screenshot/selection area itself is not editable in v1** (delete and recapture instead) — cropping/repositioning is deferred (§7)
-- [ ] Delete is immediate — no confirmation dialog (consistent with v1's single-item delete), from either entry point. In the enlarged view it then moves on to the next note (or the previous one if it was the last); deleting the only note collapses back to the list. From the list, the list simply repaints.
-- [ ] **Decision (Salamander v2):** note edits autosave (shortly after typing stops, and whenever the user navigates or collapses) — there is no save button; a brief "saved" hint confirms it, and a failed save shows an inline error and is retried. **A note can never be empty:** an emptied note is never saved, and leaving it (navigate, collapse, Esc, closing the sidebar) is blocked with the inline error "a note can't be empty. add some text to continue." until text is entered — every screenshot must keep a description. Deleting the whole note is still allowed.
-- [ ] Deleting a feedback item also deletes its stored screenshot blob (no orphaned images in storage)
-- [ ] **No persistent visual marker is placed on the live page for saved feedback items** — this is an explicit decision (not a v1-parity gap): re-locating elements after the fact proved unreliable in the pin-based version when pages changed or viewport size differed. Sidebar thumbnails are the sole record. (Future consideration, not a v1 blocker: revisit if this proves hard to use in practice, e.g. correlating a thumbnail back to its page location.)
-
-### 1.6 Exporting
-- [ ] User clicks **export** → downloads a `.zip` bundle containing **all** feedback items across **all URLs** of the current domain (not just the current page — mirrors v1's "export everything, filtered view only in the UI" model)
-- [ ] If there are zero feedback items for the domain: `alert("nothing to export")`, no download
-- [ ] Bundle contents — just two things, no separate machine-only file:
-  - `screenshots/{id}.png` — one file per feedback item. For an item with a drawing, the strokes are painted into this PNG at the image's real pixel size (the drawn image only — no separate drawing data); an item without one exports byte-for-byte as stored. Re-importing brings a drawing back flattened into the image.
-  - `feedback.md` — the single source of truth, human/agent-readable **and** what the extension re-parses on import
-- [ ] `feedback.md` structure — format version 2; the literal target file and every rule are in design spec §AC (`design/SALAMANDER_SPEC.md`). Every fixed label and piece of fixed text is lowercase; user content is written exactly as captured:
-  - Line 1 is the invisible format stamp `<!-- salamander-feedback-format: 2 -->` — how import recognises the format (separate from the extension version)
-  - A three-line header joined by trailing `\`: `salamander {manifest version}`, `**date exported:** YYYY-MM-DD HH:MM utc±hh:mm` (local time), `**website:** {domain}` — nothing else at the top
-  - One `## page "{normalised url}"` section per URL, in order of that URL's first-captured item; within it, notes in capture order
-  - Each note: `### feedback {id}`, the inline screenshot (`![feedback {id}](screenshots/{id}.png)`, alt text `feedback {id} — marked up by the reviewer` when it has a drawing), `**note:** {text}` (as written; `(none)` when empty), then a `<details>` block ("element data") holding a pretty-printed ` ```json ` record
-  - The json is the complete item and the only thing import reads (the visible note line is ignored): `text`, `selector`, `xpath`, `html`, `page_url`, `note`, then `id`, `normalised_url`, `page_title`, `created_at`, `selection_rect`, `viewport`, `dpr`, `contained_elements`, `area_text`. No field appears twice. Free-text values are capped and end in `…` past the limit (`html` 300, `text` 120, `area_text` 200, each contained element's text and attribute values 80) — no truncation flags; the note and identifiers are never cut. `text` is the primary target's visible text, derived from `html` at export
-- [ ] **Decision:** Default filename is `feedback-{domain}-{date}.zip`, where domain dots are replaced with underscores and {date} is YYYY-MM-DD. **Rationale:** Mirrors v1's naming convention for familiarity; ISO date format is unambiguous and sorts chronologically; domain normalization (dots→underscores) ensures valid filenames across OSes. Example: `feedback-example_com-2026-09-18.zip`. *(decided by: api-designer subagent)*
-
-### 1.7 Importing
-- [ ] User clicks **import** → native file picker (accepts `.zip` only)
-- [ ] Import behavior is unified — no distinction between "resuming your own export" and "loading someone else's bundle"; both go through the same flow
-- [ ] Extension reads `feedback.md` from the zip, rebuilds each item from its json element-data block plus `screenshots/{id}.png`, and loads all feedback items + screenshots into storage. A round trip (export, wipe, import) reproduces every stored field except a drawing, which comes back flattened into the image
-- [ ] Only the current format is read. The extension is unpublished, so there is no backward compatibility: a `feedback.md` in any other format (the retired v1 yaml format, a newer version, or no format stamp) is refused (§5 #6)
-- [ ] If domain in the bundle doesn't match the current site: reject with an error (mirrors v1's domain-mismatch handling)
-- [ ] If existing feedback already exists for this domain: confirmation dialog before replacing (mirrors v1's "uploading this file will replace..." pattern). **Decision:** Import **replaces** existing domain feedback entirely; no merge-by-ID in v1. **Rationale:** Replace-only is simpler to implement and reason about for a solo-project v1; merge logic adds complexity without a clear v1 use case. Merging is explicitly deferred to §7 / v2 as out-of-scope. Users can export before importing if they need to preserve old feedback. *(decided by: api-designer subagent)*
-- [ ] After successful import, sidebar opens (if not already) showing thumbnails for the current URL, if any are included in the bundle
+- **FR-IM-1** **import** (in the chevron menu) opens the native file picker accepting `.zip`. The menu item is disabled for the duration.
+- **FR-IM-2** The content script unzips and validates the bundle through the ladder in §5, in that order, before anything is written; only the final replace goes to the service worker.
+- **FR-IM-3** Only format 2 is read. A `feedback.md` with any other stamp, or none (including the retired v1 YAML format), is refused (E-6). The extension was never published with another format, so there is no backward compatibility.
+- **FR-IM-4** The bundle's domain (from its first item's `page_url`) must match the current domain (E-5). An empty bundle is treated as matching.
+- **FR-IM-5** Import **replaces** the domain's data; there is no merge. If the domain already has items, a native confirmation quotes the real count (E-10) before anything changes; cancelling leaves everything as it was. If the count cannot be read, the import stops with "couldn't check existing feedback. try again." rather than replacing unconfirmed.
+- **FR-IM-6** Each item is rebuilt from its JSON plus `screenshots/{id}.png`; ids are preserved, `nextItemNumber` becomes max id + 1, and the service worker mints a fresh screenshot key and thumbnail per item. A failure part-way cleans up the blobs written for that import and leaves the previous data intact ("couldn't import this bundle. try again.").
+- **FR-IM-7** A round trip (export, wipe, import) reproduces every stored field except values the caps shortened (they come back as written) and a drawing, which comes back flattened into the image.
+- **FR-IM-8** After a successful import the sidebar opens if it was closed, showing the current URL's items.
 
 ---
 
-## 2. Non-Functional Requirements
+## 2. Non-functional requirements
 
-### Permissions
-- Extension requests host permission for all websites at install time (unchanged from v1 — needed for content script injection)
-- Screenshot capture uses the browser's visible-tab capture API, which is subject to a rate limit (historically ~2 calls/second) — rapid successive captures may need to be throttled/queued client-side
-- **Decision:** Request `unlimitedStorage` permission. **Rationale:** Screenshot blobs are unavoidable and will exceed the 10MB default `chrome.storage.local` quota quickly (dozens of PNGs per domain easily hits this); IndexedDB also benefits from the quota lift. Storage is local and on-device only, so the tradeoff is justified. *(decided by: backend-developer subagent)*
+### Privacy and permissions
+- **NF-PR-1** No network requests, analytics or telemetry. All data stays on the device; nothing leaves it except through an explicit export.
+- **NF-PR-2** Permissions: `storage`, `scripting`, `tabs`, `unlimitedStorage`, `downloads`; host permission `<all_urls>` (needed to inject on demand into any site). `web_accessible_resources` exposes only the two logo SVGs and the bundled fonts.
+- **NF-PR-3** Screenshots capture exactly what is on screen, including form fields. No masking of sensitive inputs (known limitation, EC-12).
 
-### Security
-- No network calls, analytics, or telemetry — all data stays on-device (unchanged from v1)
-- Screenshots are captured and stored entirely locally; nothing leaves the device except via explicit user-initiated export
-- **Decision:** Out of scope for v1; document as a known limitation. **Rationale:** Visual masking (blur/pixelation) of password inputs adds complexity (detection, rendering, capture-time handling) not justified for v1. Users can be made aware via UX warnings when a selection contains form inputs. Revisit in v2 if real-world usage reveals this as critical. *(decided by: backend-developer subagent)*
+### Security / CSP
+- **NF-SEC-1** Extension-page CSP: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; frame-src 'none'`. All dependencies (`fflate`) are bundled by esbuild; nothing loads from a CDN, nothing uses `eval`.
+- **NF-SEC-2** Because `connect-src 'none'` also governs `fetch()` of `data:` URLs in the service worker, image bytes are decoded by hand (`src/dataUrl.ts`), never via `fetch(dataUrl)`.
+- **NF-SEC-3** Content scripts are never granted `chrome.storage.session` access; session state is reached only through the service worker.
 
 ### Storage
-- **Decision:** Use IndexedDB for screenshot PNG blobs; use `chrome.storage.local` for feedback metadata and item records. **Rationale:** IndexedDB is better suited for large binary media (flexible storage model, efficient blob handling); `chrome.storage.local` is simpler and sufficient for lightweight metadata (selectors, context, URLs). Both benefit from `unlimitedStorage`, and this split allows efficient querying of metadata without touching large image payloads. *(decided by: backend-developer subagent)*
-- Feedback data persists indefinitely until deleted or the extension is uninstalled (unchanged principle from v1)
-- Storage is local to the device/profile — no cross-device sync in v1
+- **NF-ST-1** Metadata in `chrome.storage.local`, schema version 2: `domain:{domain}` → `{ meta: { nextItemNumber, version }, pages: { normalisedUrl: id[] } }` and `item:{domain}:{id}` → the item (thumbnail data-URL inline). Full-resolution PNGs in extension-origin IndexedDB (`annotator-images` / `screenshots`), as data-URL strings, keyed by `screenshotKey`. Per-tab "sidebar open" and the pencil colour in `chrome.storage.session`. The `sidebarWidth` preference in `chrome.storage.local`, read directly by the content script.
+- **NF-ST-2** Feedback data and blobs are read and written only by the service worker; the content script reaches them over typed `chrome.runtime` messages. Every domain-mutating handler (and every domain read that feeds a user decision) is serialised through one queue, so overlapping writes cannot clobber each other and reads see every write queued before them.
+- **NF-ST-3** Deleting an item, replacing a domain and a failed save all remove the blobs they orphan. Data persists until deleted, replaced by an import, or the extension is uninstalled. No cross-device sync.
+- **NF-ST-4** `unlimitedStorage` lifts the 10MB `chrome.storage.local` quota; practical limits are I/O and memory, not quota. Every domain index carries a `version` stamp so a future schema change has something to branch on; there is no migration today because no other stored shape was ever released.
 
 ### Performance
-- Hiding/restoring the in-page overlay UI (selection box, handles, dimming scrim, comment box) around the capture call must be fast enough to be visually imperceptible and must never appear in the captured image
-- Add-mode interactions (drawing, resizing) should feel instant — no lag
+- **NF-PF-1** The overlay hide → capture → restore window is one painted frame plus the service-worker round trip; nothing of the extension's UI may appear in a capture.
+- **NF-PF-2** Add-mode interactions (placing, resizing, drawing) and list magnification run on transforms/opacity in a single rAF loop that stops at rest; layout is read once per gesture, never inside the loop.
+- **NF-PF-3** The list paints from one `chrome.storage.local` round trip (index + that URL's items, thumbnails inline); a note autosave rewrites only that item's key.
+- **NF-PF-4** Both bundles are minified (sourcemaps kept). The content script is idempotent under repeated injection.
 
-### Compatibility — keyboard isolation from the host page
-- **Decision:** Keyboard input into any extension-owned text field (the add-mode comment box, the enlarged view's note editor) must never leak to the host page's own keyboard-shortcut handlers, and the host page's shortcuts must never fire while the user is typing into extension UI. **Rationale:** Real-world testing surfaced this as a functional bug, not a hypothetical: sites like Gmail and Instagram attach global keyboard-shortcut listeners to `document`, and since the extension's UI lives in a closed shadow root, the host page cannot see that an input has focus (its `document.activeElement` check fails), so it fires its own shortcut instead — on Instagram, pressing "n" opened the site's notifications panel instead of typing an "n"; on both sites, some keystrokes were dropped entirely because the host page's shortcut handler called `preventDefault()` on them. **Mechanism:** a capture-phase listener on `window` for `keydown`/`keyup`/`keypress` calls `stopPropagation()` (never `preventDefault()`) for any event targeting extension UI, installed only while that UI is open. *(found and fixed via real browser testing on Gmail and Instagram)*
+### Isolation from the host page
+- **NF-ISO-1** Keyboard: while add mode or the enlarged view is open, capture-phase `window` listeners for `keydown`/`keyup`/`keypress` stop propagation of any event whose composed path includes the extension's host, so a site's global shortcuts (Gmail, Instagram, YouTube) never fire and never `preventDefault()` our keystrokes. `preventDefault()` is never called by the isolation itself, so native text editing still works. Listeners are installed only while a surface is open.
+- **NF-ISO-2** Pointer: add mode's blocker swallows page clicks; nothing underneath activates. The enlarged view's scroll lock (FR-EV-7) routes wheel/touch/key scrolling only to elements inside the view that can take it.
+- **NF-ISO-3** Styling: closed shadow roots with all tokens declared on `:host`; bundled fonts are registered through the `FontFace` API under namespaced families (`Salamander Serif` / `Sans` / `Mono`) with system fallbacks, because shadow-DOM `@font-face` is ignored and a host page's CSP can block extension font URLs. Font loading fails silently.
+- **NF-ISO-4** The extension's own DOM (hosts on `<html>`) is never captured as context: context capture walks from `<body>`.
 
----
+### Accessibility and keyboard
+- **NF-A11Y-1** Every control is a real `<button>` (or `role="switch"` / `role="menu"` / radio group) with an accessible name; state is announced through `aria-pressed` / `aria-checked` / `aria-expanded` / `aria-disabled`, never by renaming the control. Focus is visible only for keyboard focus (`:focus-visible`) with one shared ring style.
+- **NF-A11Y-2** Full keyboard operation: the resize handle (arrows/Home/End), the add group, the chevron menu, the pencil menu and swatches, the enlarged view (FR-EV-3), the list (Tab through items and their delete buttons).
+- **NF-A11Y-3** `prefers-reduced-motion: reduce` is honoured live in every surface: no spatial motion, crossfades only, magnification off, no shake.
+- **NF-A11Y-4** All visible UI text is lowercase (buttons, placeholders, errors, dialogs, empty states). This is a product convention; it is not applied to user content.
 
-## 3. UX / UI Requirements
+### Browser support
+- **NF-BR-1** Google Chrome, Manifest V3, desktop, left-to-right documents. The build targets Chrome 100 syntax; the runtime APIs used (`chrome.storage.session`, CSS `:has()`, `OffscreenCanvas` in a service worker) need Chrome 105 or newer. Other Chromium browsers are untested; Firefox/Safari are out of scope.
+- **NF-BR-2** Pages where content scripts cannot run (`chrome://`, the Web Store, the PDF viewer, `file://` without permission) are not supported: injection fails and nothing visible happens (E-9).
 
-### 3.1 Sidebar (Idle State)
-- [ ] Docked right-edge panel that resizes the page's viewport (not an overlay) — page content is never blocked or covered by it (see §6 #13 for the app-shell sites where this is not achievable)
-- [ ] Drag handle on the panel's left edge: a 1px hairline at rest, turns to the accent colour on hover/focus/drag, `ew-resize` cursor
-- [ ] Header row: logo + "salamander" wordmark, and **close**. A separate action row below it holds two groups: the **add note** button with its "keep on" switch, and **export** with an attached chevron. **Decision (Salamander redesign):** add/export/import moved out of the header into their own action row, with the header itself carrying brand identity instead. **Rationale:** separates "who/what is this" (identity) from "what can I do" (actions) rather than crowding peer icon buttons into one row. *(decided by: frontend-developer subagent)* **Decision (Salamander v3):** **import** then moved out of the action row into the chevron's menu (`role="menu"`, one "import" item today), so export — the far more frequent action — stays one click away while rarely-used and future actions live behind a single affordance instead of widening the row. **Rationale:** the row now has to fit the "keep on" switch as well, and import is a once-per-session action that does not deserve permanent width. *(decided by: frontend-developer subagent)*
-- [ ] Notification banner (error/warning) renders as a small inline rounded banner under the action row — not the old full-bleed black bar — auto-clearing after 8s
-- [ ] Below the action row: a "this page (n)" heading (shown only once there is at least one item) above the scrollable list of thumbnails for the current URL. **Decision:** Empty state shows "no feedback on this page yet". **Rationale:** Clear, descriptive message that is lowercase-consistent with v1 convention (§3.4), reassures user the sidebar is working, and encourages action via the **add note** button. *(decided by: frontend-developer subagent)*
-- [ ] Narrow-width behaviour: below ~220px the wordmark hides. Nothing else responds to width — the minimum (188px, §V) is the width the action row needs with the "keep on" switch revealed, so both groups always sit on one row with nothing clipped and there is no compact layout. The switch's reveal is never suppressed by width; it takes hover, keyboard focus (`:has(:focus-visible)`, not `:focus-within` — a mouse click's focus does not count, Salamander v5 §Q) or being on
-- [ ] **Decision (Salamander v3 §H):** while add mode is active the sidebar is **on hold** — the note list dims to ~50%, takes no pointer or keyboard input (no hover, no dock magnification, not tabbable, no click to open the enlarged view) and the export group is disabled with its menu closed. **add note**, its switch and **close** stay enabled. **Rationale:** add mode owns the page, and a list that still magnified and opened notes underneath it both competed for the click and risked our own chrome bleeding into the screenshot. *(decided by: frontend-developer subagent)*
-- [ ] **Decision:** Note-list items magnify under the pointer position (and under keyboard focus), continuously and smoothly, in a macOS-Dock-style spring animation; disabled in favour of a plain hover/focus background under `prefers-reduced-motion`. **Rationale:** matches user-requested "feel like the macOS Dock" affordance for a list that is otherwise plain text + a thumbnail, while still degrading to a static, fully accessible state for reduced-motion users. *(decided by: frontend-developer subagent)*
-
-### 3.2 Add Mode — Selection Box
-- [ ] Selection box resizes from any edge or corner via invisible hit zones (edges ~10px thick, corners ~16×16, matching `ns`/`ew`/`nwse`/`nesw` resize cursors) — no visible square handles
-- [ ] **Decision:** Selection box outline and every other UI surface draw from the Salamander design tokens rather than hardcoded colours; the accent yellow (`#FEC800`) carries over from v1 as the token's value in both light and dark themes. **Rationale:** proven high-contrast yellow is distinctly overlay-like without being distracting and gives continuity with v1, while token-based colour lets every surface repaint consistently for light/dark/auto. *(decided by: frontend-developer subagent)*
-- [ ] Everything **outside** the selection box is dimmed with a translucent scrim, matching the macOS screenshot-selection tool's visual pattern — the box itself (rounded corners) stays fully clear/undimmed so the user can see exactly what they're capturing
-- [ ] Comment box appears attached to the selection box, flipping position (below → above → side) based on available viewport space. It is a rounded text area with a button bar tucked under it as an "extension" (same width, rounded bottom corners) holding the character counter and padded ghost **cancel** / **save** buttons; the text area's border darkens on hover and turns yellow on focus. **Decision:** the confirm button is labelled **save** (was "ok" in v1) and is disabled while the trimmed note is empty; a character counter appears once the note passes 900 characters and turns danger-coloured at 980+. **Rationale:** "save" reads more clearly as committing the note than "ok" does. *(decided by: frontend-developer subagent)*
-
-### 3.3 Thumbnail & Enlarged View
-- [ ] Thumbnail: screenshot image (rounded on all four corners) + note text truncated to 3 lines, item number badge. On hover/focus the note text gains a background that tucks under the thumbnail's bottom edge as an "extension" of it (same width, rounded bottom corners); the text itself never moves. The note text's inset is the same on all four sides, so the background sits the same distance below the last line as it does below the thumbnail.
-- [ ] Hovering or keyboard-focusing a list item also reveals a ~24px delete button over the thumbnail's top-right corner (neutral at rest, danger fill on hover/press), fading in with the note background and magnifying with its item. It is a sibling of the item's own button — never nested inside it — deletes immediately, and is held inert along with the rest of the list during add mode.
-- [ ] **Decision:** Thumbnails render in a fixed-size image box (100px height, width fills the available sidebar content area) regardless of the captured screenshot's actual dimensions, with the image scaled via `object-fit: contain`. **Rationale:** Screenshots vary widely in size/aspect ratio depending on what was selected; a fixed box keeps the sidebar list visually even, and `contain` (rather than `cover`) ensures the full captured screenshot is always visible rather than cropped — losing part of the screenshot would undermine the tool's core purpose.
-- [ ] Enlarged view (replaces v1's modal — see §1.5): the sidebar expands leftward with shared-element motion — the clicked thumbnail grows into the large screenshot and its neighbours grow into the peek slots, while view-specific controls fade; collapsing reverses it. Prev/next run as a carousel of the same morphs. Each peek is ~3/4 of **its own** note's size (so navigating to it is a zoom, not a reshape), sits on the arc described in Salamander v5 §R, and carries no caption, badge, frame fill or blur. Motion follows `design/MOTION_SPEC.md`; under `prefers-reduced-motion` layout changes instantly with crossfades only. The note editor is the add-mode comment box's text-area alone — no bar under it and no "saved" confirmation; **delete** is an icon button in the title bar and a failure shows as plain text under the text area. *(decided by: user, Salamander v2, revised v4 §M and v5 §R)*
-
-### 3.4 Text Case
-- [ ] Carry forward v1's "all visible UI text is lowercase" convention (buttons, placeholders, errors, dialogs) — confirmed, still applies
-
-### 3.5 Design Language ("Salamander")
-- [ ] **Decision:** Replaces v1's ad hoc colours with a token-based design language built from one named token set (`bg`/`surface`/`text`/`accent`/`danger`/`warn`/etc., black + the v1 yellow accent). **Rationale:** a single token source keeps every surface visually consistent without hardcoding colours per component. *(decided by: frontend-developer subagent)* **Decision (dark only, design spec §AA):** the extension ships in the dark theme only; the light/dark/auto switcher and its persisted `themeMode` preference are gone. The light token table is kept in `src/theme.ts`, unused, so a light theme can be restored without re-deriving a palette. *(decided by: the user)*
-- [ ] **Decision:** Typography is Instrument Serif italic (wordmark, enlarged-view and section titles), Instrument Sans (body UI text), and JetBrains Mono (numbers — badges, the character counter) — bundled as local woff2 files and loaded via `FontFace` from the content script (Shadow DOM `@font-face` is ignored by Chrome, and host-page CSP can block extension font URLs). **Rationale:** namespaced, locally-bundled fonts give the UI a distinct, legible identity with no network requests and no risk of colliding with the host page's own fonts. *(decided by: frontend-developer subagent)*
-- [ ] Rounded rectangles throughout (never pill shapes), and one consistent set of interaction states (regular/hover/press/focus-visible/disabled) applied to every button and control across all three surfaces
+### Reliability and error handling
+- **NF-REL-1** Every user-facing failure has copy in `src/copy.ts`, lowercase, asserted byte-exact by tests (§5). No failure is silent: a dead service worker, an invalidated extension context or a rejected write always surfaces as the relevant banner.
+- **NF-REL-2** No operation leaves a partial state: a failed capture creates no item and no blob; a failed import leaves the previous data; a failed autosave keeps the draft and retries; a lost `SIDEBAR_OPENED` only means the sidebar does not auto-reopen after the next reload.
+- **NF-REL-3** The message contract (`src/messages.ts`) is typed at both ends; adding a message without a handler, or a handler with the wrong response shape, is a compile error. `UPDATE_NOTE` remains as an alias of `UPDATE_ITEM` so a content script from an older build still alive on a page keeps saving across an extension update.
 
 ---
 
-## 4. User Journeys
+## 3. Text conventions
 
-### Journey 1 — Capturing and Exporting Feedback
-1. User clicks the extension icon → sidebar opens on the current page
-2. User clicks **add** → pointer becomes a selection tool
-3. User clicks a spot on the page → default-sized box appears; user drags from an edge/corner to resize over the area they want to flag
-4. A comment box appears next to the box; user types a note and clicks **save**
-5. Extension hides its own UI, captures the screenshot + DOM context, restores its UI, exits add mode
-6. A new thumbnail appears in the sidebar (item #1)
-7. User repeats for other areas on the page (and other pages, navigating normally — sidebar persists per §1.1) — thumbnails only show for the page currently open, numbering continues globally
-8. User clicks **export** → downloads a `.zip` with all screenshots and a single `feedback.md` for the whole domain
-
-### Journey 2 — Reviewing / Importing Feedback
-1. Recipient (developer, or the same user on another session) opens the same site, opens the sidebar
-2. Clicks **import**, selects the `.zip` bundle
-3. Extension validates domain match, loads all feedback into storage
-4. Sidebar shows thumbnails for the current URL; navigating to other URLs in the bundle reveals their thumbnails too
-5. Recipient can read `feedback.md` directly (e.g. hand it to an AI coding agent) without ever opening the extension, since it's self-contained with inline screenshot references and captured DOM context per item
+- **NF-TXT-1** Lowercase everywhere in the UI (NF-A11Y-4). In `feedback.md`, every fixed label is lowercase; notes, URLs and page text are written exactly as captured.
 
 ---
 
-## 5. Error Handling
+## 4. User journeys
 
-| # | Case | Type | Behavior |
+**Journey 1 — capture and export.** Click the icon → the sidebar opens → **add note** → click or drag on the page → resize by the edges → optionally draw → type a note → **save** → the overlay hides for a frame, the screenshot and context are stored, a thumbnail appears. Flick "keep add mode on" to capture several in a row. Navigate normally; the sidebar persists and numbering continues. **export** → `feedback-{domain}-{date}.zip`.
+
+**Journey 2 — review or import.** A developer opens the same site, opens the sidebar, chevron → **import**, picks the zip; if the site already has notes, confirms the replace. Thumbnails appear per URL as they browse. Alternatively they hand `feedback.md` straight to a coding agent: it is self-contained, with inline screenshot references and the element data per note.
+
+---
+
+## 5. Error handling
+
+| # | Case | Type | Behaviour (copy verbatim) |
 |---|------|------|----------|
-| 1 | Wrong file type on import (not `.zip`) | 🔴 Error | "invalid file type. please upload a .zip feedback bundle." |
-| 2 | Zip is corrupted / not a valid archive | 🔴 Error | "could not read this file — it appears to be corrupted." |
-| 3 | Zip is missing `feedback.md` | 🔴 Error | "this doesn't look like a feedback bundle." |
-| 4 | An item's metadata block references a screenshot file that isn't in the zip | 🔴 Error | "this file is missing screenshot data and can't be imported." |
-| 4b | `feedback.md` is in the current format but an item's element-data (json) block is missing/malformed | 🔴 Error | "this bundle appears to be corrupted (couldn't read feedback data)." |
-| 5 | Domain mismatch on import | 🔴 Error | "this bundle contains feedback for '{other-domain}', but you're currently on '{current-domain}'." |
-| 6 | `feedback.md` is not in this build's format (older, newer, or no format stamp) | 🔴 Error | "this bundle was made by a different version of the extension and can't be imported." Checked before #4b. |
-| 7 | Export with zero feedback items on the domain | 🔴 Error | `alert("nothing to export")` |
-| 8 | Screenshot capture fails (rate limit, restricted page) | 🔴 Error | "couldn't capture a screenshot here. try again." Feedback item is not created. |
-| 9 | Add mode attempted on a page where content scripts can't run (`chrome://`, Web Store, PDF viewer) | 🔴 Error | Extension icon / add button indicates unavailability; explanatory message on attempt |
-| 10 | Existing feedback present for domain + user imports a bundle | 💬 Confirmation | "importing will replace your current N feedback item(s) for this site. this cannot be undone. continue?" |
-| 11 | Duplicate/invalid IDs within an imported bundle | 🔴 Error | "this bundle appears to be corrupted (duplicate item ids)." |
+| E-1 | Import: not a `.zip` | error | "invalid file type. please upload a .zip feedback bundle." |
+| E-2 | Import: archive cannot be read | error | "could not read this file — it appears to be corrupted." |
+| E-3 | Import: no `feedback.md` in the zip | error | "this doesn't look like a feedback bundle." |
+| E-6 | Import: `feedback.md` is not format 2 (other stamp, or none) | error | "this bundle was made by a different version of the extension and can't be imported." Checked before E-4b. |
+| E-4b | Import: an item's structure or JSON is missing, unparsable, or a field is missing/wrong type | error | "this bundle appears to be corrupted (couldn't read feedback data)." |
+| E-4 | Import: an item references a screenshot not in the zip | error | "this file is missing screenshot data and can't be imported." |
+| E-11 | Import: duplicate ids in the bundle | error | "this bundle appears to be corrupted (duplicate item ids)." |
+| E-5 | Import: domain mismatch | error | "this bundle contains feedback for '{other-domain}', but you're currently on '{current-domain}'." |
+| E-10 | Import: the domain already has N items | confirmation | "importing will replace your current N feedback item(s) for this site. this cannot be undone. continue?" (native `confirm`) |
+| E-10b | Import: the existing count cannot be read | error | "couldn't check existing feedback. try again." — nothing is replaced. |
+| E-10c | Import: the replace itself fails | error | "couldn't import this bundle. try again." — previous data intact. |
+| E-7 | Export with zero items on the domain | error | `alert("nothing to export")` |
+| E-7b | Export fails (zip, download, dead worker) | error | "couldn't export feedback. try again." |
+| E-8 | Capture fails (rate limit, restricted page, crop, storage write) | error | "couldn't capture a screenshot here. try again." No item is created. |
+| E-9 | Icon clicked on a page where content scripts cannot run | silent | Injection fails; a warning in the service-worker console; no sidebar. Nothing visible changes. |
+| E-12 | Delete fails (either entry point) | error | "couldn't delete item. try again." |
+| E-13 | Autosave fails | error | "couldn't save note. try again." under the textarea; after collapse, "couldn't save note #{id}. try again." in the banner. |
+| E-14 | List cannot be loaded | error | "couldn't load feedback for this page. try again." |
+| E-15 | Full image cannot be loaded in the enlarged view | fallback | The on-screen thumbnail is shown instead. |
+| E-16 | A note is clicked while add mode holds text or strokes | warning | "finish or cancel your note first." |
+
+Rows E-1 … E-5 are the import ladder, listed in the order they are checked.
 
 ---
 
-## 6. Edge Cases
+## 6. Edge cases
 
-| # | Scenario | Behavior |
+| # | Scenario | Behaviour |
 |---|----------|----------|
-| 1 | Selection box would extend past the visible viewport | Clamped to viewport edges — cannot drag/resize further in that direction. Rationale: the underlying capture API only captures the rendered viewport; auto-scroll+stitch was considered and deferred as unnecessary complexity for v1. |
-| 2 | Selection box / handles / dimming scrim / comment box visible at moment of capture | This in-page overlay UI is hidden immediately before the capture call and restored immediately after — must never appear in the resulting screenshot. The sidebar itself doesn't need special handling here since it resizes the page and can never overlap a selection's crop bounds (see §1.2). |
-| 3 | Selection box drawn too small (accidental click) | Enforced minimum dimensions: 20×20px (see §1.2 for rationale) |
-| 4 | High-DPI / Retina display | Capture naturally reflects device pixel ratio; captured resolution may exceed CSS pixel dimensions of the selection |
-| 5 | Browser zoom ≠ 100% | Selection coordinates and capture are computed against rendered pixels, so zoom is inherently accounted for |
-| 6 | Selection area contains a cross-origin `<iframe>` | Screenshot pixels still capture correctly (visible-tab capture doesn't care about origin), but DOM/context capture (§1.4) cannot see inside the iframe due to same-origin restrictions — context for that region is limited to the iframe element's own tag/attributes/`src` |
-| 7 | Viewport resized between sessions/captures | Each feedback item's screenshot is a fixed image; stored selection coordinates are archival only (not used to re-render anything live), so no re-render inconsistency is possible |
-| 8 | Rapid successive captures | Visible-tab capture API is rate-limited (~2/sec historically) — client should throttle/queue if the user captures faster than that |
-| 9 | Very large selection (covers most of the viewport) | Context capture size governance (§1.4E) applies — truncates with a visible marker rather than producing an unbounded export |
-| 10 | Same URL revisited in a later session | Sidebar reloads all previously stored feedback items for that normalized URL |
-| 11 | URL normalization | **Decision:** Carry forward v1's normalization rules unchanged: strip query params and fragments, strip `www.`, strip trailing slash, use case-sensitive path, strip default ports, preserve non-standard ports. **Rationale:** These are proven heuristics that balance URL grouping (query params and default ports don't change the "page") with precise targeting (case-sensitive paths distinguish similar URIs). No new requirements suggest changes. *(decided by: backend-developer subagent)* |
-| 12 | Sensitive form fields (passwords) within a selection | Out of scope for v1 — see §2 Security. UX can warn users at capture time, but no visual masking or field skipping in v1. |
-| 13 | App-shell sites whose layout ignores the page shrink (**youtube.com** is the known example) | **Known limitation, not a fixable bug.** The sidebar shrinks the page by giving `<html>` a `!important` right margin (defended by both an injected backstop stylesheet and a `MutationObserver` that re-asserts it). Two page-side patterns defeat *any* root-box shrink and cannot be worked around from a content script: (a) containers sized in **viewport units** — `100vw`/`100dvw` resolve against the real browser viewport by CSS spec, never against an element's used width, so they keep full-viewport width no matter what we set on the root (YouTube's full-bleed/theater player container); and (b) layouts that **measure `window.innerWidth` in JS** and set their own pixel widths from it — shrinking the root does not change `innerWidth`, so they recompute to the same too-wide value (YouTube's Polymer `ytd-watch-flexy` player sizing). A synthetic `resize` event is dispatched after every apply so such layouts at least re-run. On top of that, a page's own `position: fixed` elements (YouTube's masthead) never move for an ancestor width change — the general fixed-element case already noted in §1.1. **Degradation:** the sidebar host carries an explicit near-max `z-index`, so on such pages the panel stays fully visible and usable and the page simply reads as partly covered; closing the sidebar restores the page exactly. Rewriting the page's own stylesheets to neutralize `vw` units was considered and rejected as unsafe and unreliable. |
+| EC-1 | Selection would extend past the viewport | Clamped to the content viewport; no auto-scroll, no stitching. |
+| EC-2 | Extension UI on screen at capture time | The add-mode overlay is hidden for one painted frame; dock magnification is suspended for all of add mode; the enlarged view cannot be open. |
+| EC-3 | Accidental tiny selection | 20×20px minimum. |
+| EC-4 | High-DPI display | The crop scale is measured from the image; the PNG is at native device pixels. |
+| EC-5 | Browser zoom ≠ 100% | Folded into `devicePixelRatio` by Chrome; handled by the same measured scale. |
+| EC-6 | Cross-origin iframe in the selection | Pixels captured normally; context limited to the `<iframe>` element's own attributes. |
+| EC-7 | Viewport changed between captures | Items are static images; the stored rect is archival only. |
+| EC-8 | Rapid successive captures | Queued 500ms apart; a real failure still reports E-8. |
+| EC-9 | Very large selection | The 2KB context governor truncates with visible markers; export caps the free text further. |
+| EC-10 | Same URL revisited later | The list shows that normalised URL's stored items. |
+| EC-11 | URL normalisation | `https://` scheme; hostname lowercased; `www.` stripped (other subdomains kept); ports 80/443 stripped, others kept; path case preserved; trailing slash stripped; query and fragment stripped. `file://` URLs normalise to their path. |
+| EC-12 | Password/sensitive fields in the selection | Captured as shown; no masking. |
+| EC-13 | App-shell sites that ignore a root shrink (youtube.com) | Known limitation: containers sized in `vw` units or from `window.innerWidth` keep full width and a page's own `position: fixed` elements never move. The sidebar stays on top and usable, the page reads as partly covered, and closing restores it exactly. Rewriting page stylesheets was rejected as unsafe. |
+| EC-14 | Extension reloaded while a page stays open | The orphaned content script's messages return `undefined` and surface as the relevant "try again" banner; a page refresh re-injects. |
+| EC-15 | Note text that looks like `feedback.md` structure (headings, fences, a quoted exported item) | The reader takes each item's block by its id, preferring the block whose note renders to exactly the lines above it, so a quoted item is skipped whole. |
+| EC-16 | `feedback.md` re-saved by an editor (CRLF, BOM, trailing whitespace on structural lines) | Still reads. |
+| EC-17 | Right-to-left documents | The crop assumes the vertical scrollbar is on the right; an RTL page with a scrollbar can be offset by its width (accepted). |
 
 ---
 
-## 7. Out of Scope (v1)
+## 7. Out of scope
 
-- Drawing on a screenshot **after** it is saved (the enlarged view shows drawings view-only), shapes/arrows/text, and any drawing tool beyond the §1.2 pencil
-- Repositioning or re-cropping an existing feedback item's screenshot after capture (delete + recapture instead) — cropping is a planned future improvement
-- Persistent visual markers/highlights on the live page for saved feedback — explicitly dropped in this rewrite (see §1.5); may revisit
-- Auto-scroll + stitch capture for selections that exceed the viewport
-- Merging feedback on import (import always replaces existing domain data, never merges by ID)
-- Cloud sync / backend / real-time collaboration
-- Multi-tab live sync of sidebar state — **Decision:** Out of scope for v1; defer to v2. **Rationale:** v1's multi-tab sync was meaningful because pins lived as interactive markers on the page. This design has no live pins—only sidebar thumbnails per-URL. Each tab's sidebar independently shows only that tab's current URL's feedback, so cross-tab sync adds complexity without clear benefit. Users can click the extension icon on each tab if needed. *(decided by: backend-developer subagent)*
-- Mobile / non-Chrome browsers
+- Editing a drawing, or drawing, after a note is saved; shapes, arrows or text tools.
+- Re-cropping or repositioning a saved screenshot (delete and recapture).
+- Persistent markers on the live page.
+- Auto-scroll + stitch capture beyond the viewport.
+- Merging on import.
+- Reading bundles from any other format version.
+- Cloud sync, backend, real-time collaboration, cross-tab live sync of the sidebar.
+- A light theme (the token table is kept in `src/theme.ts`, unused — design spec §AA).
+- Mobile and non-Chrome browsers.

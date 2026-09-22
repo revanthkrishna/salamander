@@ -17,6 +17,22 @@ band, "Low" motion density, 0% overshoot. All values below are at 1x; the protot
 "slow (4x)" debug tweak (`this.ms(v)`) that scales every duration uniformly — do not build that
 into shipped code, it's a design-review aid only.
 
+**Status against the build (2026-09-22).** The choreography, curves and durations below are what
+`src/enlargedView.ts` (`T`), `src/flip.ts` and `src/dockMotion.ts` implement. Later sections of
+`SALAMANDER_SPEC.md` removed some of the *elements* this document names; where a step below
+mentions one, it is now a no-op:
+- the theme toggle (§AA — dark only), the "n / total" counter (v4 §M) and the peek captions
+  (v5 §R) no longer exist, so they neither fade nor travel;
+- the editor's extension bar, the "✓ saved" hint (§10) and the delete button in that bar are
+  gone (v5 §R): delete is an icon button in the title bar, and a save failure or the empty-note
+  error is plain left-aligned text under the textarea, not a slot in a bar. §10's debounce (700ms)
+  and immediate-flush rules still apply exactly; only the confirmation was removed;
+- geometry (§4) is the 1440px prototype's. The build derives it live (`computeEnlargedGeometry`):
+  the block is centred in the sheet, the rail (36px buttons) is 20px off the *viewport's* right
+  edge, and each peek is its own note at 0.75 of its own natural size on the §R arc, not 75% of
+  the main slot;
+- the shake in §11 runs once, on the first blocked attempt only.
+
 ## 1. Curves
 
 | name | value | MD3 name | used for |
