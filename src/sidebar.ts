@@ -4,8 +4,9 @@
 // A full-height panel docked to the right edge that *resizes* the page instead
 // of overlaying it (see the PAGE RESIZE section below, unchanged by the
 // Salamander restyle). Structure per design spec §3.1:
-//   - header row: logo + wordmark, theme toggle, close
-//   - action row: primary "add note", secondary export/import icon buttons
+//   - header row: logo + wordmark, close
+//   - action row: the "add note" group (button + "keep on" switch) and the
+//     export group (button + chevron menu holding "import")
 //   - notification banner (error/warning, auto-clears)
 //   - "this page (n)" heading + note list, or the empty state
 //
@@ -14,8 +15,8 @@
 // empty-state/heading and delegates to renderThumbnailList()). It stays
 // chrome.runtime-agnostic throughout — content.ts fetches items/wires
 // callbacks and calls openEnlargedView() when onOpenItem fires — with the one
-// necessary exception of chrome.runtime.getURL() for the theme-dependent logo
-// asset, which is guarded the same way theme.ts guards every chrome.* access.
+// necessary exception of chrome.runtime.getURL() for the logo asset, which
+// is guarded the same way theme.ts guards every chrome.* access.
 //
 // The enlarged view (design spec v2 §D, src/enlargedView.ts) renders inside
 // this same shadow root: it is the sidebar itself growing to ~75% of the
@@ -23,13 +24,14 @@
 // and list hooks) and owns its lifetime — see openEnlargedView() below.
 //
 // Design tokens come from src/theme.ts's --sal-* custom properties
-// (getThemeCSS()) rather than any hardcoded palette; registerThemedHost keeps
-// this host's data-theme attribute (and therefore every var(--sal-*) below)
-// in sync with the user's theme mode for the sidebar's whole lifetime.
+// (getThemeCSS()) rather than any hardcoded palette. The extension is dark
+// only (design spec §AA): the token block is emitted once on :host and never
+// changes for the sidebar's lifetime.
 
 import { FeedbackItem } from './types';
 import { renderThumbnailList, THUMBNAIL_IMAGE_HEIGHT_PX } from './thumbnails';
 import { attachDockMotion, DockMotionHandle } from './dockMotion';
+import { getContentViewportSize, reducedMotionQuery } from './dom';
 import {
   ICON_CHEVRON_DOWN,
   ICON_CHEVRON_UP,
@@ -496,7 +498,7 @@ const SIDEBAR_CSS = `
     z-index: ${RESIZER_Z_INDEX};
   }
 
-  /* ─── Header: logo + wordmark, theme toggle, close (§3.1) ────────────── */
+  /* ─── Header: logo + wordmark, close (§3.1) ─────────────────────────── */
 
   /* No border of its own (design spec v4 §J): the header and the action row
      are one fixed block above the scrolling list, and the single rule under
@@ -538,7 +540,7 @@ const SIDEBAR_CSS = `
   }
   .sidebar.is-narrow .wordmark { display: none; }
 
-  /* Ghost buttons: theme toggle + close (design spec §2's "ghost" row). */
+  /* Ghost button: close (design spec §2's "ghost" row). */
   .btn-ghost {
     width: 32px;
     height: 32px;
@@ -1094,7 +1096,7 @@ const SIDEBAR_CSS = `
      also taken out of the tab order in JS — pointer-events: none alone
      would still leave them keyboard-reachable. The header controls and the
      "add note" group are deliberately untouched: the user must always be
-     able to stop, change theme or close. */
+     able to stop or close. */
   .body.is-on-hold { opacity: 0.5; }
   .body.is-on-hold .thumbnail-list,
   .body.is-on-hold .thumbnail,
@@ -1508,11 +1510,6 @@ let elCountdownBar: HTMLDivElement | null = null;
 let callbacksRef: SidebarCallbacks | null = null;
 let visible = false;
 let notifTimer: ReturnType<typeof setTimeout> | null = null;
-/** Unsubscribes this host from theme.ts's mode/resolved-theme change feed
- *  (the theme toggle's icon/label and the logo swap both depend on it). Set
- *  in initSidebar, called from destroySidebar. */
-/** Drops this host from theme.ts's themed-host set; set in initSidebar,
- *  called from destroySidebar so a torn-down host is not kept alive there. */
 
 // ---------------------------------------------------------------------------
 // DOM construction
@@ -1550,7 +1547,7 @@ function buildDOM(shadow: ShadowRoot): void {
   resizerLine.className = 'resizer-line';
   resizerLine.setAttribute('aria-hidden', 'true');
 
-  // ── Header: logo + wordmark, theme toggle, close (design spec §3.1) ──────
+  // ── Header: logo + wordmark, close (design spec §3.1) ───────────────────
   const header = document.createElement('div');
   header.className = 'header';
 
@@ -1711,26 +1708,19 @@ function buildDOM(shadow: ShadowRoot): void {
   elSidebar.addEventListener('wheel', onSidebarChromeWheel, { passive: false });
 }
 
-/** Ghost button (theme toggle / close) — transparent at rest, per design
- *  spec §2's "ghost" row. `extraClass` lets the close button size its icon
- *  up to 18px without a whole second button variant. */
+/** Ghost button (the header's close) — transparent at rest, per design spec
+ *  §2's "ghost" row. `extraClass` lets the close button size its icon up to
+ *  18px without a whole second button variant. */
 function makeGhostButton(svgMarkup: string, ariaLabel: string, extraClass = ''): HTMLButtonElement {
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = extraClass ? `btn-ghost ${extraClass}` : 'btn-ghost';
-  btn.setAttribute('aria-label', ariaLabel);
-  btn.title = ariaLabel;
-  const span = document.createElement('span');
-  span.className = 'icon';
-  span.innerHTML = svgMarkup;
-  btn.appendChild(span);
-  return btn;
+  return makeIconButton(svgMarkup, ariaLabel, extraClass ? `btn-ghost ${extraClass}` : 'btn-ghost');
 }
 
-/** A transparent, borderless icon half of an action-row group (design spec
- *  v3 §A2/§C2): "add note", export and the chevron are all this shape — the
- *  surrounding `.add-group`/`.export-group` owns the fill, the border and the
- *  focus ring, and `className` picks the half's own size/radius rules. */
+/** An icon-only <button>: an `.icon` span holding the raw SVG markup, with
+ *  the label as both aria-label and tooltip. The action-row halves (design
+ *  spec v3 §A2/§C2: "add note", export and the chevron — transparent and
+ *  borderless, the surrounding `.add-group`/`.export-group` owns the fill,
+ *  the border and the focus ring) and the ghost button above are all this
+ *  shape; `className` picks the button's own size/radius rules. */
 function makeIconButton(svgMarkup: string, ariaLabel: string, className: string): HTMLButtonElement {
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -1768,13 +1758,10 @@ function makeMenuItem(svgMarkup: string, label: string): HTMLButtonElement {
  *  padlock existed; the glyph went in v3 and the name followed. */
 export type AddButtonState = 'off' | 'on' | 'kept-on';
 
-/** aria-label + title per state (§A2). The label is state-dependent here
- *  rather than fixed because the button is icon-only — with no visible text,
- *  the accessible name is the only place "on"/"kept on" can be read out. */
-/** The button's accessible name. Deliberately does NOT change with the
- *  state: this is a toggle, and aria-pressed is what announces on/off. A
- *  name that changed as well would have the state said twice, and in two
- *  different vocabularies. */
+/** The button's accessible name (§A2, refined by §Y). Deliberately does
+ *  NOT change with the state: this is a toggle, and aria-pressed is what
+ *  announces on/off. A name that changed as well would have the state said
+ *  twice, and in two different vocabularies. */
 const ADD_BUTTON_NAME = 'add note';
 
 /** The visible tooltip, which DOES change — it says what the click will do
@@ -1856,24 +1843,38 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
 
   sidebarHost = document.createElement('div');
   sidebarHost.id = 'annotator-sidebar-host';
-  // Zero-size positioning host, same trick as toolbar.ts: the actual panel
-  // inside the shadow root does its own `position: fixed`. Attached to
-  // <html> rather than <body> so an SPA replacing document.body (or a
-  // framework re-rendering into it) cannot take the sidebar with it.
+  // Zero-size positioning host (the add-mode host is built the same way):
+  // the actual panel inside the shadow root does its own `position: fixed`.
+  // Attached to <html> rather than <body> so an SPA replacing document.body
+  // (or a framework re-rendering into it) cannot take the sidebar with it.
   sidebarHost.style.cssText =
     'position: fixed; top: 0; right: 0; width: 0; height: 0; z-index: 2147483645; pointer-events: none;';
 
   sidebarShadow = sidebarHost.attachShadow({ mode: 'closed' });
   document.documentElement.appendChild(sidebarHost);
-  // Keeps `data-theme` on the shadow host in sync with the resolved
-  // light/dark theme for the sidebar's whole lifetime. In production the
-  // host is never torn down (close only hides it), so the unregister is only
-  // ever reached by destroySidebar().
 
   buildDOM(sidebarShadow);
 
   elSidebar!.style.pointerEvents = 'auto';
 
+  wireAddGroup();
+  wireExportGroup();
+  wireChrome(sidebarShadow);
+
+  if (elLogoImg) elLogoImg.src = extensionUrl(LOGO_PATH);
+
+  // "add note" starts off (design spec v3 §A2) — content.ts moves it to
+  // on/kept-on as the real add-mode state changes. The switch does not
+  // persist: it resets to off per page session, like the old lock.
+  setAddButtonState('off');
+
+  applyWidthToPanel();
+  loadPersistedWidth();
+}
+
+/** The "add note" group's listeners (design spec v3 §A2): the button's
+ *  click / shift-click / shift-Enter / dblclick, and the switch's click. */
+function wireAddGroup(): void {
   elBtnAdd!.addEventListener('click', (e) => {
     e.stopPropagation();
     // Shift+click: the single-gesture (and keyboard, below) twin of the
@@ -1917,13 +1918,16 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
     }
     callbacksRef?.onAddSwitchChange?.(true);
   });
+}
 
+/** The export group's listeners (design spec v3 §C2): export, the chevron
+ *  and its menu, the menu's "import" item and the hidden file input. */
+function wireExportGroup(): void {
   elBtnExport!.addEventListener('click', (e) => {
     e.stopPropagation();
     callbacksRef?.onExport();
   });
 
-  // ── chevron menu (§C2) ────────────────────────────────────────────────
   elBtnMenu!.addEventListener('click', (e) => {
     e.stopPropagation();
     if (menuOpen) {
@@ -1965,7 +1969,11 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
     if (file) callbacksRef?.onImportFile(file);
     elFileInput!.value = '';
   });
+}
 
+/** The panel chrome's listeners: close, the resize handle, and the two
+ *  outside-pointerdown listeners that close the chevron menu. */
+function wireChrome(shadow: ShadowRoot): void {
   elBtnClose!.addEventListener('click', (e) => {
     e.stopPropagation();
     closeSidebar();
@@ -1981,21 +1989,8 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
   // truncated for listeners outside the tree. So the shadow root itself sees
   // everything inside the sidebar, and the document listener handles the
   // host page (where every one of our events looks like `sidebarHost`).
-  sidebarShadow.addEventListener('pointerdown', onShadowPointerDown, true);
+  shadow.addEventListener('pointerdown', onShadowPointerDown, true);
   document.addEventListener('pointerdown', onDocumentPointerDown, true);
-
-  if (elLogoImg) {
-    elLogoImg.src = extensionUrl(LOGO_PATH);
-    enlargedView?.setLogoSrc(elLogoImg.src);
-  }
-
-  // "add note" starts off (design spec v3 §A2) — content.ts moves it to
-  // on/kept-on as the real add-mode state changes. The switch does not
-  // persist: it resets to off per page session, like the old lock.
-  setAddButtonState('off');
-
-  applyWidthToPanel();
-  loadPersistedWidth();
 }
 
 // ---------------------------------------------------------------------------
@@ -2110,13 +2105,13 @@ let resizeDragging = false;
  *  so the panel does not jump by up to the handle's own width on grab. */
 let resizeGrabOffset = 0;
 
-/** The viewport's right edge in client coordinates. `documentElement.clientWidth`
- *  excludes the document's vertical scrollbar, which is exactly where the
- *  `position: fixed; right: 0` panel starts — `innerWidth` would include it and
- *  make every dragged width ~15px too small. Falls back to innerWidth where
- *  clientWidth is unavailable (jsdom reports 0: no layout engine). */
+/** The viewport's right edge in client coordinates: the scrollbar-excluded
+ *  width (dom.ts's getContentViewportSize), which is exactly where the
+ *  `position: fixed; right: 0` panel starts — `innerWidth` would include the
+ *  document's vertical scrollbar and make every dragged width ~15px too
+ *  small. */
 function viewportRightEdge(): number {
-  return document.documentElement.clientWidth || window.innerWidth;
+  return getContentViewportSize().width;
 }
 
 function onResizerMouseDown(e: MouseEvent): void {
@@ -2271,16 +2266,6 @@ export function setAddModeHold(hold: boolean): void {
   setDockMagnificationSuspended(hold);
 }
 
-/** Take the list's items out of the tab order while on hold (and put them
- *  back after). `pointer-events: none` covers the mouse but leaves a button
- *  perfectly reachable with Tab, so this is the other half of §H's "list
- *  items not tabbable". Re-applied after every repaint — renderItems() calls
- *  it — since a fresh list starts with default tabindexes.
- *
- *  Covers each item's hover delete (design spec v4 §L) as well as the
- *  thumbnail itself: it is a second real button in the same <li>, so it
- *  needs the same treatment or add mode would leave a live "delete" one Tab
- *  away from a held list. */
 /**
  * Play a note row's removal, returning a promise that resolves when it has
  * finished — the caller then tells content.ts to actually delete, so the
@@ -2299,7 +2284,7 @@ function playItemRemoval(itemId: number): Promise<void> | null {
     ?.querySelector<HTMLElement>(`button.thumbnail[data-item-id="${itemId}"]`)
     ?.closest<HTMLElement>('.thumbnail-item');
   if (!li) return null;
-  if (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) return null;
+  if (reducedMotionQuery()?.matches) return null;
   const height = li.getBoundingClientRect().height;
   if (height <= 0) return null;
 
@@ -2340,6 +2325,16 @@ function onSidebarChromeWheel(e: WheelEvent): void {
   elBody.scrollBy({ top: e.deltaY * unit, left: 0 });
 }
 
+/** Take the list's items out of the tab order while on hold (and put them
+ *  back after). `pointer-events: none` covers the mouse but leaves a button
+ *  perfectly reachable with Tab, so this is the other half of §H's "list
+ *  items not tabbable". Re-applied after every repaint — renderItems() calls
+ *  it — since a fresh list starts with default tabindexes.
+ *
+ *  Covers each item's hover delete (design spec v4 §L) as well as the
+ *  thumbnail itself: it is a second real button in the same <li>, so it
+ *  needs the same treatment or add mode would leave a live "delete" one Tab
+ *  away from a held list. */
 function applyListHold(): void {
   if (!elThumbnailList) return;
   const held = elThumbnailList.querySelectorAll<HTMLButtonElement>('button.thumbnail, button.thumbnail-delete');
@@ -2460,7 +2455,7 @@ function syncDockMotion(): void {
       onBleedChange: (bleeding) => elBody?.classList.toggle('is-bleeding', bleeding),
       holdTargets: elResizer ? [elResizer] : [],
     });
-    if (dockSuspended || enlargedDockSuspended) dockMotion.setSuspended(true);
+    syncDockSuspension();
   } else if (!wanted && dockMotion) {
     dockMotion.destroy();
     dockMotion = null;
@@ -2480,6 +2475,12 @@ function syncDockMotion(): void {
  */
 export function setDockMagnificationSuspended(suspended: boolean): void {
   dockSuspended = suspended;
+  syncDockSuspension();
+}
+
+/** Push the two suspension flags to the live dock layer, if there is one:
+ *  either reason alone is enough to hold the list at rest. */
+function syncDockSuspension(): void {
   dockMotion?.setSuspended(dockSuspended || enlargedDockSuspended);
 }
 
@@ -2509,7 +2510,7 @@ function enlargedMount(): EnlargedViewMount | null {
     renderList: (items) => renderItems(items),
     setDockSuspended: (suspended) => {
       enlargedDockSuspended = suspended;
-      dockMotion?.setSuspended(dockSuspended || enlargedDockSuspended);
+      syncDockSuspension();
     },
     focusListItem: (id) => focusThumbnail(id),
     focusFallback: () => {
@@ -2626,8 +2627,8 @@ export function destroySidebar(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Notifications — carried over from toolbar.ts (showError / showWarning /
-// showConfirmDialog). All copy passed in must already be lowercase (§3.4);
+// Notifications (showError / showWarning / showConfirmDialog). All copy
+// passed in must already be lowercase (§3.4);
 // these render it verbatim so the §5 error-table strings stay byte-exact.
 // ---------------------------------------------------------------------------
 
