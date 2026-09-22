@@ -1,17 +1,21 @@
 // Export (src/export.ts) — the drawn image only (design spec §AB). An item
 // with a drawing exports its screenshot with the strokes painted in, at the
 // image's real pixel size; an item without one exports the stored PNG byte
-// for byte, never touching a canvas; feedback.md is the frozen v1 text
-// either way (bundleV1.test.ts pins the text itself).
+// for byte, never touching a canvas; feedback.md carries no drawing data,
+// only the alt text saying the image is marked up (design spec §AC —
+// bundleV2.test.ts pins the text itself). Also: the header's clock and
+// version come from the injected environment, and a whole export imports
+// back to the same items (the round trip §AC requires).
 //
 // jsdom has no OffscreenCanvas / createImageBitmap, and the service worker
 // has no DOM — so both are faked here, recording every call the painter
 // makes, and the zip is read back with fflate.
 
 import { unzipSync, strFromU8 } from 'fflate';
-import { exportDomain, compositeDrawing } from '../export';
+import { exportDomain, compositeDrawing, ExportEnvironment } from '../export';
 import { bytesToDataUrl } from '../dataUrl';
 import { buildFeedbackMarkdown } from '../bundle';
+import { parseImportBundle } from '../import';
 import type { DomainData, Drawing, FeedbackItem } from '../types';
 
 jest.mock('../imageStore', () => ({
@@ -147,13 +151,25 @@ function domainOf(items: FeedbackItem[]): DomainData {
   return { meta: { nextItemNumber: items.length + 1, version: 2 }, pages: { 'https://example.com/page': items } };
 }
 
-async function exportAndUnzip(items: FeedbackItem[]): Promise<Record<string, Uint8Array>> {
+const EXPORTED_AT = new Date('2026-09-22T02:40:00.000Z');
+const ENV: ExportEnvironment = { now: () => EXPORTED_AT, extensionVersion: () => '9.8.7' };
+
+async function exportZipBytes(items: FeedbackItem[]): Promise<Uint8Array> {
   getImage.mockImplementation(async (key: string) => (STORED[key] ? bytesToDataUrl(new Uint8Array(STORED[key]), 'image/png') : null));
-  const res = await exportDomain('example.com', async () => domainOf(items));
+  const res = await exportDomain('example.com', async () => domainOf(items), ENV);
   expect(res).toEqual({ ok: true });
   const url = downloads[0].url;
-  const b64 = url.slice(url.indexOf(',') + 1);
-  return unzipSync(new Uint8Array(Buffer.from(b64, 'base64')));
+  return new Uint8Array(Buffer.from(url.slice(url.indexOf(',') + 1), 'base64'));
+}
+
+async function exportAndUnzip(items: FeedbackItem[]): Promise<Record<string, Uint8Array>> {
+  return unzipSync(await exportZipBytes(items));
+}
+
+/** The header as the export should write it for EXPORTED_AT, in whatever
+ *  zone this machine's clock is in. */
+function headerFor(now: Date) {
+  return { extensionVersion: '9.8.7', website: 'example.com', exportedAt: now, utcOffsetMinutes: -now.getTimezoneOffset() };
 }
 
 describe('export: the drawn image only (design spec §AB)', () => {
@@ -177,12 +193,17 @@ describe('export: the drawn image only (design spec §AB)', () => {
     expect(canvases).toHaveLength(1);
   });
 
-  test('feedback.md is exactly what it would be without the drawing — no drawing data in the bundle', async () => {
+  test('feedback.md carries no drawing data — only the alt text says the image is marked up', async () => {
     const plain = makeItem(1);
     const files = await exportAndUnzip([{ ...plain, drawing: DRAWING }]);
     const md = strFromU8(files['feedback.md']);
-    expect(md).toBe(buildFeedbackMarkdown({ 'https://example.com/page': [plain] }));
-    expect(md).not.toMatch(/strokes|drawing|#E5484D/);
+    expect(md).toBe(
+      buildFeedbackMarkdown({ 'https://example.com/page': [plain] }, headerFor(EXPORTED_AT)).replace(
+        '![feedback 1](screenshots/1.png)',
+        '![feedback 1 — marked up by the reviewer](screenshots/1.png)',
+      ),
+    );
+    expect(md).not.toMatch(/strokes|"drawing"|#E5484D/);
     expect(Object.keys(files).sort()).toEqual(['feedback.md', 'screenshots/1.png']);
   });
 
@@ -224,5 +245,43 @@ describe('export: the drawn image only (design spec §AB)', () => {
   test('compositeDrawing returns a PNG data URL', async () => {
     const url = await compositeDrawing(bytesToDataUrl(new Uint8Array(STORED['key-1']), 'image/png'), DRAWING);
     expect(url).toBe(bytesToDataUrl(new Uint8Array(COMPOSITED), 'image/png'));
+  });
+});
+
+describe('export: the header and the round trip (design spec §AC)', () => {
+  test('the header takes the manifest version and the local time from the environment', async () => {
+    const files = await exportAndUnzip([makeItem(1)]);
+    const lines = strFromU8(files['feedback.md']).split('\n');
+    expect(lines[0]).toBe('<!-- salamander-feedback-format: 2 -->');
+    expect(lines[1]).toBe('salamander 9.8.7\\');
+    expect(lines[2]).toMatch(/^\*\*date exported:\*\* \d{4}-\d\d-\d\d \d\d:\d\d utc[+-]\d\d:\d\d\\$/);
+    expect(lines[3]).toBe('**website:** example.com');
+    expect(downloads[0].filename).toBe('feedback-example_com-2026-09-22.zip');
+  });
+
+  test('by default the version is the manifest\'s', async () => {
+    getImage.mockResolvedValue(bytesToDataUrl(new Uint8Array(STORED['key-1']), 'image/png'));
+    await exportDomain('example.com', async () => domainOf([makeItem(1)]));
+    const url = downloads[0].url;
+    const files = unzipSync(new Uint8Array(Buffer.from(url.slice(url.indexOf(',') + 1), 'base64')));
+    expect(strFromU8(files['feedback.md']).split('\n')[1]).toBe(`salamander ${chrome.runtime.getManifest().version}\\`);
+  });
+
+  test('export then import reproduces every stored field; the drawing comes back only in the pixels', async () => {
+    const items = [
+      makeItem(1, { note: 'first "note"\n\nwith two paragraphs', drawing: DRAWING }),
+      makeItem(2, { note: '' }),
+    ];
+    const zip = await exportZipBytes(items);
+    const file = { name: 'bundle.zip', arrayBuffer: async () => zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength) } as unknown as File;
+
+    const bundle = await parseImportBundle(file, 'example.com');
+
+    expect(bundle.items.map(({ screenshotDataUrl: _s, ...rest }) => rest)).toEqual(
+      items.map(({ screenshotKey: _k, thumbnailDataUrl: _t, drawing: _d, ...rest }) => rest),
+    );
+    // Item 1's screenshot is the composited one; item 2's is untouched.
+    expect(bundle.items[0].screenshotDataUrl).toBe(bytesToDataUrl(new Uint8Array(COMPOSITED), 'image/png'));
+    expect(bundle.items[1].screenshotDataUrl).toBe(bytesToDataUrl(new Uint8Array(STORED['key-2']), 'image/png'));
   });
 });

@@ -56,8 +56,10 @@ export interface ContainedElement {
   text?: string;
 }
 
-/** §1.4D — page-level metadata, self-contained so the exported yaml block reads
- *  standalone without cross-referencing the enclosing FeedbackItem. */
+/** §1.4D — page-level metadata. Every field but `title` repeats one on the
+ *  enclosing FeedbackItem (capture fills both from the same values), so the
+ *  bundle writes only `page_title` and import rebuilds the rest from the
+ *  item — see src/bundle/v2.ts. */
 export interface PageMeta {
   url: string;
   normalisedUrl: string;
@@ -187,14 +189,12 @@ export interface DomainIndex {
   pages: Record<string, number[]>;
 }
 
-// The bundle's snake_case yaml mirror types live with the grammar they
-// belong to, per format version: src/bundle/v1.ts.
+// The bundle's snake_case json record type lives with the grammar it
+// belongs to, per format version: src/bundle/v2.ts.
 
 // ---------------------------------------------------------------------------
 // Import errors (REQUIREMENTS §5 — 11 cases; only the 🔴 error rows need a
-// code here. The 🟡 version-mismatch warning (#6) is not an error: import
-// proceeds, so it is `ParsedImportBundle.versionWarning`, not a member of
-// this union. §5 #7 and #8 are export/capture errors handled inline where
+// code here. §5 #7 and #8 are export/capture errors handled inline where
 // they occur, not through the import ladder. §5 #9 is a page-injection
 // failure, not an import error. §5 #10 is a confirmation, not an error —
 // handled via the sidebar's confirm dialog.)
@@ -204,7 +204,8 @@ export type ImportErrorCode =
   | 'INVALID_FILE_TYPE'      // §5 #1 — not a .zip
   | 'CORRUPT_ARCHIVE'        // §5 #2 — zip can't be read
   | 'MISSING_MANIFEST'       // §5 #3 — no feedback.md in the zip
-  | 'MALFORMED_CONTEXT'      // §5 #4b — fenced yaml block missing/malformed
+  | 'UNSUPPORTED_FORMAT'     // §5 #6 — feedback.md is not in this build's format
+  | 'MALFORMED_CONTEXT'      // §5 #4b — an item's element data missing/malformed
   | 'MISSING_SCREENSHOT'     // §5 #4 — referenced screenshot not in the zip
   | 'DOMAIN_MISMATCH'        // §5 #5
   | 'DUPLICATE_IDS';         // §5 #11

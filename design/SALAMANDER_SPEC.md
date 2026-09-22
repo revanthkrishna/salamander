@@ -784,3 +784,86 @@ The screenshot itself is saved **untouched**; the drawing is its own layer on th
   drawing data goes in the bundle, and the bundle format does not change — an item without a drawing
   exports byte-for-byte as it does today (the frozen v1 fixture must still pass). Re-importing such a
   bundle brings the drawing back **flattened into the image**; that is accepted.
+
+---
+
+# AC. The export's feedback.md (2026-09-21)
+
+REPLACES the v1 bundle format entirely. The extension is unpublished, so there is **no backward
+compatibility**: the v1 codec, its frozen fixture and the YAML dependency (`js-yaml`, used only to
+read v1) are removed. A bundle in any other format is rejected on import with a clear error.
+
+One file. `feedback.md` is both the human/agent-readable export and the thing import reads back —
+there is no separate data file. Screenshots stay in the zip at `screenshots/{id}.png`, with any
+drawing painted on (§AB).
+
+**Every fixed label and piece of fixed text is lowercase.** User content (notes, URLs, page text) is
+written exactly as captured.
+
+## The file
+
+````markdown
+<!-- salamander-feedback-format: 2 -->
+salamander 1.1.0\
+**date exported:** 2026-09-21 21:40 utc-05:00\
+**website:** example.com
+
+## page "https://example.com/pricing"
+
+### feedback 1
+
+![feedback 1 — marked up by the reviewer](screenshots/1.png)
+
+**note:** the "start trial" cta is misaligned on mobile
+
+<details>
+<summary>element data</summary>
+
+```json
+{
+  "text": "start trial",
+  "selector": "section.plans > div:nth-of-type(2) > a.btn",
+  ...
+}
+```
+
+</details>
+````
+
+## Rules
+
+- **Line 1** is the HTML comment `<!-- salamander-feedback-format: 2 -->` — invisible when rendered;
+  it is how import recognises the format. The extension version is a separate thing.
+- **Header**, three lines joined by trailing `\` so they render as separate lines, not one run-on
+  paragraph: `salamander {manifest version}`, `**date exported:** {local time} utc{±hh:mm}` as
+  `YYYY-MM-DD HH:MM utc-05:00`, and `**website:** {domain}`. Nothing else at the top — no title, no
+  summary, no index.
+- **Pages**: `## page "{normalised url}"` — the address notes are grouped by. Notes on one page can
+  have different full URLs (query strings, fragments); each note's exact URL is in its JSON.
+  Pages in the order they were first captured; notes in capture order within a page.
+- **Each note**: `### feedback {id}`, a blank line, the screenshot, a blank line,
+  `**note:** {text}`, a blank line, the details block.
+  - Screenshot alt text: `feedback {id}`, or `feedback {id} — marked up by the reviewer` when the
+    note has a drawing. Invisible to someone looking at the image; for an agent reading the text
+    it is the only way to know the marks aren't part of the page.
+  - The note is written as-is, no surrounding quotes. A multi-paragraph note keeps its paragraphs.
+    An empty note is `**note:** (none)`.
+  - `<details>` with `<summary>element data</summary>`, a blank line (GitHub needs it to render the
+    fenced block inside), a ```json fence, a blank line, `</details>`.
+- **The JSON is the complete record** and is what import reads — the visible note line is for
+  people and is ignored on import. Pretty-printed, 2-space indent. Fields an agent needs to find
+  the element come first:
+  1. `text` — the primary target's visible text
+  2. `selector` — its CSS selector
+  3. `xpath`
+  4. `html` — the outer-HTML snippet (and `html_truncated` when it was cut)
+  5. `page_url` — this note's exact URL
+  6. `note` — the full note text
+  7. then `id`, `normalised_url`, `page_title`, `created_at`, `selection_rect`, `viewport`, `dpr`,
+     `contained_elements` (with its truncated flag when set), `area_text`
+  No field appears twice: the v1 `page_meta` block, which repeated url, normalised url, viewport,
+  dpr, selection rect and capture time, is gone — only `page_title` survives from it. Keep
+  snake_case names.
+- Import rebuilds each item from its JSON plus `screenshots/{id}.png`, exactly: a round trip
+  (export, wipe, import) must reproduce every stored field except the drawing, which comes back
+  flattened into the image as §AB already accepts.

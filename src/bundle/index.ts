@@ -1,21 +1,22 @@
 // src/bundle/index.ts
 // feedback.md, versioned. This module is the only thing the rest of the
-// extension imports for the bundle format: the writer for the CURRENT
-// version, and a reader that dispatches on the line-1 schema stamp
-// (src/bundle/version.ts) to the codec that understands the file, then
-// upgrades whatever it read to the in-memory FeedbackItem shape.
+// extension imports for the bundle format: the writer for the current
+// format, and a reader that dispatches on the line-1 format stamp
+// (src/bundle/version.ts) to the codec that understands the file.
 //
-// Each format version is frozen in its own file (`v1.ts` today) with a
-// committed fixture of real text under src/__tests__/fixtures/. A revision of
-// the format is a new `vN.ts`, a bump of SCHEMA_VERSION, a new `case` below
-// and a new fixture — never an edit to an older codec, which is what keeps
-// every bundle already exported importable.
+// There is one format today, version 2 (`v2.ts`, design spec §AC), with a
+// committed fixture of real text under src/__tests__/fixtures/. The
+// extension is unpublished, so nothing older is read: a file with any other
+// stamp — including the retired v1 format — is refused. A future revision is
+// a new `vN.ts`, a bump of FORMAT_VERSION, a new `case` below and a new
+// fixture.
 
 import { FeedbackItem } from '../types';
-import { SCHEMA_VERSION, parseSchemaVersion } from './version';
-import * as v1 from './v1';
+import { FORMAT_VERSION, parseFormatVersion } from './version';
+import * as v2 from './v2';
 
-export { SCHEMA_VERSION, parseSchemaVersion } from './version';
+export { FORMAT_VERSION, parseFormatVersion } from './version';
+export type { ExportHeader } from './v2';
 
 /** An item as read back from a bundle: everything a FeedbackItem needs
  *  except the two storage handles the service worker mints at write time
@@ -23,52 +24,50 @@ export { SCHEMA_VERSION, parseSchemaVersion } from './version';
 export type DecodedBundleItem = Omit<FeedbackItem, 'screenshotKey' | 'thumbnailDataUrl'>;
 
 export interface DecodedBundle {
-  /** The schema version the file declared (1 when it declared none). */
+  /** The format version the file declared. */
   version: number;
-  /** True if `version` is newer than this build's (§5 #6). The file was
-   *  still read, with the newest codec this build has — best effort. */
-  versionWarning: boolean;
-  /** Every item in the file, in document order (sections then items). */
+  /** Every item in the file, in document order (pages then notes). */
   items: DecodedBundleItem[];
 }
 
-/**
- * Build the full `feedback.md` contents for a domain's worth of feedback in
- * the current schema version (§1.6 — export covers *all* URLs of the
- * domain). `pages` is exactly `DomainData.pages`: keyed by normalised URL,
- * values in capture order.
- */
-export function buildFeedbackMarkdown(pages: Record<string, FeedbackItem[]>): string {
-  return v1.buildFeedbackMarkdown(pages);
-}
-
-/**
- * Read a `feedback.md` of any known schema version back into items.
- *
- * Throws a plain `Error` (not `ImportError` — this module has no opinion on
- * user-facing copy) for a file whose grammar or yaml blocks do not parse, or
- * whose blocks are missing a required field; src/import.ts maps every such
- * throw to §5 #4b's "corrupted" message. Deciding whether the *values* are
- * acceptable (screenshots present, ids unique, domain matches) is the
- * importer's ladder, not this reader's.
- */
-export function decodeFeedbackMarkdown(markdown: string): DecodedBundle {
-  const version = parseSchemaVersion(markdown);
-  const versionWarning = version > SCHEMA_VERSION;
-  switch (version) {
-    case 1:
-      return { version, versionWarning, items: decodeV1(markdown) };
-    default:
-      // A version this build does not know is by definition newer (older
-      // ones are all listed above). Read it with the newest codec we have:
-      // §5 #6 says a newer bundle warns and proceeds.
-      return { version, versionWarning, items: decodeV1(markdown) };
+/** Thrown by `decodeFeedbackMarkdown` for a file this build does not read:
+ *  a different format version, or no salamander format stamp on line 1. */
+export class UnsupportedFormatError extends Error {
+  constructor(public readonly version: number | null) {
+    super(version === null ? 'no feedback format stamp on line 1' : `unsupported feedback format ${version}`);
   }
 }
 
-function decodeV1(markdown: string): DecodedBundleItem[] {
-  return v1
-    .parseFeedbackMarkdown(markdown)
-    .flatMap((section) => section.items)
-    .map((parsed) => v1.fromYamlFeedbackItem(parsed.note, parsed.yaml));
+/**
+ * Build the full `feedback.md` for a domain's worth of feedback in the
+ * current format (§1.6 — export covers *all* urls of the domain). `pages` is
+ * exactly `DomainData.pages`: keyed by normalised url, values in capture
+ * order. `header` carries the extension version, the domain and the export
+ * time — passed in so the output is deterministic.
+ */
+export function buildFeedbackMarkdown(
+  pages: Record<string, FeedbackItem[]>,
+  header: v2.ExportHeader,
+): string {
+  return v2.buildFeedbackMarkdown(pages, header);
+}
+
+/**
+ * Read a `feedback.md` back into items.
+ *
+ * Throws `UnsupportedFormatError` for a file in any format but the current
+ * one (src/import.ts maps it to §5 #6), and a plain `Error` for a current-
+ * format file whose structure or json does not parse or whose fields have the
+ * wrong type (mapped to §5 #4b). This module has no opinion on user-facing
+ * copy. Deciding whether the *values* are acceptable (screenshots present,
+ * ids unique, domain matches) is the importer's ladder, not this reader's.
+ */
+export function decodeFeedbackMarkdown(markdown: string): DecodedBundle {
+  const version = parseFormatVersion(markdown);
+  switch (version) {
+    case FORMAT_VERSION:
+      return { version, items: v2.decodeFeedbackMarkdown(markdown) };
+    default:
+      throw new UnsupportedFormatError(version);
+  }
 }

@@ -15,13 +15,25 @@
 import { zipSync, strToU8 } from 'fflate';
 import * as storage from './storage';
 import * as imageStore from './imageStore';
-import { buildFeedbackMarkdown } from './bundle';
+import { buildFeedbackMarkdown, ExportHeader } from './bundle';
 import { exportFilename } from './urlNorm';
 import { DomainData, Drawing } from './types';
 import { ExportResponse } from './messages';
 import { EXPORT_FAILED_MESSAGE } from './copy';
 import { dataUrlToBytes, bytesToDataUrl, dataUrlToBlob, blobToDataUrl } from './dataUrl';
 import { hasStrokes, paintDrawing } from './drawing';
+
+/** What the feedback.md header reads from the environment — injectable so a
+ *  test can pin the exported text exactly. */
+export interface ExportEnvironment {
+  now: () => Date;
+  extensionVersion: () => string;
+}
+
+const LIVE_ENVIRONMENT: ExportEnvironment = {
+  now: () => new Date(),
+  extensionVersion: () => chrome.runtime.getManifest().version,
+};
 
 /**
  * Export every feedback item across every URL of `domain` (§1.6). Returns
@@ -35,6 +47,7 @@ export async function exportDomain(
   // (background.ts's save queue): a first read of a legacy record migrates
   // it in place, which must not overlap a queued write.
   loadDomain: (domain: string) => Promise<DomainData | null> = storage.getDomainData,
+  env: ExportEnvironment = LIVE_ENVIRONMENT,
 ): Promise<ExportResponse> {
   const data = await loadDomain(domain);
   const allItems = data ? Object.values(data.pages).flat() : [];
@@ -43,8 +56,16 @@ export async function exportDomain(
   }
 
   try {
-    const zipDataUrl = await buildZipDataUrl(data);
-    await triggerDownload(zipDataUrl, exportFilename(domain));
+    const now = env.now();
+    const header: ExportHeader = {
+      extensionVersion: env.extensionVersion(),
+      website: domain,
+      exportedAt: now,
+      // Local time, as the header shows it (design spec §AC).
+      utcOffsetMinutes: -now.getTimezoneOffset(),
+    };
+    const zipDataUrl = await buildZipDataUrl(data, header);
+    await triggerDownload(zipDataUrl, exportFilename(domain, now));
     return { ok: true };
   } catch (err) {
     console.warn('[Annotator] export failed:', err);
@@ -52,8 +73,8 @@ export async function exportDomain(
   }
 }
 
-async function buildZipDataUrl(data: DomainData): Promise<string> {
-  const markdown = buildFeedbackMarkdown(data.pages);
+async function buildZipDataUrl(data: DomainData, header: ExportHeader): Promise<string> {
+  const markdown = buildFeedbackMarkdown(data.pages, header);
 
   const files: Record<string, Uint8Array> = {
     'feedback.md': strToU8(markdown),
@@ -64,12 +85,13 @@ async function buildZipDataUrl(data: DomainData): Promise<string> {
     const dataUrl = await imageStore.getImage(item.screenshotKey);
     // A missing blob (shouldn't happen — storage.ts's deleteItem/replaceDomainData
     // keep the two stores in lockstep — but data can drift) is skipped rather
-    // than failing the whole export; the item's yaml context and note still
+    // than failing the whole export; the item's note and element data still
     // export, just without its image.
     if (!dataUrl) continue;
     // Design spec §AB: the drawn image only — an item's drawing is painted
     // into its exported PNG, and the bundle carries no drawing data of its
-    // own. An item without one is exported exactly as stored, byte for byte:
+    // own (feedback.md says only that the image is marked up, in its alt
+    // text — §AC). An item without one is exported exactly as stored, byte for byte:
     // it never goes near a canvas.
     const png = hasStrokes(item.drawing) ? await compositeDrawing(dataUrl, item.drawing) : dataUrl;
     files[`screenshots/${item.id}.png`] = dataUrlToBytes(png);

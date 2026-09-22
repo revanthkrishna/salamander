@@ -246,7 +246,8 @@ Place a box first (click or drag) for each of these; the pencil only exists once
 - [ ] **2a.13. (export)** Export a domain with one drawn and one plain note. In the zip, the drawn
       note's PNG has the strokes burned in at full resolution (on a 2x display the lines are 4
       device px wide and line up with what you saw); the plain note's PNG is identical to what was
-      captured. `feedback.md` mentions no drawing. Re-import the zip: the drawn note comes back with
+      captured. `feedback.md` carries no drawing data; only the drawn note's image alt text reads
+      `feedback {id} — marked up by the reviewer` (the plain one's is just `feedback {id}`). Re-import the zip: the drawn note comes back with
       the strokes as part of the image (no separate layer), which is expected.
 - [ ] **2a.14. (reduced motion)** With "reduce motion" on in the OS, the pencil menu opens and
       closes instantly.
@@ -362,13 +363,19 @@ Place a box first (click or drag) for each of these; the pencil only exists once
       with underscores, e.g. `feedback-example_com-2026-09-18.zip`).
 - [ ] **4.3.** Unzip it. Confirm a `screenshots/` folder with one `.png` per item, and a single
       `feedback.md` at the top level (no other files).
-- [ ] **4.4.** Open `feedback.md` in a markdown viewer (VS Code preview, GitHub, Obsidian, etc.).
-      Confirm: one `##` heading per URL, items listed in the order you captured them, each item
-      shows its number, the screenshot rendered inline, the note text as plain prose, and a fenced
-      ` ```yaml ` block underneath with structured context (selector, xpath, contained elements,
-      area text, page metadata).
-- [ ] **4.5.** Spot-check the yaml block's `page_meta`: `viewport` should roughly match your
-      browser window size, `dpr` should match your screen (1.0 normal, 2.0 on Retina/high-DPI).
+- [ ] **4.4.** Open `feedback.md` in a markdown viewer (VS Code preview, GitHub, Obsidian, etc.)
+      and against design spec §AC. Confirm: no visible format comment at the top; the header is
+      three separate lines — `salamander {version}`, `date exported:` in your local time with its
+      utc offset (e.g. `2026-09-21 21:40 utc-05:00`), `website:` your domain — with nothing else
+      above the first page; one `page "{url}"` heading per URL, notes in the order you captured
+      them; each note shows `feedback {id}`, the screenshot rendered inline, `note:` with the text
+      as written (a multi-paragraph note keeps its paragraphs; an empty one reads `(none)`), and a
+      collapsed "element data" disclosure that opens to a ` ```json ` block. Every fixed label is
+      lowercase.
+- [ ] **4.5.** Spot-check a note's json: `text`, `selector`, `xpath`, `html` come first, then
+      `page_url` (the note's exact URL, with any query/fragment) and `note`; `viewport` should
+      roughly match your browser window size and `dpr` your screen (1 normal, 2 on Retina/high-DPI).
+      There is no `page_meta` block and no field appears twice.
 
 ## 5. Importing (§1.7) and all error cases (§5)
 
@@ -382,8 +389,9 @@ Place a box first (click or drag) for each of these; the pencil only exists once
 - [ ] **5.1. (Happy path)** On the same site the bundle was exported from, open the chevron menu
       and click **import**, then select the `.zip` from §4. Sidebar should populate with thumbnails matching what was
       exported (same images, same notes) once you're on a URL that has items.
-- [ ] **5.2. (Round trip)** Export again right after importing — the new export should be
-      equivalent to the original (same item count, same notes, same context data).
+- [ ] **5.2. (Round trip)** Export again right after importing — the new `feedback.md` should be
+      identical to the original apart from the `date exported:` line (drawn notes lose only the
+      alt-text suffix, since their drawing is now part of the image).
 - [ ] **5.3. (Existing-data confirmation)** With feedback already present for this domain, import
       a bundle — a confirm dialog should appear: "importing will replace your current N feedback
       item(s) for this site. this cannot be undone. continue?" Cancel it — nothing should change.
@@ -396,26 +404,30 @@ Place a box first (click or drag) for each of these; the pencil only exists once
       import → "this doesn't look like a feedback bundle."
 - [ ] **5.7. (Missing screenshot)** Take a valid export zip, delete one file from `screenshots/`,
       re-zip, import → "this file is missing screenshot data and can't be imported."
-- [ ] **5.8. (Malformed metadata fence)** Edit `feedback.md` to break one item's yaml fence (e.g.
-      delete a closing ` ``` `), re-zip, import → "this bundle appears to be corrupted (couldn't
-      read feedback data)."
+- [ ] **5.8. (Malformed element data)** Edit `feedback.md` to break one note's json (e.g. delete a
+      comma or the closing ` ``` `), re-zip, import → "this bundle appears to be corrupted (couldn't
+      read feedback data)." Editing only a visible `note:` line, by contrast, imports fine — that
+      line is ignored on import.
 - [ ] **5.9. (Domain mismatch)** Export from one site, try importing that bundle while on a
       different site → "this bundle contains feedback for '{other-domain}', but you're currently
       on '{current-domain}'."
-- [ ] **5.10. (Duplicate IDs)** Edit `feedback.md` so two items share the same id, re-zip, import →
+- [ ] **5.10. (Duplicate IDs)** Edit `feedback.md` so two notes share the same id (the `feedback
+      {id}` heading, the `screenshots/{id}.png` reference and the json `"id"` of one note all set
+      to another note's id), re-zip, import →
       "this bundle appears to be corrupted (duplicate item ids)."
-- [ ] **5.11. (Newer version)** If feasible, edit the bundle's version marker to something ahead of
-      the installed extension's version → import should show a warning ("this bundle was created
-      with a newer version...") but still proceed, not block.
+- [ ] **5.11. (Other format)** Edit line 1 of `feedback.md` to `<!-- salamander-feedback-format: 3 -->`,
+      re-zip, import → "this bundle was made by a different version of the extension and can't be
+      imported." Nothing changes. The same message for a bundle exported by an older build (the
+      v1 yaml format) and for a `feedback.md` with no format line at all.
 
 ## 6. Edge cases (§6)
 
 - [ ] **6.1. (iframe)** Select an area containing an embedded iframe (video embed, ad, etc.).
-      Screenshot should visually include the iframe's content correctly. Check the exported yaml —
+      Screenshot should visually include the iframe's content correctly. Check the exported json —
       context for that region should be limited to the iframe tag's own attributes, not its
       internal DOM.
 - [ ] **6.2. (Large selection)** Select a big region with 15+ distinct child elements. In the
-      exported yaml, `contained_elements` should cap at 15 with a truncation marker present —
+      exported json, `contained_elements` should cap at 15 with `contained_elements_truncated` present —
       elements with text/attributes should be prioritized over bare `div`s.
 - [ ] **6.3. (High-DPI / zoom)** On a Retina display or at 150% browser zoom, capture a region with
       recognizable text/UI. Open the note in the enlarged view and visually compare — no offset or misalignment between

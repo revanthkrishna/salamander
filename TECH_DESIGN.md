@@ -148,12 +148,12 @@ The annotator is a Chrome extension that captures visual feedback from webpages.
 | `src/addMode.ts` | 2043 | Selection box, resize hit zones, dimming scrim, comment box, cursor preview + hint, the pencil (drawing surface, swatches, erase-all menu, stroke undo), add mode lifecycle |
 | `src/capture.ts` | 285 | Capture pipeline: hide UI, capture, crop, restore, exit |
 | `src/contextCapture.ts` | 426 | DOM context extraction: DCA, contained elements, area text, size governance |
-| `src/import.ts` | 149 | Import validation ladder (§5's 13 cases) over the versioned bundle reader |
-| `src/export.ts` | 122 | Export coordinator: zip assembly (a drawing is painted into its PNG via `OffscreenCanvas`) + `chrome.downloads` |
+| `src/import.ts` | 142 | Import validation ladder (§5's 13 cases) over the versioned bundle reader |
+| `src/export.ts` | 144 | Export coordinator: zip assembly (a drawing is painted into its PNG via `OffscreenCanvas`), the `feedback.md` header's clock + manifest version (injectable), `chrome.downloads` |
 | `src/drawing.ts` | 261 | The pencil's palette, cropping strokes to the selection, the SVG and canvas renderers (design spec §AB) |
-| `src/bundle/index.ts` | 74 | `feedback.md`: current-version writer + the reader that dispatches on the schema stamp |
-| `src/bundle/v1.ts` | 380 | Frozen schema-v1 grammar, yaml mirror types, codecs and parser |
-| `src/bundle/version.ts` | 38 | The line-1 schema-version stamp and its reader |
+| `src/bundle/index.ts` | 73 | `feedback.md`: current-format writer + the reader that dispatches on the format stamp and refuses any other format |
+| `src/bundle/v2.ts` | 548 | Format 2 (design spec §AC): Markdown grammar, json record, writer, reader and field validation |
+| `src/bundle/version.ts` | 35 | The line-1 format stamp (`<!-- salamander-feedback-format: 2 -->`) and its reader |
 | `src/imageStore.ts` | 85 | IndexedDB wrapper: CRUD for PNG data-URLs |
 | `src/enlargedView.ts` | 2160 | Enlarged view: expanding sidebar note viewer/editor, carousel, scroll lock |
 | `src/autosave.ts` | 179 | Debounced per-item autosave controller (draft / in-flight / failed / sequence tracking) |
@@ -189,3 +189,5 @@ The annotator is a Chrome extension that captures visual feedback from webpages.
 **Why 2KB context cap?** Balances detail (selectors, contained elements, area text are meaningful) against file size and rendering speed in markdown viewers. 1KB outerHTML and 15 elements fit naturally within this budget.
 
 **Why replace-only import?** Simplifies implementation (no merge logic, no ID collision handling); users can export before importing if they want to preserve old feedback.
+
+**Why one Markdown file with json inside it?** `feedback.md` is both what a person or coding agent reads and what import reads back (design spec §AC) — no second, machine-only file. Each note's complete record is a pretty-printed ` ```json ` block inside a collapsed `<details>` ("element data"); the visible `**note:**` line is for people and ignored on import. JSON needs no dependency (the v1 format's `js-yaml` is gone from both bundles), and a pretty-printed json body can never contain a line that is exactly ` ``` `, so a note — free user text — cannot end the block early. The reader takes each item's block by its id (preferring the one whose note renders to exactly the lines above it, so a note that quotes an exported item is skipped whole). `context.pageMeta` is not written: every field but the page title repeats one on the item, so only `page_title` travels and import rebuilds the rest. The extension is unpublished, so only format 2 is read; any other stamp is refused (§5 #6). A future format is a new `src/bundle/vN.ts`, a `FORMAT_VERSION` bump, a `case` in `src/bundle/index.ts` and a new frozen fixture.

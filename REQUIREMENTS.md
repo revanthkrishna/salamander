@@ -108,19 +108,21 @@ Decision: no computed styles (e.g. `position`, `display`, `background-color`) in
 - [ ] User clicks **export** → downloads a `.zip` bundle containing **all** feedback items across **all URLs** of the current domain (not just the current page — mirrors v1's "export everything, filtered view only in the UI" model)
 - [ ] If there are zero feedback items for the domain: `alert("nothing to export")`, no download
 - [ ] Bundle contents — just two things, no separate machine-only file:
-  - `screenshots/{id}.png` — one file per feedback item. For an item with a drawing, the strokes are painted into this PNG at the image's real pixel size (the drawn image only — no separate drawing data, no format change); an item without one exports byte-for-byte as stored. Re-importing brings a drawing back flattened into the image.
+  - `screenshots/{id}.png` — one file per feedback item. For an item with a drawing, the strokes are painted into this PNG at the image's real pixel size (the drawn image only — no separate drawing data); an item without one exports byte-for-byte as stored. Re-importing brings a drawing back flattened into the image.
   - `feedback.md` — the single source of truth, human/agent-readable **and** what the extension re-parses on import
-- [ ] `feedback.md` structure:
-  - One `##` section per URL, in order of that URL's first-captured item
-  - Within a URL section, items in chronological (capture) order
-  - Each item shows: item number, inline image reference (`![](screenshots/{id}.png)`) so the screenshot renders alongside the note in any standard markdown viewer, and the note text as plain prose
-  - The captured context from §1.4 (selector, xpath, contained elements, area text, page metadata) is embedded per item as a fenced ` ```yaml ` block directly under the note. This keeps everything in one file while staying reliably re-importable: a human/agent reading the file sees clean structured data in a code block, and the extension's importer just extracts and parses that fence back into an object — no need to parse loose prose.
+- [ ] `feedback.md` structure — format version 2; the literal target file and every rule are in design spec §AC (`design/SALAMANDER_SPEC.md`). Every fixed label and piece of fixed text is lowercase; user content is written exactly as captured:
+  - Line 1 is the invisible format stamp `<!-- salamander-feedback-format: 2 -->` — how import recognises the format (separate from the extension version)
+  - A three-line header joined by trailing `\`: `salamander {manifest version}`, `**date exported:** YYYY-MM-DD HH:MM utc±hh:mm` (local time), `**website:** {domain}` — nothing else at the top
+  - One `## page "{normalised url}"` section per URL, in order of that URL's first-captured item; within it, notes in capture order
+  - Each note: `### feedback {id}`, the inline screenshot (`![feedback {id}](screenshots/{id}.png)`, alt text `feedback {id} — marked up by the reviewer` when it has a drawing), `**note:** {text}` (as written; `(none)` when empty), then a `<details>` block ("element data") holding a pretty-printed ` ```json ` record
+  - The json is the complete item and the only thing import reads (the visible note line is ignored): `text`, `selector`, `xpath`, `html` (+ `html_truncated`), `page_url`, `note`, then `id`, `normalised_url`, `page_title`, `created_at`, `selection_rect`, `viewport`, `dpr`, `contained_elements` (+ its truncated flag), `area_text`. No field appears twice. `text` is the primary target's visible text, derived from `html` at export
 - [ ] **Decision:** Default filename is `feedback-{domain}-{date}.zip`, where domain dots are replaced with underscores and {date} is YYYY-MM-DD. **Rationale:** Mirrors v1's naming convention for familiarity; ISO date format is unambiguous and sorts chronologically; domain normalization (dots→underscores) ensures valid filenames across OSes. Example: `feedback-example_com-2026-09-18.zip`. *(decided by: api-designer subagent)*
 
 ### 1.7 Importing
 - [ ] User clicks **import** → native file picker (accepts `.zip` only)
 - [ ] Import behavior is unified — no distinction between "resuming your own export" and "loading someone else's bundle"; both go through the same flow
-- [ ] Extension reads `feedback.md` from the zip, extracts each item's fenced `yaml` metadata block, and loads all feedback items + screenshots into storage
+- [ ] Extension reads `feedback.md` from the zip, rebuilds each item from its json element-data block plus `screenshots/{id}.png`, and loads all feedback items + screenshots into storage. A round trip (export, wipe, import) reproduces every stored field except a drawing, which comes back flattened into the image
+- [ ] Only the current format is read. The extension is unpublished, so there is no backward compatibility: a `feedback.md` in any other format (the retired v1 yaml format, a newer version, or no format stamp) is refused (§5 #6)
 - [ ] If domain in the bundle doesn't match the current site: reject with an error (mirrors v1's domain-mismatch handling)
 - [ ] If existing feedback already exists for this domain: confirmation dialog before replacing (mirrors v1's "uploading this file will replace..." pattern). **Decision:** Import **replaces** existing domain feedback entirely; no merge-by-ID in v1. **Rationale:** Replace-only is simpler to implement and reason about for a solo-project v1; merge logic adds complexity without a clear v1 use case. Merging is explicitly deferred to §7 / v2 as out-of-scope. Users can export before importing if they need to preserve old feedback. *(decided by: api-designer subagent)*
 - [ ] After successful import, sidebar opens (if not already) showing thumbnails for the current URL, if any are included in the bundle
@@ -216,9 +218,9 @@ Decision: no computed styles (e.g. `position`, `display`, `background-color`) in
 | 2 | Zip is corrupted / not a valid archive | 🔴 Error | "could not read this file — it appears to be corrupted." |
 | 3 | Zip is missing `feedback.md` | 🔴 Error | "this doesn't look like a feedback bundle." |
 | 4 | An item's metadata block references a screenshot file that isn't in the zip | 🔴 Error | "this file is missing screenshot data and can't be imported." |
-| 4b | `feedback.md` exists but an item's fenced metadata block is missing/malformed | 🔴 Error | "this bundle appears to be corrupted (couldn't read feedback data)." |
+| 4b | `feedback.md` is in the current format but an item's element-data (json) block is missing/malformed | 🔴 Error | "this bundle appears to be corrupted (couldn't read feedback data)." |
 | 5 | Domain mismatch on import | 🔴 Error | "this bundle contains feedback for '{other-domain}', but you're currently on '{current-domain}'." |
-| 6 | Bundle schema version newer than current extension | 🟡 Warning | "this bundle was created with a newer version of the extension. some feedback may not display correctly." Import proceeds. |
+| 6 | `feedback.md` is not in this build's format (older, newer, or no format stamp) | 🔴 Error | "this bundle was made by a different version of the extension and can't be imported." Checked before #4b. |
 | 7 | Export with zero feedback items on the domain | 🔴 Error | `alert("nothing to export")` |
 | 8 | Screenshot capture fails (rate limit, restricted page) | 🔴 Error | "couldn't capture a screenshot here. try again." Feedback item is not created. |
 | 9 | Add mode attempted on a page where content scripts can't run (`chrome://`, Web Store, PDF viewer) | 🔴 Error | Extension icon / add button indicates unavailability; explanatory message on attempt |

@@ -12,16 +12,16 @@ npx jest sidebar                  # just the sidebar tests
 npx jest capture                  # capture geometry and coordinate math
 npx jest contextCapture           # DOM context extraction
 npx jest import                   # all 13 import error cases
-npx jest bundle                   # markdown serialization round-trip
+npx jest bundle                   # feedback.md: frozen fixture, round trip, reader errors
 ```
 
-**Test coverage** (748 tests, 25 test files):
+**Test coverage** (786 tests, 25 test files):
 - `sidebar.test.ts` — sidebar open/close, page resize, URL tracking, resizable width (drag/keyboard, persistence, clamping), narrow-width breakpoints, the "add note" group + its "keep on" switch (paint, reveal, gestures, resting width, the single divider, the merged fill, the v4 §P track/knob colours), the export/chevron menu (open/close routes, keyboard, outside pointerdown, per-half hover/press), the one-bordered-block top section, the note's uniform padding and its hover delete, and the §H "on hold" state
 - `addMode.test.ts` — selection box creation, edge/corner resize hit zones, clamping to viewport, comment box positioning, counter thresholds, save/cancel state
 - `addModeDrawing.test.ts` — the pencil (design spec §AB): no surface while placing, the surface exactly over the rect with the zones above it (resize still resizes, cursors kept), stroke capture incl. coalesced samples and dots, focus moving off the textarea, strokes pinned to the page through a resize (only the clip moves), the cropped `drawing` handed to `onOk` (and no key when nothing lands inside), Cmd/Ctrl+Z undo vs the textarea's own undo and the page never seeing the key, the pencil menu (erase all, disabled when empty, Esc/Tab/arrows, outside press, below/above placement), the swatch radio group (default yellow, arrows, silent `setPenColor`), and capture purity end to end (the drawing layer is hidden at the moment `CAPTURE` goes out; nothing can be drawn mid-capture)
 - `drawing.test.ts` — the palette, `cropDrawing` (edge cuts, exit/re-entry splitting, dots, rounding), the SVG builder's viewBox/`meet`, and the canvas painter's scaling (2x capture → 4px line)
 - `drawingViews.test.ts` — a saved drawing over the list thumbnail (fitted like the image, never taking the click, inside the magnified `<li>`) and over the enlarged view's main card and peeks (inside `.xp-card-media`, riding the FLIP morph's media track and the carousel with no track of its own)
-- `export.test.ts` — the drawn image only: a drawing is composited at the image's measured pixel scale, an item without one exports byte-for-byte with no canvas made, `feedback.md` is unchanged, a failed composite falls back to the clean PNG
+- `export.test.ts` — the drawn image only: a drawing is composited at the image's measured pixel scale, an item without one exports byte-for-byte with no canvas made, `feedback.md` carries no drawing data (only the "marked up by the reviewer" alt text), a failed composite falls back to the clean PNG; the header's manifest version and local time from the injectable environment; and the §AC round trip (export → import reproduces every stored field, the drawing only in the pixels)
 - `capture.test.ts` — viewport-relative CSS coordinates, CSS → device-pixel scale calculation, DPR accounting, crop verification
 - `contextCapture.test.ts` — deepest-common-ancestor selection, contained-elements prioritization (15-element cap), area-text aggregation, 2KB size governor, truncation markers
 - `selectorBuilder.test.ts` — CSS selector generation (data-* preference, ID rules, nth-of-type fallback, UUID/React hash rejection), XPath generation
@@ -29,9 +29,9 @@ npx jest bundle                   # markdown serialization round-trip
 - `thumbnails.test.ts` — thumbnail list rendering from FeedbackItem array, including each item's hover delete (a sibling of the item's button, never nested inside it) and its wiring
 - `enlargedView.test.ts` — enlarged view open/collapse (incl. interrupted transitions), prev/next and the ends, autosave debounce + flush on navigate/collapse, save failures, the empty-note rule on every exit path, delete (middle/last/only), keyboard (Esc/↑/↓/focus in and out), add mode collapsing it first, reduced-motion path, teardown
 - `content.test.ts` — add-note toggle / "keep add mode on" switch state machine end to end (switch on from off, switch off mid-session, capture re-entry and per-note cancel while it is on, the v2 dblclick/shift gestures, Esc, sidebar close, opening a note), plus the §H "sidebar on hold" wiring and the list delete's DELETE_ITEM round trip and failure copy
-- `import.test.ts` — all 13 error cases (not-a-zip, corrupt archive, missing `feedback.md`, malformed fence, missing screenshot, duplicate IDs, domain mismatch, version mismatch, existing-data confirmation) with purpose-built fixture bundles
-- `bundle.test.ts` — markdown → YAML fence extraction, YAML → object parsing, round-trip (export → parse → deep-equal), the version-dispatching reader
-- `bundleV1.test.ts` — the frozen schema-version-1 bundle: `fixtures/feedback-v1.md` (real committed text) must decode to hand-written items, and the v1 writer must reproduce it byte-for-byte — with or without a drawing on the items
+- `import.test.ts` — the §5 ladder (not-a-zip, corrupt archive, missing `feedback.md`, unsupported format — a retired v1 bundle, a newer format, no stamp, and that it is checked before #4b — malformed element data, missing screenshot, duplicate IDs, domain mismatch) with purpose-built fixture bundles, plus a zip round trip
+- `bundle.test.ts` — the format-2 writer against generated input (header, page/note order, the json's field order, `(none)`, trimming, `html_truncated`), `formatExportDate` and the derived `text` field, the round trip (every stored field but the drawing), notes that look like structure or quote a whole exported item, the format dispatch (v1/newer/unstamped refused) and every malformed-file error
+- `bundleV2.test.ts` — the frozen format-2 bundle (design spec §AC): `fixtures/feedback-v2.md` (real committed text) must decode to hand-written items, and the writer must reproduce it byte-for-byte; the visible note line is ignored on read, CRLF/BOM copies still read, and all fixed text is lowercase
 - `background.test.ts` — injection, message handlers, capture relay, throttle verification, re-inject on reload
 - `urlNorm.test.ts` — normalization rules (strip query/fragment, strip `www.`, strip trailing slash, case-sensitive paths, port handling) — kept from v1
 - `keyboardIsolation.test.ts` — capture-phase window-level keydown/keyup isolation so page shortcuts can't fire while typing into the comment box / enlarged-view note editor
@@ -91,8 +91,9 @@ In Chrome:
 14. Extract `.zip` and verify:
     - `screenshots/1.png`, `screenshots/2.png`, etc. exist (correct count)
     - `feedback.md` renders correctly in a markdown viewer with inline images
-    - One `##` section per URL, items chronological within section
-    - Each item has number, image reference, note, and fenced yaml context block
+    - Line 1 is `<!-- salamander-feedback-format: 2 -->` (invisible when rendered); then `salamander {version}`, `**date exported:** …` in your local time with its utc offset, and `**website:** {domain}` on three separate lines
+    - One `## page "{url}"` section per URL, notes chronological within it
+    - Each note: `### feedback {id}`, the screenshot, `**note:** …` (`(none)` when empty), and a collapsed "element data" block with a ` ```json ` record — all fixed text lowercase
 
 ### Flow 1a: Drawing on the selection (design spec §AB)
 
@@ -100,7 +101,7 @@ In Chrome:
 2. Draw a few strokes, pick red and draw another. Resize the box smaller and larger: strokes stay where they were on the page, only the visible part changes.
 3. Cmd/Ctrl+Z (focus on the drawing) removes the last stroke. Click the textarea, type, Cmd/Ctrl+Z → undoes the typing, strokes untouched.
 4. Pencil button → **erase all** clears everything. Save a note with a drawing: the thumbnail shows the strokes over the image; open it — the drawing sits exactly on the image through the expand morph and the carousel.
-5. Export: `screenshots/{id}.png` has the strokes burned in at full resolution; `feedback.md` has no drawing data. Reload the page and start a new note: the swatch you picked last is still selected. Restart Chrome: back to yellow.
+5. Export: `screenshots/{id}.png` has the strokes burned in at full resolution; `feedback.md` has no drawing data — only that note's image alt text reads `feedback {id} — marked up by the reviewer`. Reload the page and start a new note: the swatch you picked last is still selected. Restart Chrome: back to yellow.
 
 Full checklist: `BROWSER_TEST_CASES.md` §2a.
 
@@ -142,7 +143,8 @@ Full checklist: `BROWSER_TEST_CASES.md` §2a.
 - Select a `.txt` file → "invalid file type. please upload a .zip feedback bundle."
 - Corrupt/truncated `.zip` → "could not read this file — it appears to be corrupted."
 - Valid `.zip` missing `feedback.md` → "this doesn't look like a feedback bundle."
-- Valid `.zip` where an item's metadata fence is malformed → "this bundle appears to be corrupted (couldn't read feedback data)."
+- Valid `.zip` whose `feedback.md` line 1 is another format stamp (or none — e.g. an old v1 export) → "this bundle was made by a different version of the extension and can't be imported."
+- Valid `.zip` where an item's json element data is malformed → "this bundle appears to be corrupted (couldn't read feedback data)."
 - Valid `.zip` from a different domain → "this bundle contains feedback for 'example.com', but you're currently on 'github.com'."
 
 ### Flow 3: SPA navigation persistence
@@ -193,9 +195,9 @@ Full checklist: `BROWSER_TEST_CASES.md` §2a.
 
 - Select a large region that contains >15 distinct elements with text/attributes
 - Capture and open the note in the enlarged view
-- Look at the yaml context block in the exported markdown:
+- Look at the note's json element data in the exported markdown:
   - `contained_elements` should have exactly 15 items
-  - `contained_elements_truncated: true` should be present
+  - `"contained_elements_truncated": true` should be present
   - Check that truncated elements were filtered by relevance (elements with text/attributes appear before bare divs)
 
 ### Form inputs (sensitivity warning, no masking)
@@ -259,24 +261,25 @@ Full checklist: `BROWSER_TEST_CASES.md` §2a.
 ### Inspecting DOM context capture
 
 1. Manually capture an item
-2. Extract the export `.zip` and examine the yaml block for one item:
-   ```yaml
-   primary_target:
-     css_selector: "..."
-     xpath: "..."
-     outer_html_snippet: "..."
-   contained_elements:
-     - tag: div
-       classes: { semantic: [...], generated: [...] }
-       attrs: { ... }
-       text: "..."
-   area_text: "..."
-   page_meta:
-     url: "..."
-     viewport: { width: 1280, height: 720 }
-     dpr: 2.0
-     selection_rect: { x: 100, y: 150, width: 400, height: 300 }
-     captured_at: "2026-09-18T12:34:56Z"
+2. Extract the export `.zip` and open one note's "element data" json in `feedback.md` (abridged):
+   ```json
+   {
+     "text": "...",
+     "selector": "...",
+     "xpath": "...",
+     "html": "...",
+     "page_url": "...",
+     "note": "...",
+     "id": 1,
+     "normalised_url": "...",
+     "page_title": "...",
+     "created_at": "2026-09-18T12:34:56.000Z",
+     "selection_rect": { "x": 100, "y": 150, "width": 400, "height": 300 },
+     "viewport": { "width": 1280, "height": 720 },
+     "dpr": 2,
+     "contained_elements": [{ "tag": "div", "classes": { "semantic": [], "generated": [] }, "text": "..." }],
+     "area_text": "..."
+   }
    ```
    - Verify DPR matches `window.devicePixelRatio` on the page
    - Verify viewport matches `window.innerWidth/innerHeight`
@@ -293,7 +296,7 @@ Device pixel ratio and scrollbar rendering vary by OS. Test high-DPI on Mac, ver
 - **Stale dist/**  — `npm run build` is required; Chrome doesn't auto-recompile TypeScript.
 - **Orphaned content scripts** — Always refresh the tab after reloading the extension. Otherwise, the injected content script on that tab is orphaned and can't reach the new background context.
 - **IndexedDB mocking** — `fake-indexeddb` is used in tests, but the real browser uses a different backend. Test image blobs manually in the browser (see "Where data lives" above).
-- **CSP blocks external URLs** — `script-src 'self'` and `connect-src 'none'` enforce local-only code. All dependencies (fflate, yaml) are bundled by esbuild.
+- **CSP blocks external URLs** — `script-src 'self'` and `connect-src 'none'` enforce local-only code. All dependencies (fflate) are bundled by esbuild.
 - **SPA detection requires history patching** — if a site bypasses `history.pushState` (e.g. using a custom navigation library), SPA nav detection may miss the transition. Manual refresh still works, though.
 - **Storage quota** — with `unlimitedStorage` permission, the quota is unlimited, but be aware that massive exports (100s of items) may hit practical I/O limits. Tested up to 50 items per domain in unit tests.
 

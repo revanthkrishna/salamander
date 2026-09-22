@@ -10,9 +10,9 @@
 // service worker reports, then sends `IMPORT_REPLACE`.
 //
 // Validation ladder (§5, in this exact order): not-a-zip (#1) -> corrupt archive (#2) -> missing
-// feedback.md (#3) -> malformed/missing fence or field (#4b) -> referenced
-// screenshot absent (#4) -> duplicate ids (#11) -> domain mismatch (#5) ->
-// newer schema version (#6, warning only — not thrown). §5 #10 (existing-data
+// feedback.md (#3) -> not this build's format (#6) -> malformed/missing
+// element data or field (#4b) -> referenced screenshot absent (#4) ->
+// duplicate ids (#11) -> domain mismatch (#5). §5 #10 (existing-data
 // confirmation) is not this module's job: it needs the *current* item count,
 // which only the service worker knows, so content.ts asks for that
 // separately once `parseImportBundle` resolves.
@@ -25,11 +25,11 @@
 //
 // Mirrors v1's importFile ladder discipline and its ImportError code/detail
 // plumbing (src/types.ts) — extended here with the two zip-specific steps
-// (#2, #4) a single-YAML-file v1 bundle never needed.
+// (#2, #4) a single-file v1 bundle never needed.
 
 import { unzipSync, strFromU8 } from 'fflate';
 import { ImportError } from './types';
-import { decodeFeedbackMarkdown, DecodedBundleItem } from './bundle';
+import { decodeFeedbackMarkdown, DecodedBundleItem, UnsupportedFormatError } from './bundle';
 import { normaliseDomain } from './urlNorm';
 import { ImportItemPayload } from './messages';
 import { bytesToDataUrl } from './dataUrl';
@@ -39,9 +39,6 @@ export interface ParsedImportBundle {
    *  no domain of their own and fall back to `currentDomain`). */
   domain: string;
   items: ImportItemPayload[];
-  /** True if the bundle declares a schema version newer than this build's
-   *  (§5 #6) — the caller shows the warning; import proceeds regardless. */
-  versionWarning: boolean;
 }
 
 const ZIP_EXTENSION_RE = /\.zip$/i;
@@ -49,8 +46,7 @@ const ZIP_EXTENSION_RE = /\.zip$/i;
 /**
  * Validate + parse a picked file into a bundle ready for `IMPORT_REPLACE`.
  * Throws `ImportError` for every 🔴 row in §5 relevant to import (#1, #2,
- * #3, #4, #4b, #5, #11). Never throws for #6 — that comes back as
- * `versionWarning` instead, since import proceeds regardless.
+ * #3, #6, #4b, #4, #11, #5).
  */
 export async function parseImportBundle(
   file: File,
@@ -83,18 +79,20 @@ export async function parseImportBundle(
     throw new ImportError('MISSING_MANIFEST');
   }
 
-  // §5 #4b — malformed/missing fence (grammar-level: bad image ref,
-  // unterminated or unparsable yaml fence) or a well-formed fence missing a
-  // field the shape requires. The versioned reader (src/bundle) throws a
-  // plain Error for all of these; this is the one place that maps to the
-  // user-facing code. It also reports the file's schema version for #6.
-  let decoded;
+  // §5 #6 — feedback.md is not in this build's format: another version's
+  // stamp on line 1 (older or newer — the extension is unpublished, so no
+  // older format is read), or no stamp at all.
+  // §5 #4b — the right format, but an item's structure is broken (no image
+  // or note line, no element-data block whose json parses) or its json has
+  // a field missing or of the wrong type. The versioned reader (src/bundle)
+  // throws for all of these; this is the one place that maps them to the
+  // user-facing codes.
+  let decodedItems: DecodedBundleItem[];
   try {
-    decoded = decodeFeedbackMarkdown(markdown);
-  } catch {
-    throw new ImportError('MALFORMED_CONTEXT');
+    decodedItems = decodeFeedbackMarkdown(markdown).items;
+  } catch (err) {
+    throw new ImportError(err instanceof UnsupportedFormatError ? 'UNSUPPORTED_FORMAT' : 'MALFORMED_CONTEXT');
   }
-  const decodedItems: DecodedBundleItem[] = decoded.items;
 
   // §5 #4 — an item's metadata references a screenshot not in the zip.
   for (const { id } of decodedItems) {
@@ -132,12 +130,7 @@ export async function parseImportBundle(
     screenshotDataUrl: bytesToDataUrl(entries[`screenshots/${item.id}.png`], 'image/png'),
   }));
 
-  // §5 #6 — newer schema version. Warning only; import proceeds.
-  return {
-    domain: bundleDomain,
-    items,
-    versionWarning: decoded.versionWarning,
-  };
+  return { domain: bundleDomain, items };
 }
 
 function domainOf(pageUrl: string): string {

@@ -11,7 +11,6 @@ import {
   FINISH_NOTE_FIRST_MESSAGE,
   IMAGE_LOAD_FAILED_MESSAGE,
   IMPORT_FAILED_MESSAGE,
-  IMPORT_VERSION_WARNING_MESSAGE,
   ITEM_LOAD_FAILED_MESSAGE,
   NOTHING_TO_EXPORT_MESSAGE,
   SAVE_ERROR_MESSAGE,
@@ -25,6 +24,7 @@ describe('§5 import copy (verbatim)', () => {
     ['INVALID_FILE_TYPE', 'invalid file type. please upload a .zip feedback bundle.'],
     ['CORRUPT_ARCHIVE', 'could not read this file — it appears to be corrupted.'],
     ['MISSING_MANIFEST', "this doesn't look like a feedback bundle."],
+    ['UNSUPPORTED_FORMAT', "this bundle was made by a different version of the extension and can't be imported."],
     ['MALFORMED_CONTEXT', "this bundle appears to be corrupted (couldn't read feedback data)."],
     ['MISSING_SCREENSHOT', "this file is missing screenshot data and can't be imported."],
     ['DUPLICATE_IDS', 'this bundle appears to be corrupted (duplicate item ids).'],
@@ -38,10 +38,7 @@ describe('§5 import copy (verbatim)', () => {
     );
   });
 
-  test('#6 version warning and #10 confirmation', () => {
-    expect(IMPORT_VERSION_WARNING_MESSAGE).toBe(
-      'this bundle was created with a newer version of the extension. some feedback may not display correctly.',
-    );
+  test('#10 confirmation', () => {
     expect(importReplaceConfirmMessage(3)).toBe(
       'importing will replace your current 3 feedback item(s) for this site. this cannot be undone. continue?',
     );

@@ -45,7 +45,6 @@ import {
   EXPORT_FAILED_MESSAGE,
   FINISH_NOTE_FIRST_MESSAGE,
   IMPORT_FAILED_MESSAGE,
-  IMPORT_VERSION_WARNING_MESSAGE,
   NOTHING_TO_EXPORT_MESSAGE,
   importErrorMessage,
   importReplaceConfirmMessage,
@@ -620,9 +619,9 @@ async function handleExport(): Promise<void> {
  * §1.7 — import a `.zip` bundle. src/import.ts owns the whole §5 validation
  * ladder (unzip, parse, screenshot/duplicate/domain checks); this side's job
  * is the UI orchestration around it: report a validation failure verbatim,
- * show the §5 #6 warning if the bundle is newer, ask how many existing items
- * a replace would discard (§5 #10) and confirm before doing it, then send
- * the validated bundle to the service worker to actually write. The import
+ * ask how many existing items a replace would discard (§5 #10) and confirm
+ * before doing it, then send the validated bundle to the service worker to
+ * actually write. The import
  * button is disabled for the duration so a second pick can't overlap the
  * first (mirrors handleExport's setExportButtonEnabled).
  */
@@ -639,10 +638,6 @@ async function handleImportFile(file: File): Promise<void> {
         err instanceof ImportError ? importErrorMessage(err.code, err.details) : IMPORT_FAILED_MESSAGE,
       );
       return;
-    }
-
-    if (bundle.versionWarning) {
-      sidebar.showWarning(IMPORT_VERSION_WARNING_MESSAGE);
     }
 
     const countMessage: GetDomainItemCountMessage = {

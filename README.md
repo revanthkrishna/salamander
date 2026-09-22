@@ -37,7 +37,7 @@
 - **sidebar resizes the page** — never blocks or overlaps content
 - **sidebar persists** — stays open across page reloads and SPA navigation until you close it
 - **sequential numbering** — feedback items are numbered globally per domain, so "item #7" is unambiguous across pages
-- **bundle format** — human-readable `feedback.md` with inline screenshot references, plus embedded YAML context for AI agents
+- **bundle format** — one `feedback.md` (design spec §AC) that people and AI agents read and import reads back: inline screenshots, each note, and its complete record as a collapsed json "element data" block
 - **import validation** — 13-case error handling; catches corrupted files, domain mismatches, missing data before writing anything
 
 ---
@@ -102,7 +102,7 @@ The extension is built across 21 TypeScript modules (~10,600 lines):
 
 **Context capture** (`src/contextCapture.ts`) — DOM walk at capture time: deepest-common-ancestor element, ≤15 descendant elements, flat area text, page metadata — all capped at 2KB.
 
-**Import/Export** (`src/import.ts`, `src/export.ts`, `src/bundle/`) — `.zip` bundles with `screenshots/{id}.png` and single `feedback.md` containing markdown prose + embedded YAML context blocks.
+**Import/Export** (`src/import.ts`, `src/export.ts`, `src/bundle/`) — `.zip` bundles with `screenshots/{id}.png` and a single `feedback.md` (format 2: a line-1 format stamp, a three-line header, `## page` sections, and per note a screenshot, the note and a json element-data block — the only part import reads).
 
 **Thumbnails & enlarged view** (`src/thumbnails.ts`, `src/dockMotion.ts`, `src/enlargedView.ts`, `src/flip.ts`) — the note list with dock-style hover, and the enlarged view where the sidebar expands to review, navigate, edit (autosave) and delete notes.
 
@@ -135,7 +135,7 @@ Full technical details in [TECH_DESIGN.md](./TECH_DESIGN.md).
 
 All errors are lowercase and user-facing:
 
-- **import errors** — 13 cases caught: wrong file type, corrupted archive, missing `feedback.md`, malformed metadata, missing screenshots, duplicate IDs, domain mismatch, newer schema version (warning), existing-data confirmation
+- **import errors** — 13 cases caught: wrong file type, corrupted archive, missing `feedback.md`, a different bundle format (older, newer or unstamped — refused), malformed element data, missing screenshots, duplicate IDs, domain mismatch, existing-data confirmation
 - **capture errors** — rate limit or restricted page (shows "couldn't capture a screenshot here. try again.")
 - **restricted pages** — `chrome://`, Web Store, PDF viewer, etc. → extension icon indicates unavailability
 

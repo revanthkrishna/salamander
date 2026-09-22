@@ -49,18 +49,13 @@ export const DOMAIN_COUNT_FAILED_MESSAGE = "couldn't check existing feedback. tr
  *  threw) rather than a validation failure §5 already has copy for. */
 export const IMPORT_FAILED_MESSAGE = "couldn't import this bundle. try again.";
 
-/** §5 #6 — a bundle newer than this build. A warning; import proceeds. */
-export const IMPORT_VERSION_WARNING_MESSAGE =
-  'this bundle was created with a newer version of the extension. some feedback may not display correctly.';
-
 /** §5 #10, verbatim. */
 export function importReplaceConfirmMessage(existingCount: number): string {
   return `importing will replace your current ${existingCount} feedback item(s) for this site. this cannot be undone. continue?`;
 }
 
 /** §5's error copy, lowercase and verbatim. The one parameterised row
- *  (#5, domain mismatch) fills in from `ImportError.details`; the #6
- *  version warning is IMPORT_VERSION_WARNING_MESSAGE above. */
+ *  (#5, domain mismatch) fills in from `ImportError.details`. */
 export function importErrorMessage(code: ImportErrorCode, details?: ImportErrorDetails): string {
   switch (code) {
     case 'INVALID_FILE_TYPE':
@@ -69,6 +64,8 @@ export function importErrorMessage(code: ImportErrorCode, details?: ImportErrorD
       return 'could not read this file — it appears to be corrupted.';
     case 'MISSING_MANIFEST':
       return "this doesn't look like a feedback bundle.";
+    case 'UNSUPPORTED_FORMAT':
+      return "this bundle was made by a different version of the extension and can't be imported.";
     case 'MALFORMED_CONTEXT':
       return "this bundle appears to be corrupted (couldn't read feedback data).";
     case 'MISSING_SCREENSHOT':
