@@ -56,6 +56,10 @@ export interface ThemeTokens {
   onAccent: string;
   /** "save" text-button colour at rest (black in light, yellow in dark). */
   accentInk: string;
+  /** A yellow icon on a neutral surface (the add-note button at rest). The
+   *  deeper pressed shade in light theme, where plain accent on white is too
+   *  faint to read; plain accent in dark, where it is the strongest. */
+  accentIcon: string;
   /** Ghost/secondary hover fill. */
   hover: string;
   /** Ghost/secondary press fill. */
@@ -95,6 +99,7 @@ export const LIGHT_THEME: ThemeTokens = {
   accentPress: '#E8B600',
   onAccent: '#1A1712',
   accentInk: '#1A1712',
+  accentIcon: '#E8B600',
   hover: '#F6F1E4',
   press: '#ECE4D1',
   focus: '#1A1712',
@@ -124,6 +129,7 @@ export const DARK_THEME: ThemeTokens = {
   accentPress: '#E8B600',
   onAccent: '#1A1712',
   accentInk: '#FEC800',
+  accentIcon: '#FEC800',
   hover: '#2A261C',
   press: '#353024',
   focus: '#FBF6EA',

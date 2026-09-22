@@ -670,6 +670,10 @@ const SIDEBAR_CSS = `
   .add-group:hover .add-switch,
   .add-group:active .btn-add,
   .add-group:active .add-switch { border-color: var(--sal-line-strong); }
+  /* The comment glyph is yellow at rest (accentIcon: deeper in light theme,
+     where plain accent on white is too faint). Once add mode is on the
+     button is yellow, and the glyph takes the group's on-accent ink. */
+  .add-group:not(.is-on) .btn-add { color: var(--sal-accent-icon); }
   .btn-add:hover { background: var(--sal-hover); }
   .btn-add:active { background: var(--sal-press); }
   .add-group.is-on .btn-add { background: var(--sal-accent); border-color: transparent; }

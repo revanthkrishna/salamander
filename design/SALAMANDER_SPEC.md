@@ -24,6 +24,7 @@ Two themes. Theme mode is `auto | light | dark` (auto = follow `prefers-color-sc
 | accentHover  | #FFD740                | #FFD740                     | primary hover |
 | accentPress  | #E8B600                | #E8B600                     | primary press |
 | onAccent     | #1A1712                | #1A1712                     | text/icons on yellow |
+| accentIcon   | #E8B600                | #FEC800                     | a yellow icon on a neutral surface (the add-note glyph at rest) |
 | accentInk    | #1A1712                | #FEC800                     | "save" text-button colour at rest (black in light, yellow in dark) |
 | hover        | #F6F1E4                | #2A261C                     | ghost/secondary hover fill |
 | press        | #ECE4D1                | #353024                     | ghost/secondary press fill |
