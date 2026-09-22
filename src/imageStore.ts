@@ -77,9 +77,3 @@ export async function deleteImage(key: string): Promise<void> {
     tx.onabort = () => reject(tx.error);
   });
 }
-
-/** Test-only escape hatch: force a fresh connection on the next call.
- *  Production code never needs this — the module-level cache is intentional. */
-export function _resetConnectionForTests(): void {
-  dbPromise = null;
-}

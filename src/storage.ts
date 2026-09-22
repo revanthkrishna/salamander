@@ -14,7 +14,7 @@
 // JPEG through chrome.storage.local.set, and reading one URL's list read
 // every other URL's thumbnails too. In memory, consumers still see the
 // assembled DomainData shape: getDomainData() joins index and items, and
-// saveDomainData()/replaceDomainData() take one and split it.
+// replaceDomainData() takes one and splits it.
 //
 // There is no migration path from an older stored shape, on purpose: no
 // build before this layout was ever released, so no such record exists in
@@ -36,7 +36,7 @@
 // chrome.storage.local directly: they are not domain data, a round trip
 // for them would be silly, and nothing here ever touches those keys.
 
-import { DomainData, DomainIndex, DomainMeta, FeedbackItem, ItemPatch } from './types';
+import { DomainData, DomainIndex, FeedbackItem, ItemPatch } from './types';
 import * as imageStore from './imageStore';
 
 /** The schema version stamped on every domain index this build writes.
@@ -84,9 +84,12 @@ function emptyIndex(): DomainIndex {
 // frozen-fixture tests)
 // ---------------------------------------------------------------------------
 
-function isRecordLike(raw: unknown): raw is { meta: Partial<DomainMeta>; pages: Record<string, unknown> } {
+/** Shape check for what `domain:{domain}` holds: an object with `meta` and
+ *  `pages` objects. Only the top level is checked — the values are trusted
+ *  as this build's own writes (or a newer build's, see readIndex). */
+function isDomainIndex(raw: unknown): raw is DomainIndex {
   if (!raw || typeof raw !== 'object') return false;
-  const r = raw as Partial<DomainData>;
+  const r = raw as Partial<DomainIndex>;
   return !!r.meta && typeof r.meta === 'object' && !!r.pages && typeof r.pages === 'object';
 }
 
@@ -145,8 +148,7 @@ function itemKeysOf(domain: string, index: DomainIndex): string[] {
 async function readIndex(domain: string): Promise<DomainIndex | null> {
   const key = domainKey(domain);
   const raw = (await storageGet(key))[key];
-  if (!isRecordLike(raw)) return null;
-  return raw as unknown as DomainIndex;
+  return isDomainIndex(raw) ? raw : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,13 +163,6 @@ export async function getDomainData(domain: string): Promise<DomainData | null> 
   const keys = itemKeysOf(domain, index);
   const stored = keys.length > 0 ? await storageGet(keys) : {};
   return assembleDomainData(domain, index, stored);
-}
-
-/** Write a domain's full record in the split layout. Low-level primitive —
- *  it does not remove item keys `data` no longer references; prefer
- *  addItem/updateItem/deleteItem/replaceDomainData for normal mutation. */
-export async function saveDomainData(domain: string, data: DomainData): Promise<void> {
-  await storageSet(splitDomainData(domain, data));
 }
 
 /** Delete a domain's record entirely — index, every item, every blob. */

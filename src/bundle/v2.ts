@@ -101,9 +101,10 @@ export interface JsonFeedbackItem {
   area_text: string;
 }
 
-/** An item as read back: everything but the two storage handles the service
- *  worker mints at import (the bundle never carries them — §1.6). */
-type DecodedItem = Omit<FeedbackItem, 'screenshotKey' | 'thumbnailDataUrl'>;
+/** An item as read back from a bundle: everything a FeedbackItem needs
+ *  except the two storage handles the service worker mints at import (the
+ *  bundle never carries them — §1.6). */
+export type DecodedBundleItem = Omit<FeedbackItem, 'screenshotKey' | 'thumbnailDataUrl'>;
 
 const NOTE_LABEL = '**note:** ';
 const EMPTY_NOTE = '(none)';
@@ -337,9 +338,9 @@ function pickContainedElement(el: ContainedElement): JsonContainedElement {
  * the values are acceptable as a set — screenshots present, ids unique,
  * domain matching — is the importer's ladder, not this reader's.
  */
-export function decodeFeedbackMarkdown(markdown: string): DecodedItem[] {
+export function decodeFeedbackMarkdown(markdown: string): DecodedBundleItem[] {
   const lines = markdown.replace(/^\uFEFF/, '').split(/\r?\n/);
-  const items: DecodedItem[] = [];
+  const items: DecodedBundleItem[] = [];
   let inPage = false;
   let i = 1; // line 0 is the format stamp
 
@@ -455,7 +456,7 @@ function noteLines(lines: string[], start: number, end: number): string {
  * export and ignored here; unknown fields are ignored too. `context.pageMeta`
  * is rebuilt from the item-level fields it duplicates plus `page_title`.
  */
-export function fromJsonFeedbackItem(json: Record<string, unknown>, id: number): DecodedItem {
+export function fromJsonFeedbackItem(json: Record<string, unknown>, id: number): DecodedBundleItem {
   const field = new FieldReader(json, `feedback ${id}`);
   const pageUrl = field.string('page_url');
   const normalisedUrl = field.string('normalised_url');
@@ -525,12 +526,6 @@ class FieldReader {
   number(key: string, from: Record<string, unknown> = this.json): number {
     const v = from[key];
     return typeof v === 'number' && Number.isFinite(v) ? v : this.fail(key, 'a number');
-  }
-
-  optionalBoolean(key: string): boolean | undefined {
-    const v = this.json[key];
-    if (v === undefined) return undefined;
-    return typeof v === 'boolean' ? v : this.fail(key, 'a boolean');
   }
 
   rect(key: string): Rect {

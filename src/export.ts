@@ -44,8 +44,8 @@ const LIVE_ENVIRONMENT: ExportEnvironment = {
 export async function exportDomain(
   domain: string,
   // The read goes through whatever serialisation the caller holds
-  // (background.ts's save queue): a first read of a legacy record migrates
-  // it in place, which must not overlap a queued write.
+  // (background.ts's save queue), so the export sees every write queued
+  // before it rather than a record mid-mutation.
   loadDomain: (domain: string) => Promise<DomainData | null> = storage.getDomainData,
   env: ExportEnvironment = LIVE_ENVIRONMENT,
 ): Promise<ExportResponse> {

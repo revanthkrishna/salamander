@@ -8,8 +8,8 @@
 // <button class="thumbnail-delete"> (design spec v4 §L) — and wires their
 // click/keyboard activation. No chrome.runtime, no module-level state: sidebar.ts
 // calls renderThumbnailList on every refresh and this module just repaints
-// the list from scratch, mirroring how addMode/modal own their own DOM but
-// this one owns none of its own — the <ul> belongs to sidebar.ts's shadow
+// the list from scratch, mirroring how addMode/enlargedView own their own
+// DOM but this one owns none of its own — the <ul> belongs to sidebar.ts's shadow
 // root (§1.1's single closed-shadow-root-per-surface pattern doesn't apply
 // here since this isn't a separate host).
 //

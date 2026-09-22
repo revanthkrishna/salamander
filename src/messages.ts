@@ -200,7 +200,7 @@ export type SaveItemResponse = SaveItemSuccessResponse | SaveItemErrorResponse;
 // The sidebar's thumbnail list paints entirely from FeedbackItem.thumbnailDataUrl
 // (the inline-thumbnail design call — types.ts), which already lives in
 // chrome.storage.local — so GetPageItemsMessage is the only round trip the
-// list needs. The modal additionally wants the full-resolution PNG, which
+// list needs. The enlarged view additionally wants the full-resolution PNG, which
 // lives in IndexedDB behind the service worker (gotcha #1), hence the
 // separate GetImageMessage rather than inlining it into every item.
 

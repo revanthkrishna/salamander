@@ -7,9 +7,17 @@ import {
   buildFeedbackMarkdown,
   decodeFeedbackMarkdown,
   ExportHeader,
+  FORMAT_VERSION,
   UnsupportedFormatError,
 } from '../bundle';
-import { capText, formatExportDate, JSON_TEXT_LIMITS, primaryTargetText, toJsonFeedbackItem } from '../bundle/v2';
+import {
+  capText,
+  formatExportDate,
+  FORMAT_VERSION_V2,
+  JSON_TEXT_LIMITS,
+  primaryTargetText,
+  toJsonFeedbackItem,
+} from '../bundle/v2';
 import { FeedbackItem } from '../types';
 
 const HEADER: ExportHeader = {
@@ -429,5 +437,15 @@ describe('decodeFeedbackMarkdown — malformed current-format files throw a plai
 
   test('a stamped file with no notes reads as empty', () => {
     expect(decodeFeedbackMarkdown(build({})).items).toEqual([]);
+  });
+});
+
+
+describe('src/bundle — the current format is the v2 codec', () => {
+  test('FORMAT_VERSION (what this build writes) is the v2 codec\'s own version', () => {
+    // The reader dispatches on each codec's own version so old files keep
+    // reading after a bump; the writer must be the codec FORMAT_VERSION
+    // names, or export would stamp a version the reader refuses.
+    expect(FORMAT_VERSION).toBe(FORMAT_VERSION_V2);
   });
 });

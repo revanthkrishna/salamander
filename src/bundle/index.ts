@@ -12,16 +12,12 @@
 // fixture.
 
 import { FeedbackItem } from '../types';
-import { FORMAT_VERSION, parseFormatVersion } from './version';
+import { parseFormatVersion } from './version';
 import * as v2 from './v2';
+import type { DecodedBundleItem } from './v2';
 
 export { FORMAT_VERSION, parseFormatVersion } from './version';
-export type { ExportHeader } from './v2';
-
-/** An item as read back from a bundle: everything a FeedbackItem needs
- *  except the two storage handles the service worker mints at write time
- *  (the bundle never carries them — §1.6). */
-export type DecodedBundleItem = Omit<FeedbackItem, 'screenshotKey' | 'thumbnailDataUrl'>;
+export type { DecodedBundleItem, ExportHeader } from './v2';
 
 export interface DecodedBundle {
   /** The format version the file declared. */
@@ -65,7 +61,10 @@ export function buildFeedbackMarkdown(
 export function decodeFeedbackMarkdown(markdown: string): DecodedBundle {
   const version = parseFormatVersion(markdown);
   switch (version) {
-    case FORMAT_VERSION:
+    // Each case names the codec's OWN version, not FORMAT_VERSION: when a
+    // v3 arrives, FORMAT_VERSION moves to 3 and this case keeps reading the
+    // v2 files people have already exported.
+    case v2.FORMAT_VERSION_V2:
       return { version, items: v2.decodeFeedbackMarkdown(markdown) };
     default:
       throw new UnsupportedFormatError(version);

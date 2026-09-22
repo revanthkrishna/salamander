@@ -291,12 +291,13 @@ export function mapCaptureError(err: unknown): CaptureErrorResponse {
 // chrome.storage.local, which only the service worker touches (gotcha #1).
 //
 // Writes are serialised through a single promise chain: read-modify-write on
-// the domain record is not atomic, so two captures resolving at once could
+// the domain index is not atomic, so two captures resolving at once could
 // otherwise read the same nextItemNumber and collide (or drop one item's
-// append entirely). Every other domain-record write (UPDATE_NOTE,
-// DELETE_ITEM, IMPORT_REPLACE) goes through the same chain — storage.ts
-// rewrites the whole record per write, so any two overlapping writes would
-// otherwise clobber each other (last write wins).
+// append entirely). Every other domain mutation (UPDATE_ITEM/UPDATE_NOTE,
+// DELETE_ITEM, IMPORT_REPLACE) goes through the same chain — deletes and
+// imports rewrite the index too, and an item update read-modify-writes its
+// own key, so any two overlapping writes to the same key would otherwise
+// clobber each other (last write wins).
 
 let saveQueueTail: Promise<unknown> = Promise.resolve();
 
@@ -341,11 +342,12 @@ export function _resetSaveQueueForTests(): void {
 //
 // Four small read/write handlers on top of storage.ts/imageStore.ts.
 // GET_IMAGE is a pure read; GET_PAGE_ITEMS reads through saveQueueTail so it
-// sees every write sent before it. UPDATE_NOTE/DELETE_ITEM only touch
-// one item, but storage.ts read-modify-writes the *whole* domain record, so
-// they share saveQueueTail with SAVE_ITEM: unserialised, a note edit
-// overlapping a capture in another tab (or a second edit) would write back a
-// stale copy of the record and drop the other change.
+// sees every write sent before it. UPDATE_ITEM/UPDATE_NOTE and DELETE_ITEM
+// share saveQueueTail with SAVE_ITEM as well: a delete rewrites the domain
+// index, and an item update read-modify-writes that item's key, so
+// unserialised, a note edit overlapping a capture in another tab (or a
+// second edit of the same note) could write back a stale copy and drop the
+// other change.
 
 export async function handleGetPageItems(
   message: GetPageItemsMessage,
@@ -456,8 +458,9 @@ export async function handleGetDomainItemCount(
   message: GetDomainItemCountMessage,
 ): Promise<GetDomainItemCountResponse> {
   try {
-    // Through the queue like every other domain-record read: a first read of
-    // a legacy record migrates it in place, which must not overlap a write.
+    // Through the queue like every other domain-record read, so the count
+    // reflects every write queued before it (§5 #10's confirmation must not
+    // quote a stale number).
     const data = await enqueueSave(() => getDomainData(message.domain));
     const count = data
       ? Object.values(data.pages).reduce((sum, items) => sum + items.length, 0)
