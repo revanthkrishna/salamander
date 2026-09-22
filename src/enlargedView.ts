@@ -1,7 +1,7 @@
 // src/enlargedView.ts
-// The enlarged view (design spec v2 §D/§E, design/MOTION_SPEC.md) — replaces
-// the old centred modal (src/modal.ts, removed). Clicking a note makes the
-// SIDEBAR ITSELF grow leftward to ~75% of the viewport and become a note
+// The enlarged view (design spec v2 §D/§E, design/MOTION_SPEC.md) — the
+// note viewer/editor that replaced the old centred modal. Clicking a note
+// makes the SIDEBAR ITSELF grow leftward to ~75% of the viewport and become a note
 // viewer/editor: previous-note peek (cut by the panel top), a header bar
 // with "feedback #n" and the delete button, the screenshot at its own size,
 // the autosaving note editor, next-note peek (cut by the panel bottom), and
@@ -71,8 +71,8 @@
 // Autosave (debounced 700ms + flushed on blur / navigate / collapse), the
 // "a note can never be empty" lock, immediate delete + carousel, keyboard
 // (Esc, ↑/↓, Tab order rail → peeks → editor → delete) with keyboard
-// isolation from the host page (src/keyboardIsolation.ts). Like modal.ts
-// before it, this module never touches chrome.runtime: content.ts supplies
+// isolation from the host page (src/keyboardIsolation.ts). This module
+// never touches chrome.runtime: content.ts supplies
 // fetchFullImage/onSaveNote/onDelete.
 
 import { FeedbackItem } from './types';
@@ -83,11 +83,12 @@ import { AutosaveController } from './autosave';
 import { ICON_ARROW_DOWN, ICON_ARROW_UP, ICON_COLLAPSE, ICON_TRASH } from './icons';
 import { buildDrawingSvg, hasStrokes } from './drawing';
 import { DELETE_ERROR_MESSAGE, EMPTY_NOTE_MESSAGE, SAVE_ERROR_MESSAGE, saveErrorFor } from './copy';
-import { cancelAnimationFrameSafe, reducedMotionQuery, requestAnimationFrameSafe } from './dom';
+import { cancelAnimationFrameSafe, getContentViewportSize, reducedMotionQuery, requestAnimationFrameSafe } from './dom';
 import { FOCUS_RING_CSS, DISABLED_CSS, STATE_TRANSITION_CSS, RADII } from './theme';
 import {
   ACC,
   STD,
+  NumberAnimOptions,
   Slot,
   Tween,
   animateEl,
@@ -444,9 +445,6 @@ export interface EnlargedViewHandle {
   flush(): void;
   /** Silent teardown (no onClosed) — sidebar destroy. */
   destroy(): void;
-  setLogoSrc(src: string): void;
-  /** Recompute geometry (viewport / sidebar width changed). */
-  relayout(): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -904,9 +902,12 @@ interface Card {
 
 type Timer = ReturnType<typeof setTimeout>;
 
+/** The scrollbar-excluded viewport (dom.ts's getContentViewportSize) in
+ *  this module's `{ w, h }` shape — the box the docked panel, and so this
+ *  sheet, is laid out in. */
 function viewportSize(): { w: number; h: number } {
-  const de = document.documentElement;
-  return { w: de.clientWidth || window.innerWidth, h: de.clientHeight || window.innerHeight };
+  const { width, height } = getContentViewportSize();
+  return { w: width, h: height };
 }
 
 function aspectOf(item: FeedbackItem): number {
@@ -933,8 +934,6 @@ export function openEnlargedView(
     forceClose: () => view.forceClose(),
     flush: () => view.flushSave(),
     destroy: () => view.finish(false),
-    setLogoSrc: (src) => view.setLogoSrc(src),
-    relayout: () => view.relayout(),
   };
 }
 
@@ -1252,10 +1251,6 @@ class EnlargedView {
         fadeTo(el, 0, { duration: this.reduced ? T.rdStageOut : T.stageOut, curve: ACC });
       }
     }
-  }
-
-  setLogoSrc(src: string): void {
-    if (this.brandLogo) this.brandLogo.src = src;
   }
 
   // ─── Panel width ──────────────────────────────────────────────────────────
@@ -1605,20 +1600,25 @@ class EnlargedView {
     this.btnDown.setAttribute('aria-disabled', String(this.idx >= this.items.length - 1));
   }
 
+  /** The header bar and the editor always fade together — they are the
+   *  "content" of MOTION_SPEC §7/§8, swapped as one block. */
+  private fadeContent(to: number, opts: NumberAnimOptions): void {
+    fadeTo(this.head, to, opts);
+    fadeTo(this.editor, to, opts);
+  }
+
   /** Title/editor crossfade (MOTION_SPEC §7, multi-element: Tab Switch):
    *  old content out 120ms acc, swap, new content in 180ms std. Rail and
    *  panel stay still. Re-entrant: a second call restarts the swap window. */
   private crossfadeContent(): void {
     if (this.swapTimer) clearTimeout(this.swapTimer);
-    fadeTo(this.head, 0, { duration: T.contentOut, curve: ACC });
-    fadeTo(this.editor, 0, { duration: T.contentOut, curve: ACC });
+    this.fadeContent(0, { duration: T.contentOut, curve: ACC });
     this.swapTimer = setTimeout(() => {
       this.swapTimer = null;
       const cur = this.items[this.idx];
       if (!cur) return;
       this.setContent(cur);
-      fadeTo(this.head, 1, { duration: T.contentIn, curve: STD });
-      fadeTo(this.editor, 1, { duration: T.contentIn, curve: STD });
+      this.fadeContent(1, { duration: T.contentIn, curve: STD });
     }, T.contentOut);
   }
 
@@ -1685,8 +1685,7 @@ class EnlargedView {
         });
       }
     }
-    fadeTo(this.head, 0, { duration: this.reduced ? T.rdSwapOut : T.contentOut, curve: ACC });
-    fadeTo(this.editor, 0, { duration: this.reduced ? T.rdSwapOut : T.contentOut, curve: ACC });
+    this.fadeContent(0, { duration: this.reduced ? T.rdSwapOut : T.contentOut, curve: ACC });
 
     const request = this.callbacks.onDelete(item).catch(() => false);
     const step = new Promise<void>((resolve) => {
@@ -1704,8 +1703,7 @@ class EnlargedView {
           card.shrink = null;
           fadeTo(card.el, 1, { duration: T.fade, curve: STD });
         }
-        fadeTo(this.head, 1, { duration: T.contentIn, curve: STD });
-        fadeTo(this.editor, 1, { duration: T.contentIn, curve: STD });
+        this.fadeContent(1, { duration: T.contentIn, curve: STD });
         this.setStatus('delete-error');
         if (this.collapseAfterDelete) {
           this.collapseAfterDelete = false;
@@ -1740,13 +1738,12 @@ class EnlargedView {
     if (this.reduced) {
       this.layoutCards('instant');
       this.setContent(cur);
-      for (const el of [this.head, this.editor]) fadeTo(el, 1, { duration: T.rdSwapIn, curve: STD });
+      this.fadeContent(1, { duration: T.rdSwapIn, curve: STD });
     } else {
       this.layoutCards('carousel');
       // Title/editor were already faded out by the delete step: fade-in only.
       this.setContent(cur);
-      fadeTo(this.head, 1, { duration: T.contentIn, curve: STD });
-      fadeTo(this.editor, 1, { duration: T.contentIn, curve: STD });
+      this.fadeContent(1, { duration: T.contentIn, curve: STD });
     }
     if (this.mount.shadow.activeElement === null || !this.wrapper.contains(this.mount.shadow.activeElement)) {
       this.deleteBtn.focus({ preventScroll: true });
@@ -2137,7 +2134,7 @@ class EnlargedView {
 
   /** New viewport / sidebar width: jump every resting geometry to the new
    *  layout (any in-flight morph lands instantly at its new slot). */
-  relayout(): void {
+  private relayout(): void {
     if (this.state === 'closed' || this.state === 'closing') return;
     this.recomputeGeometry();
     this.setPanelWidth(this.geo.panelW, 0);
