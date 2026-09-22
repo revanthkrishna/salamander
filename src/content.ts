@@ -52,6 +52,8 @@ import {
 import { FeedbackItem, ImportError } from './types';
 import { send } from './rpc';
 import {
+  BackgroundToContentMessage,
+  PingResponse,
   SidebarOpenedMessage,
   SidebarClosedMessage,
   GetPageItemsMessage,
@@ -66,16 +68,25 @@ import {
 } from './messages';
 import type { PenColor } from './drawing';
 
+declare global {
+  interface Window {
+    /** Set by the first injection of this script into a document; a second
+     *  injection (the icon clicked again before PING answered, a re-inject
+     *  on reload racing an already-alive script) sees it and exits. */
+    __annotatorActive?: true;
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Idempotency guard + runtime init (wrapped in IIFE so we can `return` instead
 // of throwing — a throw here shows as a console error even though it's intentional).
 // ─────────────────────────────────────────────────────────────────────────────
 void (function annotatorMain() {
 
-if ((window as any).__annotatorActive) {
+if (window.__annotatorActive) {
   return; // Already running on this page — silent exit, no console error.
 }
-(window as any).__annotatorActive = true;
+window.__annotatorActive = true;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Module-level state
@@ -328,13 +339,14 @@ function handleGlobalKeyDown(e: KeyboardEvent): void {
 // Message listener
 // ─────────────────────────────────────────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: BackgroundToContentMessage, _sender, sendResponse) => {
   if (message.type === 'PING') {
-    sendResponse({ alive: true, tabId: myTabId });
+    const reply: PingResponse = { alive: true, tabId: myTabId };
+    sendResponse(reply);
     return;
   }
   if (message.type === 'ACTIVATE') {
-    init(message.tabId as number);
+    init(message.tabId);
     return;
   }
   if (message.type === 'ICON_CLICKED') {
@@ -645,7 +657,15 @@ async function handleImportFile(file: File): Promise<void> {
       domain: currentDomain,
     };
     const countResponse = await send(countMessage);
-    const existingCount = countResponse?.ok ? countResponse.count : 0;
+    if (!countResponse || !countResponse.ok) {
+      // §5 #10's confirmation quotes how many items a replace would discard.
+      // If that number cannot be read, the only safe answer is to stop: going
+      // on as if it were zero would replace the domain WITHOUT the
+      // confirmation, and may discard feedback silently.
+      sidebar.showError(countResponse ? countResponse.message : IMPORT_FAILED_MESSAGE);
+      return;
+    }
+    const existingCount = countResponse.count;
 
     if (existingCount > 0) {
       // §5 #10, verbatim.

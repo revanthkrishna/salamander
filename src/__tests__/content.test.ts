@@ -23,11 +23,23 @@
 
 import { FeedbackItem } from '../types';
 // The list delete reuses the enlarged view's failure copy (design spec v4 §L).
-import { DELETE_ERROR_MESSAGE } from '../copy';
+import {
+  DELETE_ERROR_MESSAGE,
+  DOMAIN_COUNT_FAILED_MESSAGE,
+  IMPORT_FAILED_MESSAGE,
+  importReplaceConfirmMessage,
+} from '../copy';
 
 jest.mock('../capture', () => ({
   ...jest.requireActual('../capture'),
   captureAndSave: jest.fn(),
+}));
+
+// The §5 validation ladder has its own suite (import.test.ts); here the
+// picked file is taken as already valid so the tests can drive what
+// content.ts does AROUND it — the count read, §5 #10 and the replace.
+jest.mock('../import', () => ({
+  parseImportBundle: jest.fn(),
 }));
 
 // sidebar.ts/addMode.ts use closed shadow roots; force 'open'
@@ -824,5 +836,115 @@ describe('content.ts: the pencil colour and the pencil menu (design spec §AB)',
     expect(sidebarApi.isEnlargedViewOpen()).toBe(false);
     expect(addMode.isAddModeActive()).toBe(true);
     expect(sidebarShadow().querySelector('.notif-text')!.textContent).toBe('finish or cancel your note first.');
+  });
+});
+
+describe('content.ts: import (§1.7) — the count read and the §5 #10 confirmation', () => {
+  const BUNDLE = { domain: 'localhost', items: [{ id: 4 }] };
+  let countReply: unknown;
+  let replaceReply: unknown;
+  let confirmSpy: jest.SpyInstance;
+
+  function installImportMocks(): void {
+    const base = (chrome.runtime.sendMessage as jest.Mock).getMockImplementation()!;
+    (chrome.runtime.sendMessage as jest.Mock).mockImplementation((message: any, callback?: (r?: unknown) => void) => {
+      if (message?.type === 'GET_DOMAIN_ITEM_COUNT') {
+        callback?.(countReply);
+        return;
+      }
+      if (message?.type === 'IMPORT_REPLACE') {
+        callback?.(replaceReply);
+        return;
+      }
+      base(message, callback);
+    });
+    // Re-required after loadContent()'s resetModules, so it is the instance
+    // content.ts itself imported.
+    (require('../import').parseImportBundle as jest.Mock).mockResolvedValue(BUNDLE);
+  }
+
+  function pickFile(): void {
+    const input = sidebarShadow().querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['zip'], 'feedback.zip', { type: 'application/zip' });
+    Object.defineProperty(input, 'files', { value: [file], configurable: true });
+    input.dispatchEvent(new Event('change'));
+  }
+
+  function sent(): any[] {
+    return (chrome.runtime.sendMessage as jest.Mock).mock.calls.map((c) => c[0]);
+  }
+
+  function notifText(): string | null {
+    return sidebarShadow().querySelector('.notif-text')?.textContent ?? null;
+  }
+
+  function importItem(): HTMLButtonElement {
+    return sidebarShadow().querySelector('.action-menu-item') as HTMLButtonElement;
+  }
+
+  async function openAndPick(): Promise<void> {
+    pageItems = [];
+    loadContent();
+    installImportMocks();
+    activate();
+    await flushMicrotasks();
+    (chrome.runtime.sendMessage as jest.Mock).mockClear();
+    pickFile();
+    await flushMicrotasks();
+  }
+
+  beforeEach(() => {
+    countReply = { ok: true, count: 0 };
+    replaceReply = { ok: true };
+    confirmSpy = jest.spyOn(window, 'confirm').mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    confirmSpy.mockRestore();
+  });
+
+  test('a domain with nothing stored yet is replaced without asking', async () => {
+    await openAndPick();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    // jsdom's page is http://localhost/ — the domain is the page's, not
+    // the bundle's (the ladder has already checked they match).
+    expect(sent()).toContainEqual(
+      expect.objectContaining({ type: 'IMPORT_REPLACE', domain: 'localhost', items: BUNDLE.items }),
+    );
+    expect(notifText()).toBe('');
+  });
+
+  test('existing feedback: §5 #10 is asked with the real count, and "yes" replaces', async () => {
+    countReply = { ok: true, count: 3 };
+    await openAndPick();
+    expect(confirmSpy).toHaveBeenCalledWith(importReplaceConfirmMessage(3));
+    expect(sent()).toContainEqual(expect.objectContaining({ type: 'IMPORT_REPLACE' }));
+  });
+
+  test('existing feedback: "no" sends nothing', async () => {
+    countReply = { ok: true, count: 3 };
+    confirmSpy.mockImplementation(() => false);
+    await openAndPick();
+    expect(sent()).not.toContainEqual(expect.objectContaining({ type: 'IMPORT_REPLACE' }));
+    expect(importItem().disabled).toBe(false);
+  });
+
+  test('a count that cannot be read stops the import before anything is replaced', async () => {
+    // Without the count there is no §5 #10 to show; proceeding as if it were
+    // zero would replace the domain unconfirmed.
+    countReply = { ok: false, message: DOMAIN_COUNT_FAILED_MESSAGE };
+    await openAndPick();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(sent()).not.toContainEqual(expect.objectContaining({ type: 'IMPORT_REPLACE' }));
+    expect(notifText()).toBe(DOMAIN_COUNT_FAILED_MESSAGE);
+    expect(importItem().disabled).toBe(false);
+  });
+
+  test('a dead service worker at the count step fails the same way, with the generic import copy', async () => {
+    countReply = undefined;
+    await openAndPick();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(sent()).not.toContainEqual(expect.objectContaining({ type: 'IMPORT_REPLACE' }));
+    expect(notifText()).toBe(IMPORT_FAILED_MESSAGE);
   });
 });
