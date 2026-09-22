@@ -44,9 +44,9 @@
 // passed to the capture message unchanged — viewport CSS px is already the
 // right space for cropping a viewport screenshot.
 
-import { Drawing, DrawingStroke, Rect } from './types';
+import { Drawing, DrawingStroke, Rect, ViewportSize } from './types';
 import { getSidebarWidth, DEFAULT_THUMBNAIL_BOX_SIZE } from './sidebar';
-import { getContentViewportSize } from './capture';
+import { getContentViewportSize } from './dom';
 import { clamp } from './flip';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
 import { DISABLED_CSS, FOCUS_RING_CSS, getThemeCSS, RADII, STATE_TRANSITION_CSS } from './theme';
@@ -184,6 +184,10 @@ const DRAW_MENU_ABOVE_OFFSET = 46;
  *  on a 120Hz+ pointer does not store thousands of near-duplicates. */
 const MIN_POINT_GAP = 0.5;
 
+/** The selectable area's size (see getBounds): the scrollbar-excluded
+ *  viewport less the sidebar's docked strip. */
+type Bounds = ViewportSize;
+
 type ZoneKey = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 /** Edges first, corners last: at small box sizes the corner squares overlap
  *  the ends of the edge strips, and later siblings win the hit test, so a
@@ -205,8 +209,8 @@ const ZONE_CURSORS: Record<ZoneKey, string> = {
 // ---------------------------------------------------------------------------
 
 // Every colour/radius/font below is a --sal-* token from getThemeCSS(), which
-// buildDOM() prepends into this same <style> element, so light/dark theme
-// switches (data-theme on the host) restyle add mode live.
+// buildDOM() prepends into this same <style> element (the dark set — the
+// extension is dark only, design spec §AA).
 const ADD_MODE_CSS = `
   :host {
     font-family: var(--sal-font-body);
@@ -779,7 +783,7 @@ let placeDragging = false;
  *  user-resizable, so a width captured at add-mode entry would be stale the
  *  moment the user dragged the handle. This is called fresh on every
  *  placement/resize gesture, so the bounds always match the panel on screen. */
-function getBounds(): { width: number; height: number } {
+function getBounds(): Bounds {
   const { width, height } = getContentViewportSize();
   return {
     width: Math.max(0, width - getSidebarWidth()),
@@ -799,7 +803,7 @@ function getBounds(): { width: number; height: number } {
  *  a fixed size — not read from the sidebar's *current* (user-resizable)
  *  width — so the click-to-place default never shifts underfoot while the
  *  panel is being dragged. */
-function computeDefaultBox(clickX: number, clickY: number, bounds: { width: number; height: number }): Rect {
+function computeDefaultBox(clickX: number, clickY: number, bounds: Bounds): Rect {
   const width = Math.min(DEFAULT_THUMBNAIL_BOX_SIZE.width, bounds.width);
   const height = Math.min(DEFAULT_THUMBNAIL_BOX_SIZE.height, bounds.height);
   const x = clamp(clickX - width / 2, 0, Math.max(0, bounds.width - width));
@@ -820,7 +824,7 @@ function computeDragBox(
   startY: number,
   currentX: number,
   currentY: number,
-  bounds: { width: number; height: number },
+  bounds: Bounds,
 ): Rect {
   const anchorX = clamp(startX, 0, bounds.width);
   const anchorY = clamp(startY, 0, bounds.height);
@@ -851,7 +855,7 @@ function computeDragBox(
 /** Moves only the edges named by `zone` (e.g. 'ne' = top + right) to the
  *  pointer, keeping the opposite edges fixed; clamped per edge to the content
  *  viewport and the 20x20 minimum. */
-function resizeBox(zone: ZoneKey, clientX: number, clientY: number, bounds: { width: number; height: number }): Rect {
+function resizeBox(zone: ZoneKey, clientX: number, clientY: number, bounds: Bounds): Rect {
   const left = box.x;
   const top = box.y;
   const right = box.x + box.width;
@@ -878,7 +882,7 @@ function computeCommentPosition(
   boxRect: Rect,
   commentW: number,
   commentH: number,
-  bounds: { width: number; height: number },
+  bounds: Bounds,
 ): { left: number; top: number } {
   const candidates = [
     { left: boxRect.x, top: boxRect.y + boxRect.height + COMMENT_MARGIN }, // below
@@ -903,7 +907,7 @@ function computeCommentPosition(
  *  then unconditionally clamped into `bounds` — same "flip, then clamp
  *  regardless" shape as computeCommentPosition() above, just for a single
  *  fixed-offset candidate instead of four. */
-function positionTooltip(cursorX: number, cursorY: number, bounds: { width: number; height: number }): void {
+function positionTooltip(cursorX: number, cursorY: number, bounds: Bounds): void {
   if (!elPreviewTooltip) return;
   // offsetWidth/Height are 0 before the tooltip's first layout pass (and
   // always 0 in plain jsdom) — fall back to a fixed estimate, same rationale
@@ -1179,7 +1183,7 @@ function buildDrawSurface(): void {
   elVisuals.insertBefore(elDrawSurface, elZones[ZONE_KEYS[0]] ?? null);
 }
 
-function layoutHost(bounds: { width: number; height: number }): void {
+function layoutHost(bounds: Bounds): void {
   if (!host || !elBlocker) return;
   host.style.width = `${bounds.width}px`;
   host.style.height = `${bounds.height}px`;
@@ -1216,7 +1220,7 @@ function renderBox(): void {
  *  back by the same amount and sized to the whole selectable area, so the
  *  strokes stay where they were drawn on the page and the box is only ever
  *  their clip (design spec §AB). 1:1 CSS px, no viewBox. */
-function renderDrawLayer(bounds: { width: number; height: number }): void {
+function renderDrawLayer(bounds: Bounds): void {
   if (!elDrawSurface || !elStrokes) return;
   setRectStyle(elDrawSurface, box.x, box.y, box.width, box.height);
   elStrokes.style.left = `${-box.x}px`;
@@ -1227,7 +1231,7 @@ function renderDrawLayer(bounds: { width: number; height: number }): void {
 
 /** Fit a placed box back inside `bounds`: shifted first (size kept), and
  *  shrunk only on an axis where it no longer fits at all. */
-function clampBoxToBounds(b: Rect, bounds: { width: number; height: number }): Rect {
+function clampBoxToBounds(b: Rect, bounds: Bounds): Rect {
   const width = Math.min(b.width, bounds.width);
   const height = Math.min(b.height, bounds.height);
   return {
@@ -1311,7 +1315,7 @@ function setRectStyle(el: HTMLDivElement, x: number, y: number, width: number, h
   el.style.height = `${Math.max(0, height)}px`;
 }
 
-function positionComment(bounds: { width: number; height: number }): void {
+function positionComment(bounds: Bounds): void {
   if (!elComment) return;
   // offsetHeight is 0 before the element has ever been laid out (and always 0
   // in plain jsdom without the test-setup override) — fall back to a fixed
@@ -1333,7 +1337,7 @@ function positionComment(bounds: { width: number; height: number }): void {
  *  'placing'-phase mousemove: the rect/tooltip position is updated
  *  unconditionally (1:1 with the pointer, no easing), while the one-time
  *  fade-in only runs the first time (`previewVisible` false -> true). */
-function showPreview(rect: Rect, bounds: { width: number; height: number }): void {
+function showPreview(rect: Rect, bounds: Bounds): void {
   if (!elBox || !elScrim || !elVisuals) return;
   layoutHost(bounds);
   setRectStyle(elBox, rect.x, rect.y, rect.width, rect.height);
@@ -1370,7 +1374,7 @@ function hidePreview(): void {
 /** Shows (and keeps positioned) the first-run hint, unless its once-per-page
  *  window has already closed (design spec v4 §N). The preview rect itself is
  *  unaffected by any of this and keeps following the cursor. */
-function showTooltip(cursorX: number, cursorY: number, bounds: { width: number; height: number }): void {
+function showTooltip(cursorX: number, cursorY: number, bounds: Bounds): void {
   if (!elPreviewTooltip || tooltipSpent()) return;
   positionTooltip(cursorX, cursorY, bounds);
   elPreviewTooltip.dataset.visible = 'true';

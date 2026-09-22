@@ -76,6 +76,7 @@ import { captureContext } from './contextCapture';
 import { normaliseDomain, normaliseUrl } from './urlNorm';
 import { CAPTURE_FAILED_MESSAGE } from './copy';
 import { send } from './rpc';
+import { getContentViewportSize } from './dom';
 import type { CaptureMessage, NewFeedbackItem, SaveItemMessage } from './messages';
 
 // ---------------------------------------------------------------------------
@@ -108,34 +109,13 @@ const PAINT_TIMEOUT_MS = 250;
 export interface ViewportMetrics {
   /** window.innerWidth/innerHeight — CSS px, scrollbars included. */
   viewport: ViewportSize;
-  /** documentElement.clientWidth/clientHeight — CSS px, scrollbars excluded.
-   *  Per CSSOM this is the *viewport* minus rendered scrollbars, not the root
-   *  element's own box, so the sidebar's `margin-right` on <html> does not
-   *  affect it. */
+  /** documentElement.clientWidth/clientHeight — CSS px, scrollbars excluded
+   *  (dom.ts's getContentViewportSize, the one measurement of the panel's
+   *  edge every module shares). */
   contentViewport: ViewportSize;
   dpr: number;
   scrollX: number;
   scrollY: number;
-}
-
-/**
- * The viewport *excluding* rendered scrollbars, in CSS px.
- *
- * This is the box the sidebar's `position: fixed; right: 0` panel is laid out
- * in, so it is also the box add mode must clamp selections to — clamping to
- * `innerWidth` instead lets a right-edge selection overlap the sidebar by
- * exactly the scrollbar's width and put extension UI in a capture. Hence add
- * mode importing it from here rather than the two modules each measuring the
- * viewport their own way.
- */
-export function getContentViewportSize(): ViewportSize {
-  const docEl = document.documentElement;
-  // jsdom (and any layout-less environment) reports 0 here; fall back to the
-  // inner dimensions rather than returning a zero-width viewport.
-  return {
-    width: docEl?.clientWidth || window.innerWidth,
-    height: docEl?.clientHeight || window.innerHeight,
-  };
 }
 
 /** Read every geometry number the pipeline needs in one go, so the rect, the
