@@ -36,7 +36,7 @@ import { normaliseUrl, normaliseDomain } from './urlNorm';
 import * as sidebar from './sidebar';
 import * as addMode from './addMode';
 import * as capture from './capture';
-import { ensureFontsLoaded, primeThemeMode } from './theme';
+import { ensureFontsLoaded } from './theme';
 import { parseImportBundle } from './import';
 import {
   // The list's hover delete (design spec v4 §L) shares the enlarged view's
@@ -287,13 +287,6 @@ function handleGlobalKeyDown(e: KeyboardEvent): void {
   if (!addMode.isAddModeActive()) return;
   exitAddModeFully();
 }
-
-// Start reading the persisted theme mode now, at script load: ACTIVATE
-// (which builds and shows the sidebar) arrives a message round trip later,
-// by which point the read has normally settled, so the panel's first paint
-// is already in the right theme. sidebar.openSidebar() also holds the panel
-// invisible (briefly, capped) if it hasn't — see revealWhenThemeSettled.
-primeThemeMode();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Message listener

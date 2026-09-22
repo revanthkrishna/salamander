@@ -78,16 +78,9 @@ the same page.
 - [ ] **1.12.** With the sidebar resized to a non-default width, open add mode — the selection area
       must not extend under the sidebar. Then open a note: the enlarged view expands to ~75% of the
       window regardless of the sidebar width, and collapsing returns the sidebar to your width.
-- [ ] **1.13. (Theme toggle)** Click the theme toggle in the header — it cycles auto → light →
-      dark → auto. Its icon (sun/moon/half-circle) and its aria-label/title (hover to see the
-      tooltip) should always describe the *current* mode, e.g. "theme: auto". Confirm the whole
-      sidebar (background, text, accent colour) actually repaints for light vs. dark. Reload the
-      page — the mode you left it on should be remembered. With two tabs open on the same site,
-      change the theme in one — the other should update live, without a reload.
-- [ ] **1.14. (Auto theme follows the OS)** Set the toggle to "auto", then flip your OS/browser's
-      light/dark appearance setting (or emulate it via DevTools' Rendering panel → "Emulate CSS
-      prefers-color-scheme") — the sidebar (and add mode / the enlarged view, if open) should repaint to match
-      without any click.
+- [ ] **1.13. (Dark only)** The header has no theme switcher — just the logo, wordmark and close.
+      Every surface (the sidebar, add mode, the enlarged view) is dark regardless of your OS or
+      browser appearance setting, including after flipping that setting with the sidebar open.
 - [ ] **1.15. (Narrow sidebar widths)** Drag the sidebar narrower than ~220px — the "salamander"
       wordmark should hide, and hovering the "add note" group should no longer reveal the
       "keep on" switch (keyboard focus still does, and it stays visible whenever it is on).
@@ -196,7 +189,7 @@ the same page.
       list. The note list should dim to about half opacity, stop reacting to hover (no dock
       magnification), refuse clicks, and be skipped entirely when you Tab through the sidebar.
       The export group should be greyed out and unclickable, and any open chevron menu should
-      have closed. The **add note** button, its switch, the theme toggle and **close** must all
+      have closed. The **add note** button, its switch and **close** must all
       still work. Leave add mode by every route (button, switch+button, Esc, close, cancel) and
       confirm the list comes back fully interactive each time, with magnification working again.
 
@@ -391,7 +384,7 @@ the same page.
 
 ## 6a. Salamander v4 styling fixes (design/SALAMANDER_SPEC.md §J–§P)
 
-Run each of these in **both** light and dark theme (cycle with the theme toggle in the header).
+Run each of these in the dark theme (the only one — design spec §AA).
 
 - [ ] **6a.1. (§J — one fixed block)** There must be exactly one 1px rule in the top of the
       sidebar: under the action row, below the add/export controls. No line between the header

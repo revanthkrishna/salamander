@@ -46,7 +46,7 @@ import { getSidebarWidth, DEFAULT_THUMBNAIL_BOX_SIZE } from './sidebar';
 import { getContentViewportSize } from './capture';
 import { clamp } from './flip';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
-import { DISABLED_CSS, FOCUS_RING_CSS, getThemeCSS, RADII, registerThemedHost, STATE_TRANSITION_CSS } from './theme';
+import { DISABLED_CSS, FOCUS_RING_CSS, getThemeCSS, RADII, STATE_TRANSITION_CSS } from './theme';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -489,7 +489,6 @@ let tooltipTimer: ReturnType<typeof setTimeout> | null = null;
 
 let activeZone: ZoneKey | null = null;
 let keyboardIsolation: KeyboardIsolationHandle | null = null;
-let unregisterThemedHost: (() => void) | null = null;
 
 /** Set on mousedown while mode === 'placing', cleared once placement
  *  finalizes (mouseup). Null whenever no placement gesture is in progress. */
@@ -671,7 +670,6 @@ function buildDOM(): void {
   host.style.cssText = 'position: fixed; top: 0; left: 0; z-index: 2147483640; pointer-events: none;';
 
   shadow = host.attachShadow({ mode: 'closed' });
-  unregisterThemedHost = registerThemedHost(host);
 
   const style = document.createElement('style');
   // Salamander design tokens (--sal-*) as :host custom properties, prepended
@@ -1286,9 +1284,6 @@ export function exitAddMode(): void {
 
   keyboardIsolation?.release();
   keyboardIsolation = null;
-
-  unregisterThemedHost?.();
-  unregisterThemedHost = null;
 
   if (host && host.parentNode) host.parentNode.removeChild(host);
 

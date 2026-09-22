@@ -29,7 +29,8 @@ test.afterEach(async () => {
 test('clicking the icon opens the sidebar, docked right, with the header/action-row controls and the empty state', async () => {
   // Salamander restyle (design spec §3.1): add/export/import moved out of
   // the header into their own action row below it, and the header itself
-  // gained a logo/wordmark and a theme toggle. v3 §A2/§C2 then merged the
+  // gained a logo/wordmark (the theme toggle it also gained went again when
+  // the extension became dark only, §AA). v3 §A2/§C2 then merged the
   // row into two groups — "add note" (icon-only) with a "keep add mode on"
   // switch, and export with a chevron whose menu holds "import".
   // export/close keep a fixed aria-label; the add button's is state-dependent

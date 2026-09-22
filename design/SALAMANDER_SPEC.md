@@ -681,3 +681,19 @@ It is an SVG stroke, not a CSS border or outline: CSS `dashed`/`dotted` derive t
 from the line's thickness and give no control over it, and `border-image` with a repeating gradient
 ignores `border-radius`. Two rects on the same path at the same width — ink underneath, accent dashed
 4/4 on top — so the accent's gaps are ink rather than holes and the line is exactly 2px.
+
+## AA. Dark only (2026-09-21)
+
+OVERRIDES §1's light/dark/auto modes, §3.4 (the theme toggle) and every "in both themes" check in
+this document. The extension ships in the **dark theme only**: there is no switcher, and nothing
+follows the OS or browser appearance setting.
+
+The light token table is **kept**, unused, in `src/theme.ts` (`LIGHT_THEME`) together with the
+black logo asset, so a light theme can come back without re-deriving a palette — emit it under a
+selector in `getThemeCSS()` again and give the user a way to choose. Its values remain in §1's
+table for the same reason.
+
+What went with the switcher, and is in git history if a light theme returns: the persisted
+`themeMode` preference and its cross-tab sync, following `prefers-color-scheme`, the `data-theme`
+attribute on each shadow host, and the gate that held the sidebar invisible until the saved mode had
+loaded (with one theme there is nothing to wait for, so the panel now shows immediately).

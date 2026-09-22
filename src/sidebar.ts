@@ -38,9 +38,6 @@ import {
   ICON_ERROR,
   ICON_EXPORT,
   ICON_IMPORT,
-  ICON_THEME_AUTO,
-  ICON_THEME_DARK,
-  ICON_THEME_LIGHT,
   ICON_WARNING,
 } from './icons';
 import {
@@ -52,15 +49,6 @@ import {
 } from './enlargedView';
 import {
   getThemeCSS,
-  registerThemedHost,
-  isThemeModeSettled,
-  whenThemeModeSettled,
-  getThemeMode,
-  getResolvedTheme,
-  cycleThemeMode,
-  subscribeThemeChange,
-  ThemeMode,
-  ResolvedTheme,
   FOCUS_RING_CSS,
   STATE_TRANSITION_CSS,
   DISABLED_CSS,
@@ -229,22 +217,10 @@ export interface SidebarCallbacks {
   onDeleteItem?: (item: FeedbackItem) => void;
 }
 
-// ---------------------------------------------------------------------------
-// Icons come from src/icons.ts (design spec §1's stroke language); this
-// module only maps the theme modes onto their glyphs.
-// ---------------------------------------------------------------------------
-
-const THEME_MODE_ICONS: Record<ThemeMode, string> = {
-  auto: ICON_THEME_AUTO,
-  light: ICON_THEME_LIGHT,
-  dark: ICON_THEME_DARK,
-};
-
-/** Logo asset paths (design spec §1) — the yellow mark reads on the dark
- *  panel, the black copy on the light one. Both are already
- *  web_accessible_resources in manifest.json. */
-const LOGO_PATH_DARK = 'icons/logo-button.svg';
-const LOGO_PATH_LIGHT = 'icons/logo-button-black.svg';
+/** The logo asset (design spec §1): the yellow mark, which is the one that
+ *  reads on the dark panel. The black copy (icons/logo-button-black.svg) is
+ *  still shipped for a future light theme — see theme.ts's banner. */
+const LOGO_PATH = 'icons/logo-button.svg';
 
 /** Guarded chrome.runtime.getURL — mirrors theme.ts's own chrome.* guards
  *  (optional-chained + try/catch) so this behaves the same under jsdom (no
@@ -543,10 +519,10 @@ const SIDEBAR_CSS = `
   }
   .logo img { width: 100%; height: 100%; display: block; }
 
-  /* Pushes the theme toggle + close to the right edge at every width — a
-     no-op while the flexible wordmark is showing, and what keeps them from
-     drifting left once it hides below the narrow breakpoint. */
-  .btn-theme { margin-left: auto; }
+  /* Pushes close to the right edge at every width — a no-op while the
+     flexible wordmark is showing, and what keeps it from drifting left once
+     the wordmark hides below the narrow breakpoint. */
+  .btn-close { margin-left: auto; }
 
   .wordmark {
     flex: 1 1 auto;
@@ -1470,7 +1446,6 @@ let sidebarShadow: ShadowRoot | null = null;
 let elSidebar: HTMLDivElement | null = null;
 let elResizer: HTMLDivElement | null = null;
 let elLogoImg: HTMLImageElement | null = null;
-let elBtnTheme: HTMLButtonElement | null = null;
 let elBtnAdd: HTMLButtonElement | null = null;
 /** The rounded box holding the "add note" button and its switch — it is the
  *  element that carries the on/off fill, the border and the states (§A2). */
@@ -1513,9 +1488,6 @@ let enlargedDockSuspended = false;
 let enlargedView: EnlargedViewHandle | null = null;
 /** Items the list is currently rendering — the enlarged view opens on these. */
 let currentItems: FeedbackItem[] = [];
-/** Bumped on every openSidebar/close so a stale theme-settle reveal from an
- *  earlier open can't unhide a panel that has since been re-hidden. */
-let revealToken = 0;
 let elNotif: HTMLDivElement | null = null;
 let elNotifIcon: HTMLSpanElement | null = null;
 let elNotifText: HTMLSpanElement | null = null;
@@ -1527,10 +1499,8 @@ let notifTimer: ReturnType<typeof setTimeout> | null = null;
 /** Unsubscribes this host from theme.ts's mode/resolved-theme change feed
  *  (the theme toggle's icon/label and the logo swap both depend on it). Set
  *  in initSidebar, called from destroySidebar. */
-let unsubscribeThemeChange: (() => void) | null = null;
 /** Drops this host from theme.ts's themed-host set; set in initSidebar,
  *  called from destroySidebar so a torn-down host is not kept alive there. */
-let unregisterThemedHost: (() => void) | null = null;
 
 // ---------------------------------------------------------------------------
 // DOM construction
@@ -1583,12 +1553,10 @@ function buildDOM(shadow: ShadowRoot): void {
   wordmark.className = 'wordmark';
   wordmark.textContent = 'salamander';
 
-  elBtnTheme = makeGhostButton(THEME_MODE_ICONS.auto, 'theme: auto', 'btn-theme');
   elBtnClose = makeGhostButton(ICON_CLOSE, 'close sidebar', 'btn-close');
 
   header.appendChild(logo);
   header.appendChild(wordmark);
-  header.appendChild(elBtnTheme);
   header.appendChild(elBtnClose);
 
   // ── Action row: "add note" + "keep on" switch, export + chevron menu ────
@@ -1783,17 +1751,6 @@ function makeMenuItem(svgMarkup: string, label: string): HTMLButtonElement {
   return btn;
 }
 
-/** Reflects the current theme mode onto the toggle's icon + aria-label/title
- *  (design spec §3.4 — "aria-label/title describe the *current* mode"). */
-function updateThemeToggleUI(mode: ThemeMode): void {
-  if (!elBtnTheme) return;
-  const icon = elBtnTheme.querySelector('.icon');
-  if (icon) icon.innerHTML = THEME_MODE_ICONS[mode];
-  const label = `theme: ${mode}`;
-  elBtnTheme.setAttribute('aria-label', label);
-  elBtnTheme.title = label;
-}
-
 /** The "add note" control's three states (design spec v3 §A2). 'kept-on'
  *  paints button-on **and** switch-on — it was 'locked' while v2 §A's
  *  padlock existed; the glyph went in v3 and the name followed. */
@@ -1871,14 +1828,6 @@ export function setAddButtonState(state: AddButtonState): void {
   if (elAddDesc) elAddDesc.textContent = ADD_BUTTON_DESCRIPTIONS[state];
 }
 
-/** Swaps the logo asset for the resolved theme (design spec §1: yellow mark
- *  on dark, black copy on light). */
-function updateLogoForTheme(resolved: ResolvedTheme): void {
-  if (!elLogoImg) return;
-  elLogoImg.src = extensionUrl(resolved === 'dark' ? LOGO_PATH_DARK : LOGO_PATH_LIGHT);
-  enlargedView?.setLogoSrc(elLogoImg.src);
-}
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -1908,7 +1857,6 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
   // light/dark theme for the sidebar's whole lifetime. In production the
   // host is never torn down (close only hides it), so the unregister is only
   // ever reached by destroySidebar().
-  unregisterThemedHost = registerThemedHost(sidebarHost);
 
   buildDOM(sidebarShadow);
 
@@ -2012,11 +1960,6 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
     callbacksRef?.onClose();
   });
 
-  elBtnTheme!.addEventListener('click', (e) => {
-    e.stopPropagation();
-    updateThemeToggleUI(cycleThemeMode());
-  });
-
   elResizer!.addEventListener('mousedown', onResizerMouseDown);
   elResizer!.addEventListener('keydown', onResizerKeyDown);
 
@@ -2029,18 +1972,10 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
   sidebarShadow.addEventListener('pointerdown', onShadowPointerDown, true);
   document.addEventListener('pointerdown', onDocumentPointerDown, true);
 
-  // Theme (design spec §3.4): paint the toggle/logo for whatever mode is
-  // already resolved (a fresh 'auto' default, or a mode already restored
-  // from chrome.storage.local by the time this host is built), then stay
-  // live for every future change — this surface's own cycleThemeMode()
-  // click above, another tab's chrome.storage.onChanged write, or (in
-  // 'auto' mode) the OS flipping light/dark.
-  updateThemeToggleUI(getThemeMode());
-  updateLogoForTheme(getResolvedTheme());
-  unsubscribeThemeChange = subscribeThemeChange((mode, resolved) => {
-    updateThemeToggleUI(mode);
-    updateLogoForTheme(resolved);
-  });
+  if (elLogoImg) {
+    elLogoImg.src = extensionUrl(LOGO_PATH);
+    enlargedView?.setLogoSrc(elLogoImg.src);
+  }
 
   // "add note" starts off (design spec v3 §A2) — content.ts moves it to
   // on/kept-on as the real add-mode state changes. The switch does not
@@ -2232,38 +2167,8 @@ export function openSidebar(): void {
   if (!elSidebar) return;
   elSidebar.hidden = false;
   visible = true;
-  revealWhenThemeSettled();
   applyPageResize();
   syncDockMotion();
-}
-
-/** Longest the panel stays invisible waiting for the persisted theme mode
- *  (chrome.storage.local is normally a few ms; this only caps a pathological
- *  read so opening the sidebar can never hang on it). */
-const THEME_REVEAL_TIMEOUT_MS = 150;
-
-/** Avoid a wrong-theme flash on first open: the stored themeMode is read
- *  asynchronously, so until that first read settles the panel would paint
- *  in the 'auto' default and then flip. Keep it laid out (the page shrink
- *  still applies, so nothing jumps) but visibility: hidden until the read
- *  settles or THEME_REVEAL_TIMEOUT_MS passes, whichever is first. Every
- *  later open is instant: the read has long since settled. */
-function revealWhenThemeSettled(): void {
-  const token = ++revealToken;
-  if (!elSidebar || isThemeModeSettled()) {
-    if (elSidebar) elSidebar.style.visibility = '';
-    return;
-  }
-  elSidebar.style.visibility = 'hidden';
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const reveal = () => {
-    if (timer !== null) clearTimeout(timer);
-    timer = null;
-    if (token !== revealToken || !elSidebar) return;
-    elSidebar.style.visibility = '';
-  };
-  timer = setTimeout(reveal, THEME_REVEAL_TIMEOUT_MS);
-  void whenThemeModeSettled().then(reveal);
 }
 
 /** Hide the sidebar and restore the page's original layout exactly as it was
@@ -2277,10 +2182,8 @@ export function closeSidebar(): void {
   // with a menu already down would be a surprise, and nothing in a hidden
   // panel should stay in the accessibility tree.
   closeActionMenu();
-  revealToken++;
   if (elSidebar) {
     elSidebar.hidden = true;
-    elSidebar.style.visibility = '';
   }
   visible = false;
   syncDockMotion();
@@ -2667,10 +2570,6 @@ export function destroySidebar(): void {
   clearMessage();
   endResizeDrag();
   restorePageResize();
-  unsubscribeThemeChange?.();
-  unsubscribeThemeChange = null;
-  unregisterThemedHost?.();
-  unregisterThemedHost = null;
   document.removeEventListener('pointerdown', onDocumentPointerDown, true);
   elSidebar?.removeEventListener('wheel', onSidebarChromeWheel);
   sidebarShadow?.removeEventListener('pointerdown', onShadowPointerDown, true);
@@ -2682,7 +2581,6 @@ export function destroySidebar(): void {
   elSidebar = null;
   elResizer = null;
   elLogoImg = null;
-  elBtnTheme = null;
   elBtnAdd = null;
   elAddGroup = null;
   elAddSwitch = null;
@@ -2708,7 +2606,6 @@ export function destroySidebar(): void {
   addModeHold = false;
   exportEnabled = true;
   importEnabled = true;
-  revealToken++;
   // Hard reset, not a soft close: the next initSidebar() re-reads the
   // persisted width from scratch, so in-memory width state must not leak
   // across a teardown.

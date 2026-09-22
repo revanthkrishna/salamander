@@ -54,18 +54,6 @@ export const ICON_ERROR = strokeIcon('<circle cx="12" cy="12" r="9"/><path d="M9
 /** Warning-bar icon. */
 export const ICON_WARNING = strokeIcon('<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/>');
 
-// ─── Theme toggle (design spec §3.4: sun / moon / half-circle) ──────────────
-
-export const ICON_THEME_LIGHT = strokeIcon(
-  '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5.6 5.6 4.2 4.2M19.8 19.8l-1.4-1.4M5.6 18.4 4.2 19.8M19.8 4.2l-1.4 1.4"/>',
-);
-export const ICON_THEME_DARK = strokeIcon('<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5Z"/>');
-/** "auto" — a half-filled circle rather than a third distinct glyph, so it
- *  reads as "in between" light and dark at a glance. */
-export const ICON_THEME_AUTO = strokeIcon(
-  '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none"/>',
-);
-
 // ─── Note list + enlarged view ──────────────────────────────────────────────
 
 /** The project's ONE trash glyph (design spec v5 §S): the list's hover delete

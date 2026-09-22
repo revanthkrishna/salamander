@@ -16,7 +16,7 @@ npx jest bundle                   # markdown serialization round-trip
 ```
 
 **Test coverage** (669 tests, 21 test files):
-- `sidebar.test.ts` — sidebar open/close, page resize, URL tracking, resizable width (drag/keyboard, persistence, clamping), narrow-width breakpoints, theme toggle wiring, the "add note" group + its "keep on" switch (paint, reveal, gestures, resting width, the single divider, the merged fill, the v4 §P track/knob colours), the export/chevron menu (open/close routes, keyboard, outside pointerdown, per-half hover/press), the one-bordered-block top section, the note's uniform padding and its hover delete, and the §H "on hold" state
+- `sidebar.test.ts` — sidebar open/close, page resize, URL tracking, resizable width (drag/keyboard, persistence, clamping), narrow-width breakpoints, the "add note" group + its "keep on" switch (paint, reveal, gestures, resting width, the single divider, the merged fill, the v4 §P track/knob colours), the export/chevron menu (open/close routes, keyboard, outside pointerdown, per-half hover/press), the one-bordered-block top section, the note's uniform padding and its hover delete, and the §H "on hold" state
 - `addMode.test.ts` — selection box creation, edge/corner resize hit zones, clamping to viewport, comment box positioning, counter thresholds, save/cancel state
 - `capture.test.ts` — viewport-relative CSS coordinates, CSS → device-pixel scale calculation, DPR accounting, crop verification
 - `contextCapture.test.ts` — deepest-common-ancestor selection, contained-elements prioritization (15-element cap), area-text aggregation, 2KB size governor, truncation markers

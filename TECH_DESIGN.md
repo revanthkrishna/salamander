@@ -35,7 +35,7 @@ The annotator is a Chrome extension that captures visual feedback from webpages.
 
 **Sidebar shell** (`src/sidebar.ts`)
 - Right-docked panel that **resizes the page** (shrinks `<html>` width), not an overlay
-- Header: logo + wordmark, theme toggle, close. A separate action row below it holds two
+- Header: logo + wordmark, close. A separate action row below it holds two
   icon-only groups: **add note** with an attached "keep add mode on" switch (design spec v3 §A2),
   and **export** with an attached chevron whose menu holds **import** (§C2)
 - While add mode is active the sidebar goes "on hold" (§H): the note list dims, stops taking
@@ -93,10 +93,11 @@ The annotator is a Chrome extension that captures visual feedback from webpages.
   written by `src/background.ts` alone; a content script reaches them only over `chrome.runtime`
   messages (`src/messages.ts`). This is what keeps the serialised write queue, id allocation and the
   no-orphan rules in one place, and keeps IndexedDB in the extension origin rather than the page's.
-- **UI preferences may be accessed directly from either context.** `themeMode` (`src/theme.ts`) and
-  `sidebarWidth` (`src/sidebar.ts`) live in `chrome.storage.local` and are read/written by the content
-  script itself: they are not domain data, they need no serialisation against item writes, and a
-  message round trip for a 5-byte preference would only add a wrong-theme/wrong-width flash on open.
+- **UI preferences may be accessed directly from either context.** `sidebarWidth` (`src/sidebar.ts`)
+  lives in `chrome.storage.local` and is read/written by the content script itself: it is not domain
+  data, it needs no serialisation against item writes, and a message round trip for a tiny preference
+  would only add a wrong-width flash on open. (There used to be a `themeMode` preference too; the
+  extension is now dark only — design spec §AA.)
   A future preference of the same kind (e.g. which connection is selected) follows this rule; anything
   keyed by domain or item does not.
 

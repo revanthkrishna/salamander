@@ -13,7 +13,7 @@
 import * as sidebar from '../sidebar';
 import { FeedbackItem } from '../types';
 import { ICON_WARNING } from '../icons';
-import { _resetThemeStateForTests, setThemeMode } from '../theme';
+import { _resetThemeStateForTests } from '../theme';
 
 function getHost(): HTMLElement | null {
   return document.getElementById('annotator-sidebar-host');
@@ -138,15 +138,15 @@ describe('sidebar shell', () => {
     expect(sidebar.isSidebarVisible()).toBe(false);
   });
 
-  test('header holds the logo, wordmark, theme toggle and close (in that order)', () => {
+  test('header holds the logo, wordmark and close (in that order) — no theme switcher, dark only', () => {
     sidebar.initSidebar(makeCallbacks());
     const header = shadowRoot().querySelector('.header') as HTMLElement;
     expect(header.querySelector('.logo img')).not.toBeNull();
     expect(header.querySelector('.wordmark')?.textContent).toBe('salamander');
 
     const buttons = Array.from(header.querySelectorAll('button'));
-    expect(buttons).toHaveLength(2);
-    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(['theme: auto', 'close sidebar']);
+    expect(buttons).toHaveLength(1);
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(['close sidebar']);
   });
 
   test('action row holds two groups: "add note" + its switch, then export + chevron (design spec v3 §A2/§C2)', () => {
@@ -762,19 +762,6 @@ describe('sidebar shell', () => {
     expect(html().style.color).toBe('green');
   });
 
-  test('destroySidebar unregisters the host from the theme feed', () => {
-    sidebar.initSidebar(makeCallbacks());
-    const host = getHost()!;
-    const before = host.getAttribute('data-theme');
-
-    sidebar.destroySidebar();
-    setThemeMode(before === 'dark' ? 'light' : 'dark');
-
-    // A registered host would have been repainted by the mode change; the
-    // torn-down one is no longer in theme.ts's set.
-    expect(host.getAttribute('data-theme')).toBe(before);
-  });
-
   // ── notifications (carried over from toolbar.ts) ─────────────────────────
 
   test('showError renders the message verbatim and auto-clears after 8s', () => {
@@ -848,51 +835,18 @@ describe('sidebar shell', () => {
     await expect(sidebar.showConfirmDialog('replace your current feedback?')).resolves.toBe(false);
   });
 
-  // ── theme toggle (design spec §3.4) ──────────────────────────────────────
+  // ── the logo (dark only, design spec §AA) ─────────────────────────────────
 
-  function themeToggleBtn(): HTMLButtonElement {
-    return shadowRoot().querySelector('button[aria-label^="theme:"]') as HTMLButtonElement;
-  }
-
-  test('the theme toggle starts on "theme: auto" and cycles auto -> light -> dark -> auto on click', () => {
-    sidebar.initSidebar(makeCallbacks());
-    const btn = themeToggleBtn();
-    expect(btn.getAttribute('aria-label')).toBe('theme: auto');
-    expect(btn.title).toBe('theme: auto');
-
-    btn.click();
-    expect(btn.getAttribute('aria-label')).toBe('theme: light');
-    btn.click();
-    expect(btn.getAttribute('aria-label')).toBe('theme: dark');
-    btn.click();
-    expect(btn.getAttribute('aria-label')).toBe('theme: auto');
-  });
-
-  test('the theme toggle label follows a mode change made elsewhere (e.g. another tab)', () => {
-    sidebar.initSidebar(makeCallbacks());
-    setThemeMode('dark'); // same call chrome.storage.onChanged sync ends in (see theme.test.ts)
-    expect(themeToggleBtn().getAttribute('aria-label')).toBe('theme: dark');
-  });
-
-  test('the sidebar host carries data-theme and the logo swaps between the yellow and black asset per theme', () => {
-    // chrome.runtime.getURL isn't part of the shared jest mock (setup.ts) —
-    // stand in an identity implementation just for this test, same pattern
-    // theme.test.ts's font-loading tests use.
+  test('the logo is the yellow mark, the one that reads on the dark panel', () => {
     const originalGetURL = (chrome.runtime as any).getURL;
     (chrome.runtime as any).getURL = jest.fn((path: string) => path);
     try {
       sidebar.initSidebar(makeCallbacks());
-      const host = getHost() as HTMLElement;
       const logoImg = shadowRoot().querySelector('.logo img') as HTMLImageElement;
-
-      expect(host.getAttribute('data-theme')).toBe('light');
-      expect(logoImg.getAttribute('src') ?? '').toContain('logo-button-black.svg');
-
-      themeToggleBtn().click(); // -> light (no-op transition, still light)
-      themeToggleBtn().click(); // -> dark
-      expect(host.getAttribute('data-theme')).toBe('dark');
       expect(logoImg.getAttribute('src') ?? '').toContain('logo-button.svg');
       expect(logoImg.getAttribute('src') ?? '').not.toContain('logo-button-black.svg');
+      // Dark only: nothing marks the host with a theme any more.
+      expect(getHost()!.hasAttribute('data-theme')).toBe(false);
     } finally {
       (chrome.runtime as any).getURL = originalGetURL;
     }
@@ -1055,12 +1009,10 @@ describe('sidebar review fixes', () => {
 
   // ── #9: header controls stay right-aligned when the wordmark hides ────────
 
-  test('the theme toggle carries margin-left: auto so theme + close stay pinned right', () => {
+  test('close carries margin-left: auto so it stays pinned right', () => {
     sidebar.initSidebar(makeCallbacks());
-    const theme = shadowRoot().querySelector('.header .btn-theme') as HTMLElement;
-    expect(theme).not.toBeNull();
-    expect(theme.getAttribute('aria-label')).toMatch(/^theme: /);
-    expect(cssRule('.btn-theme')).toMatch(/margin-left:\s*auto/);
+    expect(shadowRoot().querySelector('.header .btn-theme')).toBeNull();
+    expect(cssRule('.btn-close')).toMatch(/margin-left:\s*auto/);
   });
 
   // ── #6 / #8: resize handle focus ring and stacking ─────────────────────────
@@ -1083,44 +1035,11 @@ describe('sidebar review fixes', () => {
     expect(css()).toMatch(/\.resizer:focus-visible \+ \.resizer-line \{[^}]*z-index:\s*101/);
   });
 
-  // ── #5: no wrong-theme flash on first open ─────────────────────────────────
-
-  test('the panel stays invisible until the stored theme mode has loaded, then reveals in the right theme', () => {
-    let deliver: ((r: Record<string, unknown>) => void) | null = null;
-    (chrome.storage.local.get as jest.Mock).mockImplementation((key: unknown, cb: (r: Record<string, unknown>) => void) => {
-      if (key === 'themeMode') deliver = cb;
-      else cb({});
-    });
+  test('the panel is visible the moment it opens — there is no theme to wait for', () => {
     sidebar.initSidebar(makeCallbacks());
     sidebar.openSidebar();
     const panel = shadowRoot().querySelector('.sidebar') as HTMLElement;
     expect(panel.hidden).toBe(false);
-    expect(panel.style.visibility).toBe('hidden');
-
-    deliver!({ themeMode: 'dark' });
-    return Promise.resolve().then(() => {
-      expect(getHost()!.getAttribute('data-theme')).toBe('dark');
-      expect(panel.style.visibility).toBe('');
-    });
-  });
-
-  test('a storage read that never settles only delays the reveal briefly', () => {
-    jest.useFakeTimers();
-    (chrome.storage.local.get as jest.Mock).mockImplementation((key: unknown, cb: (r: Record<string, unknown>) => void) => {
-      if (key !== 'themeMode') cb({});
-    });
-    sidebar.initSidebar(makeCallbacks());
-    sidebar.openSidebar();
-    const panel = shadowRoot().querySelector('.sidebar') as HTMLElement;
-    expect(panel.style.visibility).toBe('hidden');
-    jest.advanceTimersByTime(150);
-    expect(panel.style.visibility).toBe('');
-  });
-
-  test('once the theme read has settled, opening is instant', () => {
-    sidebar.initSidebar(makeCallbacks()); // mock storage answers synchronously
-    sidebar.openSidebar();
-    const panel = shadowRoot().querySelector('.sidebar') as HTMLElement;
     expect(panel.style.visibility).toBe('');
   });
 
@@ -1925,10 +1844,9 @@ describe('sidebar on hold during add mode (design spec v3 §H)', () => {
     expect(q<HTMLButtonElement>('.btn-export').disabled).toBe(true);
     expect(q<HTMLButtonElement>('.btn-menu').disabled).toBe(true);
     expect(q<HTMLElement>('.export-group').classList.contains('is-disabled')).toBe(true);
-    // The user must always be able to stop, change theme or close.
+    // The user must always be able to stop or close.
     expect(q<HTMLButtonElement>('.btn-add').disabled).toBe(false);
     expect(q<HTMLButtonElement>('.add-switch').disabled).toBe(false);
-    expect(q<HTMLButtonElement>('.btn-theme').disabled).toBe(false);
     expect(q<HTMLButtonElement>('.btn-close').disabled).toBe(false);
 
     sidebar.setAddModeHold(false);
