@@ -42,7 +42,7 @@ Requires Chrome 105 or newer (`chrome.storage.session`, CSS `:has()`). The `dist
 5. Type a note (placeholder "what should change here?") and click **save**. The overlay hides for one frame, the screenshot and DOM context are captured, and the note appears at the bottom of the list. **cancel** discards it; clicking outside the box does nothing.
 6. To capture several in a row, hover the add button and flick **keep add mode on** — after each save you are straight back in add mode. Click the button or press Esc to stop. Double-click or shift+click the button does the same as the switch.
 7. Click a thumbnail to open the enlarged view: ↑/↓ or the peeking neighbours to move between notes, edit the text (it autosaves), the trash icon to delete, Esc or the rail's exit button to collapse. Hover a thumbnail for a delete button that skips the enlarged view.
-8. Browse the site normally — the sidebar stays open across SPA navigation and full reloads, showing the notes for whatever URL you are on; numbering continues across pages.
+8. Browse the site normally — the sidebar stays open across SPA navigation and full reloads, showing the notes for whatever URL you are on. Notes are numbered by their position on the page — every page counts from 1, and deleting a note renumbers the ones after it.
 9. **export** downloads `feedback-{domain}-{date}.zip` with every note on the site. The chevron beside it holds **import**, which replaces the site's notes with a bundle's (after confirmation if any exist).
 
 All visible UI text is lowercase by design. The extension is dark-themed only.
@@ -102,11 +102,11 @@ salamander 2.0.0\
 ````
 
 - Line 1 is the format stamp import checks; only format 2 is read (no backward compatibility — the extension was never published with another format).
-- One `## page` section per normalised URL, notes in capture order. Each note's JSON is the complete record; the visible `**note:**` line is for people and ignored on import.
+- One `## page` section per normalised URL, notes in capture order. `### feedback n` is the note's position on its page (from 1 on every page, the same number the sidebar shows); `screenshots/{id}.png` is the note's internal id, unique across the site. Each note's JSON is the complete record; the visible `**note:**` line is for people and ignored on import.
 - Free text in the JSON is capped (`text` 120, `html` 300, `area_text` 200, element text/attributes 80) and ends in `…` when cut. Notes and identifiers are never cut.
 - A drawing is only ever in the pixels: the alt text says "marked up by the reviewer" so a reader knows the marks are not part of the page. Re-importing keeps it flattened into the image.
 
-Import validates before writing anything, in order: file type → readable archive → `feedback.md` present → format stamp → item structure and JSON fields → every screenshot present → no duplicate ids → domain matches the current site. Every message is lowercase and listed in `REQUIREMENTS.md` §5.
+Import validates before writing anything, in order: file type → readable archive → `feedback.md` present → format stamp → item structure and JSON fields → every screenshot present → no duplicate ids (nor the same number twice on one page) → domain matches the current site. Every message is lowercase and listed in `REQUIREMENTS.md` §5.
 
 ---
 

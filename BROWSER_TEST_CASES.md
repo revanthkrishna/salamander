@@ -156,8 +156,8 @@ the same page.
       thumbnail appears at the bottom of the sidebar list showing the screenshot and a truncated
       preview of your note.
 - [ ] **2.12.** Capture 3+ items across 2 different pages of the same site (domain). Confirm the
-      item numbers keep incrementing across pages (e.g. page A gets #1–2, page B continues at #3),
-      not restarting per page.
+      numbers are per page: page A gets #1–2 and page B starts again at #1 (FR-CP-4). A number
+      is a note's position on its page, never a site-wide id.
 - [ ] **2.13. (Restricted pages)** Try clicking the extension icon on `chrome://extensions`, a
       blank new tab, or an open PDF. The sidebar should not appear, and nothing should break on the
       page itself.
@@ -252,7 +252,7 @@ Place a box first (click or drag) for each of these; the pencil only exists once
       note's PNG has the strokes burned in at full resolution (on a 2x display the lines are 4
       device px wide and line up with what you saw); the plain note's PNG is identical to what was
       captured. `feedback.md` carries no drawing data; only the drawn note's image alt text reads
-      `feedback {id} — marked up by the reviewer` (the plain one's is just `feedback {id}`). Re-import the zip: the drawn note comes back with
+      `feedback {n} — marked up by the reviewer` (the plain one's is just `feedback {n}`; n is the note's number on its page, the file is `screenshots/{id}.png`). Re-import the zip: the drawn note comes back with
       the strokes as part of the image (no separate layer), which is expected.
 - [ ] **2a.14. (reduced motion)** With "reduce motion" on in the OS, the pencil menu opens and
       closes instantly.
@@ -307,8 +307,9 @@ Place a box first (click or drag) for each of these; the pencil only exists once
       not an ×. Hovering it still says "exit enlarged view (esc)".
 - [ ] **3.4.** In the enlarged view click **delete** — the trash glyph must be the SAME one the note
       list's hover delete uses (v5 §S). The note disappears immediately (no
-      confirmation) and the view moves on to the next note (or the previous one if it was last);
-      deleting the only note collapses back to the empty list. Reload to confirm it's really gone.
+      confirmation) and the view moves on to the next note (or the previous one if it was last),
+      whose title shows its new, shifted number (design spec §AD — see 3.11); deleting the only
+      note collapses back to the empty list. Reload to confirm it's really gone.
 - [ ] **3.5.** After capturing several items, confirm the newest one appears at the **bottom** of
       the sidebar list (chronological order, not reverse).
 - [ ] **3.6.** Capture items on page A, navigate to page B (different URL, same domain) — sidebar
@@ -346,9 +347,9 @@ Place a box first (click or drag) for each of these; the pencil only exists once
       grows with the item as the dock magnification swells it. At rest it must be completely
       invisible, and clicking where it would be must open the note, not delete it.
       - Hover it: it turns red-tinted with a red icon. Press it: it darkens and dips slightly.
-      - Click it: the note disappears **immediately**, with no confirmation, and the list
-        renumbers/repaints. Reload to confirm it is really gone. The enlarged view must **not**
-        open at any point.
+      - Click it: the note disappears **immediately**, with no confirmation, and every note below
+        it moves up one number (delete #2 of 3 → the old #3 is now #2). Reload to confirm it is
+        really gone and the numbers stay. The enlarged view must **not** open at any point.
       - Keyboard: Tab from a note's thumbnail — focus lands on that note's delete button next,
         with a visible focus ring, and the button is visible while focused. Enter deletes.
       - Start add mode: the dimmed list's delete buttons must not respond to a click, and Tab must
@@ -358,6 +359,21 @@ Place a box first (click or drag) for each of these; the pencil only exists once
       - Disconnect the network / reload the extension mid-click if you can force a failure — the
         sidebar should show "couldn't delete item. try again." (the same wording the enlarged
         view's delete uses).
+- [ ] **3.11. (Numbering is position, design spec §AD)** Capture four notes on one page (#1–#4).
+      - Open #2 in the enlarged view and delete it: the view moves to the old #3, whose title now
+        reads "feedback #2"; the bottom peek is labelled "next note: feedback #3" (was #4); press
+        ↓ and the title reads "feedback #3". Collapse: the list shows #1, #2, #3 — the badges the
+        cards morph back onto must match the list, with no flash of the old numbers.
+      - Open the last note and delete it: the view moves to the previous note and its number is
+        unchanged. Delete during the expand animation (click the trash before the cards settle):
+        the same result, no stray number mid-morph.
+      - Delete every note on the page (list or view), then capture again: the new note is #1, not
+        #5. Reload: still #1.
+      - Two pages of the same site can each show a "feedback #1"; the export's `screenshots/`
+        folder still has one distinct file per note (the internal id — see 4.3).
+      - A number you typed inside a note's text ("see #3") is your text and is never rewritten.
+      - Two tabs on the same page: delete in one, the other keeps its old numbers until it
+        refreshes (same as the list itself — there is no cross-tab sync).
 
 ## 4. Exporting (§1.6)
 
@@ -373,7 +389,7 @@ Place a box first (click or drag) for each of these; the pencil only exists once
       three separate lines — `salamander {version}`, `date exported:` in your local time with its
       utc offset (e.g. `2026-09-21 21:40 utc-05:00`), `website:` your domain — with nothing else
       above the first page; one `page "{url}"` heading per URL, notes in the order you captured
-      them; each note shows `feedback {id}`, the screenshot rendered inline, `note:` with the text
+      them; each note shows `feedback {n}` (numbered from 1 on every page, as the sidebar shows them), the screenshot rendered inline (its file named by the internal id), `note:` with the text
       as written (a multi-paragraph note keeps its paragraphs; an empty one reads `(none)`), and a
       collapsed "element data" disclosure that opens to a ` ```json ` block. Every fixed label is
       lowercase.
@@ -416,10 +432,12 @@ Place a box first (click or drag) for each of these; the pencil only exists once
 - [ ] **5.9. (Domain mismatch)** Export from one site, try importing that bundle while on a
       different site → "this bundle contains feedback for '{other-domain}', but you're currently
       on '{current-domain}'."
-- [ ] **5.10. (Duplicate IDs)** Edit `feedback.md` so two notes share the same id (the `feedback
-      {id}` heading, the `screenshots/{id}.png` reference and the json `"id"` of one note all set
-      to another note's id), re-zip, import →
-      "this bundle appears to be corrupted (duplicate item ids)."
+- [ ] **5.10. (Duplicate IDs)** Edit `feedback.md` so two notes share the same id (the
+      `screenshots/{id}.png` reference and the json `"id"` of one note both set to another note's
+      id), re-zip, import → "this bundle appears to be corrupted (duplicate item ids)." Then, in a
+      fresh copy, give two notes **under the same `## page`** the same `### feedback n` heading
+      (and matching alt text) → the same message. A bundle with two pages that each start at
+      `### feedback 1` is normal and must import.
 - [ ] **5.11. (Other format)** Edit line 1 of `feedback.md` to `<!-- salamander-feedback-format: 3 -->`,
       re-zip, import → "this bundle was made by a different version of the extension and can't be
       imported." Nothing changes. The same message for a bundle exported by an older build (the

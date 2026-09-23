@@ -88,7 +88,7 @@ States: regular · hover · press · focus-visible (keyboard) · disabled.
 - Empty state: centred muted 13px "no feedback on this page yet".
 - Note list: padding 0 16px, gap 16. Each item = a real `<button>` (keep role/labels/keyboard behaviour the tests rely on):
   - thumbnail: full width, 100px tall, radius md, overflow hidden, background `raised`, screenshot `object-fit: contain` (never crop).
-  - number badge on top-left of the thumbnail (8px inset): accent fill, onAccent, mono 11px/600, 20px tall, radius sm.
+  - number badge on top-left of the thumbnail (8px inset): accent fill, onAccent, mono 11px/600, 20px tall, radius sm. The number is the note's position in this page's list (§AD).
   - note text below (gap 8): 13px/1.4, clamped to 3 lines (`-webkit-line-clamp: 3`), padding 8px 10px, radius md, transparent background. Empty note → italic muted "no note".
   - NO card/box around the item (no box-inside-box).
   - hover/focus: dock magnification (section 4). The hovered item's note text gets `surface` background + `shadowNote`; the note background is never wider than the thumbnail. The thumbnail never gets a background.
@@ -844,9 +844,13 @@ salamander 1.1.0\
 - **Pages**: `## page "{normalised url}"` — the address notes are grouped by. Notes on one page can
   have different full URLs (query strings, fragments); each note's exact URL is in its JSON.
   Pages in the order they were first captured; notes in capture order within a page.
-- **Each note**: `### feedback {id}`, a blank line, the screenshot, a blank line,
+- **Each note**: `### feedback {n}`, a blank line, the screenshot, a blank line,
   `**note:** {text}`, a blank line, the details block.
-  - Screenshot alt text: `feedback {id}`, or `feedback {id} — marked up by the reviewer` when the
+  - `{n}` is the note's number as the sidebar shows it: its position on its page, counting from 1
+    on every page (§AD). The screenshot path keeps the internal id, `screenshots/{id}.png`, which is
+    unique across the whole domain — so two pages can each have a `feedback 1` without their image
+    files colliding, and the json's `id` says which note a heading is.
+  - Screenshot alt text: `feedback {n}`, or `feedback {n} — marked up by the reviewer` when the
     note has a drawing. Invisible to someone looking at the image; for an agent reading the text
     it is the only way to know the marks aren't part of the page.
   - The note is written as-is, no surrounding quotes. A multi-paragraph note keeps its paragraphs.
@@ -862,8 +866,9 @@ salamander 1.1.0\
   4. `html` — the outer-HTML snippet
   5. `page_url` — this note's exact URL
   6. `note` — the full note text
-  7. then `id`, `normalised_url`, `page_title`, `created_at`, `selection_rect`, `viewport`, `dpr`,
-     `contained_elements`, `area_text`
+  7. then `id` (the internal id; the display number is the heading and not a field, so a record
+     can never disagree with where it sits), `normalised_url`, `page_title`, `created_at`,
+     `selection_rect`, `viewport`, `dpr`, `contained_elements`, `area_text`
   **Length caps (2026-09-21):** free-text values are cut past a limit and end in a single ellipsis
   `…` — there are no truncation flags anywhere in the file. `html` 300 characters, `text` 120,
   `area_text` 200, and each contained element's `text` and attribute values 80. A snippet capture
@@ -874,7 +879,30 @@ salamander 1.1.0\
   No field appears twice: the v1 `page_meta` block, which repeated url, normalised url, viewport,
   dpr, selection rect and capture time, is gone — only `page_title` survives from it. Keep
   snake_case names.
-- Import rebuilds each item from its JSON plus `screenshots/{id}.png`: the file is the record. A
+- Import rebuilds each item from its JSON plus `screenshots/{id}.png`: the file is the record. The
+  heading's number is checked only for repeats within one page (§5 #11 — the same number on two
+  pages is what a healthy export looks like) and otherwise not read: after import a note's number
+  is its position on the page again. A
   round trip (export, wipe, import) reproduces every stored field except (a) values the caps above
   shortened, which come back as written, and (b) the drawing, which comes back
-  flattened into the image as §AB already accepts.
+  flattened into the image as §AB already accepts; exporting again writes the same file.
+
+# AD. Note numbers are per page (2026-09-22)
+
+The number on a note — the list badge, the enlarged view's "feedback #n", the `### feedback n`
+heading in `feedback.md` — is the note's **position in its page's list**, 1-based, recomputed
+every time it is drawn. It is not stored anywhere and it is not the note's id.
+
+- Delete a note and every note after it on that page moves up one. This happens live in the
+  enlarged view: delete the second of four and the title, the card badges and the peek labels
+  ("next note: feedback #3") all shift while the view moves to its neighbour, mid-morph included.
+- Delete every note on a page and the next capture there is #1 again.
+- Every page has its own #1. "feedback #3" means the third note on this page, nothing site-wide.
+- The sidebar list and the export number from the same array (`pages[url]`, capture order), so
+  the file and the screen never disagree.
+- The internal id (unique across the domain, allocated by the service worker, never reused) stays
+  what it was: the storage key, the screenshot filename and the json `id`. Nothing in storage
+  changes; existing data simply renumbers on its next draw.
+- Numbers a reviewer typed into their own note text are theirs and are not rewritten.
+- Two tabs open on the same page can show different numbers until one refreshes — the same
+  staleness the list already has; there is no cross-tab sync.
