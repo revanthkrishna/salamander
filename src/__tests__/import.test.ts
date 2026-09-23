@@ -203,15 +203,79 @@ describe('parseImportBundle — §5 error ladder', () => {
     });
   });
 
-  test('#11 duplicate item ids', async () => {
-    // Two pages each holding a note numbered 1 — the writer puts both in the
-    // file, as a hand-edited bundle might.
+  test('#11 the same id on two pages: one screenshot file claimed by two notes', async () => {
+    // Both notes are `feedback 1` on their own page, which is fine — it is
+    // the shared id (`screenshots/1.png`, json "id": 1) that is refused: the
+    // id is the storage key, so a repeat would collapse two notes into one.
     const first = makeItem({ id: 1, normalisedUrl: 'https://example.com/a', note: 'first' });
     const second = makeItem({ id: 1, normalisedUrl: 'https://example.com/b', note: 'second' });
     const file = makeBundleFile({ 'https://example.com/a': [first], 'https://example.com/b': [second] });
 
     await expect(parseImportBundle(file, 'example.com')).rejects.toMatchObject({
       code: 'DUPLICATE_IDS',
+    });
+  });
+
+  test('#11 the same number twice under one page', async () => {
+    const url = 'https://example.com/a';
+    const first = makeItem({ id: 1, normalisedUrl: url, note: 'first' });
+    const second = makeItem({ id: 2, normalisedUrl: url, note: 'second' });
+    // A hand edit that gives the second note the first one's heading.
+    const markdown = markdownFor({ [url]: [first, second] }).replace(
+      '### feedback 2\n\n![feedback 2](screenshots/2.png)',
+      '### feedback 1\n\n![feedback 1](screenshots/2.png)',
+    );
+    const file = rawZipFile({
+      'feedback.md': strToU8(markdown),
+      'screenshots/1.png': PNG_BYTES,
+      'screenshots/2.png': PNG_BYTES,
+    });
+
+    await expect(parseImportBundle(file, 'example.com')).rejects.toMatchObject({
+      code: 'DUPLICATE_IDS',
+    });
+  });
+
+  test('#11 is not tripped by the same number on two pages — every page counts from 1', async () => {
+    const urlA = 'https://example.com/a';
+    const urlB = 'https://example.com/b';
+    const a1 = makeItem({ id: 1, normalisedUrl: urlA, pageUrl: urlA, note: 'a' });
+    const b1 = makeItem({ id: 2, normalisedUrl: urlB, pageUrl: urlB, note: 'b' });
+    const markdown = markdownFor({ [urlA]: [a1], [urlB]: [b1] });
+    expect(markdown.match(/^### feedback \d+$/gm)).toEqual(['### feedback 1', '### feedback 1']);
+
+    const bundle = await parseImportBundle(makeBundleFile({ [urlA]: [a1], [urlB]: [b1] }), 'example.com');
+
+    expect(bundle.items.map((i) => [i.id, i.normalisedUrl])).toEqual([[1, urlA], [2, urlB]]);
+  });
+
+  test('#11 tolerates a gap in a page\'s numbers (a note deleted by hand); the list renumbers on the next draw', async () => {
+    const url = 'https://example.com/a';
+    const first = makeItem({ id: 1, normalisedUrl: url, note: 'first' });
+    const second = makeItem({ id: 2, normalisedUrl: url, note: 'second' });
+    const markdown = markdownFor({ [url]: [first, second] }).replace('### feedback 2', '### feedback 3');
+    const file = rawZipFile({
+      'feedback.md': strToU8(markdown),
+      'screenshots/1.png': PNG_BYTES,
+      'screenshots/2.png': PNG_BYTES,
+    });
+
+    const bundle = await parseImportBundle(file, 'example.com');
+
+    // The heading's number goes no further than the check: the payload is
+    // the item, and its place in the list is what it will be numbered by.
+    expect(bundle.items.map((i) => i.id)).toEqual([1, 2]);
+    expect(bundle.items[1]).not.toHaveProperty('number');
+  });
+
+  test('#4 comes before #11: a bundle with both a missing screenshot and a repeated id reports the screenshot', async () => {
+    const first = makeItem({ id: 1, normalisedUrl: 'https://example.com/a', note: 'first' });
+    const second = makeItem({ id: 1, normalisedUrl: 'https://example.com/b', note: 'second' });
+    const markdown = markdownFor({ 'https://example.com/a': [first], 'https://example.com/b': [second] });
+    const file = rawZipFile({ 'feedback.md': strToU8(markdown) });
+
+    await expect(parseImportBundle(file, 'example.com')).rejects.toMatchObject({
+      code: 'MISSING_SCREENSHOT',
     });
   });
 

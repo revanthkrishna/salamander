@@ -14,16 +14,17 @@
 import { FeedbackItem } from '../types';
 import { parseFormatVersion } from './version';
 import * as v2 from './v2';
-import type { DecodedBundleItem } from './v2';
+import type { DecodedBundleEntry } from './v2';
 
 export { FORMAT_VERSION, parseFormatVersion } from './version';
-export type { DecodedBundleItem, ExportHeader } from './v2';
+export type { DecodedBundleEntry, DecodedBundleItem, ExportHeader } from './v2';
 
 export interface DecodedBundle {
   /** The format version the file declared. */
   version: number;
-  /** Every item in the file, in document order (pages then notes). */
-  items: DecodedBundleItem[];
+  /** Every note in the file, in document order (pages then notes): the item
+   *  and the display number its heading showed. */
+  entries: DecodedBundleEntry[];
 }
 
 /** Thrown by `decodeFeedbackMarkdown` for a file this build does not read:
@@ -49,14 +50,15 @@ export function buildFeedbackMarkdown(
 }
 
 /**
- * Read a `feedback.md` back into items.
+ * Read a `feedback.md` back into notes.
  *
  * Throws `UnsupportedFormatError` for a file in any format but the current
  * one (src/import.ts maps it to §5 #6), and a plain `Error` for a current-
  * format file whose structure or json does not parse or whose fields have the
  * wrong type (mapped to §5 #4b). This module has no opinion on user-facing
  * copy. Deciding whether the *values* are acceptable (screenshots present,
- * ids unique, domain matches) is the importer's ladder, not this reader's.
+ * ids and per-page numbers unique, domain matches) is the importer's
+ * ladder, not this reader's.
  */
 export function decodeFeedbackMarkdown(markdown: string): DecodedBundle {
   const version = parseFormatVersion(markdown);
@@ -65,7 +67,7 @@ export function decodeFeedbackMarkdown(markdown: string): DecodedBundle {
     // v3 arrives, FORMAT_VERSION moves to 3 and this case keeps reading the
     // v2 files people have already exported.
     case v2.FORMAT_VERSION_V2:
-      return { version, items: v2.decodeFeedbackMarkdown(markdown) };
+      return { version, entries: v2.decodeFeedbackMarkdown(markdown) };
     default:
       throw new UnsupportedFormatError(version);
   }

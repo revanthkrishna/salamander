@@ -110,14 +110,32 @@ describe('buildFeedbackMarkdown', () => {
     expect(bIndex).toBeGreaterThan(aIndex);
   });
 
-  test('orders notes within a page by capture order (id)', () => {
+  test('writes notes within a page in list order and numbers them by position, whatever their ids', () => {
     const url = 'https://example.com/page';
     const later = makeItem({ id: 5, normalisedUrl: url, note: 'later' });
     const earlier = makeItem({ id: 3, normalisedUrl: url, note: 'earlier' });
     const md = build({ [url]: [later, earlier] });
 
-    expect(md.indexOf('### feedback 3')).toBeGreaterThanOrEqual(0);
-    expect(md.indexOf('### feedback 5')).toBeGreaterThan(md.indexOf('### feedback 3'));
+    // The page's array order is the sidebar's order, so it is the file's
+    // too — never re-sorted by id — and the heading is the position in it;
+    // the screenshot path is the id (types.ts, FeedbackItem.id).
+    expect(md).toContain('### feedback 1\n\n![feedback 1](screenshots/5.png)');
+    expect(md).toContain('### feedback 2\n\n![feedback 2](screenshots/3.png)');
+    expect(md.indexOf('screenshots/5.png')).toBeLessThan(md.indexOf('screenshots/3.png'));
+    expect(md).not.toContain('### feedback 3');
+  });
+
+  test('every page numbers its notes from 1; the same number on two pages is two notes, told apart by id', () => {
+    const a1 = makeItem({ id: 1, normalisedUrl: 'https://example.com/a' });
+    const a2 = makeItem({ id: 3, normalisedUrl: 'https://example.com/a' });
+    const b1 = makeItem({ id: 2, normalisedUrl: 'https://example.com/b' });
+    const md = build({ 'https://example.com/a': [a1, a2], 'https://example.com/b': [b1] });
+
+    expect(md.match(/^### feedback \d+$/gm)).toEqual(['### feedback 1', '### feedback 2', '### feedback 1']);
+    expect(md.match(/screenshots\/\d+\.png/g)).toEqual(['screenshots/1.png', 'screenshots/3.png', 'screenshots/2.png']);
+    // The json carries the id only — the position is the heading, not a field.
+    expect(md.match(/^  "id": \d+,$/gm)).toEqual(['  "id": 1,', '  "id": 3,', '  "id": 2,']);
+    expect(md).not.toMatch(/"number"|"position"/);
   });
 
   test('omits pages with no notes', () => {
@@ -286,7 +304,10 @@ describe('round trip: buildFeedbackMarkdown -> decodeFeedbackMarkdown', () => {
     const decoded = decodeFeedbackMarkdown(build({ [urlA]: [a1, a2], [urlB]: [b1] }));
 
     expect(decoded.version).toBe(2);
-    expect(decoded.items).toEqual([asDecoded(a1), asDecoded(a2), asDecoded(b1)]);
+    expect(decoded.entries.map((e) => e.item)).toEqual([asDecoded(a1), asDecoded(a2), asDecoded(b1)]);
+    // Each note comes back with the number its heading showed: its position
+    // on its page, restarting on the second page.
+    expect(decoded.entries.map((e) => e.number)).toEqual([1, 2, 1]);
   });
 
   test('optional contained-element fields and unicode survive; a cut html comes back as written', () => {
@@ -311,7 +332,7 @@ describe('round trip: buildFeedbackMarkdown -> decodeFeedbackMarkdown', () => {
         containedElementsTruncated: true,
       },
     });
-    const [decoded] = decodeFeedbackMarkdown(build({ [item.normalisedUrl]: [item] })).items;
+    const [decoded] = decodeFeedbackMarkdown(build({ [item.normalisedUrl]: [item] })).entries.map((e) => e.item);
     // The file is the record: capture's cut marker is written as the one
     // ellipsis, so that is what comes back, still marked truncated; and the
     // list's truncation flag, which the file no longer carries, does not.
@@ -343,7 +364,7 @@ describe('round trip: buildFeedbackMarkdown -> decodeFeedbackMarkdown', () => {
     const first = makeItem({ id: 1, note: hostile });
     const second = makeItem({ id: 2, note: 'after the hostile one' });
     const decoded = decodeFeedbackMarkdown(build({ [first.normalisedUrl]: [first, second] }));
-    expect(decoded.items).toEqual([asDecoded(first), asDecoded(second)]);
+    expect(decoded.entries.map((e) => e.item)).toEqual([asDecoded(first), asDecoded(second)]);
   });
 
   test('a note quoting a whole exported item with the same id is still read from the real block', () => {
@@ -353,13 +374,13 @@ describe('round trip: buildFeedbackMarkdown -> decodeFeedbackMarkdown', () => {
     const decoded = decodeFeedbackMarkdown(build({ [item.normalisedUrl]: [item, second] }));
     // The quoted block carries id 1 too, but its note doesn't render to the
     // lines above it; the real block's does.
-    expect(decoded.items).toEqual([asDecoded(item), asDecoded(second)]);
+    expect(decoded.entries.map((e) => e.item)).toEqual([asDecoded(item), asDecoded(second)]);
   });
 
   test('with the visible note edited by hand, the first block with the id is read', () => {
     const item = makeItem({ note: 'original' });
     const md = build({ [item.normalisedUrl]: [item] }).replace('**note:** original', '**note:** edited\n\nand longer');
-    expect(decodeFeedbackMarkdown(md).items).toEqual([asDecoded(item)]);
+    expect(decodeFeedbackMarkdown(md).entries.map((e) => e.item)).toEqual([asDecoded(item)]);
   });
 });
 
@@ -402,7 +423,7 @@ describe('decodeFeedbackMarkdown — malformed current-format files throw a plai
 
   test.each([
     ['the screenshot line is missing', good.replace('![feedback 1](screenshots/1.png)\n', '')],
-    ['the screenshot line names another id', good.replace('screenshots/1.png', 'screenshots/2.png')],
+    ['the screenshot line names an id the json does not carry', good.replace('screenshots/1.png', 'screenshots/2.png')],
     ['the note line is missing', good.replace('**note:** this button is misaligned', 'this button is misaligned')],
     ['the json is unparsable', good.replace('"id": 1,', '"id": 1,,')],
     ['the json is for another id', good.replace('"id": 1,', '"id": 2,')],
@@ -425,18 +446,25 @@ describe('decodeFeedbackMarkdown — malformed current-format files throw a plai
     expect(thrown).not.toBeInstanceOf(UnsupportedFormatError);
   });
 
+  test('a heading whose number is not the note\'s position still reads, the number taken as written', () => {
+    // A hand-edited file may have gaps (someone deleted a note by hand); the
+    // list renumbers on the next draw, so the reader does not police it.
+    const [entry] = decodeFeedbackMarkdown(good.replace('### feedback 1', '### feedback 7')).entries;
+    expect(entry).toEqual({ number: 7, item: asDecoded(item) });
+  });
+
   test('the derived text field is optional and ignored on import', () => {
-    const [decoded] = decodeFeedbackMarkdown(good.replace(/\n  "text": .*\n/, '\n')).items;
+    const [decoded] = decodeFeedbackMarkdown(good.replace(/\n  "text": .*\n/, '\n')).entries.map((e) => e.item);
     expect(decoded).toEqual(asDecoded(item));
   });
 
   test('lines outside notes that a person added are ignored', () => {
     const edited = good.replace('## page', 'a line someone added\n\n## page');
-    expect(decodeFeedbackMarkdown(edited).items).toEqual([asDecoded(item)]);
+    expect(decodeFeedbackMarkdown(edited).entries.map((e) => e.item)).toEqual([asDecoded(item)]);
   });
 
   test('a stamped file with no notes reads as empty', () => {
-    expect(decodeFeedbackMarkdown(build({})).items).toEqual([]);
+    expect(decodeFeedbackMarkdown(build({})).entries.map((e) => e.item)).toEqual([]);
   });
 });
 

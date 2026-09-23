@@ -67,9 +67,9 @@ salamander 1.1.0\
 
 </details>
 
-### feedback 3
+### feedback 2
 
-![feedback 3](screenshots/3.png)
+![feedback 2](screenshots/3.png)
 
 **note:** the comparison table overflows at 1024px
 
@@ -123,9 +123,9 @@ second paragraph: the sticky header covers row one when you scroll
 
 ## page "https://example.com/docs/getting-started"
 
-### feedback 2
+### feedback 1
 
-![feedback 2](screenshots/2.png)
+![feedback 1](screenshots/2.png)
 
 **note:** (none)
 

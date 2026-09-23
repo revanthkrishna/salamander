@@ -286,9 +286,12 @@ export function mapCaptureError(err: unknown): CaptureErrorResponse {
 //
 // The content script assembles everything about a feedback item except its id
 // (note, selection rect, viewport/dpr, screenshotKey, §1.4 context) and sends
-// it here. The id is allocated on this side because §1.2 requires it to be
-// sequential across every URL of the domain and the counter lives in
-// chrome.storage.local, which only the service worker touches (gotcha #1).
+// it here. The id is allocated on this side because it must be unique across
+// every URL of the domain (it is the storage key and the export's screenshot
+// filename) and the counter lives in chrome.storage.local, which only the
+// service worker touches (gotcha #1). It is an identity, not the number the
+// user sees — that is the item's position in its page's list, computed at
+// render (types.ts, FeedbackItem.id).
 //
 // Writes are serialised through a single promise chain: read-modify-write on
 // the domain index is not atomic, so two captures resolving at once could
@@ -475,9 +478,12 @@ export async function handleGetDomainItemCount(
 /**
  * §1.7's replace-only semantics: discard whatever `message.domain` currently
  * has and install `message.items` in its place. Ids are preserved verbatim
- * from the bundle (not re-allocated) — §1.2's "item #7" numbering is meant
- * to stay meaningful across an export/import round trip, which is exactly
- * this phase's "done when" bar. Screenshot keys are *not* preserved (the
+ * from the bundle (not re-allocated): the id names the screenshot file and
+ * is the note's identity, so keeping it is what makes export → import →
+ * export reproduce the same bundle. The numbers the user sees are not in
+ * the payload at all — each note takes its place in its page's list, in
+ * document order, and is numbered from there (types.ts, FeedbackItem.id).
+ * Screenshot keys are *not* preserved (the
  * bundle never carries them — they're an internal storage handle, not
  * information a human/agent reading feedback.md needs, §1.6): each item gets
  * a freshly minted key and a freshly rendered thumbnail here, the same two

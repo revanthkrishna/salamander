@@ -11,9 +11,9 @@
 //
 //   ## page "{normalised url}"                  pages in first-capture order
 //
-//   ### feedback {id}                           notes in capture order
-//
-//   ![feedback {id}](screenshots/{id}.png)      alt gains " — marked up by the
+//   ### feedback {n}                            notes in capture order, n =
+//                                               position on the page from 1
+//   ![feedback {n}](screenshots/{id}.png)       alt gains " — marked up by the
 //                                               reviewer" when drawn on (§AB)
 //   **note:** {note, or "(none)"}
 //
@@ -31,6 +31,18 @@
 // fixed label is lowercase; user content (notes, urls, page text) is written
 // exactly as captured.
 //
+// Two numbers per note, on purpose (types.ts, FeedbackItem.id). The heading
+// and alt text carry the DISPLAY number — the note's 1-based position on its
+// page, the same number its badge and title show in the sidebar, restarting
+// at 1 on every page. The screenshot filename and the json `id` carry the
+// INTERNAL id, unique across the whole domain, so image files never collide
+// across pages and an import can keep the id as the note's identity. The
+// display number is not written into the json: it is the heading, and a
+// record that also carried its own position could disagree with where it
+// sits after a hand edit. The reader hands both back — the number so the
+// importer can refuse a page that lists the same number twice (§5 #11), the
+// id as the record's own.
+//
 // No field is written twice. The in-memory item repeats six of its own
 // fields inside `context.pageMeta` (url, normalised url, viewport, dpr,
 // selection rect, capture time — capture.ts fills both from the same values);
@@ -39,7 +51,7 @@
 //
 // Why notes cannot break the grammar: an item is read in order — heading,
 // image line, note line, then its `<details>` block, the one whose fenced
-// json parses to an object with the heading's id (and, when a note quotes
+// json parses to an object with the image line's id (and, when a note quotes
 // such a block itself, whose note renders to exactly the lines above it) —
 // and the parser resumes after that block's `</details>`. Whatever the note
 // contains (headings, fences, a quoted item) is skipped with it. The json
@@ -106,6 +118,15 @@ export interface JsonFeedbackItem {
  *  bundle never carries them — §1.6). */
 export type DecodedBundleItem = Omit<FeedbackItem, 'screenshotKey' | 'thumbnailDataUrl'>;
 
+/** One note as the reader gives it back: the item, and the display number
+ *  its `### feedback {n}` heading showed. The number is not part of the
+ *  item (it is never stored — the list position is recomputed at every
+ *  render); it is here for the importer's duplicate check. */
+export interface DecodedBundleEntry {
+  number: number;
+  item: DecodedBundleItem;
+}
+
 const NOTE_LABEL = '**note:** ';
 const EMPTY_NOTE = '(none)';
 const DRAWN_ALT_SUFFIX = ' — marked up by the reviewer';
@@ -126,15 +147,18 @@ const IMAGE_LINE_RE = /^!\[[^\]]*\]\(screenshots\/(\d+)\.png\)$/;
 /**
  * The full `feedback.md` for a domain's worth of feedback (§1.6 — export
  * covers every url of the domain). `pages` is exactly `DomainData.pages`:
- * keyed by normalised url, values in capture order. Ids are allocated in
- * capture order (§1.2), so sorting by id gives both orders §AC asks for.
+ * keyed by normalised url, values in capture order. Notes are written in
+ * that array order and numbered by their position in it — the same order
+ * and numbers the sidebar shows for the page, by construction. Pages are
+ * ordered by their first note's id: ids are allocated in capture order, so
+ * that is the order the pages were first captured in (§AC).
  */
 export function buildFeedbackMarkdown(
   pages: Record<string, FeedbackItem[]>,
   header: ExportHeader,
 ): string {
   const sections = Object.entries(pages)
-    .map(([url, items]) => ({ url, items: [...items].sort((a, b) => a.id - b.id) }))
+    .map(([url, items]) => ({ url, items }))
     .filter((section) => section.items.length > 0)
     .sort((a, b) => a.items[0].id - b.items[0].id);
 
@@ -149,13 +173,18 @@ export function buildFeedbackMarkdown(
 }
 
 function renderPage(section: { url: string; items: FeedbackItem[] }): string {
-  return [`## page "${section.url}"`, ...section.items.map(renderItem)].join('\n\n');
+  return [
+    `## page "${section.url}"`,
+    ...section.items.map((item, index) => renderItem(item, index + 1)),
+  ].join('\n\n');
 }
 
-function renderItem(item: FeedbackItem): string {
-  const alt = `feedback ${item.id}${hasStrokes(item.drawing) ? DRAWN_ALT_SUFFIX : ''}`;
+/** One note. `number` is its display number (position on the page); the
+ *  screenshot path is its id — see the file banner for why they differ. */
+function renderItem(item: FeedbackItem, number: number): string {
+  const alt = `feedback ${number}${hasStrokes(item.drawing) ? DRAWN_ALT_SUFFIX : ''}`;
   return [
-    `### feedback ${item.id}`,
+    `### feedback ${number}`,
     '',
     `![${alt}](screenshots/${item.id}.png)`,
     '',
@@ -326,21 +355,25 @@ function pickContainedElement(el: ContainedElement): JsonContainedElement {
 // ---------------------------------------------------------------------------
 
 /**
- * Every item in a version-2 `feedback.md`, in document order. The caller
- * (src/bundle/index.ts) has already matched the line-1 stamp.
+ * Every note in a version-2 `feedback.md`, in document order, each with the
+ * number its heading showed. The caller (src/bundle/index.ts) has already
+ * matched the line-1 stamp.
  *
  * Strict about shape and types, since everything read here goes to storage
- * and on to the page's UI: an item heading without its image line, a missing
- * or unparsable json block, a heading/image/json id disagreement, or a json
- * field of the wrong type all throw a plain `Error`, which src/import.ts
- * maps to §5 #4b's "corrupted" message. Lines outside items (the header,
- * blank lines, anything a person added between items) are ignored. Whether
- * the values are acceptable as a set — screenshots present, ids unique,
- * domain matching — is the importer's ladder, not this reader's.
+ * and on to the page's UI: a note heading without its image line, a missing
+ * or unparsable json block, an image/json id disagreement, or a json field
+ * of the wrong type all throw a plain `Error`, which src/import.ts maps to
+ * §5 #4b's "corrupted" message. The heading's number is taken as written
+ * and not checked against the note's position — a hand-edited file with a
+ * gap still reads, and the list renumbers on the next draw. Lines outside
+ * notes (the header, blank lines, anything a person added between notes)
+ * are ignored. Whether the values are acceptable as a set — screenshots
+ * present, ids and numbers unique, domain matching — is the importer's
+ * ladder, not this reader's.
  */
-export function decodeFeedbackMarkdown(markdown: string): DecodedBundleItem[] {
+export function decodeFeedbackMarkdown(markdown: string): DecodedBundleEntry[] {
   const lines = markdown.replace(/^\uFEFF/, '').split(/\r?\n/);
-  const items: DecodedBundleItem[] = [];
+  const entries: DecodedBundleEntry[] = [];
   let inPage = false;
   let i = 1; // line 0 is the format stamp
 
@@ -353,17 +386,17 @@ export function decodeFeedbackMarkdown(markdown: string): DecodedBundleItem[] {
     }
     const heading = ITEM_HEADING_RE.exec(line);
     if (heading) {
-      const id = parseInt(heading[1], 10);
-      if (!inPage) throw new Error(`feedback ${id}: comes before any page heading`);
-      const { record, nextIndex } = readItemBlock(lines, i + 1, id);
-      items.push(fromJsonFeedbackItem(record, id));
+      const number = parseInt(heading[1], 10);
+      if (!inPage) throw new Error(`feedback ${number}: comes before any page heading`);
+      const { id, record, nextIndex } = readItemBlock(lines, i + 1, number);
+      entries.push({ number, item: fromJsonFeedbackItem(record, id, `feedback ${number}`) });
       i = nextIndex;
       continue;
     }
     i += 1;
   }
 
-  return items;
+  return entries;
 }
 
 /** A structural line, allowing the stray trailing whitespace an editor may
@@ -377,12 +410,12 @@ function skipBlank(lines: string[], i: number): number {
   return i;
 }
 
-/** The image line that must follow `### feedback {id}` (after blank
- *  lines), or -1. */
-function imageLineAfter(lines: string[], headingIndex: number, id: number): number {
-  const i = skipBlank(lines, headingIndex + 1);
-  const match = IMAGE_LINE_RE.exec(lines[i] ?? '');
-  return match && parseInt(match[1], 10) === id ? i : -1;
+/** The image line that must follow `### feedback {n}` (after blank lines),
+ *  with the id its screenshot path names, or null. */
+function imageLineAfter(lines: string[], headingIndex: number): { index: number; id: number } | null {
+  const index = skipBlank(lines, headingIndex + 1);
+  const match = IMAGE_LINE_RE.exec(lines[index] ?? '');
+  return match ? { index, id: parseInt(match[1], 10) } : null;
 }
 
 interface ElementDataBlock {
@@ -412,21 +445,25 @@ function elementDataAt(lines: string[], k: number): ElementDataBlock | null {
   }
 }
 
+/** The lines of one note after its `### feedback {number}` heading: the
+ *  screenshot line (whose path names the note's id), the note line, and the
+ *  element-data block for that id. */
 function readItemBlock(
   lines: string[],
   startIndex: number,
-  id: number,
-): { record: Record<string, unknown>; nextIndex: number } {
-  const imageIndex = imageLineAfter(lines, startIndex - 1, id);
-  if (imageIndex < 0) throw new Error(`feedback ${id}: missing its screenshot line`);
+  number: number,
+): { id: number; record: Record<string, unknown>; nextIndex: number } {
+  const image = imageLineAfter(lines, startIndex - 1);
+  if (!image) throw new Error(`feedback ${number}: missing its screenshot line`);
+  const { id } = image;
 
-  const noteIndex = skipBlank(lines, imageIndex + 1);
+  const noteIndex = skipBlank(lines, image.index + 1);
   if (!(lines[noteIndex] ?? '').startsWith(NOTE_LABEL)) {
-    throw new Error(`feedback ${id}: missing its note line`);
+    throw new Error(`feedback ${number}: missing its note line`);
   }
 
   // This item's element data: a block after the note whose json carries the
-  // heading's id. Normally the first such block is the one, but a note may
+  // screenshot's id. Normally the first such block is the one, but a note may
   // itself quote a block, so the one whose note renders to exactly the
   // lines above it is preferred — that is the writer's own layout, and it is
   // how the real block is told from a quoted one. Only if the visible note
@@ -437,12 +474,12 @@ function readItemBlock(
     if (!block || block.record.id !== id) continue;
     const note = block.record.note;
     if (typeof note === 'string' && noteLines(lines, noteIndex, k) === renderNoteLine(note)) {
-      return block;
+      return { id, ...block };
     }
     first ??= block;
   }
-  if (first) return first;
-  throw new Error(`feedback ${id}: missing or unreadable element data`);
+  if (first) return { id, ...first };
+  throw new Error(`feedback ${number}: missing or unreadable element data`);
 }
 
 /** The note's text as written between the note label and line `end`. */
@@ -452,12 +489,18 @@ function noteLines(lines: string[], start: number, end: number): string {
 
 /**
  * A parsed json record -> the item it describes, checking every field's type
- * on the way (`id` is the heading's, already matched). `text` is derived at
- * export and ignored here; unknown fields are ignored too. `context.pageMeta`
- * is rebuilt from the item-level fields it duplicates plus `page_title`.
+ * on the way (`id` is the screenshot line's, already matched against the
+ * record). `text` is derived at export and ignored here; unknown fields are
+ * ignored too. `context.pageMeta` is rebuilt from the item-level fields it
+ * duplicates plus `page_title`. `where` names the note in an error the way
+ * the file shows it (its heading number).
  */
-export function fromJsonFeedbackItem(json: Record<string, unknown>, id: number): DecodedBundleItem {
-  const field = new FieldReader(json, `feedback ${id}`);
+export function fromJsonFeedbackItem(
+  json: Record<string, unknown>,
+  id: number,
+  where = `feedback ${id}`,
+): DecodedBundleItem {
+  const field = new FieldReader(json, where);
   const pageUrl = field.string('page_url');
   const normalisedUrl = field.string('normalised_url');
   const createdAt = field.string('created_at');

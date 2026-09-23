@@ -145,6 +145,7 @@ const DRAWING: Drawing = {
 const STORED: Record<string, number[]> = {
   'key-1': [137, 80, 78, 71, 1, 1, 1],
   'key-2': [137, 80, 78, 71, 2, 2, 2],
+  'key-3': [137, 80, 78, 71, 3, 3, 3],
 };
 
 function domainOf(items: FeedbackItem[]): DomainData {
@@ -283,5 +284,90 @@ describe('export: the header and the round trip (design spec §AC)', () => {
     // Item 1's screenshot is the composited one; item 2's is untouched.
     expect(bundle.items[0].screenshotDataUrl).toBe(bytesToDataUrl(new Uint8Array(COMPOSITED), 'image/png'));
     expect(bundle.items[1].screenshotDataUrl).toBe(bytesToDataUrl(new Uint8Array(STORED['key-2']), 'image/png'));
+  });
+});
+
+// The number in a heading is the note's position on its page; the screenshot
+// filename is its domain-wide id (types.ts, FeedbackItem.id). The export
+// numbers exactly what the sidebar shows because both read the page's
+// array order, and an export imported and exported again is the same file.
+describe('export: per-page numbering and the round trip', () => {
+  const A = 'https://example.com/a';
+  const B = 'https://example.com/b';
+
+  function onPage(id: number, url: string, overrides: Partial<FeedbackItem> = {}): FeedbackItem {
+    return makeItem(id, { normalisedUrl: url, pageUrl: url, ...overrides });
+  }
+
+  /** Ids 1 and 3 on page a, id 2 on page b: captured a, b, a. */
+  function pages(): Record<string, FeedbackItem[]> {
+    return { [A]: [onPage(1, A), onPage(3, A)], [B]: [onPage(2, B, { note: '' })] };
+  }
+
+  async function exportPages(
+    data: Record<string, FeedbackItem[]>,
+    image: (key: string) => string | null,
+  ): Promise<Record<string, Uint8Array>> {
+    getImage.mockImplementation(async (key: string) => image(key));
+    const before = downloads.length;
+    const res = await exportDomain('example.com', async () => ({ meta: { nextItemNumber: 4, version: 2 }, pages: data }), ENV);
+    expect(res).toEqual({ ok: true });
+    const url = downloads[before].url;
+    return unzipSync(new Uint8Array(Buffer.from(url.slice(url.indexOf(',') + 1), 'base64')));
+  }
+
+  const storedImage = (key: string): string | null =>
+    STORED[key] ? bytesToDataUrl(new Uint8Array(STORED[key]), 'image/png') : null;
+
+  test('headings count from 1 on every page; screenshot filenames keep the domain-wide id', async () => {
+    const files = await exportPages(pages(), storedImage);
+
+    expect(Object.keys(files).sort()).toEqual(['feedback.md', 'screenshots/1.png', 'screenshots/2.png', 'screenshots/3.png']);
+    const md = strFromU8(files['feedback.md']);
+    expect(md.match(/^### feedback \d+$/gm)).toEqual(['### feedback 1', '### feedback 2', '### feedback 1']);
+    expect(md).toContain('### feedback 2\n\n![feedback 2](screenshots/3.png)');
+    expect(md).toContain('## page "https://example.com/b"\n\n### feedback 1\n\n![feedback 1](screenshots/2.png)');
+    // The file is the writer's output for these pages, untouched.
+    expect(md).toBe(buildFeedbackMarkdown(pages(), headerFor(EXPORTED_AT)));
+  });
+
+  test('the drawn alt text follows the heading number, not the id', async () => {
+    const drawn = { [A]: [onPage(1, A), onPage(3, A, { drawing: DRAWING })] };
+    const md = strFromU8((await exportPages(drawn, storedImage))['feedback.md']);
+    expect(md).toContain('### feedback 2\n\n![feedback 2 — marked up by the reviewer](screenshots/3.png)');
+  });
+
+  test('export → import → export is the same file: feedback.md and every screenshot byte for byte', async () => {
+    const first = await exportPages(pages(), storedImage);
+    const zipUrl = downloads[downloads.length - 1].url;
+    const zip = new Uint8Array(Buffer.from(zipUrl.slice(zipUrl.indexOf(',') + 1), 'base64'));
+    const file = {
+      name: 'bundle.zip',
+      arrayBuffer: async () => zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength),
+    } as unknown as File;
+
+    const bundle = await parseImportBundle(file, 'example.com');
+
+    // Installed the way handleImportReplace (src/background.ts) does it: ids
+    // kept, fresh storage handles, items grouped by normalised url in
+    // document order — which is the order the headings were numbered in.
+    const images: Record<string, string> = {};
+    const reimported: Record<string, FeedbackItem[]> = {};
+    bundle.items.forEach(({ screenshotDataUrl, ...rest }, i) => {
+      const screenshotKey = `imported-${i}`;
+      images[screenshotKey] = screenshotDataUrl;
+      const item: FeedbackItem = { ...rest, screenshotKey, thumbnailDataUrl: 'data:image/jpeg;base64,BB' };
+      reimported[item.normalisedUrl] = [...(reimported[item.normalisedUrl] ?? []), item];
+    });
+    expect(Object.keys(reimported)).toEqual([A, B]);
+    expect(reimported[A].map((i) => i.id)).toEqual([1, 3]);
+
+    const second = await exportPages(reimported, (key) => images[key] ?? null);
+
+    expect(Object.keys(second).sort()).toEqual(Object.keys(first).sort());
+    expect(strFromU8(second['feedback.md'])).toBe(strFromU8(first['feedback.md']));
+    for (const name of Object.keys(first)) {
+      expect(Array.from(second[name])).toEqual(Array.from(first[name]));
+    }
   });
 });

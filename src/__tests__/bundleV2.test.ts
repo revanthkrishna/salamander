@@ -10,7 +10,10 @@
 //          fixture byte-for-byte for as long as FORMAT_VERSION is 2.
 //
 // The fixture deliberately covers: two pages, in first-capture order (not
-// insertion order); two notes on one page with different full urls; a note
+// insertion order); numbering that restarts on every page (types.ts,
+// FeedbackItem.id) — the pricing page's second note is `feedback 2` yet its
+// screenshot is `screenshots/3.png` and its json id 3, and the docs page's
+// only note is `feedback 1` with `screenshots/2.png`; two notes on one page with different full urls; a note
 // with quotes; a multi-paragraph note; an empty note, shown as "(none)"; a
 // note with a drawing (the alt-text suffix); an html snippet capture had
 // already cut (its "...[truncated]" marker becomes a single ellipsis in the
@@ -186,12 +189,22 @@ function stored(item: DecodedBundleItem, drawing?: Drawing): FeedbackItem {
   };
 }
 
-/** The stored pages behind the fixture. Insertion order is deliberately NOT
- *  the fixture's page or note order. */
+/** The stored pages behind the fixture. Page insertion order is deliberately
+ *  NOT the fixture's page order (the writer orders pages by first capture);
+ *  note order within a page IS the fixture's, because the writer numbers
+ *  notes by their position in the page's list — the sidebar's order. */
 const FIXTURE_PAGES: Record<string, FeedbackItem[]> = {
   [DOCS]: [stored(ITEM_2)],
-  [PRICING]: [stored(ITEM_3), stored(ITEM_1, DRAWING)],
+  [PRICING]: [stored(ITEM_1, DRAWING), stored(ITEM_3)],
 };
+
+/** What the reader gives back for the fixture: each item with the number
+ *  its heading showed — positions on the page, not ids. */
+const FIXTURE_ENTRIES = [
+  { number: 1, item: ITEM_1 },
+  { number: 2, item: ITEM_3_READ },
+  { number: 1, item: ITEM_2 },
+];
 
 describe('frozen v2 bundle — read', () => {
   test('line 1 is the format stamp', () => {
@@ -203,11 +216,18 @@ describe('frozen v2 bundle — read', () => {
   test('decodes to exactly the hand-written items, in document order, without the drawing', () => {
     const decoded = decodeFeedbackMarkdown(fixture);
     expect(decoded.version).toBe(2);
-    expect(decoded.items).toEqual([ITEM_1, ITEM_3_READ, ITEM_2]);
+    expect(decoded.entries).toEqual(FIXTURE_ENTRIES);
+  });
+
+  test('the heading number is the note\'s position on its page; the json id is its own', () => {
+    // Same number on two pages, two different notes — told apart by id.
+    const [pricingFirst, pricingSecond, docsOnly] = decodeFeedbackMarkdown(fixture).entries;
+    expect([pricingFirst.number, pricingSecond.number, docsOnly.number]).toEqual([1, 2, 1]);
+    expect([pricingFirst.item.id, pricingSecond.item.id, docsOnly.item.id]).toEqual([1, 3, 2]);
   });
 
   test('a decoded item carries no storage handle and no drawing', () => {
-    for (const item of decodeFeedbackMarkdown(fixture).items) {
+    for (const { item } of decodeFeedbackMarkdown(fixture).entries) {
       expect(item).not.toHaveProperty('screenshotKey');
       expect(item).not.toHaveProperty('thumbnailDataUrl');
       expect(item).not.toHaveProperty('drawing');
@@ -220,12 +240,12 @@ describe('frozen v2 bundle — read', () => {
       '**note:** someone rewrote this line by hand',
     );
     expect(edited).not.toBe(fixture);
-    expect(decodeFeedbackMarkdown(edited).items[0].note).toBe(ITEM_1.note);
+    expect(decodeFeedbackMarkdown(edited).entries[0].item.note).toBe(ITEM_1.note);
   });
 
   test('a copy saved with windows line endings and a byte-order mark still reads', () => {
     const crlf = `\uFEFF${fixture.replace(/\n/g, '\r\n')}`;
-    expect(decodeFeedbackMarkdown(crlf).items).toEqual([ITEM_1, ITEM_3_READ, ITEM_2]);
+    expect(decodeFeedbackMarkdown(crlf).entries).toEqual(FIXTURE_ENTRIES);
   });
 });
 
@@ -234,8 +254,16 @@ describe('frozen v2 bundle — write', () => {
     expect(buildFeedbackMarkdown(FIXTURE_PAGES, HEADER)).toBe(fixture);
   });
 
+  test('headings count from 1 on every page; screenshot paths keep the id', () => {
+    expect(fixture.match(/^### feedback \d+$/gm)).toEqual(['### feedback 1', '### feedback 2', '### feedback 1']);
+    expect(fixture.match(/screenshots\/\d+\.png/g)).toEqual(['screenshots/1.png', 'screenshots/3.png', 'screenshots/2.png']);
+    // The alt text follows the heading, the path the id.
+    expect(fixture).toContain('### feedback 2\n\n![feedback 2](screenshots/3.png)');
+    expect(fixture).toContain('### feedback 1\n\n![feedback 1](screenshots/2.png)');
+  });
+
   test('without the drawing only the alt text changes (the drawing is pixels, not data — §AB)', () => {
-    const plain = { ...FIXTURE_PAGES, [PRICING]: [stored(ITEM_3), stored(ITEM_1)] };
+    const plain = { ...FIXTURE_PAGES, [PRICING]: [stored(ITEM_1), stored(ITEM_3)] };
     expect(buildFeedbackMarkdown(plain, HEADER)).toBe(
       fixture.replace('![feedback 1 — marked up by the reviewer]', '![feedback 1]'),
     );

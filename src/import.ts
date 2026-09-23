@@ -12,7 +12,7 @@
 // Validation ladder (§5, in this exact order): not-a-zip (#1) -> corrupt archive (#2) -> missing
 // feedback.md (#3) -> not this build's format (#6) -> malformed/missing
 // element data or field (#4b) -> referenced screenshot absent (#4) ->
-// duplicate ids (#11) -> domain mismatch (#5). §5 #10 (existing-data
+// duplicate ids or numbers (#11) -> domain mismatch (#5). §5 #10 (existing-data
 // confirmation) is not this module's job: it needs the *current* item count,
 // which only the service worker knows, so content.ts asks for that
 // separately once `parseImportBundle` resolves.
@@ -29,7 +29,7 @@
 
 import { unzipSync, strFromU8 } from 'fflate';
 import { ImportError } from './types';
-import { decodeFeedbackMarkdown, DecodedBundleItem, UnsupportedFormatError } from './bundle';
+import { decodeFeedbackMarkdown, DecodedBundleEntry, UnsupportedFormatError } from './bundle';
 import { normaliseDomain } from './urlNorm';
 import { ImportItemPayload } from './messages';
 import { bytesToDataUrl } from './dataUrl';
@@ -87,34 +87,48 @@ export async function parseImportBundle(
   // a field missing or of the wrong type. The versioned reader (src/bundle)
   // throws for all of these; this is the one place that maps them to the
   // user-facing codes.
-  let decodedItems: DecodedBundleItem[];
+  let notes: DecodedBundleEntry[];
   try {
-    decodedItems = decodeFeedbackMarkdown(markdown).items;
+    notes = decodeFeedbackMarkdown(markdown).entries;
   } catch (err) {
     throw new ImportError(err instanceof UnsupportedFormatError ? 'UNSUPPORTED_FORMAT' : 'MALFORMED_CONTEXT');
   }
 
   // §5 #4 — an item's metadata references a screenshot not in the zip.
-  for (const { id } of decodedItems) {
-    if (!entries[`screenshots/${id}.png`]) {
+  for (const { item } of notes) {
+    if (!entries[`screenshots/${item.id}.png`]) {
       throw new ImportError('MISSING_SCREENSHOT');
     }
   }
 
-  // §5 #11 — duplicate ids within the bundle.
+  // §5 #11 — duplicates within the bundle, of either number a note carries
+  // (src/bundle/v2.ts's banner). The internal id must be unique across the
+  // whole file: it becomes the storage key, so a repeat would collapse two
+  // notes into one. The display number (the `### feedback {n}` heading)
+  // must be unique within its page only — numbering restarts on every
+  // page, so the same number on two pages is exactly what a healthy export
+  // looks like. Pages are told apart by normalised url, which is what the
+  // service worker groups the items by on write.
   const seenIds = new Set<number>();
-  for (const { id } of decodedItems) {
-    if (seenIds.has(id)) {
+  const seenNumbersByPage = new Map<string, Set<number>>();
+  for (const { number, item } of notes) {
+    if (seenIds.has(item.id)) {
       throw new ImportError('DUPLICATE_IDS');
     }
-    seenIds.add(id);
+    seenIds.add(item.id);
+    const seenNumbers = seenNumbersByPage.get(item.normalisedUrl) ?? new Set<number>();
+    if (seenNumbers.has(number)) {
+      throw new ImportError('DUPLICATE_IDS');
+    }
+    seenNumbers.add(number);
+    seenNumbersByPage.set(item.normalisedUrl, seenNumbers);
   }
 
   // §5 #5 — domain mismatch. A bundle is always exported for one domain
   // (§1.6), so any item's page_url is representative; an empty bundle has
   // no domain to compare and is treated as matching (nothing to replace
   // against anyway).
-  const bundleDomain = decodedItems.length > 0 ? domainOf(decodedItems[0].pageUrl) : currentDomain;
+  const bundleDomain = notes.length > 0 ? domainOf(notes[0].item.pageUrl) : currentDomain;
   if (bundleDomain !== currentDomain) {
     throw new ImportError('DOMAIN_MISMATCH', {
       fileDomain: bundleDomain,
@@ -122,7 +136,9 @@ export async function parseImportBundle(
     });
   }
 
-  const items: ImportItemPayload[] = decodedItems.map((item) => ({
+  // The heading's number goes no further: on write the note takes its place
+  // in the page's list and is numbered from there (types.ts, FeedbackItem.id).
+  const items: ImportItemPayload[] = notes.map(({ item }) => ({
     ...item,
     // Raw PNG bytes -> a data URL, so they can cross the chrome.runtime
     // boundary as JSON (gotcha #2) and land in imageStore exactly like every
