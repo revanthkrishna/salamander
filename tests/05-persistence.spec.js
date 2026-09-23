@@ -4,7 +4,8 @@
 // thumbnail list) survives a full page reload without any user action, and
 // survives SPA-style navigation while showing only the current normalised
 // URL's items (§1.5). Also covers edge case §6 #10 (same URL revisited later)
-// and that item numbering stays global/sequential across pages of one domain.
+// and that item numbering is per page: a second URL's first note is #1, not
+// the domain's next id (types.ts, FeedbackItem.id).
 
 const { test, expect } = require('@playwright/test');
 const helper = require('./helpers/extension');
@@ -74,9 +75,10 @@ test('SPA navigation keeps the sidebar open and filters thumbnails to the curren
   await expect(page.locator(helper.SELECTORS.emptyState)).toBeVisible();
   await expect(page.locator(helper.SELECTORS.thumbnail)).toHaveCount(0);
 
-  // Capturing here continues the domain's global sequential numbering (§1.2).
+  // Numbering is per page (FR-CP-4): this is page two's first note, so it is
+  // #1 here even though its internal id is the domain's second.
   await helper.captureFeedbackItem(page, { x: 150, y: 200, note: 'page two item', expectedCount: 1 });
-  await expect(page.locator(helper.SELECTORS.thumbnailBadge)).toHaveText('2');
+  await expect(page.locator(helper.SELECTORS.thumbnailBadge)).toHaveText('1');
 
   await page.locator('#goto-page-one').click();
   await expect(page).toHaveURL(/\/$/);

@@ -142,7 +142,7 @@ test('save is disabled while the note is empty, and capturing produces a numbere
   await expect(page.locator(helper.SELECTORS.thumbnailNote)).toHaveText('the fixed header overlaps this button');
 });
 
-test('feedback item ids are sequential across successive captures on the same page', async () => {
+test('feedback item numbers count up with successive captures on the same page', async () => {
   const page = await context.newPage();
   await openPageWithSidebar(page);
 
@@ -153,4 +153,34 @@ test('feedback item ids are sequential across successive captures on the same pa
   await expect(badges).toHaveCount(2);
   await expect(badges.nth(0)).toHaveText('1');
   await expect(badges.nth(1)).toHaveText('2');
+});
+
+test('deleting a note renumbers the ones after it, and an emptied page starts again at 1', async () => {
+  const page = await context.newPage();
+  await openPageWithSidebar(page);
+
+  await helper.captureFeedbackItem(page, { x: 100, y: 150, note: 'first item', expectedCount: 1 });
+  await helper.captureFeedbackItem(page, { x: 400, y: 150, note: 'second item', expectedCount: 2 });
+  await helper.captureFeedbackItem(page, { x: 100, y: 400, note: 'third item', expectedCount: 3 });
+
+  // Delete the middle note from the list's hover delete (design spec §L):
+  // the third note becomes #2 (FR-CP-4).
+  const items = page.locator(helper.SELECTORS.thumbnail);
+  await items.nth(1).hover();
+  await page.locator(helper.SELECTORS.thumbnailDelete).nth(1).click({ force: true });
+  await expect(items).toHaveCount(2);
+  const badges = page.locator(helper.SELECTORS.thumbnailBadge);
+  await expect(badges.nth(0)).toHaveText('1');
+  await expect(badges.nth(1)).toHaveText('2');
+  await expect(page.locator(helper.SELECTORS.thumbnailNote).nth(1)).toHaveText('third item');
+
+  // Delete the rest; the next capture is #1 again, not #4.
+  for (let remaining = 2; remaining > 0; remaining -= 1) {
+    await items.first().hover();
+    await page.locator(helper.SELECTORS.thumbnailDelete).first().click({ force: true });
+    await expect(items).toHaveCount(remaining - 1);
+  }
+  await expect(page.locator(helper.SELECTORS.emptyState)).toBeVisible();
+  await helper.captureFeedbackItem(page, { x: 150, y: 200, note: 'fresh start', expectedCount: 1 });
+  await expect(page.locator(helper.SELECTORS.thumbnailBadge)).toHaveText('1');
 });
