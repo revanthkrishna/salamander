@@ -21,9 +21,12 @@
 // the wild. `version` below is stamped on every index anyway, so a FUTURE
 // change has something to branch on.
 //
-// Item ids are sequential across every URL of a domain (§1.2), tracked via
-// DomainMeta.nextItemNumber in the index. Every read-modify-write here is
-// still non-atomic, which is why background.ts serialises every call
+// Item ids are sequential across every URL of a domain, tracked via
+// DomainMeta.nextItemNumber in the index, and never reused. They are keys,
+// not the numbers the user sees: a note's number is its position in its
+// page's array (`pages[url]`, capture order), computed by whoever renders it
+// and never written here (types.ts, FeedbackItem.id). Every read-modify-write
+// here is still non-atomic, which is why background.ts serialises every call
 // through one queue.
 //
 // Cross-cutting gotcha #1 — the storage boundary (TECH_DESIGN.md "Storage

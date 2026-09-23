@@ -162,7 +162,8 @@ describe('renderThumbnailList', () => {
     expect((li.querySelector('button.thumbnail') as HTMLElement).contains(del)).toBe(false);
 
     expect(del.type).toBe('button');
-    expect(del.getAttribute('aria-label')).toBe('delete feedback item 7');
+    // Labelled by position in the list (the only item), not by id.
+    expect(del.getAttribute('aria-label')).toBe('delete feedback item 1');
     // Every visible string is lowercase (REQUIREMENTS §3.4).
     expect(del.title).toBe('delete');
     expect(del.title).toBe(del.title.toLowerCase());
@@ -207,6 +208,73 @@ describe('renderThumbnailList', () => {
     const btn = listEl.querySelector('button.thumbnail') as HTMLButtonElement;
     expect(btn.tagName).toBe('BUTTON');
     expect(btn.type).toBe('button');
-    expect(btn.getAttribute('aria-label')).toContain('3');
+    expect(btn.getAttribute('aria-label')).toBe('feedback item 1');
+  });
+});
+
+// The number on a badge is the item's position in the list, computed at
+// every repaint and never stored; the id is only ever in data-item-id
+// (types.ts, FeedbackItem.id).
+describe('renderThumbnailList — numbering by position', () => {
+  let listEl: HTMLUListElement;
+  const callbacks = () => ({ onOpen: jest.fn(), onDelete: jest.fn() });
+
+  beforeEach(() => {
+    listEl = document.createElement('ul');
+  });
+
+  function badges(): string[] {
+    return Array.from(listEl.querySelectorAll('.thumbnail-badge')).map((b) => b.textContent ?? '');
+  }
+  function itemIds(): string[] {
+    return Array.from(listEl.querySelectorAll('button.thumbnail')).map((b) => (b as HTMLElement).dataset.itemId ?? '');
+  }
+
+  it('badges and labels show the position, not the id; data-item-id keeps the id', () => {
+    renderThumbnailList(listEl, [makeItem({ id: 4 }), makeItem({ id: 9 })], callbacks());
+
+    expect(badges()).toEqual(['1', '2']);
+    expect(itemIds()).toEqual(['4', '9']);
+    const [first, second] = Array.from(listEl.querySelectorAll('button.thumbnail'));
+    expect(first.getAttribute('aria-label')).toBe('feedback item 1');
+    expect(second.getAttribute('aria-label')).toBe('feedback item 2');
+    const deletes = Array.from(listEl.querySelectorAll('button.thumbnail-delete'));
+    expect(deletes.map((d) => d.getAttribute('aria-label'))).toEqual(['delete feedback item 1', 'delete feedback item 2']);
+    expect(deletes.map((d) => (d as HTMLElement).dataset.itemId)).toEqual(['4', '9']);
+  });
+
+  it('deleting an item renumbers every item after it on the next repaint', () => {
+    renderThumbnailList(listEl, [makeItem({ id: 1 }), makeItem({ id: 2 }), makeItem({ id: 3 })], callbacks());
+    expect(badges()).toEqual(['1', '2', '3']);
+
+    // The list comes back from storage without item 2.
+    renderThumbnailList(listEl, [makeItem({ id: 1 }), makeItem({ id: 3 })], callbacks());
+    expect(badges()).toEqual(['1', '2']);
+    expect(itemIds()).toEqual(['1', '3']);
+  });
+
+  it('after every item is deleted the next capture starts again at 1, although its id keeps growing', () => {
+    renderThumbnailList(listEl, [makeItem({ id: 1 }), makeItem({ id: 2 }), makeItem({ id: 3 })], callbacks());
+    renderThumbnailList(listEl, [], callbacks());
+    expect(badges()).toEqual([]);
+
+    renderThumbnailList(listEl, [makeItem({ id: 4 })], callbacks());
+    expect(badges()).toEqual(['1']);
+    expect(itemIds()).toEqual(['4']);
+  });
+
+  it('two pages each start at 1 — the domain-wide ids never show', () => {
+    const pageA = 'https://example.com/a';
+    const pageB = 'https://example.com/b';
+    renderThumbnailList(
+      listEl,
+      [makeItem({ id: 1, normalisedUrl: pageA }), makeItem({ id: 2, normalisedUrl: pageA })],
+      callbacks(),
+    );
+    expect(badges()).toEqual(['1', '2']);
+
+    renderThumbnailList(listEl, [makeItem({ id: 3, normalisedUrl: pageB })], callbacks());
+    expect(badges()).toEqual(['1']);
+    expect(itemIds()).toEqual(['3']);
   });
 });

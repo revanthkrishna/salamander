@@ -89,7 +89,15 @@ export interface CapturedContext {
 // ---------------------------------------------------------------------------
 
 export interface FeedbackItem {
-  /** Globally unique, sequential across all URLs of the domain (§1.2). */
+  /** Internal identity: unique across all URLs of the domain, allocated in
+   *  capture order by the service worker, never reused after a delete. It is
+   *  the storage key (`item:{domain}:{id}`), the screenshot filename in an
+   *  export (`screenshots/{id}.png`) and the link to the IndexedDB image —
+   *  and it is NOT the number the user sees. The number shown on a badge, in
+   *  the enlarged view's title and as a `### feedback {n}` heading is the
+   *  item's 1-based position in its page's list (`DomainData.pages[url]`,
+   *  capture order), computed at every render and never stored: deleting a
+   *  note renumbers those after it, and each page starts at 1. */
   id: number;
   /** Full page URL at capture time. */
   pageUrl: string;
@@ -161,8 +169,10 @@ export type ItemPatch = Partial<Pick<FeedbackItem, 'note'>>;
 // ---------------------------------------------------------------------------
 
 export interface DomainMeta {
-  /** Always max(all item ids in this domain) + 1; starts at 1. Sequential
-   *  across all URLs of the domain (§1.2). */
+  /** The internal id allocator: always max(all item ids in this domain) + 1,
+   *  starting at 1, sequential across all URLs of the domain, and only ever
+   *  growing. Despite the name it is not a display number — see
+   *  `FeedbackItem.id` for what the user actually sees. */
   nextItemNumber: number;
   /** Storage schema version (storage.ts's STORAGE_VERSION at write time).
    *  Nothing reads it today — no build with an older stored shape was ever
@@ -174,7 +184,9 @@ export interface DomainMeta {
 /** A domain's feedback as every consumer sees it: the items grouped by
  *  normalised URL, in capture order. This is the IN-MEMORY shape —
  *  storage.ts assembles it from the split layout below and splits it again
- *  on write. */
+ *  on write. The order of each page's array is the one thing the sidebar
+ *  list and the export both number from (position + 1), so the two can
+ *  never disagree. */
 export interface DomainData {
   meta: DomainMeta;
   /** Keyed by normalised page URL. */

@@ -1042,7 +1042,8 @@ describe('delete', () => {
     await del();
     expect(cbs.onDelete).toHaveBeenCalledWith(expect.objectContaining({ id: 2 }));
     expect(mainCard()!.dataset.itemId).toBe('3');
-    expect(title()).toBe('feedback #3');
+    // Note 3 is now the second note on the page, so it is #2.
+    expect(title()).toBe('feedback #2');
     expect(shadow().querySelector('.xp-card[data-item-id="2"]')).toBeNull();
   });
 
@@ -1580,5 +1581,166 @@ describe('empty-note error a11y', () => {
     typeInto(textarea(), 'fixed');
     expect(textarea().hasAttribute('aria-invalid')).toBe(false);
     expect(textarea().hasAttribute('aria-describedby')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Numbering by position (types.ts, FeedbackItem.id)
+// ---------------------------------------------------------------------------
+// The title, the card badges and the peek labels show a note's position in
+// the page's list — recomputed as the list changes, never its id — so a
+// delete renumbers every later note while the view is up, and what the
+// cards carry back to the list on collapse is what the list then shows.
+
+describe('numbering by position', () => {
+  const badgeOf = (card: Element | null) => card?.querySelector('.xp-card-badge')?.textContent;
+  const listBadges = () => Array.from(shadow().querySelectorAll('.thumbnail-badge')).map((b) => b.textContent);
+  const listIds = () =>
+    Array.from(shadow().querySelectorAll<HTMLElement>('button.thumbnail')).map((b) => b.dataset.itemId);
+
+  function setupWith(list: FeedbackItem[]): void {
+    sidebar.initSidebar({
+      onAdd: () => {},
+      onExport: () => {},
+      onImportFile: () => {},
+      onClose: () => {},
+      onOpenItem: () => {},
+    });
+    sidebar.openSidebar();
+    items = list;
+    sidebar.setThumbnails(items);
+  }
+
+  async function del(): Promise<void> {
+    q<HTMLButtonElement>('.xp-delete')!.click();
+    jest.advanceTimersByTime(T.deleteStep);
+    await flush();
+  }
+
+  test('the title, badges and peek labels show list positions, never ids', () => {
+    setupWith([makeItem(10), makeItem(20), makeItem(30)]);
+    open(20);
+    expect(title()).toBe('feedback #2');
+    expect(mainCard()!.dataset.itemId).toBe('20');
+    expect(badgeOf(mainCard())).toBe('2');
+    expect(peek('prev')!.dataset.itemId).toBe('10');
+    expect(peek('prev')!.getAttribute('aria-label')).toBe('previous note: feedback #1');
+    expect(badgeOf(peek('prev'))).toBe('1');
+    expect(peek('next')!.dataset.itemId).toBe('30');
+    expect(peek('next')!.getAttribute('aria-label')).toBe('next note: feedback #3');
+    expect(badgeOf(peek('next'))).toBe('3');
+    // The list the view grew out of says the same.
+    expect(listBadges()).toEqual(['1', '2', '3']);
+  });
+
+  test('deleting the first note: the next becomes #1 and its neighbour #2, live', async () => {
+    setupWith([makeItem(10), makeItem(20), makeItem(30)]);
+    open(10);
+    settleOpen();
+    await del();
+    expect(title()).toBe('feedback #1');
+    expect(mainCard()!.dataset.itemId).toBe('20');
+    expect(badgeOf(mainCard())).toBe('1');
+    expect(peek('prev')).toBeNull();
+    expect(peek('next')!.dataset.itemId).toBe('30');
+    expect(peek('next')!.getAttribute('aria-label')).toBe('next note: feedback #2');
+    expect(badgeOf(peek('next'))).toBe('2');
+  });
+
+  test('deleting a middle note: the note after it takes its number', async () => {
+    setup(3);
+    open(2);
+    settleOpen();
+    await del();
+    expect(title()).toBe('feedback #2');
+    expect(mainCard()!.dataset.itemId).toBe('3');
+    expect(badgeOf(mainCard())).toBe('2');
+    expect(peek('prev')!.dataset.itemId).toBe('1');
+    expect(peek('prev')!.getAttribute('aria-label')).toBe('previous note: feedback #1');
+    expect(badgeOf(peek('prev'))).toBe('1');
+    expect(peek('next')).toBeNull();
+  });
+
+  test('deleting the last note: the view moves to the previous one, whose number is unchanged', async () => {
+    setup(3);
+    open(3);
+    settleOpen();
+    await del();
+    expect(title()).toBe('feedback #2');
+    expect(mainCard()!.dataset.itemId).toBe('2');
+    expect(badgeOf(mainCard())).toBe('2');
+    expect(peek('prev')!.getAttribute('aria-label')).toBe('previous note: feedback #1');
+    expect(peek('next')).toBeNull();
+  });
+
+  test('a delete during the expand (mid-morph) still lands on the renumbered neighbour', async () => {
+    setup(3);
+    open(1);
+    await del(); // before settleOpen: the cards are still morphing in
+    jest.advanceTimersByTime(T.expandSettle);
+    expect(wrapper()!.dataset.state).toBe('open');
+    expect(title()).toBe('feedback #1');
+    expect(mainCard()!.dataset.itemId).toBe('2');
+    expect(badgeOf(mainCard())).toBe('1');
+    expect(badgeOf(peek('next'))).toBe('2');
+  });
+
+  test('collapsing after a delete hands the list back renumbered, and the cards carry the new numbers to it', async () => {
+    setup(3);
+    open(2);
+    settleOpen();
+    await del();
+    exitBtn().click();
+    expect(wrapper()!.dataset.state).toBe('closing');
+    // Mid-collapse: the list is already repainted without note 2, and the
+    // cards about to land on it show the list's numbers.
+    expect(listBadges()).toEqual(['1', '2']);
+    expect(listIds()).toEqual(['1', '3']);
+    expect(badgeOf(q('.xp-card[data-item-id="3"]'))).toBe('2');
+    expect(badgeOf(q('.xp-card[data-item-id="1"]'))).toBe('1');
+    jest.advanceTimersByTime(T.collapseSettle);
+    expect(sidebar.isEnlargedViewOpen()).toBe(false);
+    expect(listBadges()).toEqual(['1', '2']);
+  });
+
+  test('deleting the only note collapses to the empty list; a new capture then starts at 1', async () => {
+    setupWith([makeItem(7)]);
+    open(7);
+    settleOpen();
+    await del();
+    jest.advanceTimersByTime(T.collapseSettle);
+    expect(sidebar.isEnlargedViewOpen()).toBe(false);
+    expect(listBadges()).toEqual([]);
+    sidebar.setThumbnails([makeItem(8)]);
+    expect(listBadges()).toEqual(['1']);
+    expect(listIds()).toEqual(['8']);
+  });
+
+  test('a save failure for a note no longer shown names its position, not its id', async () => {
+    setupWith([makeItem(10), makeItem(20)]);
+    const saves = deferredSaves();
+    open(10, makeCallbacks({ onSaveNote: saves.onSaveNote }));
+    settleOpen();
+    typeInto(textarea(), 'edit one');
+    downBtn().click();
+    jest.advanceTimersByTime(T.carousel);
+    saves.pending[0](false);
+    await flush();
+    expect(status().textContent).toBe(saveErrorFor(1));
+    expect(status().textContent).not.toContain('10');
+  });
+
+  test('a save failure reported to the banner after collapse names the position too', async () => {
+    setupWith([makeItem(10), makeItem(20)]);
+    const saves = deferredSaves();
+    open(20, makeCallbacks({ onSaveNote: saves.onSaveNote }));
+    settleOpen();
+    typeInto(textarea(), 'unsaved');
+    keydown(textarea(), 'Escape');
+    saves.pending[0](false);
+    await flush();
+    jest.advanceTimersByTime(T.collapseSettle);
+    expect(sidebar.isEnlargedViewOpen()).toBe(false);
+    expect(q('.notif-text')!.textContent).toBe(saveErrorFor(2));
   });
 });

@@ -552,7 +552,9 @@ describe('content.ts: enlarged view wiring (design spec v2 §D)', () => {
   test('clicking a note expands the sidebar into the enlarged view', async () => {
     await openFirstNote();
     expect(sidebarApi.isEnlargedViewOpen()).toBe(true);
-    expect(sidebarShadow().querySelector('.xp-title')!.textContent).toBe('feedback #7');
+    // The title shows the note's position on the page (the first of two),
+    // not its id (7) — types.ts, FeedbackItem.id.
+    expect(sidebarShadow().querySelector('.xp-title')!.textContent).toBe('feedback #1');
     // The full-resolution image is fetched for the main note.
     const sent = (chrome.runtime.sendMessage as jest.Mock).mock.calls.map((c) => c[0]);
     expect(sent).toContainEqual({ type: 'GET_IMAGE', screenshotKey: 'key-1' });

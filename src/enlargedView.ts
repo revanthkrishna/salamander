@@ -1301,6 +1301,35 @@ class EnlargedView {
     this.hiddenThumbs = [];
   }
 
+  /** The number the note with `id` is shown under: its 1-based position in
+   *  this view's list (types.ts, FeedbackItem.id) — never its id. Recomputed
+   *  on every read, so a delete renumbers every later note at once; null once
+   *  the note has been removed from the list. */
+  private numberOf(id: number): number | null {
+    const index = this.items.findIndex((i) => i.id === id);
+    return index < 0 ? null : index + 1;
+  }
+
+  /** The save-failure copy for a note other than the one on screen, named
+   *  by its display number. A note that has since been deleted (its draft is
+   *  forgotten with it, so this cannot happen in practice) gets the unnamed
+   *  message rather than a number that no longer means anything. */
+  private saveErrorMessageFor(id: number): string {
+    const number = this.numberOf(id);
+    return number === null ? SAVE_ERROR_MESSAGE : saveErrorFor(number);
+  }
+
+  /** Bring every live card's badge up to date with the list order. Called
+   *  wherever the cards are re-laid out, so a delete mid-morph still lands
+   *  its neighbours on the list under their new numbers. A card whose note
+   *  is gone keeps its last text while it fades out. */
+  private syncBadges(): void {
+    for (const card of this.cards.values()) {
+      const number = this.numberOf(card.item.id);
+      if (number !== null) card.badge.textContent = String(number);
+    }
+  }
+
   private targets(): Map<number, Role> {
     const m = new Map<number, Role>();
     const cur = this.items[this.idx];
@@ -1334,6 +1363,7 @@ class EnlargedView {
     for (const card of this.cards.values()) {
       if (!want.has(card.item.id) && card.role !== 'gone') this.retireCard(card, animate);
     }
+    this.syncBadges();
 
     for (const [id, role] of want) {
       const item = this.items.find((i) => i.id === id)!;
@@ -1404,7 +1434,9 @@ class EnlargedView {
     img.src = this.fullImages.get(item.id) ?? item.thumbnailDataUrl;
     const badge = document.createElement('span');
     badge.className = 'xp-card-badge';
-    badge.textContent = String(item.id);
+    // The display number, kept current by syncBadges(); the id lives only
+    // in data-item-id above.
+    badge.textContent = String(this.numberOf(item.id) ?? '');
     badge.setAttribute('aria-hidden', 'true');
     media.appendChild(img);
     // Design spec §AB: over the main image and the peeks alike, and inside
@@ -1511,7 +1543,7 @@ class EnlargedView {
     card.el.classList.toggle('is-next', role === 'next');
     card.el.tabIndex = peek ? 0 : -1;
     if (peek) {
-      const label = `${role === 'prev' ? 'previous' : 'next'} note: feedback #${card.item.id}`;
+      const label = `${role === 'prev' ? 'previous' : 'next'} note: feedback #${this.numberOf(card.item.id)}`;
       card.el.setAttribute('aria-label', label);
       card.el.title = role === 'prev' ? 'previous note' : 'next note';
       card.el.removeAttribute('aria-hidden');
@@ -1588,7 +1620,7 @@ class EnlargedView {
   private setContent(item: FeedbackItem): void {
     this.shownId = item.id;
     this.applyStageGeometry();
-    this.titleEl.textContent = `feedback #${item.id}`;
+    this.titleEl.textContent = `feedback #${this.numberOf(item.id)}`;
     this.textarea.value = this.autosave.draft(item.id) ?? item.note;
     this.textarea.classList.remove('is-error');
     this.setStatus('none', true);
@@ -1795,6 +1827,9 @@ class EnlargedView {
       this.mount.renderList(this.itemsForList());
       this.listDirty = false;
     }
+    // The cards are about to land on the list with their badges showing;
+    // after a delete those numbers are not the ones they were created with.
+    this.syncBadges();
     const cur = this.items[this.idx];
     if (cur) this.mount.centreListOn(cur.id);
     const targets = cur && !this.reduced ? this.measureListSlots(this.idx, true) : new Map<number, Slot>();
@@ -1901,7 +1936,7 @@ class EnlargedView {
     // is visible again, so report it there. Retries still in flight report
     // themselves when they settle (save()).
     const lost = this.autosave.firstUnresolvedFailure();
-    if (lost !== undefined) this.mount.showBanner(saveErrorFor(lost));
+    if (lost !== undefined) this.mount.showBanner(this.saveErrorMessageFor(lost));
     this.callbacks.onClosed(id);
   }
 
@@ -1981,7 +2016,7 @@ class EnlargedView {
       return;
     }
     if (this.state === 'closing') this.listDirty = true;
-    if (this.state === 'closed') this.mount.showBanner(saveErrorFor(id));
+    if (this.state === 'closed') this.mount.showBanner(this.saveErrorMessageFor(id));
     // Mid-swap, setContent() surfaces it once the new content is in;
     // mid-collapse, finish() reports it on the (by then visible) list.
     else if (up && this.swapTimer === null) this.surfaceSaveFailure();
@@ -1998,7 +2033,7 @@ class EnlargedView {
       return;
     }
     const other = this.autosave.firstUnresolvedFailure();
-    if (other !== undefined) this.setStatus('save-error', false, saveErrorFor(other));
+    if (other !== undefined) this.setStatus('save-error', false, this.saveErrorMessageFor(other));
   }
 
   private setStatus(kind: StatusKind, instant = false, message?: string): void {

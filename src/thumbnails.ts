@@ -31,7 +31,12 @@
 //
 // Newest-at-the-bottom ordering (§1.5) is the caller's responsibility —
 // storage.ts's getPageItems already returns items in capture order and this
-// module renders them in the order given, appending nothing itself.
+// module renders them in the order given, appending nothing itself. That
+// order is also what each badge shows: an item's number is its 1-based
+// position in the list it is rendered in (see FeedbackItem.id in types.ts),
+// so a repaint after a delete renumbers everything below the gap. The
+// internal id goes only into `data-item-id`, which is how sidebar.ts finds
+// an item again after a repaint.
 
 import { FeedbackItem } from './types';
 // The project's ONE trash glyph (design spec v5 §S) — the enlarged view's
@@ -93,12 +98,14 @@ export function renderThumbnailList(
   callbacks: ThumbnailCallbacks,
 ): void {
   listEl.innerHTML = '';
-  for (const item of items) {
-    listEl.appendChild(buildThumbnailEl(item, callbacks));
-  }
+  items.forEach((item, index) => {
+    listEl.appendChild(buildThumbnailEl(item, index + 1, callbacks));
+  });
 }
 
-function buildThumbnailEl(item: FeedbackItem, callbacks: ThumbnailCallbacks): HTMLLIElement {
+/** One list item. `number` is the item's display number — its position in
+ *  the list, not its id (see the file banner). */
+function buildThumbnailEl(item: FeedbackItem, number: number, callbacks: ThumbnailCallbacks): HTMLLIElement {
   const li = document.createElement('li');
   li.className = 'thumbnail-item';
 
@@ -107,7 +114,7 @@ function buildThumbnailEl(item: FeedbackItem, callbacks: ThumbnailCallbacks): HT
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'thumbnail';
-  btn.setAttribute('aria-label', `feedback item ${item.id}`);
+  btn.setAttribute('aria-label', `feedback item ${number}`);
   // Lets sidebar.focusThumbnail() find the item again after a repaint.
   btn.dataset.itemId = String(item.id);
 
@@ -131,7 +138,7 @@ function buildThumbnailEl(item: FeedbackItem, callbacks: ThumbnailCallbacks): HT
 
   const badge = document.createElement('span');
   badge.className = 'thumbnail-badge';
-  badge.textContent = String(item.id);
+  badge.textContent = String(number);
 
   imageWrap.appendChild(img);
   // The note's drawing (design spec §AB), laid over the image and fitted
@@ -180,7 +187,7 @@ function buildThumbnailEl(item: FeedbackItem, callbacks: ThumbnailCallbacks): HT
   const del = document.createElement('button');
   del.type = 'button';
   del.className = 'thumbnail-delete';
-  del.setAttribute('aria-label', `delete feedback item ${item.id}`);
+  del.setAttribute('aria-label', `delete feedback item ${number}`);
   del.title = 'delete';
   // Same hook sidebar.focusThumbnail() uses on the item's own button, so a
   // caller can find this one again after a repaint.
