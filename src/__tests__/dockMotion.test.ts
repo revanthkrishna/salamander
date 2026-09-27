@@ -12,6 +12,7 @@ import {
   computeNudges,
   computeTargets,
   DOCK_SCALE_GAIN,
+  DOCK_SHADOW_ALPHA,
   falloff,
   isAtRest,
   NOTE_BG_THRESHOLD,
@@ -300,6 +301,36 @@ describe('attachDockMotion', () => {
     // Loop sleeps at rest and releases will-change.
     expect(rafQueue.size).toBe(0);
     expect(lis[1].style.willChange).toBe('');
+    dock.destroy();
+  });
+
+  it('lifts the hovered note with a drop shadow, its neighbours with less', () => {
+    const { list, scroller } = makeList(4);
+    const dock = attachDockMotion(list, { scrollContainer: scroller });
+    const lis = Array.from(list.children) as HTMLElement[];
+
+    pointer(list, 'pointerenter', LIST_TOP + (ITEM_H + GAP) + ITEM_H / 2);
+    runFrames(60);
+
+    const alphaOf = (li: HTMLElement): number => {
+      const m = /rgba\(0, 0, 0, ([\d.]+)\)/.exec(li.style.filter);
+      return m ? Number(m[1]) : 0;
+    };
+    // The hovered item carries the full shadow...
+    expect(lis[1].style.filter).toMatch(/^drop-shadow\(/);
+    expect(alphaOf(lis[1])).toBeCloseTo(DOCK_SHADOW_ALPHA, 3);
+    // ...its magnified neighbours a fraction of it, in proportion to how far
+    // each one is actually scaled...
+    expect(alphaOf(lis[0])).toBeGreaterThan(0);
+    expect(alphaOf(lis[0])).toBeLessThan(alphaOf(lis[1]) / 2);
+    expect(alphaOf(lis[2])).toBeCloseTo(alphaOf(lis[0]), 3);
+    // ...and an untouched item paints no filter at all.
+    expect(lis[3].style.filter).toBe('');
+
+    // Leaving clears every shadow, so a resting list is flat again.
+    pointer(list, 'pointerleave', 0);
+    runFrames(200);
+    for (const li of lis) expect(li.style.filter).toBe('');
     dock.destroy();
   });
 

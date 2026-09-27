@@ -411,8 +411,18 @@ const MENU_Z_INDEX = 102;
 /** How far (px) the note list's scrollport extends out over the page so
  *  dock-magnified items aren't clipped at the panel edge (see .body). Worst
  *  case at the 300px maximum width: 0.12 × 268px of scale + 22px of shift −
- *  the list's 16px inset ≈ 38px past the edge, plus the note shadow's blur. */
-const DOCK_BLEED_PX = 72;
+ *  the list's 16px inset ≈ 38px past the edge. The magnification's drop
+ *  shadow (§4) then spreads ~1.5 × its 20px blur past *that*, and the
+ *  scrollport's own overflow clips it however far the clip-path is relaxed —
+ *  so this leaves ~50px of slack beyond the widest item, enough that the
+ *  shadow has faded to nothing before the edge rather than being sliced off
+ *  mid-falloff. */
+const DOCK_BLEED_PX = 120;
+/** Bottom padding (px) of the scrollport. Wide enough for the last item's
+ *  drop shadow (10px down + ~30px of blur) to fall inside the scrollport
+ *  rather than being cut by its bottom edge; the list's own 16px inset is
+ *  what the eye reads as the gap under the last note. */
+const LIST_PAD_BOTTOM_PX = 44;
 
 const SIDEBAR_CSS = `
   :host {
@@ -1078,7 +1088,7 @@ const SIDEBAR_CSS = `
        either end, and not while the list is too short to scroll at all. */
     overscroll-behavior: contain;
     margin-left: -${DOCK_BLEED_PX}px;
-    padding: 12px 0 16px ${DOCK_BLEED_PX}px;
+    padding: 12px 0 ${LIST_PAD_BOTTOM_PX}px ${DOCK_BLEED_PX}px;
     clip-path: inset(0 0 0 ${DOCK_BLEED_PX}px);
     transition: opacity 140ms ease-out;
   }

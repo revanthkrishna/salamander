@@ -921,8 +921,16 @@ describe('sidebar review fixes', () => {
   test('at rest the note scroller has ordinary pointer events and clip-path trims the over-page strip', () => {
     openWithItems();
     const rest = cssRule('.body');
-    expect(rest).toMatch(/clip-path:\s*inset\(0 0 0 72px\)/);
-    expect(rest).toMatch(/margin-left:\s*-72px/);
+    // The strip's width is a tuning value (it has to clear the widest
+    // magnified item *and* its drop shadow, §4), so what is pinned here is
+    // that the three declarations agree: the scroller hangs `bleed` px out
+    // over the page, pads that much back, and clips exactly the same amount
+    // off again at rest. Any of the three drifting alone would either shift
+    // the list sideways or leave a live strip over the page.
+    const bleed = /margin-left:\s*-(\d+)px/.exec(rest)?.[1];
+    expect(Number(bleed)).toBeGreaterThan(0);
+    expect(rest).toMatch(new RegExp(`clip-path:\\s*inset\\(0 0 0 ${bleed}px\\)`));
+    expect(rest).toMatch(new RegExp(`padding:\\s*\\d+px 0 \\d+px ${bleed}px`));
     expect(rest).not.toMatch(/pointer-events/);
     expect(body().classList.contains('is-bleeding')).toBe(false);
   });

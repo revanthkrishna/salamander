@@ -61,6 +61,18 @@ export const DOCK_SHIFT_PX = 22;
 export const DOCK_RADIUS_ITEMS = 1.75;
 /** Influence at which the most-influenced item's note background appears. */
 export const NOTE_BG_THRESHOLD = 0.6;
+/** Peak drop shadow on the item under the pointer: offset and blur in px,
+ *  and the shadow's alpha. Every value scales with the item's own influence,
+ *  so the hovered item lifts the furthest off the page and its neighbours —
+ *  already at ~0.3 influence, and so ~0.3 of this shadow — sit between it and
+ *  the flat list. A `filter: drop-shadow` rather than a box-shadow on the
+ *  thumbnail: the visible card is the image box *plus* the note background
+ *  fading in beneath it, and drop-shadow follows that composite shape (and
+ *  its opacity) instead of drawing a hard rectangle across the seam between
+ *  the two. */
+export const DOCK_SHADOW_Y_PX = 10;
+export const DOCK_SHADOW_BLUR_PX = 20;
+export const DOCK_SHADOW_ALPHA = 0.45;
 /** Fraction of the neighbours' vertical growth used to nudge an item apart
  *  from them. The list's 16px gap already absorbs most of the ~10px growth,
  *  so this stays subtle: enough to read as the list "making room", never
@@ -257,6 +269,9 @@ interface DockItem {
   /** Last values written to the DOM — used to invert the transform when
    *  measuring and to skip redundant style writes. */
   scale: number;
+  /** Last `filter` written, so a frame that does not move the shadow does not
+   *  touch the DOM (the filter is the most expensive thing this loop sets). */
+  shadow: string;
   dy: number;
   z: number;
 }
@@ -291,6 +306,7 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
       influence: { x: 0, v: 0 },
       note: { x: 0, v: 0 },
       scale: 1,
+      shadow: '',
       dy: 0,
       z: 0,
     }));
@@ -376,7 +392,7 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
     setBleed(true);
     if (!animating) {
       animating = true;
-      for (const item of items) item.li.style.willChange = 'transform';
+      for (const item of items) item.li.style.willChange = 'transform, filter';
     }
     rafId = raf(frame);
   }
@@ -438,6 +454,21 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
         item.scale = scale;
         item.dy = dy;
       }
+      // The lift, on the same influence as the scale: strongest under the
+      // pointer, proportionally lighter on the neighbours that are only
+      // slightly magnified, cleared entirely at rest so a resting list paints
+      // no filter at all.
+      const lift = Math.max(0, x);
+      const shadow =
+        lift < 1e-3
+          ? ''
+          : `drop-shadow(0 ${(DOCK_SHADOW_Y_PX * lift).toFixed(2)}px ` +
+            `${(DOCK_SHADOW_BLUR_PX * lift).toFixed(2)}px ` +
+            `rgba(0, 0, 0, ${(DOCK_SHADOW_ALPHA * lift).toFixed(3)}))`;
+      if (shadow !== item.shadow) {
+        item.li.style.filter = shadow;
+        item.shadow = shadow;
+      }
       // Quantised so z-order only changes (and restacks) when the ranking
       // meaningfully does.
       const z = Math.round(Math.max(0, x) * 100);
@@ -476,7 +507,9 @@ export function attachDockMotion(listEl: HTMLElement, options: DockMotionOptions
       item.scale = 1;
       item.dy = 0;
       item.z = 0;
+      item.shadow = '';
       item.li.style.transform = '';
+      item.li.style.filter = '';
       item.li.style.zIndex = '';
       item.li.style.willChange = '';
       if (item.noteBg) item.noteBg.style.opacity = '';

@@ -125,6 +125,7 @@ Goal: feel like the macOS Dock — continuous, fluid, never steppy.
 - Animate every item toward its targets with a critically-damped spring (or frame-rate-independent exponential smoothing) in a single requestAnimationFrame loop that stops when everything is at rest. Pointer enter ramps in, pointer move re-targets continuously, pointer leave relaxes all items back to 1/0 smoothly.
 - Neighbours must not visually collide badly: vertical growth is allowed to overlap; the hovered item is on top (z-index by influence).
 - The hovered note's background (surface + shadowNote) fades in with influence (≥ ~0.6), never wider than the thumbnail.
+- Every magnified item also lifts off the list with a drop shadow scaled by its own influence: at full influence `0 10px 20px rgba(0,0,0,0.45)`, so the item under the pointer sits highest and the slightly-magnified neighbours sit between it and the flat list. A `filter: drop-shadow` on the row, not a `box-shadow` on the thumbnail — the visible card is the image box plus the note background fading in beneath it, and drop-shadow follows that composite shape instead of drawing a rectangle across the seam. Cleared entirely at rest.
 - Keyboard focus applies the same magnification centred on the focused item (spring-animated).
 - `prefers-reduced-motion: reduce` → no scaling/translation; only the note background appears on hover/focus.
 - Transforms/opacity only (GPU friendly); no layout thrash inside the rAF loop (read layout once on enter/resize/scroll, cache it). Clean up listeners/rAF on teardown/re-render.
