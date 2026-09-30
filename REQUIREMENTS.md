@@ -22,14 +22,16 @@
 
 - **FR-SB-1** Clicking the extension icon injects the content script on demand and opens the sidebar; clicking again while it is open closes it (a toggle). No automatic injection on any page.
 - **FR-SB-2** The sidebar is docked to the right edge and **shrinks the page** (`margin-right` on `<html>`, `!important`, defended by an injected stylesheet and a `MutationObserver`, with a synthetic `resize` event after every apply). It never covers page content, except on app-shell sites that ignore a root shrink (EC-13).
-- **FR-SB-3** Width is user-resizable by a handle on its left edge: 188–300px, default 300. The minimum is derived from the action row's own metrics (the width it needs with the "keep on" switch revealed), not hardcoded. The handle takes the pointer and the keyboard (arrow keys in 10px steps, `Home` = widest, `End` = narrowest). The chosen width persists in `chrome.storage.local` (`sidebarWidth`) and is clamped into range on load. Page shrink, add-mode selection bounds and the enlarged view's geometry all track the live width.
+- **FR-SB-3** Width is user-resizable by a handle on its left edge: 210–300px, default 300. The minimum is derived from the action row's own metrics (the width it needs with the "keep on" switch revealed), not hardcoded. The handle takes the pointer and the keyboard (arrow keys in 10px steps, `Home` = widest, `End` = narrowest). The chosen width persists in `chrome.storage.local` (`sidebarWidth`) and is clamped into range on load. Page shrink, add-mode selection bounds and the enlarged view's geometry all track the live width.
 - **FR-SB-4** Below 220px the wordmark hides. Nothing else responds to width: both action-row groups always sit on one row with nothing clipped, and the switch's reveal is never suppressed by width.
 - **FR-SB-5** Layout, top to bottom: a header (logo + "salamander" wordmark + **close**), an action row (the **add note** group and the **export** group, see FR-SB-8), one 1px rule under that block, then a "this page (n)" heading and the note list for the current URL, or the empty state "no feedback on this page yet". The heading and the empty state never show together.
 - **FR-SB-6** Notification banners (error/warning) render inline under the action row with `role="alert"`, an icon, lowercase text and a progress line; they auto-clear after 8 seconds.
 - **FR-SB-7** **close** hides the sidebar and restores the page. The content script stays loaded; data is untouched. Closing while add mode is active exits add mode first; closing while the enlarged view holds an emptied note is refused (FR-EV-8).
-- **FR-SB-8** The action row's right group is **export** with an attached chevron (`aria-haspopup="menu"`, `aria-expanded`). The chevron opens a `role="menu"` holding one item, **import**. The menu closes on item activation, `Esc` (focus returns to the chevron), Tab, an outside `pointerdown`, the sidebar closing and entering add mode; opening it by keyboard focuses the first item and ↑/↓ move between items.
+- **FR-SB-8** The action row's right side holds two separate buttons, 6px apart, each the same box as **add note**: **export**, and **more options** (a horizontal ellipsis; `aria-haspopup="menu"`, `aria-expanded`). **more options** opens a `role="menu"` holding **import**, a divider, and **delete all for this website** (FR-DA-1). The menu is sized to its content and never wraps a label; at the narrowest widths it extends past the panel's left edge. It closes on item activation, `Esc` (focus returns to the button), Tab, an outside `pointerdown`, the sidebar closing and entering add mode; opening it by keyboard focuses the first item and ↑/↓ move between enabled items.
 - **FR-SB-9** The sidebar survives SPA navigation (`pushState`/`replaceState` patched, `popstate`, `hashchange`, debounced 50ms) and full reloads: "open" is recorded per tab in `chrome.storage.session` (`sidebarOpen:{tabId}`) and the service worker re-injects and re-opens on the next completed load. Only **close** (or a tab close, a browser restart, or navigating to a page that cannot be injected) clears it. On an SPA route change the list refreshes for the new URL, add mode exits fully and the enlarged view collapses.
 - **FR-SB-10** Everything the extension draws lives in closed shadow roots on hosts attached to `<html>` (`#annotator-sidebar-host`, `#annotator-addmode-host`), above the page (`z-index` near the maximum).
+- **FR-SB-11** Confirmations (import's replace, delete-all) are asked by the **more options** menu itself, never `window.confirm()` (Chrome titles a native confirm with the page's origin, so it would speak as the website). The open menu's box morphs — size only, 200ms standard easing, instant under reduced motion — to the full width of the panel (16px from each side) and the question's height; the contents swap at once. It shows the question and two buttons, **cancel** and the confirming action — soft danger style for delete-all, yellow text for import. While asking, the menu is `role="alertdialog"`, described by the question; focus starts on **cancel** and Tab moves between the two buttons. **cancel**, Esc, a press anywhere outside, the sidebar closing and entering add mode all answer no and close it. It always reopens as the item list.
+- **FR-SB-12** Every tooltip is the extension's own (no native `title` anywhere): a themed box with an arrow, above its control (flipped below when there is no room), or to the left for the enlarged view's rail, the resize handle and the menu's delete item. Timing matches the native tooltips it replaced: about 1s of hover before the first, none on keyboard focus, hidden on any press, leave, Esc or scroll; once one is up the next appears at once (and for 500ms after one hides). A **disabled reason** — "nothing to export", "nothing to delete" — appears after 300ms or at once on keyboard focus, and is announced via `aria-describedby`.
 
 ### 1.2 Add mode — placing and editing a selection
 
@@ -96,7 +98,7 @@ Captured once, at save time, so a reader of `feedback.md` can locate the selecte
 ### 1.7 Export
 
 - **FR-EX-1** **export** downloads a `.zip` with every item across **every URL of the current domain**, assembled and downloaded entirely in the service worker (`chrome.downloads`, no save-as prompt). The button is disabled for the duration of the round trip.
-- **FR-EX-2** With no items on the domain: `alert("nothing to export")` and no download. Any other failure shows "couldn't export feedback. try again." in the banner.
+- **FR-EX-2** With no items on the domain, **export** is greyed out (`aria-disabled`, still hoverable and focusable) and its tooltip reads "nothing to export" (E-7); clicking it does nothing. If the domain empties between the check and a click (another tab), the reply shows "nothing to export" as a warning and export greys out. Any other failure shows "couldn't export feedback. try again." in the banner. In add mode and while an export is in flight it is plainly disabled, with no tooltip.
 - **FR-EX-3** Filename `feedback-{domain}-{YYYY-MM-DD}.zip`, dots and colons in the domain replaced with underscores, the date taken from the UTC calendar day (e.g. `feedback-example_com-2026-09-22.zip`, `feedback-localhost_3000-…`).
 - **FR-EX-4** Bundle contents, and nothing else: `screenshots/{id}.png` per item, and `feedback.md`. An item with a drawing has its strokes painted into its PNG at the image's real pixel scale (a 2× capture gets a 4px line); an item without one is exported byte-for-byte as stored. A blob missing from storage is skipped (the note and its data still export); a failed composite falls back to the clean PNG.
 - **FR-EX-5** `feedback.md` is **format 2** (design spec §AC, frozen fixture `src/__tests__/fixtures/feedback-v2.md`). Every fixed label is lowercase; user content is written as captured:
@@ -109,14 +111,22 @@ Captured once, at save time, so a reader of `feedback.md` can locate the selecte
 
 ### 1.8 Import
 
-- **FR-IM-1** **import** (in the chevron menu) opens the native file picker accepting `.zip`. The menu item is disabled for the duration.
+- **FR-IM-1** **import** (in the **more options** menu) opens the native file picker accepting `.zip`. The menu item is disabled for the duration.
 - **FR-IM-2** The content script unzips and validates the bundle through the ladder in §5, in that order, before anything is written; only the final replace goes to the service worker.
 - **FR-IM-3** Only format 2 is read. A `feedback.md` with any other stamp, or none (including the retired v1 YAML format), is refused (E-6). The extension was never published with another format, so there is no backward compatibility.
 - **FR-IM-4** The bundle's domain (from its first item's `page_url`) must match the current domain (E-5). An empty bundle is treated as matching.
-- **FR-IM-5** Import **replaces** the domain's data; there is no merge. If the domain already has items, a native confirmation quotes the real count (E-10) before anything changes; cancelling leaves everything as it was. If the count cannot be read, the import stops with "couldn't check existing feedback. try again." rather than replacing unconfirmed.
+- **FR-IM-5** Import **replaces** the domain's data; there is no merge. If the domain already has items, choosing **import** first turns the menu into E-10's question (FR-SB-11) — before the file picker opens; cancelling leaves everything as it was, and after **yes** a file that checks out replaces without asking again. With no items, the picker opens at once. The count is read fresh on each choice, so items added from another tab are never replaced unasked; if it cannot be read, nothing is picked or replaced (E-10b).
 - **FR-IM-6** Each item is rebuilt from its JSON plus `screenshots/{id}.png`; ids are preserved, `nextItemNumber` becomes max id + 1, and the service worker mints a fresh screenshot key and thumbnail per item. The heading's number is not read back beyond E-11's check: after import a note's number is its position in its page's list again (FR-CP-4). A failure part-way cleans up the blobs written for that import and leaves the previous data intact ("couldn't import this bundle. try again.").
 - **FR-IM-7** A round trip (export, wipe, import) reproduces every stored field except values the caps shortened (they come back as written) and a drawing, which comes back flattened into the image. Exporting again produces the same `feedback.md` and the same screenshot files.
 - **FR-IM-8** After a successful import the sidebar opens if it was closed, showing the current URL's items.
+
+### Delete all (FR-DA)
+
+- **FR-DA-1** **delete all for this website** (in the **more options** menu, danger-coloured, below a divider) deletes every item on **every page of the current domain**, every screenshot, and the domain's index. "This website" is the normalised domain (FR definitions): `www.` stripped, port kept, subdomains separate.
+- **FR-DA-2** It is greyed out (`aria-disabled`: still hoverable and reachable with ↑/↓) whenever the domain has no feedback, and its tooltip, to the left of the menu, reads "nothing to delete"; clicking it does nothing. Availability is re-read from the service worker after every list repaint; a count that cannot be read greys it out.
+- **FR-DA-3** Activating it reads the item and page counts fresh and turns the menu into E-17's question (FR-SB-11). Cancel changes nothing. If the count cannot be read, the menu closes and nothing is deleted (E-10b's copy). If the domain has emptied since the item was enabled, the menu closes, nothing is asked and the item greys out.
+- **FR-DA-4** The delete runs in the service worker through the same write queue as every other mutation, so a save still in flight lands first and is deleted with the rest. The list then repaints from storage: the empty state, with the item disabled. A failure shows E-18 and repaints whatever survived.
+- **FR-DA-5** Unreachable during add mode (the export group is disabled, FR-AM) and behind the enlarged view (the panel is inert).
 
 ---
 
@@ -152,7 +162,7 @@ Captured once, at save time, so a reader of `feedback.md` can locate the selecte
 
 ### Accessibility and keyboard
 - **NF-A11Y-1** Every control is a real `<button>` (or `role="switch"` / `role="menu"` / radio group) with an accessible name; state is announced through `aria-pressed` / `aria-checked` / `aria-expanded` / `aria-disabled`, never by renaming the control. Focus is visible only for keyboard focus (`:focus-visible`) with one shared ring style.
-- **NF-A11Y-2** Full keyboard operation: the resize handle (arrows/Home/End), the add group, the chevron menu, the pencil menu and swatches, the enlarged view (FR-EV-3), the list (Tab through items and their delete buttons).
+- **NF-A11Y-2** Full keyboard operation: the resize handle (arrows/Home/End), the add group, the **more options** menu, the pencil menu and swatches, the enlarged view (FR-EV-3), the list (Tab through items and their delete buttons).
 - **NF-A11Y-3** `prefers-reduced-motion: reduce` is honoured live in every surface: no spatial motion, crossfades only, magnification off, no shake.
 - **NF-A11Y-4** All visible UI text is lowercase (buttons, placeholders, errors, dialogs, empty states). This is a product convention; it is not applied to user content.
 
@@ -177,7 +187,7 @@ Captured once, at save time, so a reader of `feedback.md` can locate the selecte
 
 **Journey 1 — capture and export.** Click the icon → the sidebar opens → **add note** → click or drag on the page → resize by the edges → optionally draw → type a note → **save** → the overlay hides for a frame, the screenshot and context are stored, a thumbnail appears. Flick "keep add mode on" to capture several in a row. Navigate normally; the sidebar persists, and each page numbers its own notes from 1. **export** → `feedback-{domain}-{date}.zip`.
 
-**Journey 2 — review or import.** A developer opens the same site, opens the sidebar, chevron → **import**, picks the zip; if the site already has notes, confirms the replace. Thumbnails appear per URL as they browse. Alternatively they hand `feedback.md` straight to a coding agent: it is self-contained, with inline screenshot references and the element data per note.
+**Journey 2 — review or import.** A developer opens the same site, opens the sidebar, **more options** → **import**, picks the zip; if the site already has notes, confirms the replace. Thumbnails appear per URL as they browse. Alternatively they hand `feedback.md` straight to a coding agent: it is self-contained, with inline screenshot references and the element data per note.
 
 ---
 
@@ -193,14 +203,17 @@ Captured once, at save time, so a reader of `feedback.md` can locate the selecte
 | E-4 | Import: an item references a screenshot not in the zip | error | "this file is missing screenshot data and can't be imported." |
 | E-11 | Import: the same id twice in the bundle, or the same number twice under one page (the same number on two pages is normal) | error | "this bundle appears to be corrupted (duplicate item ids)." |
 | E-5 | Import: domain mismatch | error | "this bundle contains feedback for '{other-domain}', but you're currently on '{current-domain}'." |
-| E-10 | Import: the domain already has N items | confirmation | "importing will replace your current N feedback item(s) for this site. this cannot be undone. continue?" (native `confirm`) |
+| E-10 | Import chosen while the domain has items | confirmation (in the menu) | "your existing notes will be discarded. continue with import?" — **yes, import** (yellow text) / **cancel** (FR-SB-11), asked before the file picker |
 | E-10b | Import: the existing count cannot be read | error | "couldn't check existing feedback. try again." — nothing is replaced. |
 | E-10c | Import: the replace itself fails | error | "couldn't import this bundle. try again." — previous data intact. |
-| E-7 | Export with zero items on the domain | error | `alert("nothing to export")` |
+| E-7 | Export with zero items on the domain | tooltip | Export greyed out; its tooltip reads "nothing to export" (FR-EX-2). |
 | E-7b | Export fails (zip, download, dead worker) | error | "couldn't export feedback. try again." |
 | E-8 | Capture fails (rate limit, restricted page, crop, storage write) | error | "couldn't capture a screenshot here. try again." No item is created. |
 | E-9 | Icon clicked on a page where content scripts cannot run | silent | Injection fails; a warning in the service-worker console; no sidebar. Nothing visible changes. |
 | E-12 | Delete fails (either entry point) | error | "couldn't delete item. try again." |
+| E-17 | Delete all: confirmation | confirmation (in the menu) | "delete {n} note(s) across {p} page(s)?", each noun singular or plural with its count — **yes, delete** / **cancel** (FR-SB-11) |
+| E-19 | Delete all with nothing to delete | tooltip | The item is greyed out; its tooltip, left of the menu, reads "nothing to delete" (FR-DA-2). |
+| E-18 | Delete all fails (storage, dead worker) | error | "couldn't delete feedback. try again." — whatever survived is shown. |
 | E-13 | Autosave fails | error | "couldn't save note. try again." under the textarea; after collapse, "couldn't save note #{id}. try again." in the banner. |
 | E-14 | List cannot be loaded | error | "couldn't load feedback for this page. try again." |
 | E-15 | Full image cannot be loaded in the enlarged view | fallback | The on-screen thumbnail is shown instead. |

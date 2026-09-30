@@ -10,6 +10,7 @@
 import * as addMode from '../addMode';
 import * as sidebar from '../sidebar';
 import { getSidebarWidth } from '../sidebar';
+import { TOOLTIP_CSS } from '../tooltip';
 import { getThemeCSS } from '../theme';
 
 // addMode.ts uses attachShadow({ mode: 'closed' }); force 'open' for this test
@@ -86,7 +87,9 @@ function stylesheetText(): string {
 /** Add mode's own rules, i.e. the stylesheet minus the prepended theme
  *  token block (which legitimately contains raw hex values). */
 function addModeOwnCSS(): string {
-  return stylesheetText().replace(getThemeCSS(), '');
+  // Without the theme tokens and the shared tooltip's CSS (tooltip.ts, §AG),
+  // which ride along in the same <style> but are not add mode's own.
+  return stylesheetText().replace(getThemeCSS(), '').replace(TOOLTIP_CSS, '');
 }
 
 /** The first `selector { ... }` rule body in add mode's own CSS. */
@@ -1247,12 +1250,12 @@ describe('add mode', () => {
 
     test('widening the sidebar re-clamps a box placed flush right (shifted, size kept)', () => {
       sidebar.initSidebar({ onAdd() {}, onExport() {}, onImportFile() {}, onClose() {}, onOpenItem() {} });
-      sidebar.setSidebarWidth(200);
+      sidebar.setSidebarWidth(240);
       sidebar.openSidebar();
       addMode.startAddMode(makeCallbacks());
-      // Flush against the (then) right edge of the selectable area: 1200 − 200.
-      drag(blocker(), 800, 100, 1000, 300);
-      expect(addMode._boxForTests()).toEqual({ x: 800, y: 100, width: 200, height: 200 });
+      // Flush against the (then) right edge of the selectable area: 1200 − 240.
+      drag(blocker(), 760, 100, 960, 300);
+      expect(addMode._boxForTests()).toEqual({ x: 760, y: 100, width: 200, height: 200 });
 
       sidebar.setSidebarWidth(300); // dispatches a synthetic resize while open
       expect(addMode._boxForTests()).toEqual({ x: 700, y: 100, width: 200, height: 200 });
@@ -1262,12 +1265,12 @@ describe('add mode', () => {
 
     test('a box wider than the new bounds is shrunk to fit, and narrowing leaves it alone', () => {
       sidebar.initSidebar({ onAdd() {}, onExport() {}, onImportFile() {}, onClose() {}, onOpenItem() {} });
-      sidebar.setSidebarWidth(sidebar.SIDEBAR_MIN_WIDTH); // 188px (v5 §V)
+      sidebar.setSidebarWidth(sidebar.SIDEBAR_MIN_WIDTH); // 210px (v5 §V, §AE)
       sidebar.openSidebar();
       setViewport(400, 800);
       addMode.startAddMode(makeCallbacks());
-      drag(blocker(), 0, 0, 300, 100); // full width of the 212px selectable area
-      expect(addMode._boxForTests().width).toBe(212);
+      drag(blocker(), 0, 0, 300, 100); // full width of the 190px selectable area
+      expect(addMode._boxForTests().width).toBe(400 - sidebar.SIDEBAR_MIN_WIDTH);
 
       sidebar.setSidebarWidth(250);
       expect(addMode._boxForTests()).toEqual({ x: 0, y: 0, width: 150, height: 100 });

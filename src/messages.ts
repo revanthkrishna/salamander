@@ -406,6 +406,10 @@ export interface GetDomainItemCountMessage {
 export interface GetDomainItemCountSuccessResponse {
   ok: true;
   count: number;
+  /** How many pages of the site those items are spread across — quoted by
+   *  the delete-all confirmation, which must make plain that it reaches
+   *  beyond the page on screen. */
+  pageCount: number;
 }
 
 export interface GetDomainItemCountErrorResponse {
@@ -416,6 +420,24 @@ export interface GetDomainItemCountErrorResponse {
 export type GetDomainItemCountResponse =
   | GetDomainItemCountSuccessResponse
   | GetDomainItemCountErrorResponse;
+
+/** "delete all for this website" (design spec §AE): every item on
+ *  every page of the domain, and every screenshot, in one write. */
+export interface DeleteDomainDataMessage {
+  type: 'DELETE_DOMAIN_DATA';
+  domain: string;
+}
+
+export interface DeleteDomainDataSuccessResponse {
+  ok: true;
+}
+
+export interface DeleteDomainDataErrorResponse {
+  ok: false;
+  message: string;
+}
+
+export type DeleteDomainDataResponse = DeleteDomainDataSuccessResponse | DeleteDomainDataErrorResponse;
 
 // ---------------------------------------------------------------------------
 // The pencil's colour (design spec §AB)
@@ -459,6 +481,7 @@ export type ContentToBackgroundMessage =
   | ExportMessage
   | ImportReplaceMessage
   | GetDomainItemCountMessage
+  | DeleteDomainDataMessage
   | GetPenColorMessage
   | SetPenColorMessage;
 
@@ -488,6 +511,7 @@ export interface MessageMap {
   EXPORT: [ExportMessage, ExportResponse];
   IMPORT_REPLACE: [ImportReplaceMessage, ImportReplaceResponse];
   GET_DOMAIN_ITEM_COUNT: [GetDomainItemCountMessage, GetDomainItemCountResponse];
+  DELETE_DOMAIN_DATA: [DeleteDomainDataMessage, DeleteDomainDataResponse];
   GET_PEN_COLOR: [GetPenColorMessage, GetPenColorResponse];
   SET_PEN_COLOR: [SetPenColorMessage, void];
 }

@@ -35,7 +35,7 @@ Requires Chrome 105 or newer (`chrome.storage.session`, CSS `:has()`). The `dist
 
 ## how to use
 
-1. Click the icon → the sidebar opens on the right and the page narrows to make room. Drag the sidebar's left edge to resize it (188–300px); the width is remembered.
+1. Click the icon → the sidebar opens on the right and the page narrows to make room. Drag the sidebar's left edge to resize it (210–300px); the width is remembered.
 2. Click **add note** (the comment-bubble button). The cursor becomes a crosshair and a preview box follows it.
 3. Click to place a 267×100 box centred on the pointer, or press and drag to draw your own. Resize from the invisible edge/corner zones (minimum 20×20).
 4. Inside the box the cursor is a pencil: draw if you want, switch colour with the swatches, **erase all** from the pencil menu, Cmd/Ctrl+Z to undo a stroke.
@@ -43,7 +43,7 @@ Requires Chrome 105 or newer (`chrome.storage.session`, CSS `:has()`). The `dist
 6. To capture several in a row, hover the add button and flick **keep add mode on** — after each save you are straight back in add mode. Click the button or press Esc to stop. Double-click or shift+click the button does the same as the switch.
 7. Click a thumbnail to open the enlarged view: ↑/↓ or the peeking neighbours to move between notes, edit the text (it autosaves), the trash icon to delete, Esc or the rail's exit button to collapse. Hover a thumbnail for a delete button that skips the enlarged view.
 8. Browse the site normally — the sidebar stays open across SPA navigation and full reloads, showing the notes for whatever URL you are on. Notes are numbered by their position on the page — every page counts from 1, and deleting a note renumbers the ones after it.
-9. **export** downloads `feedback-{domain}-{date}.zip` with every note on the site. The chevron beside it holds **import**, which replaces the site's notes with a bundle's (after confirmation if any exist).
+9. **export** downloads `feedback-{domain}-{date}.zip` with every note on the site. The **more options** button (⋯) beside it holds **import**, which replaces the site's notes with a bundle's (after confirmation if any exist), and **delete all for this website**, which deletes every note on every page of the site after a confirmation quoting how many.
 
 All visible UI text is lowercase by design. The extension is dark-themed only.
 

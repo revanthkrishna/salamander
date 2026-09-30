@@ -601,7 +601,7 @@ the user can drag to:
                       + ACTION_ROW_PAD_X * 2          // left + right margin
                       + ADD_GROUP_PX + ADD_SWITCH_WIDTH_PX   // add button + its switch, revealed
                       + ACTION_ROW_GAP                // the gap between the two groups
-                      + EXPORT_GROUP_PX               // export + chevron
+                      + EXPORT_GROUP_PX               // export + chevron (§AE: two buttons, 82px)
 
 Derive it from those constants — never hardcode the total, since §Q changes the switch's width.
 
@@ -907,3 +907,147 @@ every time it is drawn. It is not stored anywhere and it is not the note's id.
 - Numbers a reviewer typed into their own note text are theirs and are not rewritten.
 - Two tabs open on the same page can show different numbers until one refreshes — the same
   staleness the list already has; there is no cross-tab sync.
+
+---
+
+# AE. Export and "more options"; delete all for this website (2026-09-29)
+
+Supersedes §C2's segmented geometry and §K for the export group. §C2's menu behaviour (how it
+opens, closes and takes the keyboard) stands.
+
+## The two buttons
+- The export group is two **separate** buttons on the right of the action row: **export** and
+  **more options**, 6px apart. The group is pure layout (no border or fill of its own) and the
+  anchor the menu hangs from.
+- Each is the same box as **add note**: 38px wide including its 1px `line` border, 36px tall,
+  `radius-md`, `surface` fill. Hover: `hover` fill and `line-strong` border. Press: `press` fill.
+  Each takes its own focus ring. No press scale (§2).
+- **more options**: a horizontal ellipsis (three filled dots, 16px), `aria-label`/`title`
+  "more options", `aria-haspopup="menu"`, `aria-expanded`. The glyph does not change when open;
+  open, the button keeps its hover treatment.
+- Why they split: once the menu held a destructive action, a chevron fused to export read as
+  "export options". Delete-everything must never be mistaken for that.
+- Disabled together during add mode (§H), as before.
+
+## The menu
+- `role="menu"`, `aria-label` "more options". Items, in order: **import**; a 1px `line` divider
+  (`role="separator"`); **delete all for this website**.
+- Sized to its content (`width: max-content`, `min-width: 132px`) and never capped: every label
+  stays on one line (items 32px tall, padding `0 12px`, `nowrap`). Anchored to the row's right
+  edge, it grows leftwards; at the narrowest panel widths that takes it past the panel's left
+  edge, out over the page, like any popover.
+- **delete all for this website**: trash icon, `danger` ink; hover and keyboard focus
+  `danger-soft` fill, press `danger-hover`. Disabled whenever the site has no feedback (and while
+  a delete is in flight). ↑/↓ skip it while disabled.
+
+## Behaviour
+- "This website" is the domain as defined throughout: `www.` stripped, port kept, subdomains
+  separate. The delete reaches every page of it, not just the one on screen.
+- Activating it closes the menu, then reads the site's item and page counts fresh and confirms
+  with the native dialog:
+
+      delete all {n} feedback item(s) across {p} page(s) of this site? this cannot be undone.
+
+  Cancel does nothing. OK deletes every item, every screenshot and the domain's index in one
+  write, through the service worker's write queue (so a save still in flight lands first and is
+  deleted with the rest). The list then repaints from storage: the empty state, and the item
+  disables itself.
+- If the count cannot be read, nothing is deleted and the count error is shown. If the site has
+  emptied since the item was enabled, nothing is asked and the item just disables.
+- A failed delete shows "couldn't delete feedback. try again." and repaints whatever survived.
+- Unreachable during add mode (the whole group is disabled, §H) and behind the enlarged view (the
+  panel is inert).
+
+## Minimum width
+§V's derivation is unchanged; `EXPORT_GROUP_PX` is now `38 × 2 + 6 = 82` (was 60 for the
+segmented control), so `SIDEBAR_MIN_WIDTH` rises from 188 to **210**. Still below
+`NARROW_WIDTH_BREAKPOINT` (220).
+
+---
+
+# AF. Confirmations in the menu; disabled reasons (2026-09-29)
+
+Replaces the native `confirm()` for delete-all (§AE) and import's replace (§5 #10). Chrome titles a
+native confirm with the page's origin ("example.com says") and no page can change it, so the
+questions were being asked in the website's name. They are now asked in place, by the menu.
+
+## The menu becomes the question
+- Choosing **delete all for this website**, or **import** when the site already has notes, keeps
+  the menu open and turns it into the question.
+- Its box morphs from the menu's size to the **full width of the panel** — 16px from each side,
+  the action row's own margin (`panel width − 1px border − 2 × 16px`) — and the question's
+  height. Anchored at the menu's right edge, it grows leftwards.
+- **Only the size animates**, 200ms, standard easing (a size change in an element already on
+  screen; a touch longer than the menu's 120ms entrance). The contents swap at once. The question
+  is laid out at its final width and pinned to the box's right edge, and the box clips while it
+  grows, so it is uncovered rather than reflowed frame by frame. Instant under reduced motion.
+- The question: body face, 13px, line-height 1.45, 8px inside the menu's 4px padding. Below it,
+  right-aligned and 8px apart, **cancel** (surface, `line` border) and the confirming button. For
+  delete-all that is the menu item's soft danger treatment (`danger-soft` fill, `danger` ink); for
+  import it is the plain button with `accent-icon` (yellow) text, like **add note**'s glyph —
+  importing is not a delete.
+- Delete-all: **"delete 5 notes across 3 pages?"**, **yes, delete** / **cancel**. Each noun agrees
+  with its own count ("delete 1 note across 1 page?"). The counts are read fresh when it is chosen.
+- Import: **"your existing notes will be discarded. continue with import?"**, **yes, import** /
+  **cancel**. Asked
+  when import is chosen, before the file picker — so after a file is picked and checks out it
+  replaces without asking again. With no notes on the site the picker opens at once. The count is
+  read fresh, so notes added from another tab are never replaced unasked.
+- While a question is up the menu is `role="alertdialog"`, described by the question. Focus
+  starts on **cancel**, so a stray Enter is the safe answer; Tab moves between the two buttons
+  rather than dismissing it.
+- **Answers no, and closes:** **cancel**, Esc (focus returns to **more options**), a press
+  anywhere outside, the sidebar closing, entering add mode. **yes** closes it too, then acts.
+- The menu always reopens as the item list, at its own size.
+
+## Disabled reasons
+- With no notes on the site, **export** and **delete all for this website** are greyed out
+  (`aria-disabled`, not `disabled`: they stay hoverable and focusable so they can say why) and
+  clicking them does nothing.
+- Their reason shows in the shared tooltip (§AG) after 300ms of hover, or at once on keyboard
+  focus: **"nothing to export"** above export; **"nothing to delete"** to the LEFT of the menu,
+  level with the item (the menu is against the window's right edge; there is no room on its
+  right). ↑/↓ in the menu reach the greyed-out item so keyboard users can read its reason.
+- Export's other disabled states — add mode (§H) and an export in flight — stay plainly disabled
+  with no tooltip: they are brief and plain from context.
+- "nothing to export" is no longer an `alert()`: export cannot be pressed on an empty site. If the
+  site empties between the check and a click (another tab), the export's "nothing to export"
+  reply shows as a warning banner and export greys out.
+
+The menu's spacing: every item sits the same 4px from what surrounds it — the menu's edge or the
+divider. The divider's margin is `2px 0` (the list's 2px gap plus 2px = the menu's 4px padding) and
+it runs the items' full width.
+
+---
+
+# AG. One tooltip (2026-09-29)
+
+Every tooltip in the extension is ours (`src/tooltip.ts`); no control carries a native `title`.
+A native tooltip is drawn by the OS: it cannot be styled, cannot sit beside a menu, and a truly
+disabled control gets no hover to show one.
+
+- **Look:** `raised` fill, 1px `line-strong` border, `radius-sm`, `shadow-pop`, 6px 9px padding,
+  body face 12px/500, `text`; one line. A small arrow, bordered on its outward sides, points at
+  the control. Fades in 120ms (standard), out 90ms (accelerating); instant under reduced motion.
+- **Placement:** ABOVE the control and centred on it, kept 8px inside the window; flipped below
+  when there is no room above (a control at the top of the window). `data-tip-side="left"` places it to the left, beside the nearest
+  `[data-tip-edge]` (the "more options" menu) — the enlarged view's rail and the resize handle
+  use it. On a tall strip (the resize handle) it sits level with the pointer.
+- **Timing — the native tooltips' own:** about 1s of hover before the first appears
+  (`TOOLTIP_DELAY_MS`, macOS's default); not on keyboard focus; hidden on any press, on leaving,
+  on Esc and on scroll. Once one is showing, the next appears at once, and for 500ms after one
+  hides. A disabled reason (§AF) is quicker, 300ms, and also appears on keyboard focus.
+- **Markup:** a control's text is `data-tip`; its disabled reason is `data-tip-reason`, shown
+  instead while `aria-disabled="true"`. One tooltip element and one set of delegated listeners
+  per shadow root (the panel with the enlarged view; add mode), so a label that changes with state
+  is an attribute write. A reason is announced (`aria-describedby` while shown); a plain tooltip
+  repeats the control's name and is not.
+- In add mode it is hidden the moment a capture starts: nothing of ours may be in a screenshot.
+- Not a tooltip, and unchanged: add mode's placement hint that follows the cursor (§N).
+
+## The "keep on" switch's reveal no longer ghosts (2026-09-29)
+The segment clips its contents in both states. It used to switch to `overflow: visible` on reveal;
+an overflow change applies at once while the width grows over 160ms, so the full-size 28px track
+was drawn past a box only a few px wide and its rounded end showed as a faint half circle beside
+the button for the first frames. Nothing needs the overflow: at full width the track fits
+exactly, and the focus ring is the switch's own box-shadow, which its overflow never clips.

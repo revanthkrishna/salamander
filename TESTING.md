@@ -16,20 +16,22 @@ npx jest bundle                   # feedback.md: frozen fixture, round trip, rea
 npx tsc --noEmit                  # type check (strict, noUnusedLocals)
 ```
 
-**826 tests in 26 suites** (2026-09-22; `npx jest` and `npx tsc --noEmit` both clean):
+**887 tests in 28 suites** (2026-09-29; `npx jest` and `npx tsc --noEmit` both clean):
 
-- `sidebar.test.ts` (117) — open/close, page shrink, URL tracking, resizable width (drag/keyboard, persistence, clamping, the derived 188px minimum), the narrow breakpoint, the add group + "keep on" switch (paint, reveal, gestures, resting width, the tuck, track/knob colours), the export/chevron menu (routes, keyboard, outside pointerdown, per-half hover/press), the one-bordered top block, note padding and hover delete, the "on hold" state
-- `addMode.test.ts` (66) — box placement (centred click, clamping, drag-to-draw), edge/corner zones, minimum size, comment box positioning, counter thresholds, save/cancel state, the preview and hint
+- `sidebar.test.ts` (130) — open/close, page shrink, URL tracking, resizable width (drag/keyboard, persistence, clamping, the derived 210px minimum), the narrow breakpoint, the add group + "keep on" switch (paint, reveal, gestures, resting width, the tuck, track/knob colours), export and the "more options" menu (two separate buttons, routes, keyboard incl. skipping a disabled item, outside pointerdown, the greyed-out export and delete-all with their reasons, and the menu turning into a question: full panel width, focus on cancel, every way of answering no, Tab between the buttons, reopening as the list), the one-bordered top block, note padding and hover delete, the "on hold" state
+- `addMode.test.ts` (82) — box placement (centred click, clamping, drag-to-draw), edge/corner zones, minimum size, comment box positioning, counter thresholds, save/cancel state, the preview and hint
 - `addModeDrawing.test.ts` (49) — the pencil: no surface while placing, the surface exactly over the rect with the zones above it, stroke capture incl. coalesced samples and dots, focus moving off the textarea, strokes pinned through a resize, the cropped `drawing` handed to `onOk`, Cmd/Ctrl+Z vs the textarea's own undo, the pencil menu (erase all, disabled when empty, Esc/Tab/arrows, placement above), the swatch radio group, capture purity end to end
 - `drawing.test.ts` (18) — the palette, `cropDrawing` (edge cuts, exit/re-entry splitting, dots, rounding), the SVG builder, the canvas painter's scaling
 - `drawingViews.test.ts` (10) — a saved drawing over the list thumbnail and over the enlarged view's main card and peeks
 - `enlargedView.test.ts` (91) — open/collapse incl. interrupted transitions, prev/next and the ends, autosave debounce + flush, save failures, the empty-note rule on every exit path, delete (middle/last/only), keyboard, add mode collapsing it, the scroll lock, reduced motion, teardown, numbering by position (title, badges and peek labels renumbering live after a delete — first/middle/last/only, mid-morph, and on the way back to the list; save-failure copy naming the position)
-- `content.test.ts` (43) — the add-note toggle / switch state machine end to end (gestures, Esc, sidebar close, opening a note), the "on hold" wiring, the list delete round trip, the import flow (replace on an empty domain, the §5 #10 confirmation honoured both ways, a failed count read stops the import, a dead worker stops it, the menu item re-enabled)
+- `content.test.ts` (54) — the add-note toggle / switch state machine end to end (gestures, Esc, sidebar close, opening a note), the "on hold" wiring, the list delete round trip, the import flow (asked in the menu before the picker only when the site has notes, cancel opens no picker, a failed count read or dead worker stops it, a valid file then replaces without asking again), and delete-all (greyed out unless the site has feedback and its count can be read, the question quoting both counts, cancel, a count failing at click time, a site emptied meanwhile, a failed or dead-worker delete)
+- `tooltip.test.ts` (13) — the shared tooltip (spec §AG): the native delay before the first, nothing when leaving early, moving onto the control's own icon keeps it, the warm hand-off to the next control, hidden on press, nothing on keyboard focus for a plain tooltip, a disabled reason quicker on hover, at once on focus and announced, above by default, below when there is no room, the left side and its fallback, cleanup
+- `closedShadowTyping.test.ts` (16) — typing inside a genuinely **closed** shadow root while the enlarged view's page-scroll lock listens on window: Space, the arrows, Home/End and the page keys reach the textarea, ordinary characters are untouched, and the lock still cancels scroll keys on controls and on the page. Every other suite forces shadow roots open, which is how the bug this guards slipped through
 - `capture.test.ts` (18) — viewport-relative coordinates, the page-rect conversion, ordering (context before hide, double rAF before `CAPTURE`), failure restores the overlay
-- `background.test.ts` (70) — injection and reload re-injection, the handler table, the capture relay and throttle, `computeDeviceRect` across the DPR/zoom/scrollbar/edge matrix, blob cleanup on a failed save, import replace, pen colour validation, a `fetch()` stub that throws (the CSP regression guard)
+- `background.test.ts` (75) — injection and reload re-injection, the handler table, the capture relay and throttle, `computeDeviceRect` across the DPR/zoom/scrollbar/edge matrix, blob cleanup on a failed save, import replace, the item/page count and the whole-domain delete (including that it waits for an in-flight save), pen colour validation, a `fetch()` stub that throws (the CSP regression guard)
 - `contextCapture.test.ts` (12) — deepest-containing-element selection, contained-element prioritisation and the 15 cap, area text, the 2KB governor's truncation order and markers, iframe leaves
 - `selectorBuilder.test.ts` (22) — selector priority ladder, framework-id rejection, class heuristics, XPath
-- `storage.test.ts` (31) — domain and item CRUD, the split layout (which keys each operation touches, torn-write tolerance), blob orphan prevention, `nextItemNumber` monotonicity, session state and pen colour
+- `storage.test.ts` (32) — domain and item CRUD, the index-only item/page count, the split layout (which keys each operation touches, torn-write tolerance), blob orphan prevention, `nextItemNumber` monotonicity, session state and pen colour
 - `thumbnails.test.ts` (21) — list rendering in order, open on click/Enter/Space, the note-preview DOM cap (the 3-line clamp itself is CSS), the sibling delete button firing `onDelete` and never `onOpen`, numbering by position (badges and labels vs `data-item-id`, delete-then-renumber, delete-all-then-1, two pages each from 1)
 - `import.test.ts` (20) — the ladder with purpose-built zips: not-a-zip, corrupt archive, missing `feedback.md`, unsupported format (a retired v1 bundle, a newer stamp, no stamp — checked before malformed data), malformed element data, missing screenshot, duplicates (the same id on two pages; the same number twice on one page; the same number on two pages accepted; a gap accepted; #4 before #11), domain mismatch, and a round trip
 - `bundle.test.ts` (27) — the format-2 writer against generated input (header, page order, notes in list order numbered by position with id-named screenshots, every page from 1, field order, `(none)`, the free-text caps and their single ellipsis), `formatExportDate`, the derived `text`, the round trip, notes that look like structure or quote a whole item, reader dispatch (v1/newer/unstamped refused), every malformed-file error, and `FORMAT_VERSION === FORMAT_VERSION_V2`
@@ -38,7 +40,7 @@ npx tsc --noEmit                  # type check (strict, noUnusedLocals)
 - `urlNorm.test.ts` (31) — normalisation rules and `exportFilename`
 - `keyboardIsolation.test.ts` (5) — capture-phase isolation of events inside the host; events outside untouched; `preventDefault` never called
 - `theme.test.ts` (6) — the parked light table covers the same keys as the dark one; `RADII`; `getThemeCSS` emits only the dark tokens on `:host` (no `data-theme` selector) with the namespaced font stacks; `ensureFontsLoaded` never throws and is idempotent
-- `dockMotion.test.ts` (29) — influence/falloff math, spring integration, keyboard-focus magnification, reduced-motion bypass, the shared note-background/delete opacity spring, rAF loop lifecycle
+- `dockMotion.test.ts` (32) — influence/falloff math, spring integration, keyboard-focus magnification, reduced-motion bypass, the shared note-background/delete opacity spring, rAF loop lifecycle
 - `dom.test.ts` (7) — `getContentViewportSize`'s fallback and layout case, `reducedMotionQuery`'s three outcomes, the safe rAF fallback and cancel
 - `autosave.test.ts` (9) — debounce, in-flight counts as clean, superseded replies dropped, failed saves retried on flush, forget on delete
 - `rpc.test.ts` (4) — `send()` never rejects; `undefined` on a dead worker / invalidated context
@@ -103,13 +105,13 @@ Known harness limitation (last recorded run, 2026-09-21: 23 passed / 3 failed): 
 
 ### Flow 1b: resizable sidebar and the youtube limitation
 
-1. On wikipedia.org, drag the sidebar's left edge: it stops at 188 and 300. Tab to the handle: arrows step 10px, Home/End jump to the ends. Reload: the width is remembered.
+1. On wikipedia.org, drag the sidebar's left edge: it stops at 210 and 300. Tab to the handle: arrows step 10px, Home/End jump to the ends. Reload: the width is remembered.
 2. Open a note and resize the window: the expanded panel stays ~75% and re-lays out; collapse → your width is back.
 3. **youtube.com** is a known limitation (REQUIREMENTS EC-13): the page bleeds under the sidebar. Check only that the sidebar paints on top and works, captures are clean, and closing restores the page.
 
 ### Flow 2: import
 
-1. On the site the bundle came from: chevron → **import** → pick the zip. With existing notes, the native confirm quotes the real count; cancel leaves everything; ok replaces.
+1. On the site the bundle came from: **more options** (⋯) → **import** → pick the zip. With existing notes, a dialog headed **salamander** quotes the real count; cancel leaves everything; ok replaces.
 2. Navigate between the bundle's URLs: thumbnails appear per URL.
 3. Errors (copy in REQUIREMENTS §5): a `.txt`; a renamed non-zip; a zip without `feedback.md`; a `feedback.md` whose line 1 is another stamp or missing; a broken json block; a bundle from another site.
 4. Stop the service worker (`chrome://serviceworker-internals`) and import again: a banner, nothing replaced, **import** enabled again.

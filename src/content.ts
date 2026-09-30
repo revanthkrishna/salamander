@@ -42,12 +42,16 @@ import {
   // The list's hover delete (design spec v4 §L) shares the enlarged view's
   // failure copy rather than declaring a second string for the same event.
   DELETE_ERROR_MESSAGE,
+  DELETE_ALL_FAILED_MESSAGE,
   EXPORT_FAILED_MESSAGE,
   FINISH_NOTE_FIRST_MESSAGE,
   IMPORT_FAILED_MESSAGE,
   NOTHING_TO_EXPORT_MESSAGE,
   importErrorMessage,
-  importReplaceConfirmMessage,
+  deleteAllConfirmMessage,
+  DELETE_ALL_CONFIRM_LABEL,
+  IMPORT_REPLACE_CONFIRM_LABEL,
+  IMPORT_REPLACE_CONFIRM_MESSAGE,
 } from './copy';
 import { FeedbackItem, ImportError } from './types';
 import { send } from './rpc';
@@ -63,6 +67,7 @@ import {
   ExportMessage,
   ImportReplaceMessage,
   GetDomainItemCountMessage,
+  DeleteDomainDataMessage,
   GetPenColorMessage,
   SetPenColorMessage,
 } from './messages';
@@ -398,8 +403,14 @@ function ensureStarted(): void {
     onExport: () => {
       void handleExport();
     },
+    onImport: () => {
+      void handleImportRequest();
+    },
     onImportFile: (file: File) => {
       void handleImportFile(file);
+    },
+    onDeleteAll: () => {
+      void handleDeleteAll();
     },
     onClose: () => {
       // sidebar.ts has already hidden itself by the time this fires (see
@@ -563,12 +574,125 @@ async function refreshThumbnails(): Promise<void> {
     normalisedUrl: normaliseUrl(location.href),
   };
   const response = await send(message);
+  // Every repaint follows a change that may have emptied or first filled the
+  // site (a save, a delete, an import, a navigation), so it is also when
+  // "delete all" learns whether it has anything to delete.
+  void refreshDeleteAllAvailability();
   if (!response || !response.ok) {
     sidebar.setThumbnails([]);
     if (response && !response.ok) sidebar.showError(response.message);
     return;
   }
   sidebar.setThumbnails(response.items);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// "delete all for this website" (design spec §AE)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Whether the site (every page of it, not just this one) has any notes, as
+ *  of the last read — what greys out export and delete-all (§AF). */
+let siteHasFeedback = false;
+let deleteAllInFlight = false;
+
+function syncDeleteAll(): void {
+  sidebar.setSiteHasNotes(siteHasFeedback);
+}
+
+/** Re-read the site's item count, and with it whether export and "delete
+ *  all" have anything to act on. A count that cannot be read greys them out:
+ *  the safe direction for the one irreversible action in the product. */
+async function refreshDeleteAllAvailability(): Promise<void> {
+  const message: GetDomainItemCountMessage = {
+    type: 'GET_DOMAIN_ITEM_COUNT',
+    domain: normaliseDomain(location.host),
+  };
+  const response = await send(message);
+  siteHasFeedback = response?.ok === true && response.count > 0;
+  syncDeleteAll();
+}
+
+/**
+ * Delete every note on every page of this site, and every screenshot, after
+ * the menu turns into a question quoting both counts (§AF) — so it is plain
+ * this reaches beyond the page on screen. The counts are read fresh at click
+ * time (not trusted from the last repaint), through the same write queue the
+ * delete then goes through, so the number the user agrees to is the number
+ * deleted. Unreachable during add mode (the whole group is disabled, §H) and
+ * the enlarged view (the panel is inert behind it).
+ */
+async function handleDeleteAll(): Promise<void> {
+  if (deleteAllInFlight) return;
+  const domain = normaliseDomain(location.host);
+
+  const countMessage: GetDomainItemCountMessage = { type: 'GET_DOMAIN_ITEM_COUNT', domain };
+  const counts = await send(countMessage);
+  if (!counts || !counts.ok) {
+    sidebar.closeMoreOptionsMenu();
+    sidebar.showError(counts ? counts.message : DELETE_ALL_FAILED_MESSAGE);
+    return;
+  }
+  if (counts.count === 0) {
+    // Emptied since the item was last enabled (e.g. from the enlarged view):
+    // nothing to ask, just catch the menu up.
+    sidebar.closeMoreOptionsMenu();
+    siteHasFeedback = false;
+    syncDeleteAll();
+    return;
+  }
+
+  const confirmed = await sidebar.confirmInMenu(
+    deleteAllConfirmMessage(counts.count, counts.pageCount),
+    DELETE_ALL_CONFIRM_LABEL,
+  );
+  if (!confirmed) return;
+
+  deleteAllInFlight = true;
+  try {
+    const message: DeleteDomainDataMessage = { type: 'DELETE_DOMAIN_DATA', domain };
+    const response = await send(message);
+    if (!response || !response.ok) {
+      sidebar.showError(response?.message ?? DELETE_ALL_FAILED_MESSAGE);
+    }
+  } finally {
+    deleteAllInFlight = false;
+    // Repaint from storage either way: on success the list empties and the
+    // item greys itself out; on failure whatever did survive is shown.
+    await refreshThumbnails();
+  }
+}
+
+/**
+ * "import" was chosen in the menu (§1.7, design spec §AF). With notes on the
+ * site the menu first turns into "importing will replace your existing notes.
+ * go ahead?" — asked BEFORE the file is chosen, so once the file checks out
+ * it replaces without asking again. With none, the picker opens straight away.
+ * The count is read fresh rather than trusted from the last repaint, so notes
+ * added from another tab are never replaced unasked; the round trip takes
+ * milliseconds, well inside the user activation a file picker needs.
+ */
+async function handleImportRequest(): Promise<void> {
+  const message: GetDomainItemCountMessage = {
+    type: 'GET_DOMAIN_ITEM_COUNT',
+    domain: normaliseDomain(location.host),
+  };
+  const counts = await send(message);
+  if (!counts || !counts.ok) {
+    // Without the count there is no knowing whether a replace would discard
+    // anything, so the only safe answer is to stop (§5 #10).
+    sidebar.closeMoreOptionsMenu();
+    sidebar.showError(counts ? counts.message : IMPORT_FAILED_MESSAGE);
+    return;
+  }
+  if (counts.count > 0) {
+    const confirmed = await sidebar.confirmInMenu(
+      IMPORT_REPLACE_CONFIRM_MESSAGE,
+      IMPORT_REPLACE_CONFIRM_LABEL,
+      'accent',
+    );
+    if (!confirmed) return;
+  }
+  sidebar.openImportPicker();
 }
 
 /**
@@ -617,7 +741,11 @@ async function handleExport(): Promise<void> {
     }
     if (!response.ok) {
       if (response.code === 'EMPTY') {
-        alert(NOTHING_TO_EXPORT_MESSAGE); // §5 #7, verbatim
+        // Export is greyed out with nothing to export (§AF), so this is only
+        // reached if the site emptied since the last check (another tab):
+        // say so, and grey it out now.
+        sidebar.showWarning(NOTHING_TO_EXPORT_MESSAGE);
+        void refreshDeleteAllAvailability();
       } else {
         sidebar.showError(response.message);
       }
@@ -628,14 +756,13 @@ async function handleExport(): Promise<void> {
 }
 
 /**
- * §1.7 — import a `.zip` bundle. src/import.ts owns the whole §5 validation
- * ladder (unzip, parse, screenshot/duplicate/domain checks); this side's job
- * is the UI orchestration around it: report a validation failure verbatim,
- * ask how many existing items a replace would discard (§5 #10) and confirm
- * before doing it, then send the validated bundle to the service worker to
- * actually write. The import
- * button is disabled for the duration so a second pick can't overlap the
- * first (mirrors handleExport's setExportButtonEnabled).
+ * §1.7 — import a `.zip` bundle, once it has been picked. src/import.ts owns
+ * the whole §5 validation ladder (unzip, parse, screenshot/duplicate/domain
+ * checks); this side reports a validation failure verbatim and sends a valid
+ * bundle to the service worker to write. Nothing is asked here: any replace
+ * of existing notes was confirmed before the picker opened
+ * (handleImportRequest, §AF). The import item is disabled for the duration
+ * so a second pick can't overlap the first.
  */
 async function handleImportFile(file: File): Promise<void> {
   sidebar.setImportButtonEnabled(false);
@@ -650,27 +777,6 @@ async function handleImportFile(file: File): Promise<void> {
         err instanceof ImportError ? importErrorMessage(err.code, err.details) : IMPORT_FAILED_MESSAGE,
       );
       return;
-    }
-
-    const countMessage: GetDomainItemCountMessage = {
-      type: 'GET_DOMAIN_ITEM_COUNT',
-      domain: currentDomain,
-    };
-    const countResponse = await send(countMessage);
-    if (!countResponse || !countResponse.ok) {
-      // §5 #10's confirmation quotes how many items a replace would discard.
-      // If that number cannot be read, the only safe answer is to stop: going
-      // on as if it were zero would replace the domain WITHOUT the
-      // confirmation, and may discard feedback silently.
-      sidebar.showError(countResponse ? countResponse.message : IMPORT_FAILED_MESSAGE);
-      return;
-    }
-    const existingCount = countResponse.count;
-
-    if (existingCount > 0) {
-      // §5 #10, verbatim.
-      const confirmed = await sidebar.showConfirmDialog(importReplaceConfirmMessage(existingCount));
-      if (!confirmed) return;
     }
 
     const replaceMessage: ImportReplaceMessage = {

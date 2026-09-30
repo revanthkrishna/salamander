@@ -55,7 +55,8 @@ the same page.
 - [ ] **1.3.** Sidebar header shows a logo + "salamander" wordmark (display italic) and a close
       button — no theme toggle (dark only). Below it, a separate action row holds two groups: an icon-only
       "add note" button (comment-bubble glyph) with a "keep add mode on" switch attached to its
-      right, and an "export" icon button with a chevron attached to its right.
+      right, then on the far right two separate buttons a little apart: "export" and "more
+      options" (⋯).
 - [ ] **1.4.** With no feedback captured yet on this page, sidebar body shows the empty-state
       message: "no feedback on this page yet".
 - [ ] **1.5.** Click **close** → sidebar disappears, page returns to full width.
@@ -71,10 +72,10 @@ the same page.
       open on. Sidebar should be closed by default (session state cleared on browser restart).
 - [ ] **1.11. (Resizable sidebar)** Hover the sidebar's left edge — cursor should change to a
       resize cursor and a thin yellow rail should appear. Drag it wider and narrower. It should
-      stop at 188px (min) and 300px (max) and not go past either — the minimum is now exactly the
-      width the action row needs with the "keep on" switch revealed (v5 §V). Reload the page — the
-      width you left it at should be remembered. If you had previously left it narrower than 188px,
-      it should come back clamped up to 188, not stuck at the old width.
+      stop at 210px (min) and 300px (max) and not go past either — the minimum is exactly the
+      width the action row needs with the "keep on" switch revealed (v5 §V, §AE). Reload the page —
+      the width you left it at should be remembered. If you had previously left it narrower than
+      210px, it should come back clamped up to 210, not stuck at the old width.
 - [ ] **1.12.** With the sidebar resized to a non-default width, open add mode — the selection area
       must not extend under the sidebar. Then open a note: the enlarged view expands to ~75% of the
       window regardless of the sidebar width, and collapsing returns the sidebar to your width.
@@ -84,7 +85,9 @@ the same page.
 - [ ] **1.15. (Narrow sidebar widths)** Drag the sidebar narrower than ~220px — the "salamander"
       wordmark should hide and nothing else should change: hovering the "add note" group still
       reveals the "keep on" switch at every width (no breakpoint suppresses it), keyboard focus
-      reveals it too, and it stays visible whenever it is on. Keep dragging to the 188px minimum
+      reveals it too, and it stays visible whenever it is on. Reload the extension and hover the
+      add group for the first time: the switch slides out from behind the button with no faint
+      half-circle appearing beside it first. Keep dragging to the 210px minimum
       and hover the add group there — the switch reveals and BOTH groups must still sit on one
       line, with nothing clipped, nothing wrapped to a second row and the logo mark still showing
       (v5 §V retired the old compact layout).
@@ -193,7 +196,7 @@ the same page.
 - [ ] **2.19. (sidebar on hold during add mode)** Enter add mode with at least one note in the
       list. The note list should dim to about half opacity, stop reacting to hover (no dock
       magnification), refuse clicks, and be skipped entirely when you Tab through the sidebar.
-      The export group should be greyed out and unclickable, and any open chevron menu should
+      Export and "more options" should be greyed out and unclickable, and any open menu should
       have closed. The **add note** button, its switch and **close** must all
       still work. Leave add mode by every route (button, switch+button, Esc, close, cancel) and
       confirm the list comes back fully interactive each time, with magnification working again.
@@ -231,7 +234,7 @@ Place a box first (click or drag) for each of these; the pencil only exists once
       On a page with its own Cmd+Z handling (a docs editor, Gmail compose open behind), the page
       never reacts.
 - [ ] **2a.9. (erase all)** With nothing drawn, open the pencil menu: **erase all** is greyed out.
-      Draw, open the menu (it fades/scales in, like the export chevron's), **erase all** → every
+      Draw, open the menu (it fades/scales in, like the "more options" menu), **erase all** → every
       stroke is gone, the menu closes, focus is on the pencil. With the menu open, Esc closes the
       menu only (add mode stays); a second Esc exits add mode. Keyboard: focus the pencil, ArrowDown
       opens the menu on its item; Tab closes it. Place a box near the bottom of the window: the menu
@@ -377,8 +380,10 @@ Place a box first (click or drag) for each of these; the pencil only exists once
 
 ## 4. Exporting (§1.6)
 
-- [ ] **4.1.** With zero feedback captured anywhere on the domain, click **export** — should show
-      `alert("nothing to export")`, no file downloads.
+- [ ] **4.1. (§AF)** With zero feedback captured anywhere on the domain, **export** is greyed out.
+      Hover it: after a moment a small tooltip above it reads "nothing to export". Tab to it: the
+      same tooltip appears at once. Clicking does nothing — no dialog, no download. Capture a note
+      and export comes back to life.
 - [ ] **4.2.** Capture 2+ items on 2+ different pages of one domain, then click **export** — a
       `.zip` downloads named like `feedback-{domain}-{YYYY-MM-DD}.zip` (dots in the domain replaced
       with underscores, e.g. `feedback-example_com-2026-09-18.zip`).
@@ -400,23 +405,44 @@ Place a box first (click or drag) for each of these; the pencil only exists once
 
 ## 5. Importing (§1.7) and all error cases (§5)
 
-- [ ] **5.0. (chevron menu)** **import** now lives in the menu behind the chevron attached to
-      **export**. Click the chevron → a small menu opens below it with one "import" item; the
-      chevron flips to point up and takes the hover fill. Check it closes on: picking the item,
-      Esc (focus returns to the chevron), a click anywhere else in the sidebar, a click on the
-      page behind, and Tab. Open it with the keyboard (Tab to the chevron, then Enter, Space or
-      ↓) → focus lands on "import"; ↑/↓ move between items. Nothing in the menu should be
-      reachable by Tab while it is closed.
-- [ ] **5.1. (Happy path)** On the same site the bundle was exported from, open the chevron menu
+- [ ] **5.0. ("more options" menu, §AE)** Click **more options** (⋯) → a menu opens below it with
+      **import**, a divider, and **delete all for this website** in red. Both labels are on one
+      line, at every sidebar width (at the narrowest, the menu reaches a little past the panel's
+      left edge — expected). The button keeps its lit state while open. Check it closes on:
+      picking an item, Esc (focus returns to the button), a click anywhere else in the sidebar, a
+      click on the page behind, and Tab. Open it with the keyboard (Tab to the button, then Enter,
+      Space or ↓) → focus lands on "import"; ↑/↓ move between items, including delete-all when it
+      is greyed out. Nothing in the menu should be reachable by Tab while it is closed. Measure the
+      gaps: import sits the same distance from the menu's edge as from the divider, and so does
+      delete-all.
+- [ ] **5.0a. (delete all, §AF)** On a site with no feedback, **delete all for this website** is
+      greyed out; hover it and a tooltip to the LEFT of the menu reads "nothing to delete".
+      Capture a note on one page and two on another page of the same site (SPA links or two URLs).
+      Open the menu → the item is live. Click it → the menu itself grows smoothly to the full
+      width of the sidebar (even margins both sides) and reads "delete 3 notes across 2 pages?"
+      with **cancel** and **yes, delete**; only the box's size animates, the text doesn't slide or
+      reflow. Try each way out: **cancel**, Esc, a click elsewhere — each closes it and deletes
+      nothing. Again, **yes, delete** → the list empties; go to the other page → empty too.
+      Reopen the menu → the item list is back at its normal size and delete-all is greyed out.
+      With one note: "delete 1 note across 1 page?". A different subdomain is untouched.
+- [ ] **5.1. (Happy path)** On the same site the bundle was exported from, open **more options**
       and click **import**, then select the `.zip` from §4. Sidebar should populate with thumbnails matching what was
       exported (same images, same notes) once you're on a URL that has items.
 - [ ] **5.2. (Round trip)** Export again right after importing — the new `feedback.md` should be
       identical to the original apart from the `date exported:` line (drawn notes lose only the
       alt-text suffix, since their drawing is now part of the image).
-- [ ] **5.3. (Existing-data confirmation)** With feedback already present for this domain, import
-      a bundle — a confirm dialog should appear: "importing will replace your current N feedback
-      item(s) for this site. this cannot be undone. continue?" Cancel it — nothing should change.
-      Confirm it — old items are wiped and the new bundle's items take their place.
+- [ ] **5.3. (Existing-data confirmation, §AF)** With feedback already present for this domain,
+      choose **import**: BEFORE any file picker, the menu grows into "your existing notes will be
+      discarded. continue with import?" with **cancel** and **yes, import** — the latter in yellow
+      text, not red. Cancel (or Esc, or a click elsewhere) — no picker, nothing changes.
+      **yes, import** → the file picker opens; pick the bundle → old items
+      are wiped and the new ones take their place, with no second question. On a site with no
+      notes, **import** opens the picker straight away.
+- [ ] **5.3a. (Tooltips, §AG)** No browser-native tooltip anywhere. Hover each control — close,
+      add note, the switch, export, more options, the resize handle, a note's delete, the pencil
+      and colours in add mode, the enlarged view's rail and peeks and delete: after about a
+      second a themed tooltip appears (above, or to the left for the rail and the resize handle),
+      and moving straight to the next control shows its tooltip at once. Clicking hides it.
 - [ ] **5.4. (Wrong file type)** Try importing a `.txt` or `.png` file → "invalid file type. please
       upload a .zip feedback bundle."
 - [ ] **5.5. (Corrupted zip)** Rename some random non-zip file to `.zip` and try importing it →
@@ -482,11 +508,11 @@ Run each of these in the dark theme (the only one — design spec §AA).
 - [ ] **6a.1. (§J — one fixed block)** There must be exactly one 1px rule in the top of the
       sidebar: under the action row, below the add/export controls. No line between the header
       (logo + close) and the action row, and none anywhere inside them.
-- [ ] **6a.2. (§K — export group per half)** Hover the export icon: only the left half fills, and
-      the group's border darkens. Hover the chevron: only the chevron half fills. Press either —
-      only that half darkens, and the whole group dips slightly. Open the menu, then press the
-      chevron to close it: the menu must **not** move under the pointer (no press dip while open).
-      The chevron keeps its own lit state for as long as the menu is open.
+- [ ] **6a.2. (§AE — export and "more options")** They are two separate buttons, the same size
+      as **add note**, a small gap apart. Hover each: only that button fills and its border
+      darkens. Press either: only that one darkens, and nothing moves. Open the menu, then press
+      **more options** to close it: the menu must **not** move under the pointer. The button
+      keeps its lit state for as long as the menu is open. Tab to each: each has its own ring.
 - [ ] **6a.3. (§P — the "keep on" switch's colours)** Hover the add-note group to reveal the
       switch. **Off:** the track must read as a real, filled control (mid-grey), with the knob
       clearly standing out against it — it must not look like one dark blob on the dark surface.

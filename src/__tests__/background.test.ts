@@ -30,6 +30,8 @@ jest.mock('../storage', () => ({
   updateItem: jest.fn().mockResolvedValue(true),
   updateNote: jest.fn().mockResolvedValue(undefined),
   deleteItem: jest.fn().mockResolvedValue(undefined),
+  getDomainCounts: jest.fn().mockResolvedValue({ items: 0, pages: 0 }),
+  deleteDomainData: jest.fn().mockResolvedValue(undefined),
   getPenColor: jest.fn().mockResolvedValue(null),
   setPenColor: jest.fn().mockResolvedValue(undefined),
 }));
@@ -1034,6 +1036,65 @@ describe('handleDeleteItem', () => {
 
     expect(response).toEqual({ ok: false, message: "couldn't delete item. try again." });
     warn.mockRestore();
+  });
+});
+
+describe('handleGetDomainItemCount', () => {
+  it('reports the item count and how many pages it spans, from the index alone', async () => {
+    mockedStorage.getDomainCounts.mockResolvedValue({ items: 5, pages: 3 });
+    const response = await background.handleGetDomainItemCount({ type: 'GET_DOMAIN_ITEM_COUNT', domain: 'example.com' });
+    expect(mockedStorage.getDomainCounts).toHaveBeenCalledWith('example.com');
+    expect(response).toEqual({ ok: true, count: 5, pageCount: 3 });
+  });
+
+  it('maps a read failure to the count copy', async () => {
+    mockedStorage.getDomainCounts.mockRejectedValue(new Error('boom'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const response = await background.handleGetDomainItemCount({ type: 'GET_DOMAIN_ITEM_COUNT', domain: 'example.com' });
+    expect(response).toEqual({ ok: false, message: "couldn't check existing feedback. try again." });
+    warn.mockRestore();
+  });
+});
+
+describe('handleDeleteDomainData (design spec §AE)', () => {
+  it('deletes the whole domain through storage and reports success', async () => {
+    const response = await background.handleDeleteDomainData({ type: 'DELETE_DOMAIN_DATA', domain: 'example.com' });
+    expect(mockedStorage.deleteDomainData).toHaveBeenCalledWith('example.com');
+    expect(response).toEqual({ ok: true });
+  });
+
+  it('maps a failure to the delete-all copy', async () => {
+    mockedStorage.deleteDomainData.mockRejectedValue(new Error('boom'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const response = await background.handleDeleteDomainData({ type: 'DELETE_DOMAIN_DATA', domain: 'example.com' });
+    expect(response).toEqual({ ok: false, message: "couldn't delete feedback. try again." });
+    warn.mockRestore();
+  });
+
+  it('waits for an in-flight save, so a note saved just before is deleted with the rest', async () => {
+    const order: string[] = [];
+    let releaseAdd!: () => void;
+    mockedStorage.addItem.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          order.push('add:start');
+          releaseAdd = () => {
+            order.push('add:end');
+            resolve();
+          };
+        }),
+    );
+    mockedStorage.deleteDomainData.mockImplementation(async () => {
+      order.push('delete-all');
+    });
+
+    const save = background.handleSaveItem({ type: 'SAVE_ITEM', domain: 'example.com', item: makeNewItem() });
+    const wipe = background.handleDeleteDomainData({ type: 'DELETE_DOMAIN_DATA', domain: 'example.com' });
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(order).toEqual(['add:start']);
+    releaseAdd();
+    await Promise.all([save, wipe]);
+    expect(order).toEqual(['add:start', 'add:end', 'delete-all']);
   });
 });
 

@@ -15,7 +15,11 @@ import {
   NOTHING_TO_EXPORT_MESSAGE,
   SAVE_ERROR_MESSAGE,
   importErrorMessage,
-  importReplaceConfirmMessage,
+  IMPORT_REPLACE_CONFIRM_MESSAGE,
+  IMPORT_REPLACE_CONFIRM_LABEL,
+  DELETE_ALL_CONFIRM_LABEL,
+  NOTHING_TO_DELETE_MESSAGE,
+  deleteAllConfirmMessage,
   saveErrorFor,
 } from '../copy';
 
@@ -38,10 +42,17 @@ describe('§5 import copy (verbatim)', () => {
     );
   });
 
-  test('#10 confirmation', () => {
-    expect(importReplaceConfirmMessage(3)).toBe(
-      'importing will replace your current 3 feedback item(s) for this site. this cannot be undone. continue?',
-    );
+  test('#10 confirmation — asked in the menu, before the file is picked (§AF)', () => {
+    expect(IMPORT_REPLACE_CONFIRM_MESSAGE).toBe('your existing notes will be discarded. continue with import?');
+    expect(IMPORT_REPLACE_CONFIRM_LABEL).toBe('yes, import');
+  });
+
+  test('delete-all: each noun agrees with its own count (§AF)', () => {
+    expect(deleteAllConfirmMessage(5, 3)).toBe('delete 5 notes across 3 pages?');
+    expect(deleteAllConfirmMessage(1, 1)).toBe('delete 1 note across 1 page?');
+    expect(deleteAllConfirmMessage(2, 1)).toBe('delete 2 notes across 1 page?');
+    expect(DELETE_ALL_CONFIRM_LABEL).toBe('yes, delete');
+    expect(NOTHING_TO_DELETE_MESSAGE).toBe('nothing to delete');
   });
 
   test('#7 and #8', () => {

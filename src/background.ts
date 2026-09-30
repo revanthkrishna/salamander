@@ -17,6 +17,8 @@ import {
   updateNote,
   deleteItem,
   getDomainData,
+  getDomainCounts,
+  deleteDomainData,
   replaceDomainData,
   getPenColor,
   setPenColor,
@@ -34,6 +36,7 @@ import {
   DELETE_ERROR_MESSAGE,
   DOMAIN_COUNT_FAILED_MESSAGE,
   IMPORT_FAILED_MESSAGE,
+  DELETE_ALL_FAILED_MESSAGE,
 } from './copy';
 import { FeedbackItem, Rect, ViewportSize, DomainData } from './types';
 import {
@@ -60,6 +63,8 @@ import {
   ImportReplaceResponse,
   GetDomainItemCountMessage,
   GetDomainItemCountResponse,
+  DeleteDomainDataMessage,
+  DeleteDomainDataResponse,
   GetPenColorResponse,
   SetPenColorMessage,
   MessageHandlers,
@@ -181,6 +186,7 @@ const handlers: MessageHandlers = {
   DELETE_ITEM: (message) => handleDeleteItem(message),
   EXPORT: (message) => handleExport(message),
   GET_DOMAIN_ITEM_COUNT: (message) => handleGetDomainItemCount(message),
+  DELETE_DOMAIN_DATA: (message) => handleDeleteDomainData(message),
   IMPORT_REPLACE: (message) => handleImportReplace(message),
   GET_PEN_COLOR: () => handleGetPenColor(),
   SET_PEN_COLOR: (message) => handleSetPenColor(message),
@@ -464,14 +470,33 @@ export async function handleGetDomainItemCount(
     // Through the queue like every other domain-record read, so the count
     // reflects every write queued before it (§5 #10's confirmation must not
     // quote a stale number).
-    const data = await enqueueSave(() => getDomainData(message.domain));
-    const count = data
-      ? Object.values(data.pages).reduce((sum, items) => sum + items.length, 0)
-      : 0;
-    return { ok: true, count };
+    // Counted from the index alone: this also runs after every repaint, to
+    // decide whether "delete all" has anything to delete, so it must not
+    // load every item's thumbnail just to count them.
+    const { items, pages } = await enqueueSave(() => getDomainCounts(message.domain));
+    return { ok: true, count: items, pageCount: pages };
   } catch (err) {
     console.warn('[Annotator] could not read domain item count:', err);
     return { ok: false, message: DOMAIN_COUNT_FAILED_MESSAGE };
+  }
+}
+
+/**
+ * "delete all for this website" (design spec §AE): the domain's
+ * index, every item on every page, and every screenshot. Through the write
+ * queue like every other mutation, so a save still in flight lands first
+ * and is deleted with the rest rather than resurrecting a half-emptied
+ * record afterwards.
+ */
+export async function handleDeleteDomainData(
+  message: DeleteDomainDataMessage,
+): Promise<DeleteDomainDataResponse> {
+  try {
+    await enqueueSave(() => deleteDomainData(message.domain));
+    return { ok: true };
+  } catch (err) {
+    console.warn('[Annotator] could not delete the domain:', err);
+    return { ok: false, message: DELETE_ALL_FAILED_MESSAGE };
   }
 }
 

@@ -59,6 +59,7 @@ import {
   PenColor,
 } from './drawing';
 import { ICON_ERASER, ICON_PENCIL, PENCIL_CURSOR } from './icons';
+import { attachTooltips, TooltipHandle, TOOLTIP_CSS } from './tooltip';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -753,6 +754,8 @@ let tooltipTimer: ReturnType<typeof setTimeout> | null = null;
 
 let activeZone: ZoneKey | null = null;
 let keyboardIsolation: KeyboardIsolationHandle | null = null;
+/** The shared tooltip for this root (tooltip.ts, design spec §AG). */
+let addModeTooltips: TooltipHandle | null = null;
 
 /** Set on mousedown while mode === 'placing', cleared once placement
  *  finalizes (mouseup). Null whenever no placement gesture is in progress. */
@@ -939,8 +942,9 @@ function buildDOM(): void {
   // Salamander design tokens (--sal-*) as :host custom properties, prepended
   // ahead of add mode's own CSS so every rule in it can reference them. One
   // <style> element per shadow root.
-  style.textContent = getThemeCSS() + '\n' + ADD_MODE_CSS;
+  style.textContent = getThemeCSS() + '\n' + ADD_MODE_CSS + '\n' + TOOLTIP_CSS;
   shadow.appendChild(style);
+  addModeTooltips = attachTooltips(shadow);
 
   elBlocker = document.createElement('div');
   elBlocker.className = 'blocker';
@@ -1090,7 +1094,7 @@ function buildDrawTools(): HTMLDivElement {
   elPencilBtn.type = 'button';
   elPencilBtn.className = 'btn-pencil';
   elPencilBtn.setAttribute('aria-label', 'drawing options');
-  elPencilBtn.title = 'drawing options';
+  elPencilBtn.dataset.tip = 'drawing options';
   elPencilBtn.setAttribute('aria-haspopup', 'menu');
   elPencilBtn.setAttribute('aria-expanded', 'false');
   const icon = document.createElement('span');
@@ -1117,7 +1121,7 @@ function buildDrawTools(): HTMLDivElement {
     sw.className = 'swatch';
     sw.setAttribute('role', 'radio');
     sw.setAttribute('aria-label', c.name);
-    sw.title = c.name;
+    sw.dataset.tip = c.name;
     sw.dataset.color = c.hex;
     const dot = document.createElement('span');
     dot.className = 'swatch-dot';
@@ -1846,6 +1850,8 @@ function handleSaveClick(): void {
   capturing = true;
   closeDrawMenu();
   setDrawToolsDisabled(true);
+  // Nothing of ours may be in the screenshot, a tooltip included.
+  addModeTooltips?.hide();
 
   // The drawing travels as its own layer, cropped to the final rect; the
   // screenshot underneath is taken with every stroke hidden (§AB).
@@ -1982,6 +1988,8 @@ export function exitAddMode(): void {
 
   keyboardIsolation?.release();
   keyboardIsolation = null;
+  addModeTooltips?.destroy();
+  addModeTooltips = null;
 
   endStrokeGesture();
   strokes = [];

@@ -24,10 +24,14 @@
 import { FeedbackItem } from '../types';
 // The list delete reuses the enlarged view's failure copy (design spec v4 §L).
 import {
+  DELETE_ALL_FAILED_MESSAGE,
   DELETE_ERROR_MESSAGE,
   DOMAIN_COUNT_FAILED_MESSAGE,
   IMPORT_FAILED_MESSAGE,
-  importReplaceConfirmMessage,
+  deleteAllConfirmMessage,
+  IMPORT_REPLACE_CONFIRM_MESSAGE,
+  DELETE_ALL_CONFIRM_LABEL,
+  IMPORT_REPLACE_CONFIRM_LABEL,
 } from '../copy';
 
 jest.mock('../capture', () => ({
@@ -203,7 +207,7 @@ describe('content.ts: "add note" toggle + "keep on" switch (design spec v3 §A2)
     // The NAME stays put (aria-pressed announces the state); the tooltip is
     // what says what a click will do now.
     expect(btn.getAttribute('aria-label')).toBe('add note');
-    expect(btn.title).toBe('cancel note');
+    expect(btn.dataset.tip).toBe('cancel note');
   });
 
   test('a second click with no following dblclick cancels add mode after the double-click window', () => {
@@ -238,7 +242,7 @@ describe('content.ts: "add note" toggle + "keep on" switch (design spec v3 §A2)
     expect(addGroup().classList.contains('is-on')).toBe(true);
     expect(addGroup().classList.contains('is-switch-on')).toBe(true);
     expect(btn.getAttribute('aria-label')).toBe('add note');
-    expect(btn.title).toBe('stop adding notes');
+    expect(btn.dataset.tip).toBe('stop adding notes');
     expect(addSwitch().getAttribute('aria-checked')).toBe('true');
 
     // The pre-empted timer must not still be pending.
@@ -390,7 +394,7 @@ describe('content.ts: "add note" toggle + "keep on" switch (design spec v3 §A2)
     expect(addGroup().classList.contains('is-switch-on')).toBe(true);
     expect(addSwitch().getAttribute('aria-checked')).toBe('true');
     expect(addButton().getAttribute('aria-label')).toBe('add note');
-    expect(addButton().title).toBe('stop adding notes');
+    expect(addButton().dataset.tip).toBe('stop adding notes');
   });
 
   test('clicking the merged control (either half) stops everything', () => {
@@ -841,11 +845,13 @@ describe('content.ts: the pencil colour and the pencil menu (design spec §AB)',
   });
 });
 
-describe('content.ts: import (§1.7) — the count read and the §5 #10 confirmation', () => {
+describe('content.ts: import (§1.7) — asked in the menu before the file is picked (design spec §AF)', () => {
   const BUNDLE = { domain: 'localhost', items: [{ id: 4 }] };
   let countReply: unknown;
   let replaceReply: unknown;
   let confirmSpy: jest.SpyInstance;
+  let confirmAnswer: boolean;
+  let pickerSpy: jest.SpyInstance;
 
   function installImportMocks(): void {
     const base = (chrome.runtime.sendMessage as jest.Mock).getMockImplementation()!;
@@ -865,88 +871,259 @@ describe('content.ts: import (§1.7) — the count read and the §5 #10 confirma
     (require('../import').parseImportBundle as jest.Mock).mockResolvedValue(BUNDLE);
   }
 
-  function pickFile(): void {
+  function sent(): any[] {
+    return (chrome.runtime.sendMessage as jest.Mock).mock.calls.map((c) => c[0]);
+  }
+  function notifText(): string | null {
+    return sidebarShadow().querySelector('.notif-text')?.textContent ?? null;
+  }
+  function importItem(): HTMLButtonElement {
+    return sidebarShadow().querySelector('.action-menu-item.is-import') as HTMLButtonElement;
+  }
+  function menuOpen(): boolean {
+    return (sidebarShadow().querySelector('.action-menu') as HTMLElement).dataset.open === 'true';
+  }
+
+  async function open(): Promise<void> {
+    pageItems = [];
+    loadContent();
+    confirmSpy = jest.spyOn(sidebarApi, 'confirmInMenu').mockImplementation(async () => confirmAnswer);
+    pickerSpy = jest.spyOn(sidebarApi, 'openImportPicker');
+    installImportMocks();
+    activate();
+    await flushMicrotasks();
+    (chrome.runtime.sendMessage as jest.Mock).mockClear();
+  }
+  async function chooseImport(): Promise<void> {
+    (sidebarShadow().querySelector('.btn-menu') as HTMLButtonElement).click();
+    importItem().click();
+    await flushMicrotasks();
+    await flushMicrotasks();
+  }
+  async function pickFile(): Promise<void> {
     const input = sidebarShadow().querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(['zip'], 'feedback.zip', { type: 'application/zip' });
     Object.defineProperty(input, 'files', { value: [file], configurable: true });
     input.dispatchEvent(new Event('change'));
+    await flushMicrotasks();
+    await flushMicrotasks();
+  }
+
+  beforeEach(() => {
+    countReply = { ok: true, count: 0, pageCount: 0 };
+    replaceReply = { ok: true };
+    confirmAnswer = true;
+  });
+
+  afterEach(() => {
+    confirmSpy?.mockRestore();
+    pickerSpy?.mockRestore();
+  });
+
+  test('a site with no notes: the picker opens straight away, nothing is asked', async () => {
+    await open();
+    await chooseImport();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(pickerSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('a site with notes: the menu asks first, and "yes" opens the picker', async () => {
+    countReply = { ok: true, count: 3, pageCount: 2 };
+    await open();
+    await chooseImport();
+    // Yellow, not red: importing is not a delete (§AF).
+    expect(confirmSpy).toHaveBeenCalledWith(IMPORT_REPLACE_CONFIRM_MESSAGE, IMPORT_REPLACE_CONFIRM_LABEL, 'accent');
+    expect(pickerSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('"cancel" opens no picker', async () => {
+    countReply = { ok: true, count: 3, pageCount: 2 };
+    confirmAnswer = false;
+    await open();
+    await chooseImport();
+    expect(pickerSpy).not.toHaveBeenCalled();
+  });
+
+  test('a count that cannot be read stops before anything is asked or picked', async () => {
+    countReply = { ok: false, message: DOMAIN_COUNT_FAILED_MESSAGE };
+    await open();
+    await chooseImport();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(pickerSpy).not.toHaveBeenCalled();
+    expect(notifText()).toBe(DOMAIN_COUNT_FAILED_MESSAGE);
+    expect(menuOpen()).toBe(false);
+  });
+
+  test('a dead service worker at the count step fails the same way, with the generic import copy', async () => {
+    countReply = undefined;
+    await open();
+    await chooseImport();
+    expect(pickerSpy).not.toHaveBeenCalled();
+    expect(notifText()).toBe(IMPORT_FAILED_MESSAGE);
+  });
+
+  test('once picked, a valid file replaces without asking again', async () => {
+    countReply = { ok: true, count: 3, pageCount: 2 };
+    await open();
+    await chooseImport();
+    confirmSpy.mockClear();
+    await pickFile();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    // jsdom's page is http://localhost/ — the domain is the page's, not the
+    // bundle's (the ladder has already checked they match).
+    expect(sent()).toContainEqual(
+      expect.objectContaining({ type: 'IMPORT_REPLACE', domain: 'localhost', items: BUNDLE.items }),
+    );
+    expect(importItem().disabled).toBe(false);
+  });
+
+  test('a failed replace shows the import error', async () => {
+    replaceReply = { ok: false, message: IMPORT_FAILED_MESSAGE };
+    await open();
+    await pickFile();
+    expect(notifText()).toBe(IMPORT_FAILED_MESSAGE);
+  });
+});
+
+describe('content.ts: delete all for this website (design spec §AE)', () => {
+  let countReply: unknown;
+  let deleteReply: unknown;
+  let confirmSpy: jest.SpyInstance;
+  let confirmAnswer: boolean;
+  /** Answers the menu's question (design spec §AF) — its UI is covered in
+   *  sidebar.test.ts; here only the question asked and the flow matter. */
+  function spyOnConfirm(): void {
+    confirmSpy = jest.spyOn(sidebarApi, 'confirmInMenu').mockImplementation(async () => confirmAnswer);
+  }
+
+  function installDeleteMocks(): void {
+    const base = (chrome.runtime.sendMessage as jest.Mock).getMockImplementation()!;
+    (chrome.runtime.sendMessage as jest.Mock).mockImplementation((message: any, callback?: (r?: unknown) => void) => {
+      if (message?.type === 'GET_DOMAIN_ITEM_COUNT') {
+        callback?.(countReply);
+        return;
+      }
+      if (message?.type === 'DELETE_DOMAIN_DATA') {
+        // A successful delete empties the site, as the service worker would.
+        if ((deleteReply as { ok?: boolean })?.ok) {
+          pageItems = [];
+          countReply = { ok: true, count: 0, pageCount: 0 };
+        }
+        callback?.(deleteReply);
+        return;
+      }
+      base(message, callback);
+    });
   }
 
   function sent(): any[] {
     return (chrome.runtime.sendMessage as jest.Mock).mock.calls.map((c) => c[0]);
   }
-
+  function deleteAllItem(): HTMLButtonElement {
+    return sidebarShadow().querySelector('.action-menu-item.is-delete-all') as HTMLButtonElement;
+  }
   function notifText(): string | null {
     return sidebarShadow().querySelector('.notif-text')?.textContent ?? null;
   }
 
-  function importItem(): HTMLButtonElement {
-    return sidebarShadow().querySelector('.action-menu-item') as HTMLButtonElement;
-  }
-
-  async function openAndPick(): Promise<void> {
-    pageItems = [];
+  async function open(): Promise<void> {
     loadContent();
-    installImportMocks();
+    spyOnConfirm();
+    installDeleteMocks();
     activate();
     await flushMicrotasks();
+    await flushMicrotasks();
+  }
+  async function clickDeleteAll(): Promise<void> {
     (chrome.runtime.sendMessage as jest.Mock).mockClear();
-    pickFile();
+    (sidebarShadow().querySelector('.btn-menu') as HTMLButtonElement).click();
+    deleteAllItem().click();
+    await flushMicrotasks();
+    await flushMicrotasks();
     await flushMicrotasks();
   }
 
   beforeEach(() => {
-    countReply = { ok: true, count: 0 };
-    replaceReply = { ok: true };
-    confirmSpy = jest.spyOn(window, 'confirm').mockImplementation(() => true);
+    pageItems = [makeItem({ id: 7 })];
+    countReply = { ok: true, count: 5, pageCount: 3 };
+    deleteReply = { ok: true };
+    confirmAnswer = true;
   });
 
   afterEach(() => {
-    confirmSpy.mockRestore();
+    confirmSpy?.mockRestore();
   });
 
-  test('a domain with nothing stored yet is replaced without asking', async () => {
-    await openAndPick();
-    expect(confirmSpy).not.toHaveBeenCalled();
-    // jsdom's page is http://localhost/ — the domain is the page's, not
-    // the bundle's (the ladder has already checked they match).
-    expect(sent()).toContainEqual(
-      expect.objectContaining({ type: 'IMPORT_REPLACE', domain: 'localhost', items: BUNDLE.items }),
-    );
-    expect(notifText()).toBe('');
+  test('the item is enabled once the site is known to have feedback', async () => {
+    await open();
+    expect(deleteAllItem().hasAttribute('aria-disabled')).toBe(false);
   });
 
-  test('existing feedback: §5 #10 is asked with the real count, and "yes" replaces', async () => {
-    countReply = { ok: true, count: 3 };
-    await openAndPick();
-    expect(confirmSpy).toHaveBeenCalledWith(importReplaceConfirmMessage(3));
-    expect(sent()).toContainEqual(expect.objectContaining({ type: 'IMPORT_REPLACE' }));
+  test('a site with no feedback leaves it disabled', async () => {
+    pageItems = [];
+    countReply = { ok: true, count: 0, pageCount: 0 };
+    await open();
+    expect(deleteAllItem().getAttribute('aria-disabled')).toBe('true');
   });
 
-  test('existing feedback: "no" sends nothing', async () => {
-    countReply = { ok: true, count: 3 };
-    confirmSpy.mockImplementation(() => false);
-    await openAndPick();
-    expect(sent()).not.toContainEqual(expect.objectContaining({ type: 'IMPORT_REPLACE' }));
-    expect(importItem().disabled).toBe(false);
-  });
-
-  test('a count that cannot be read stops the import before anything is replaced', async () => {
-    // Without the count there is no §5 #10 to show; proceeding as if it were
-    // zero would replace the domain unconfirmed.
+  test('a count that cannot be read leaves it disabled, the safe direction', async () => {
     countReply = { ok: false, message: DOMAIN_COUNT_FAILED_MESSAGE };
-    await openAndPick();
-    expect(confirmSpy).not.toHaveBeenCalled();
-    expect(sent()).not.toContainEqual(expect.objectContaining({ type: 'IMPORT_REPLACE' }));
-    expect(notifText()).toBe(DOMAIN_COUNT_FAILED_MESSAGE);
-    expect(importItem().disabled).toBe(false);
+    await open();
+    expect(deleteAllItem().getAttribute('aria-disabled')).toBe('true');
   });
 
-  test('a dead service worker at the count step fails the same way, with the generic import copy', async () => {
-    countReply = undefined;
-    await openAndPick();
+  test('confirms with both counts, then deletes the whole domain and empties the list', async () => {
+    await open();
+    await clickDeleteAll();
+    expect(confirmSpy).toHaveBeenCalledWith(deleteAllConfirmMessage(5, 3), DELETE_ALL_CONFIRM_LABEL);
+    // Delete keeps the default, danger tone.
+    expect(confirmSpy.mock.calls[0][2]).toBeUndefined();
+    expect(sent()).toContainEqual({ type: 'DELETE_DOMAIN_DATA', domain: 'localhost' });
+    expect(sidebarShadow().querySelectorAll('button.thumbnail')).toHaveLength(0);
+    // Nothing left: the item disables itself again.
+    expect(deleteAllItem().getAttribute('aria-disabled')).toBe('true');
+  });
+
+  test('"cancel" deletes nothing', async () => {
+    confirmAnswer = false;
+    await open();
+    await clickDeleteAll();
+    expect(sent()).not.toContainEqual(expect.objectContaining({ type: 'DELETE_DOMAIN_DATA' }));
+    expect(sidebarShadow().querySelectorAll('button.thumbnail')).toHaveLength(1);
+    expect(deleteAllItem().hasAttribute('aria-disabled')).toBe(false);
+  });
+
+  test('a count that fails at click time stops before the confirmation', async () => {
+    await open();
+    countReply = { ok: false, message: DOMAIN_COUNT_FAILED_MESSAGE };
+    await clickDeleteAll();
     expect(confirmSpy).not.toHaveBeenCalled();
-    expect(sent()).not.toContainEqual(expect.objectContaining({ type: 'IMPORT_REPLACE' }));
-    expect(notifText()).toBe(IMPORT_FAILED_MESSAGE);
+    expect(sent()).not.toContainEqual(expect.objectContaining({ type: 'DELETE_DOMAIN_DATA' }));
+    expect(notifText()).toBe(DOMAIN_COUNT_FAILED_MESSAGE);
+  });
+
+  test('a site emptied since the item was enabled asks nothing and just disables it', async () => {
+    await open();
+    countReply = { ok: true, count: 0, pageCount: 0 };
+    await clickDeleteAll();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(sent()).not.toContainEqual(expect.objectContaining({ type: 'DELETE_DOMAIN_DATA' }));
+    expect(deleteAllItem().getAttribute('aria-disabled')).toBe('true');
+  });
+
+  test('a failed delete shows the error and keeps what survived', async () => {
+    deleteReply = { ok: false, message: DELETE_ALL_FAILED_MESSAGE };
+    await open();
+    await clickDeleteAll();
+    expect(notifText()).toBe(DELETE_ALL_FAILED_MESSAGE);
+    expect(sidebarShadow().querySelectorAll('button.thumbnail')).toHaveLength(1);
+    expect(deleteAllItem().hasAttribute('aria-disabled')).toBe(false);
+  });
+
+  test('a dead service worker during the delete fails with the same copy', async () => {
+    deleteReply = undefined;
+    await open();
+    await clickDeleteAll();
+    expect(notifText()).toBe(DELETE_ALL_FAILED_MESSAGE);
   });
 });

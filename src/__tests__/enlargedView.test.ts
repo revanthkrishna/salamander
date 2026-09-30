@@ -650,7 +650,8 @@ describe('v4 §M / v5 §R — the header bar, the image at its own size, the she
     const del = q<HTMLButtonElement>('.xp-delete')!;
     expect(del.parentElement).toBe(q('.xp-head'));
     expect(del.getAttribute('aria-label')).toBe('delete note');
-    expect(del.title).toBe('delete note');
+    expect(del.dataset.tip).toBe('delete note');
+    expect(del.hasAttribute('title')).toBe(false);
     expect(del.textContent).toBe(''); // icon only
     expect(del.querySelector('svg')).not.toBeNull();
 
@@ -1349,7 +1350,8 @@ describe('v5 §S / §U — the icons', () => {
     expect(svg.getAttribute('stroke-linecap')).toBe('round');
     // The label is what carries the meaning — it does not change.
     expect(exitBtn().getAttribute('aria-label')).toBe('exit enlarged view');
-    expect(exitBtn().title).toBe('exit enlarged view (esc)');
+    expect(exitBtn().dataset.tip).toBe('exit enlarged view (esc)');
+    expect(exitBtn().dataset.tipSide).toBe('left');
   });
 });
 

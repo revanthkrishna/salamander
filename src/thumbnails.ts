@@ -188,7 +188,7 @@ function buildThumbnailEl(item: FeedbackItem, number: number, callbacks: Thumbna
   del.type = 'button';
   del.className = 'thumbnail-delete';
   del.setAttribute('aria-label', `delete feedback item ${number}`);
-  del.title = 'delete';
+  del.dataset.tip = 'delete';
   // Same hook sidebar.focusThumbnail() uses on the item's own button, so a
   // caller can find this one again after a repaint.
   del.dataset.itemId = String(item.id);

@@ -168,6 +168,16 @@ export async function getDomainData(domain: string): Promise<DomainData | null> 
   return assembleDomainData(domain, index, stored);
 }
 
+/** How many items a domain holds, and across how many pages — read from the
+ *  index alone, so no item (and no thumbnail) is loaded to answer it. Zeros
+ *  when nothing has been captured for the domain. */
+export async function getDomainCounts(domain: string): Promise<{ items: number; pages: number }> {
+  const index = await readIndex(domain);
+  if (!index) return { items: 0, pages: 0 };
+  const lists = Object.values(index.pages).filter((ids) => ids.length > 0);
+  return { items: lists.reduce((sum, ids) => sum + ids.length, 0), pages: lists.length };
+}
+
 /** Delete a domain's record entirely — index, every item, every blob. */
 export async function deleteDomainData(domain: string): Promise<void> {
   const index = await readIndex(domain);

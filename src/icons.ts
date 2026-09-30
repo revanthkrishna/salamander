@@ -12,22 +12,11 @@ const STROKE_ICON_ATTRS =
   'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
   'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
 
-/** Chevron variant for the export group's menu half (design spec v3 §C2) —
- *  12px at a heavier 2px stroke so it still reads at that size. */
-const CHEVRON_ICON_ATTRS =
-  'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
-  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
-
 function strokeIcon(body: string): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}>${body}</svg>`;
 }
 
-function chevronIcon(body: string): string {
-  return `<svg xmlns="http://www.w3.org/2000/svg" ${CHEVRON_ICON_ATTRS}>${body}</svg>`;
-}
-
-/** The up/down arrow paths, shared by the menu chevrons (2px stroke) and the
- *  enlarged view's rail arrows (1.8px). */
+/** The up/down arrow paths of the enlarged view's rail arrows. */
 const PATH_ARROW_DOWN = '<path d="M6 9l6 6 6-6"/>';
 const PATH_ARROW_UP = '<path d="M6 15l6-6 6 6"/>';
 
@@ -42,9 +31,15 @@ export const ICON_COMMENT = strokeIcon(
 
 /** Drawn as two variants rather than a rotation so the open/closed arrow is
  *  the exact path the spec names. */
-export const ICON_CHEVRON_DOWN = chevronIcon(PATH_ARROW_DOWN);
-export const ICON_CHEVRON_UP = chevronIcon(PATH_ARROW_UP);
 
+/** "more options" (design spec §AE): a horizontal ellipsis, the standard
+ *  "more" glyph. Three filled dots rather than stroked ones — a 1.8px round
+ *  cap is too small to read as a dot at 16px. */
+export const ICON_MORE = strokeIcon(
+  '<circle cx="5.5" cy="12" r="1.6" fill="currentColor" stroke="none"/>' +
+    '<circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/>' +
+    '<circle cx="18.5" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
+);
 export const ICON_EXPORT = strokeIcon('<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14"/>');
 export const ICON_IMPORT = strokeIcon('<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M5 19h14"/>');
 export const ICON_CLOSE = strokeIcon('<path d="M6 6l12 12M18 6L6 18"/>');

@@ -149,7 +149,7 @@ describe('sidebar shell', () => {
     expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(['close sidebar']);
   });
 
-  test('action row holds two groups: "add note" + its switch, then export + chevron (design spec v3 §A2/§C2)', () => {
+  test('action row: "add note" + its switch, then export and "more options" (design spec v3 §A2, §AE)', () => {
     sidebar.initSidebar(makeCallbacks());
     const groups = Array.from(shadowRoot().querySelectorAll('.action-row > div'));
     expect(groups.map((g) => g.className)).toEqual(['add-group', 'export-group']);
@@ -158,16 +158,22 @@ describe('sidebar shell', () => {
     expect(addHalves.map((b) => b.className)).toEqual(['btn-add', 'add-switch']);
     expect(addHalves.map((b) => b.getAttribute('aria-label'))).toEqual(['add note', 'keep add mode on']);
 
-    const exportHalves = Array.from(groups[1].querySelectorAll(':scope > button'));
-    expect(exportHalves.map((b) => b.className)).toEqual(['btn-export', 'btn-menu']);
-    expect(exportHalves.map((b) => b.getAttribute('aria-label'))).toEqual(['export feedback', 'more actions']);
+    const buttons = Array.from(groups[1].querySelectorAll(':scope > button'));
+    expect(buttons.map((b) => b.className)).toEqual(['btn-export', 'btn-menu']);
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(['export feedback', 'more options']);
 
-    // "import" is the chevron menu's one item, not a button of its own.
+    // "more options" holds import, a divider, and the destructive delete-all.
     const menu = groups[1].querySelector('.action-menu') as HTMLElement;
     expect(menu.getAttribute('role')).toBe('menu');
-    const items = Array.from(menu.querySelectorAll('button'));
-    expect(items.map((b) => b.getAttribute('role'))).toEqual(['menuitem']);
-    expect(items.map((b) => b.textContent)).toEqual(['import']);
+    expect(menu.getAttribute('aria-label')).toBe('more options');
+    const items = Array.from(menu.querySelectorAll('.action-menu-item'));
+    expect(items.map((b) => b.getAttribute('role'))).toEqual(['menuitem', 'menuitem']);
+    expect(items.map((b) => b.textContent)).toEqual(['import', 'delete all for this website']);
+    expect(items[1].classList.contains('is-danger')).toBe(true);
+    const divider = menu.querySelector('.action-menu-divider')!;
+    expect(divider.getAttribute('role')).toBe('separator');
+    expect(divider.previousElementSibling).toBe(items[0]);
+    expect(divider.nextElementSibling).toBe(items[1]);
   });
 
   test('empty state text is exactly the lowercase copy from REQUIREMENTS §3.1', () => {
@@ -385,8 +391,8 @@ describe('sidebar shell', () => {
       `${sidebar.getSidebarWidth()}px`,
     );
 
-    sidebar.setSidebarWidth(200);
-    expect(html().style.getPropertyValue('--annotator-sidebar-width')).toBe('200px');
+    sidebar.setSidebarWidth(240);
+    expect(html().style.getPropertyValue('--annotator-sidebar-width')).toBe('240px');
 
     sidebar.closeSidebar();
     expect(html().style.getPropertyValue('--annotator-sidebar-width')).toBe('');
@@ -447,10 +453,11 @@ describe('sidebar shell', () => {
     sidebar.initSidebar(makeCallbacks());
     // 1 (panel border) + 16·2 (row padding) + 38 (add group)
     // + 49 (what the revealed switch ADDS: its box less the tuck that a
-    // negative margin cancels) + 8 (gap) + 60 (export + chevron).
+    // negative margin cancels) + 8 (gap) + 82 (export and "more options",
+    // two 38px buttons with a 6px gap — design spec §AE).
     expect(sidebar.ADD_SWITCH_ADVANCE_PX).toBe(49);
-    expect(sidebar.SIDEBAR_MIN_WIDTH).toBe(1 + 16 * 2 + 38 + sidebar.ADD_SWITCH_ADVANCE_PX + 8 + 60);
-    expect(sidebar.SIDEBAR_MIN_WIDTH).toBe(188);
+    expect(sidebar.SIDEBAR_MIN_WIDTH).toBe(1 + 16 * 2 + 38 + sidebar.ADD_SWITCH_ADVANCE_PX + 8 + 38 * 2 + 6);
+    expect(sidebar.SIDEBAR_MIN_WIDTH).toBe(210);
     // It has to leave the narrow breakpoint something to do, and has to be
     // reachable at all.
     expect(sidebar.SIDEBAR_MIN_WIDTH).toBeLessThan(sidebar.NARROW_WIDTH_BREAKPOINT);
@@ -472,14 +479,14 @@ describe('sidebar shell', () => {
     sidebar.initSidebar(makeCallbacks());
     sidebar.openSidebar();
 
-    dragResizerTo(window.innerWidth - 200);
+    dragResizerTo(window.innerWidth - 240);
 
-    expect(sidebar.getSidebarWidth()).toBe(200);
+    expect(sidebar.getSidebarWidth()).toBe(240);
     const panel = shadowRoot().querySelector('.sidebar') as HTMLElement;
-    expect(panel.style.width).toBe('200px');
-    expect(html().style.getPropertyValue('margin-right')).toBe('200px');
+    expect(panel.style.width).toBe('240px');
+    expect(html().style.getPropertyValue('margin-right')).toBe('240px');
     expect(document.getElementById('annotator-page-resize')!.textContent).toContain(
-      'margin-right: 200px !important',
+      'margin-right: 240px !important',
     );
   });
 
@@ -500,13 +507,13 @@ describe('sidebar shell', () => {
     sidebar.initSidebar(makeCallbacks());
     sidebar.openSidebar();
 
-    dragResizerTo(window.innerWidth - 200);
+    dragResizerTo(window.innerWidth - 240);
     window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
 
     window.dispatchEvent(
       new MouseEvent('mousemove', { clientX: window.innerWidth - 120, bubbles: true }),
     );
-    expect(sidebar.getSidebarWidth()).toBe(200);
+    expect(sidebar.getSidebarWidth()).toBe(240);
   });
 
   test('the chosen width is persisted to chrome.storage.local once, on release', () => {
@@ -548,13 +555,13 @@ describe('sidebar shell', () => {
   test('arrow keys on the handle resize it and persist, left growing the panel', () => {
     sidebar.initSidebar(makeCallbacks());
     sidebar.openSidebar();
-    sidebar.setSidebarWidth(200);
+    sidebar.setSidebarWidth(240);
 
     resizer().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
-    expect(sidebar.getSidebarWidth()).toBe(190);
+    expect(sidebar.getSidebarWidth()).toBe(230);
 
     resizer().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
-    expect(sidebar.getSidebarWidth()).toBe(200);
+    expect(sidebar.getSidebarWidth()).toBe(240);
 
     resizer().dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
     expect(sidebar.getSidebarWidth()).toBe(sidebar.SIDEBAR_MIN_WIDTH);
@@ -614,6 +621,8 @@ describe('sidebar shell', () => {
   test('add and export buttons invoke their callbacks', () => {
     const cb = makeCallbacks();
     sidebar.initSidebar(cb);
+    // Export is greyed out until the site is known to have notes (§AF).
+    sidebar.setSiteHasNotes(true);
     (shadowRoot().querySelector('.btn-add') as HTMLButtonElement).click();
     (shadowRoot().querySelector('.btn-export') as HTMLButtonElement).click();
     expect(cb.calls.add).toBe(1);
@@ -824,15 +833,18 @@ describe('sidebar shell', () => {
     expect(notif().hidden).toBe(true);
   });
 
-  test('showConfirmDialog resolves the native confirm result', async () => {
+  test('every menu item sits the same 4px from its surroundings, divider included', () => {
     sidebar.initSidebar(makeCallbacks());
-    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
-
-    await expect(sidebar.showConfirmDialog('replace your current feedback?')).resolves.toBe(true);
-    expect(confirmSpy).toHaveBeenCalledWith('replace your current feedback?');
-
-    confirmSpy.mockReturnValue(false);
-    await expect(sidebar.showConfirmDialog('replace your current feedback?')).resolves.toBe(false);
+    const css = shadowRoot().querySelector('style')!.textContent ?? '';
+    const rule = (sel: string) =>
+      css.match(new RegExp(`(^|\\n)\\s*${sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{[^}]*\\}`))?.[0] ?? '';
+    const menuPad = Number(/padding:\s*(\d+)px/.exec(rule('.action-menu'))![1]);
+    const gap = Number(/gap:\s*(\d+)px/.exec(rule('.action-menu-list'))![1]);
+    const divider = /margin:\s*(\d+)px (\d+)/.exec(rule('.action-menu-divider'))!;
+    // Item to divider = the column gap + the divider's own margin.
+    expect(gap + Number(divider[1])).toBe(menuPad);
+    // Full width, aligned with the items.
+    expect(Number(divider[2])).toBe(0);
   });
 
   // ── the logo (dark only, design spec §AA) ─────────────────────────────────
@@ -1097,7 +1109,7 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     expect(group().classList.contains('is-switch-on')).toBe(false);
     expect(addButton().getAttribute('aria-pressed')).toBe('false');
     expect(addButton().getAttribute('aria-label')).toBe('add note');
-    expect(addButton().title).toBe('add note');
+    expect(addButton().dataset.tip).toBe('add note');
     // Icon-only: no visible label anywhere in the button.
     expect(addButton().textContent).toBe('');
     expect(addSwitch().getAttribute('role')).toBe('switch');
@@ -1105,10 +1117,10 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     // Fixed name (role="switch" + aria-checked carry the state), action
     // tooltip. Merged, the tooltip matches the button's: one control.
     expect(addSwitch().getAttribute('aria-label')).toBe('keep add mode on');
-    expect(addSwitch().title).toBe('keep adding notes');
+    expect(addSwitch().dataset.tip).toBe('keep adding notes');
     sidebar.setAddButtonState('kept-on');
-    expect(addSwitch().title).toBe('stop adding notes');
-    expect(addButton().title).toBe('stop adding notes');
+    expect(addSwitch().dataset.tip).toBe('stop adding notes');
+    expect(addButton().dataset.tip).toBe('stop adding notes');
     expect(addSwitch().getAttribute('aria-label')).toBe('keep add mode on');
     sidebar.setAddButtonState('off');
   });
@@ -1124,7 +1136,7 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     expect(addButton().getAttribute('aria-pressed')).toBe('true');
     // Icon-only, so the state has to ride on the accessible name.
     expect(addButton().getAttribute('aria-label')).toBe('add note');
-    expect(addButton().title).toBe('cancel note');
+    expect(addButton().dataset.tip).toBe('cancel note');
     expect(addSwitch().getAttribute('aria-checked')).toBe('false');
 
     sidebar.setAddButtonState('kept-on');
@@ -1132,7 +1144,7 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     expect(group().classList.contains('is-switch-on')).toBe(true);
     expect(addButton().getAttribute('aria-pressed')).toBe('true');
     expect(addButton().getAttribute('aria-label')).toBe('add note');
-    expect(addButton().title).toBe('stop adding notes');
+    expect(addButton().dataset.tip).toBe('stop adding notes');
     expect(addSwitch().getAttribute('aria-checked')).toBe('true');
     expect(desc().textContent).toMatch(/kept on/);
 
@@ -1529,6 +1541,19 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     expect(reveal).toMatch(/transition-delay:\s*0s/);
   });
 
+  test('the switch clips its track while it grows — never a ghost of the track beside the button', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const css = shadowRoot().querySelector('style')!.textContent ?? '';
+    // overflow applies at once while the width animates; visible on reveal
+    // drew the full-size track past a box only a few px wide.
+    expect(css).not.toMatch(/overflow:\s*visible;\s*transition-delay:\s*0s/);
+    const shown = css.match(/:has\(:focus-visible\) \.add-switch,\s*\.add-group\.is-switch-on \.add-switch \{([^}]*)\}/)?.[1] ?? '';
+    expect(shown).toMatch(/width:/);
+    expect(shown).not.toMatch(/overflow/);
+    const base = css.match(/\n\s*\.add-switch \{([^}]*)\}/)?.[1] ?? '';
+    expect(base).toMatch(/overflow:\s*hidden/);
+  });
+
   test('reduced motion makes the reveal and the knob instant', () => {
     sidebar.initSidebar(makeCallbacks());
     const block = css().match(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
@@ -1543,7 +1568,7 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
 // design spec v3 §C2 — export + chevron menu (replaces the import button)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe('export + chevron menu (design spec v3 §C2)', () => {
+describe('export and "more options" (design spec v3 §C2, §AE)', () => {
   afterEach(() => {
     sidebar.destroySidebar();
     jest.restoreAllMocks();
@@ -1564,7 +1589,10 @@ describe('export + chevron menu (design spec v3 §C2)', () => {
     return shadowRoot().querySelector('.action-menu') as HTMLElement;
   }
   function importItem(): HTMLButtonElement {
-    return shadowRoot().querySelector('.action-menu-item') as HTMLButtonElement;
+    return shadowRoot().querySelector('.action-menu-item.is-import') as HTMLButtonElement;
+  }
+  function deleteAllItem(): HTMLButtonElement {
+    return shadowRoot().querySelector('.action-menu-item.is-delete-all') as HTMLButtonElement;
   }
   function isOpen(): boolean {
     return menu().dataset.open === 'true';
@@ -1575,23 +1603,221 @@ describe('export + chevron menu (design spec v3 §C2)', () => {
     target.dispatchEvent(e);
   }
 
-  test('the chevron is a menu button: haspopup, expanded, and a chevron that flips', () => {
+  test('"more options" is a menu button with an ellipsis that does not change when open', () => {
     sidebar.initSidebar(makeCallbacks());
     expect(chevron().getAttribute('aria-haspopup')).toBe('menu');
     expect(chevron().getAttribute('aria-expanded')).toBe('false');
-    expect(chevron().innerHTML).toContain('M6 9l6 6 6-6');
+    const glyph = chevron().innerHTML;
+    expect(glyph.match(/<circle/g)).toHaveLength(3);
 
     chevron().click();
     expect(isOpen()).toBe(true);
     expect(chevron().getAttribute('aria-expanded')).toBe('true');
-    expect(chevron().innerHTML).toContain('M6 15l6-6 6 6');
-    // Suppresses the group's press scale while the menu is down.
+    expect(chevron().innerHTML).toBe(glyph);
     expect((shadowRoot().querySelector('.export-group') as HTMLElement).classList.contains('is-menu-open')).toBe(true);
 
     chevron().click();
     expect(isOpen()).toBe(false);
     expect(chevron().getAttribute('aria-expanded')).toBe('false');
-    expect(chevron().innerHTML).toContain('M6 9l6 6 6-6');
+  });
+
+  test('with no notes on the site, export and delete-all are soft-disabled and carry their reasons (§AF)', () => {
+    const onExport = jest.fn();
+    const onDeleteAll = jest.fn();
+    sidebar.initSidebar({ ...makeCallbacks(), onExport, onDeleteAll });
+    const exportBtn = shadowRoot().querySelector('.btn-export') as HTMLButtonElement;
+
+    // aria-disabled, never the disabled attribute: they must stay hoverable
+    // and focusable so the tooltip can say why.
+    expect(exportBtn.getAttribute('aria-disabled')).toBe('true');
+    expect(exportBtn.disabled).toBe(false);
+    expect(exportBtn.dataset.tipReason).toBe('nothing to export');
+    expect(deleteAllItem().getAttribute('aria-disabled')).toBe('true');
+    expect(deleteAllItem().disabled).toBe(false);
+    expect(deleteAllItem().dataset.tipReason).toBe('nothing to delete');
+    expect(deleteAllItem().dataset.tipSide).toBe('left');
+    expect(menu().hasAttribute('data-tip-edge')).toBe(true);
+
+    // Clicks do nothing while off.
+    exportBtn.click();
+    chevron().click();
+    deleteAllItem().click();
+    expect(onExport).not.toHaveBeenCalled();
+    expect(onDeleteAll).not.toHaveBeenCalled();
+
+    sidebar.setSiteHasNotes(true);
+    expect(exportBtn.hasAttribute('aria-disabled')).toBe(false);
+    expect(deleteAllItem().hasAttribute('aria-disabled')).toBe(false);
+    exportBtn.click();
+    deleteAllItem().click();
+    expect(onExport).toHaveBeenCalledTimes(1);
+    expect(onDeleteAll).toHaveBeenCalledTimes(1);
+    // The menu stays open: content.ts turns it into the question.
+    expect(isOpen()).toBe(true);
+  });
+
+  test('in add mode export is plainly disabled, with no reason tooltip (§H, §AF B)', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const exportBtn = shadowRoot().querySelector('.btn-export') as HTMLButtonElement;
+    sidebar.setAddModeHold(true);
+    expect(exportBtn.disabled).toBe(true);
+    expect(exportBtn.hasAttribute('aria-disabled')).toBe(false);
+    sidebar.setAddModeHold(false);
+    expect(exportBtn.getAttribute('aria-disabled')).toBe('true'); // still no notes
+  });
+
+  test('arrow keys reach delete-all even while it is off, so keyboard users can read why', () => {
+    sidebar.initSidebar(makeCallbacks());
+    const down = (el: Element) =>
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    chevron().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 0 }));
+    expect(shadowRoot().activeElement).toBe(importItem());
+    down(importItem());
+    expect(shadowRoot().activeElement).toBe(deleteAllItem());
+    down(deleteAllItem());
+    expect(shadowRoot().activeElement).toBe(importItem()); // wraps
+  });
+
+  // ── the menu as a confirmation (§AF) ──────────────────────────────────────
+
+  function confirmFace(): HTMLElement {
+    return menu().querySelector('.action-menu-confirm') as HTMLElement;
+  }
+  function confirmBtn(which: 'cancel' | 'confirm'): HTMLButtonElement {
+    return menu().querySelector(`.confirm-btn.is-${which}`) as HTMLButtonElement;
+  }
+
+  test('confirmInMenu turns the open menu into the question, full panel width, focus on cancel', async () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.setSidebarWidth(260);
+    chevron().click();
+    const answer = sidebar.confirmInMenu('delete 5 notes across 3 pages?', 'yes, delete');
+
+    expect(isOpen()).toBe(true);
+    expect(menu().classList.contains('is-confirm')).toBe(true);
+    expect((menu().querySelector('.action-menu-list') as HTMLElement).hidden).toBe(true);
+    expect(confirmFace().hidden).toBe(false);
+    expect(menu().querySelector('.action-menu-confirm-text')!.textContent).toBe('delete 5 notes across 3 pages?');
+    expect(confirmBtn('cancel').textContent).toBe('cancel');
+    expect(confirmBtn('confirm').textContent).toBe('yes, delete');
+    // 16px from each side of the panel: its width less the border and the
+    // action row's padding either side.
+    expect(menu().style.width).toBe(`${260 - 1 - 32}px`);
+    expect(menu().getAttribute('role')).toBe('alertdialog');
+    expect(menu().getAttribute('aria-describedby')).toBe('menu-confirm-text');
+    expect(shadowRoot().activeElement).toBe(confirmBtn('cancel'));
+
+    confirmBtn('confirm').click();
+    await expect(answer).resolves.toBe(true);
+    expect(isOpen()).toBe(false);
+  });
+
+  test('cancel, Esc and a press outside all answer no, and close it', async () => {
+    sidebar.initSidebar(makeCallbacks());
+
+    chevron().click();
+    let answer = sidebar.confirmInMenu('sure?', 'yes');
+    confirmBtn('cancel').click();
+    await expect(answer).resolves.toBe(false);
+    expect(isOpen()).toBe(false);
+
+    chevron().click();
+    answer = sidebar.confirmInMenu('sure?', 'yes');
+    confirmFace().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await expect(answer).resolves.toBe(false);
+    expect(shadowRoot().activeElement).toBe(chevron());
+
+    chevron().click();
+    answer = sidebar.confirmInMenu('sure?', 'yes');
+    // A press inside the question is not "outside".
+    pointerDown(confirmFace());
+    expect(isOpen()).toBe(true);
+    pointerDown(document.body);
+    await expect(answer).resolves.toBe(false);
+    expect(isOpen()).toBe(false);
+  });
+
+  test('Tab moves between the two buttons instead of dismissing the question', () => {
+    sidebar.initSidebar(makeCallbacks());
+    chevron().click();
+    void sidebar.confirmInMenu('sure?', 'yes');
+    const tab = () =>
+      confirmFace().dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    tab();
+    expect(shadowRoot().activeElement).toBe(confirmBtn('confirm'));
+    tab();
+    expect(shadowRoot().activeElement).toBe(confirmBtn('cancel'));
+    expect(isOpen()).toBe(true);
+  });
+
+  test('reopening shows the item list again, at its own size', async () => {
+    sidebar.initSidebar(makeCallbacks());
+    chevron().click();
+    const answer = sidebar.confirmInMenu('sure?', 'yes');
+    confirmBtn('cancel').click();
+    await answer;
+    chevron().click();
+    expect(menu().classList.contains('is-confirm')).toBe(false);
+    expect((menu().querySelector('.action-menu-list') as HTMLElement).hidden).toBe(false);
+    expect(confirmFace().hidden).toBe(true);
+    expect(menu().style.width).toBe('');
+    expect(menu().getAttribute('role')).toBe('menu');
+  });
+
+  test('the confirming button is red for a delete and yellow text otherwise', () => {
+    sidebar.initSidebar(makeCallbacks());
+    chevron().click();
+    void sidebar.confirmInMenu('delete 1 note across 1 page?', 'yes, delete');
+    expect(confirmBtn('confirm').classList.contains('is-danger')).toBe(true);
+    expect(confirmBtn('confirm').classList.contains('is-accent')).toBe(false);
+    void sidebar.confirmInMenu('your existing notes will be discarded. continue with import?', 'yes, import', 'accent');
+    expect(confirmBtn('confirm').classList.contains('is-accent')).toBe(true);
+    expect(confirmBtn('confirm').classList.contains('is-danger')).toBe(false);
+    const css = shadowRoot().querySelector('style')!.textContent ?? '';
+    expect(css).toMatch(/\.confirm-btn\.is-accent \{[^}]*color:\s*var\(--sal-accent-icon\)/);
+  });
+
+  test('asked while the menu is closed, the answer is no at once', async () => {
+    sidebar.initSidebar(makeCallbacks());
+    await expect(sidebar.confirmInMenu('sure?', 'yes')).resolves.toBe(false);
+  });
+
+  test('closing the sidebar answers an open question no', async () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+    chevron().click();
+    const answer = sidebar.confirmInMenu('sure?', 'yes');
+    sidebar.closeSidebar();
+    await expect(answer).resolves.toBe(false);
+  });
+
+  test('import with no onImport callback opens the picker at once; with one, it defers', () => {
+    const click = jest.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
+    sidebar.initSidebar(makeCallbacks());
+    chevron().click();
+    importItem().click();
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(isOpen()).toBe(false);
+    sidebar.destroySidebar();
+
+    const onImport = jest.fn();
+    sidebar.initSidebar({ ...makeCallbacks(), onImport });
+    chevron().click();
+    importItem().click();
+    expect(onImport).toHaveBeenCalledTimes(1);
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(isOpen()).toBe(true);
+    sidebar.openImportPicker();
+    expect(click).toHaveBeenCalledTimes(2);
+    expect(isOpen()).toBe(false);
+    click.mockRestore();
+  });
+
+  test('the menu is never capped, so no label wraps at any panel width', () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.setSidebarWidth(sidebar.SIDEBAR_MIN_WIDTH);
+    chevron().click();
+    expect(menu().style.maxWidth).toBe('');
   });
 
   test('a pointer click opens without moving focus; a keyboard activation focuses the first item', () => {
@@ -1658,34 +1884,38 @@ describe('export + chevron menu (design spec v3 §C2)', () => {
     expect(chevron().getAttribute('aria-expanded')).toBe('false');
   });
 
-  test('the group carries the border/fill and its halves the §C2 geometry', () => {
+  test('two separate buttons, each the same box as "add note", with a small gap (§AE)', () => {
     sidebar.initSidebar(makeCallbacks());
     const group = cssRule('.export-group');
-    expect(group).toMatch(/border:\s*1px solid var\(--sal-line\)/);
-    expect(group).toMatch(/background:\s*var\(--sal-surface\)/);
+    // Pure layout now: no border or fill of its own, just the gap.
+    expect(group).not.toMatch(/border:/);
+    expect(group).not.toMatch(/background:/);
+    expect(group).toMatch(/gap:\s*6px/);
     // The menu hangs out of the bottom of the box.
     expect(group).toMatch(/overflow:\s*visible/);
-    // Scoped to the group's own halves: the menu is a child of this box, so
-    // an unscoped :hover would light the group up whenever the pointer was
-    // merely inside the open menu.
-    expect(cssRule('.export-group:has(> button:hover)')).toMatch(/border-color:\s*var\(--sal-line-strong\)/);
-    expect(cssRule('.export-group:has(> button:active)')).toMatch(/border-color:\s*var\(--sal-line-strong\)/);
-    expect(css()).not.toMatch(/\n\s*\.export-group:active\s*\{/);
-    expect(cssRule('.export-group:has(> button:focus-visible)')).toContain('0 0 0 4px var(--sal-focus)');
+    // No segmented-control leftovers.
+    expect(css()).not.toMatch(/\.export-group:has\(/);
+    expect(css()).not.toMatch(/border-left:\s*1px solid var\(--sal-line\);\s*border-radius:\s*0 9px/);
 
-    expect(cssRule('.btn-export')).toMatch(/width:\s*36px/);
-    expect(cssRule('.btn-export')).toMatch(/border-radius:\s*9px 0 0 9px/);
-    const chev = cssRule('.btn-menu');
-    expect(chev).toMatch(/width:\s*22px/);
-    expect(chev).toMatch(/border-left:\s*1px solid var\(--sal-line\)/);
-    expect(chev).toMatch(/border-radius:\s*0 9px 9px 0/);
-    expect(chev).toMatch(/color:\s*var\(--sal-muted\)/);
+    // One shared rule: the same 38px bordered box as .btn-add.
+    const btn = cssRule('.btn-menu');
+    expect(css()).toMatch(/\.btn-export,\s*\.btn-menu \{/);
+    expect(btn).toMatch(/width:\s*38px/);
+    expect(btn).toMatch(/border:\s*1px solid var\(--sal-line\)/);
+    expect(btn).toMatch(/border-radius:\s*var\(--sal-radius-md\)/);
+    expect(btn).toMatch(/background:\s*var\(--sal-surface\)/);
+    expect(cssRule('.btn-add')).toMatch(/width:\s*38px/);
+    // Each button carries its own focus ring.
+    expect(cssRule('.btn-menu:focus-visible')).toContain('0 0 0 4px var(--sal-focus)');
     expect(cssRule('.btn-menu[aria-expanded="true"]')).toMatch(/background:\s*var\(--sal-hover\)/);
 
     const m = cssRule('.action-menu');
     expect(m).toMatch(/top:\s*42px/);
     expect(m).toMatch(/right:\s*0/);
     expect(m).toMatch(/min-width:\s*132px/);
+    // Sized to its content, never squeezed to the narrow two-button group
+    // it is positioned against.
+    expect(m).toMatch(/width:\s*max-content/);
     expect(m).toMatch(/padding:\s*4px/);
     expect(m).toMatch(/box-shadow:\s*var\(--sal-shadow-pop\)/);
     // Closed is the base state, so it carries the (shorter) exit timing.
@@ -1698,26 +1928,23 @@ describe('export + chevron menu (design spec v3 §C2)', () => {
     expect(item).toMatch(/padding:\s*0 12px/);
     expect(item).toMatch(/border-radius:\s*var\(--sal-radius-sm\)/);
     expect(item).toMatch(/gap:\s*8px/);
+    // One line, always.
     expect(item).toMatch(/white-space:\s*nowrap/);
+
+    // The destructive item reads as one, and sits below a divider.
+    expect(cssRule('.action-menu-item.is-danger')).toMatch(/color:\s*var\(--sal-danger\)/);
+    expect(css()).toMatch(/\.action-menu-item\.is-danger:hover,[^{]*\{[^}]*background:\s*var\(--sal-danger-soft\)/);
+    expect(cssRule('.action-menu-divider')).toMatch(/background:\s*var\(--sal-line\)/);
   });
 
-  test('hover and press land on the half under the pointer (design spec v4 §K)', () => {
+  test('each button takes its own hover and press, and nothing scales (design spec v4 §K)', () => {
     sidebar.initSidebar(makeCallbacks());
-    // Same rule as the add group's §I: the fill is per half, so hovering the
-    // chevron never lights export up (and vice versa).
-    expect(cssRule('.btn-export:hover')).toMatch(/background:\s*var\(--sal-hover\)/);
-    expect(cssRule('.btn-export:active')).toMatch(/background:\s*var\(--sal-press\)/);
+    // The two are separate controls, so each lights only itself.
     expect(cssRule('.btn-menu:hover')).toMatch(/background:\s*var\(--sal-hover\)/);
+    expect(cssRule('.btn-menu:hover')).toMatch(/border-color:\s*var\(--sal-line-strong\)/);
     expect(cssRule('.btn-menu:active')).toMatch(/background:\s*var\(--sal-press\)/);
-
-    // The group acknowledges with its border alone — no fill of its own.
-    expect(cssRule('.export-group:has(> button:hover)')).not.toMatch(/background:/);
-    expect(cssRule('.export-group:has(> button:active)')).not.toMatch(/background:/);
-
-    // The open-menu state keeps its own treatment on the chevron half, and is
-    // written before the :hover/:active rules so the equal-specificity press
-    // fill still reads while the menu is open.
-    expect(css().indexOf('.btn-menu[aria-expanded="true"]')).toBeLessThan(css().indexOf('\n  .btn-menu:active'));
+    expect(css()).toMatch(/\.btn-export:hover,\s*\.btn-menu:hover \{/);
+    expect(css()).toMatch(/\.btn-export:active,\s*\.btn-menu:active \{/);
 
     // Nothing scales on press, here or anywhere else: a press changes the
     // fill of the half under the pointer and nothing more. Scaling the box
@@ -1725,9 +1952,9 @@ describe('export + chevron menu (design spec v3 §C2)', () => {
     // item out from under the pointer between mousedown and mouseup.
     expect(css()).not.toMatch(/scale\(0\.97\)/);
 
-    // Disabled cancels the per-half fills as well as the group's own states.
+    // Disabled (§H) cancels both buttons' hover and press.
     expect(css()).toMatch(
-      /\.export-group\.is-disabled \.btn-export:hover,[\s\S]*?\.export-group\.is-disabled \.btn-menu:active \{[^}]*background:\s*transparent/,
+      /\.export-group\.is-disabled \.btn-export:hover,[\s\S]*?\.export-group\.is-disabled \.btn-menu:active \{[^}]*background:\s*var\(--sal-surface\)/,
     );
   });
 

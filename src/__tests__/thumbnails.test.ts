@@ -165,8 +165,9 @@ describe('renderThumbnailList', () => {
     // Labelled by position in the list (the only item), not by id.
     expect(del.getAttribute('aria-label')).toBe('delete feedback item 1');
     // Every visible string is lowercase (REQUIREMENTS §3.4).
-    expect(del.title).toBe('delete');
-    expect(del.title).toBe(del.title.toLowerCase());
+    expect(del.dataset.tip).toBe('delete');
+    expect(del.hasAttribute('title')).toBe(false);
+    expect(del.dataset.tip).toBe(del.dataset.tip!.toLowerCase());
     expect(del.dataset.itemId).toBe('7');
     // The §1 icon language: 1.8px stroke, round caps/joins, currentColor.
     const svg = del.querySelector('svg') as SVGElement;

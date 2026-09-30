@@ -29,17 +29,19 @@
 // changes for the sidebar's lifetime.
 
 import { FeedbackItem } from './types';
+import { CONFIRM_CANCEL_LABEL, NOTHING_TO_DELETE_MESSAGE, NOTHING_TO_EXPORT_MESSAGE } from './copy';
+import { attachTooltips, TooltipHandle, TOOLTIP_CSS } from './tooltip';
 import { renderThumbnailList, THUMBNAIL_IMAGE_HEIGHT_PX } from './thumbnails';
 import { attachDockMotion, DockMotionHandle } from './dockMotion';
 import { getContentViewportSize, reducedMotionQuery } from './dom';
 import {
-  ICON_CHEVRON_DOWN,
-  ICON_CHEVRON_UP,
   ICON_CLOSE,
   ICON_COMMENT,
   ICON_ERROR,
   ICON_EXPORT,
   ICON_IMPORT,
+  ICON_MORE,
+  ICON_TRASH,
   ICON_WARNING,
 } from './icons';
 import {
@@ -198,11 +200,21 @@ export interface SidebarCallbacks {
   onAddDoubleClick?: () => void;
   /** "export" header button — content.ts runs the EXPORT round trip. */
   onExport: () => void;
-  /** "import" — now the one item of the export group's chevron menu (design
-   *  spec v3 §C2) — fired once a file is chosen from the native picker.
-   *  content.ts runs the full §5 validation ladder and the
-   *  confirm-then-replace round trip. */
+  /** "import" — an item of the "more options" menu (design spec v3 §C2,
+   *  §AE) — fired once a file is chosen from the native picker. content.ts
+   *  runs the full §5 validation ladder and the confirm-then-replace round
+   *  trip. */
   onImportFile: (file: File) => void;
+  /** "import" was chosen in the menu (design spec §AF). The menu stays open:
+   *  content.ts decides whether to ask first (confirmInMenu, when the site
+   *  already has notes) and then calls openImportPicker(). Without this
+   *  callback the item opens the picker straight away. */
+  onImport?: () => void;
+  /** "delete all for this website" — the menu's destructive item (design
+   *  spec §AE, §AF). The menu stays open: content.ts reads the counts, asks
+   *  through confirmInMenu and runs the delete. Optional so that surfaces
+   *  with no delete flow (and older test harnesses) need not supply one. */
+  onDeleteAll?: () => void;
   /** "close" header button. Fired *after* the sidebar has already hidden
    *  itself and the page layout has been restored — the caller's only job is
    *  to tell the background service worker so it can clear the persisted
@@ -294,8 +306,9 @@ const ACTION_BUTTON_PX = 36;
 /** The 1px border each action-row *group* carries (design spec v3 §A2/§C2:
  *  the group owns the fill and the border, its halves are transparent). */
 const GROUP_BORDER_PX = 1;
-/** The export group's chevron half (§C2). */
-const CHEVRON_HALF_PX = 22;
+/** The gap between the two buttons of the export group (design spec §AE):
+ *  two separate controls, close enough to read as a pair. */
+const EXPORT_GROUP_GAP_PX = 6;
 /** The switch's padding either side of its 28px track (§A2). */
 const ADD_SWITCH_PAD_X = 10;
 /** How far the switch reaches back UNDER the add button — exactly the
@@ -326,8 +339,9 @@ export const ADD_SWITCH_ADVANCE_PX = ADD_SWITCH_WIDTH_PX - ADD_SWITCH_TUCK_PX;
 
 /** "add note" group at rest, i.e. with the switch collapsed (§A2). */
 const ADD_GROUP_PX = ACTION_BUTTON_PX + GROUP_BORDER_PX * 2;
-/** export + chevron group (§C2) — one box, two halves. */
-const EXPORT_GROUP_PX = ACTION_BUTTON_PX + CHEVRON_HALF_PX + GROUP_BORDER_PX * 2;
+/** export + "more options" (design spec §AE) — two separate buttons, each
+ *  the same box as "add note", with a small gap between them. */
+const EXPORT_GROUP_PX = ADD_GROUP_PX * 2 + EXPORT_GROUP_GAP_PX;
 
 /**
  * Narrowest the user can drag the panel (design spec v5 §V): exactly the
@@ -398,8 +412,15 @@ const EASE_ACC = 'cubic-bezier(.3, 0, 1, 1)';
  *  same reason: collapsed, there is nothing to pull back. */
 const ADD_SWITCH_HIDDEN_CSS =
   'width: 0; padding: 0; margin-left: 0; border-width: 0; opacity: 0; visibility: hidden; overflow: hidden;';
+/* No overflow here: the segment clips its contents in both states. The width
+   grows over ADD_SWITCH_REVEAL_MS, but an overflow change applies at once — so
+   with overflow: visible on reveal, the 28px track was drawn at full size
+   past a box still only a few px wide, and its rounded end showed as a faint
+   half circle beside the button for the first frames. At full width the track
+   fits exactly, and the focus ring is the switch's own box-shadow, which its
+   overflow never clips. */
 const ADD_SWITCH_SHOWN_CSS =
-  `width: ${ADD_SWITCH_WIDTH_PX}px; padding: 0 ${ADD_SWITCH_PAD_X}px 0 ${ADD_SWITCH_PAD_LEFT}px; margin-left: -${ADD_SWITCH_TUCK_PX}px; border-width: ${GROUP_BORDER_PX}px; border-left-width: 0; opacity: 1; visibility: visible; overflow: visible; transition-delay: 0s;`;
+  `width: ${ADD_SWITCH_WIDTH_PX}px; padding: 0 ${ADD_SWITCH_PAD_X}px 0 ${ADD_SWITCH_PAD_LEFT}px; margin-left: -${ADD_SWITCH_TUCK_PX}px; border-width: ${GROUP_BORDER_PX}px; border-left-width: 0; opacity: 1; visibility: visible; transition-delay: 0s;`;
 /** How long the revealed switch holds open after the pointer leaves (§A2). */
 const ADD_SWITCH_GRACE_MS = 250;
 /** The reveal/collapse itself. */
@@ -815,113 +836,72 @@ const SIDEBAR_CSS = `
     background: var(--sal-accent);
   }
 
-  /* ── export + chevron menu (§C2) ──────────────────────────────────────── */
-
+  /* ── export + "more options" (design spec §AE) ──────────────────────
+     Two separate buttons on the right of the row, each the same box as
+     "add note" (its own border, fill, hover, press and focus ring), with a
+     small gap. They were one segmented control (§C2) until the menu grew a
+     destructive item: a chevron fused to export read as "export options",
+     which a delete-everything action must never be mistaken for. The group
+     is pure layout, and the anchor the menu hangs from. */
   .export-group {
     position: relative;
     display: inline-flex;
     align-items: stretch;
     flex-shrink: 0;
+    gap: ${EXPORT_GROUP_GAP_PX}px;
     height: ${ACTION_BUTTON_PX}px;
-    border: ${GROUP_BORDER_PX}px solid var(--sal-line);
-    border-radius: var(--sal-radius-md);
     /* The menu hangs out of the bottom of this box. */
     overflow: visible;
-    background: var(--sal-surface);
     color: var(--sal-text);
+  }
+  .export-group.is-disabled { ${DISABLED_CSS} }
+
+  .btn-export,
+  .btn-menu {
+    width: ${ADD_GROUP_PX}px;
+    height: 100%;
+    flex-shrink: 0;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--sal-surface);
+    border: ${GROUP_BORDER_PX}px solid var(--sal-line);
+    border-radius: var(--sal-radius-md);
+    color: inherit;
+    cursor: pointer;
     ${STATE_TRANSITION_CSS}
   }
-  /* Hover and press are per half (design spec v4 §K — the same rule §I gives
-     the add group): the fill lands on the half actually under the pointer
-     (see .btn-export / .btn-menu below) and the group acknowledges with its
-     border alone, so hovering the chevron never lights up export.
-
-     Every one of these is scoped to the group's own two halves rather than
-     the whole box, because the menu is a child of it: an unscoped :hover
-     would light the group up whenever the pointer was merely inside the open
-     menu, and an unscoped :active would apply the press scale to the group
-     *and* the menu, sliding the item out from under the pointer between
-     mousedown and mouseup so the click never landed on it. */
-  .export-group:has(> button:hover) { border-color: var(--sal-line-strong); }
-  .export-group:has(> button:active) { border-color: var(--sal-line-strong); }
-  /* The divider is part of that outline, so it lights with it — otherwise
-     the box's edge goes strong while the line down its middle stays at the
-     resting colour, which reads as a half-finished highlight (the same fault
-     the add group had). */
-  .export-group:has(> button:hover) .btn-menu,
-  .export-group:has(> button:active) .btn-menu { border-left-color: var(--sal-line-strong); }
-  /* No press scale on either action-row group: a press changes the fill of
-     the half under the pointer and nothing else. Scaling the whole box to
-     acknowledge a click on one half of it moved the other half too, and with
-     the menu open it slid the item out from under the pointer between
-     mousedown and mouseup — the click then landed on the panel instead. */
-  .export-group:has(> button:focus-visible) { ${FOCUS_RING_CSS} }
-  .export-group.is-disabled { ${DISABLED_CSS} }
-  .export-group.is-disabled:has(> button:hover),
-  .export-group.is-disabled:has(> button:active) {
+  .btn-export:hover,
+  .btn-menu:hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
+  .btn-export:active,
+  .btn-menu:active { background: var(--sal-press); border-color: var(--sal-line-strong); }
+  /* Open, "more options" keeps the hover treatment so it reads as the
+     control its menu belongs to. Written before nothing that would outrank
+     it: :active above has the same specificity and comes first, so a press
+     on the open button still shows. */
+  .btn-menu[aria-expanded="true"] { background: var(--sal-hover); border-color: var(--sal-line-strong); }
+  .btn-export:focus-visible,
+  .btn-menu:focus-visible { ${FOCUS_RING_CSS} outline: none; }
+  .btn-export[disabled],
+  .btn-menu[disabled] { cursor: default; }
+  .btn-export[aria-disabled="true"] { ${DISABLED_CSS} }
+  .btn-export[aria-disabled="true"]:hover,
+  .btn-export[aria-disabled="true"]:active {
+    background: var(--sal-surface);
     border-color: var(--sal-line);
   }
   .export-group.is-disabled .btn-export:hover,
   .export-group.is-disabled .btn-export:active,
   .export-group.is-disabled .btn-menu:hover,
-  .export-group.is-disabled .btn-menu:active { background: transparent; }
-  .export-group.is-disabled:has(> button:hover) .btn-menu,
-  .export-group.is-disabled:has(> button:active) .btn-menu { border-left-color: var(--sal-line); }
-
-  .btn-export {
-    width: ${ACTION_BUTTON_PX}px;
-    height: 100%;
-    flex-shrink: 0;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: none;
-    /* One px inside the group's own radius-md, so the halves' corners sit
-       flush inside the border rather than crossing it. */
-    border-radius: 9px 0 0 9px;
-    color: inherit;
-    cursor: pointer;
-    ${STATE_TRANSITION_CSS}
+  .export-group.is-disabled .btn-menu:active {
+    background: var(--sal-surface);
+    border-color: var(--sal-line);
   }
-  /* §K: the fill lands here, not on the group. */
-  .btn-export:hover { background: var(--sal-hover); }
-  .btn-export:active { background: var(--sal-press); }
-  .btn-export:focus-visible { outline: none; }
-  .btn-export[disabled] { cursor: default; }
-  .btn-export .icon { width: 16px; height: 16px; display: inline-flex; }
-  .btn-export .icon svg { width: 100%; height: 100%; display: block; }
-
-  .btn-menu {
-    width: ${CHEVRON_HALF_PX}px;
-    height: 100%;
-    flex-shrink: 0;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: none;
-    border-left: ${GROUP_BORDER_PX}px solid var(--sal-line);
-    border-radius: 0 9px 9px 0;
-    color: var(--sal-muted);
-    cursor: pointer;
-    ${STATE_TRANSITION_CSS}
-  }
-  .btn-menu:focus-visible { outline: none; }
-  .btn-menu[disabled] { cursor: default; }
-  /* Open takes the hover fill so the chevron reads as the active control
-     while its menu is down (§C2/§K: the open-menu state keeps its own
-     treatment on this half). Written before the :hover/:active rules so the
-     equal-specificity press fill still reads while the menu is open. */
-  .btn-menu[aria-expanded="true"] { background: var(--sal-hover); }
-  /* §K: the fill lands here, not on the group. */
-  .btn-menu:hover { background: var(--sal-hover); }
-  .btn-menu:active { background: var(--sal-press); }
-  .btn-menu .icon { width: 12px; height: 12px; display: inline-flex; }
+  .btn-export .icon,
+  .btn-menu .icon { width: 16px; height: 16px; display: inline-flex; }
+  .btn-export .icon svg,
   .btn-menu .icon svg { width: 100%; height: 100%; display: block; }
 
   /* The menu itself. Closed is the base state, so this rule carries the
@@ -930,10 +910,22 @@ const SIDEBAR_CSS = `
      run 30–50% longer than exits". visibility rather than [hidden] so both
      directions can animate, and so nothing inside is focusable or in the
      accessibility tree while it is invisible. */
+  .action-menu-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  /* Both faces set display, which would otherwise beat [hidden]. */
+  .action-menu-list[hidden] { display: none; }
   .action-menu {
     position: absolute;
     top: 42px;
     right: 0;
+    /* Sized to its content, never to its containing block: it is positioned
+       against the two-button group, only ~82px wide, and every label stays
+       on one line. At the narrowest panel widths that makes it wider than
+       the panel, so it grows leftwards out over the page, like any popover. */
+    width: max-content;
     min-width: 132px;
     padding: 4px;
     display: flex;
@@ -986,9 +978,88 @@ const SIDEBAR_CSS = `
   .action-menu-item:hover { background: var(--sal-hover); }
   .action-menu-item:focus-visible { background: var(--sal-hover); outline: none; }
   .action-menu-item:active { background: var(--sal-press); }
-  .action-menu-item[disabled] { ${DISABLED_CSS} }
+  .action-menu-item[disabled],
+  .action-menu-item[aria-disabled="true"] { ${DISABLED_CSS} }
+  .action-menu-item[aria-disabled="true"]:hover,
+  .action-menu-item[aria-disabled="true"]:active,
+  .action-menu-item.is-danger[aria-disabled="true"]:hover,
+  .action-menu-item.is-danger[aria-disabled="true"]:active { background: transparent; }
   .action-menu-item .icon { width: 16px; height: 16px; flex-shrink: 0; display: inline-flex; }
   .action-menu-item .icon svg { width: 100%; height: 100%; display: block; }
+  /* The destructive item (design spec §AE): danger ink, and a danger-tinted
+     fill on hover and press, so it never looks like a sibling of import. */
+  .action-menu-item.is-danger { color: var(--sal-danger); }
+  .action-menu-item.is-danger:hover,
+  .action-menu-item.is-danger:focus-visible { background: var(--sal-danger-soft); }
+  .action-menu-item.is-danger:active { background: var(--sal-danger-hover); }
+  /* Keeps the destructive item a deliberate reach away from import. Every
+     item sits the same 4px from whatever is around it — the menu's edge or
+     this line — so the divider's own margin is the menu padding (4px) less
+     the 2px gap the column already puts on each side of it, and it runs the
+     items' full width rather than being inset past them. */
+  .action-menu-divider {
+    height: 1px;
+    margin: 2px 0;
+    background: var(--sal-line);
+    flex-shrink: 0;
+  }
+
+  /* ─── The menu as a confirmation (design spec §AF) ────────────────────
+     Delete-all and import ask in place: the menu's box morphs to the full
+     width of the panel (inline width, set by confirmInMenu) and the
+     question's height. Clipped while it grows, and the question is laid out
+     at its final width and pinned to the box's right edge (align-self), so
+     the box uncovers it rather than reflowing it frame by frame. */
+  .action-menu.is-confirm { overflow: hidden; }
+  .action-menu-confirm {
+    align-self: flex-end;
+    flex-shrink: 0;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .action-menu-confirm[hidden] { display: none; }
+  .action-menu-confirm-text {
+    margin: 0;
+    font-family: var(--sal-font-body);
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--sal-text);
+    white-space: normal;
+  }
+  .action-menu-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .confirm-btn {
+    height: 32px;
+    margin: 0;
+    padding: 0 12px;
+    background: var(--sal-surface);
+    border: 1px solid var(--sal-line);
+    border-radius: var(--sal-radius-md);
+    color: var(--sal-text);
+    font-family: var(--sal-font-body);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    cursor: pointer;
+    ${STATE_TRANSITION_CSS}
+  }
+  .confirm-btn:hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
+  .confirm-btn:active { background: var(--sal-press); }
+  .confirm-btn:focus-visible { ${FOCUS_RING_CSS} outline: none; }
+  /* Both questions are irreversible, so the confirming button carries the
+     same soft danger treatment as the menu's delete item. A solid red fill
+     would be a light coral in the dark theme, with poor contrast. */
+  .confirm-btn.is-danger { background: var(--sal-danger-soft); border-color: transparent; color: var(--sal-danger); }
+  .confirm-btn.is-danger:hover { background: var(--sal-danger-hover); }
+  .confirm-btn.is-danger:active { background: var(--sal-danger-press); }
+  /* A confirming action that destroys nothing on its own terms (import):
+     the plain button with yellow text, like "add note"'s glyph. */
+  .confirm-btn.is-accent { color: var(--sal-accent-icon); }
 
   /* ─── Notification banner (error / warning) — design spec §3.1 ────────
      An inline rounded banner (not the old full-bleed black bar), with a
@@ -1486,6 +1557,17 @@ let elBtnMenu: HTMLButtonElement | null = null;
 let elActionMenu: HTMLDivElement | null = null;
 /** "import" — the menu's one item today. */
 let elBtnImport: HTMLButtonElement | null = null;
+/** "delete all for this website" (design spec §AE). */
+let elBtnDeleteAll: HTMLButtonElement | null = null;
+/** The menu's two faces (design spec §AF): the item list, and the
+ *  confirmation the menu turns into in place. */
+let elMenuList: HTMLDivElement | null = null;
+let elMenuConfirm: HTMLDivElement | null = null;
+let elMenuConfirmText: HTMLParagraphElement | null = null;
+let elMenuConfirmCancel: HTMLButtonElement | null = null;
+let elMenuConfirmOk: HTMLButtonElement | null = null;
+/** The panel's tooltips (design spec §AG), the enlarged view's included. */
+let sidebarTooltips: TooltipHandle | null = null;
 let elBtnClose: HTMLButtonElement | null = null;
 let elFileInput: HTMLInputElement | null = null;
 let elHeading: HTMLHeadingElement | null = null;
@@ -1531,7 +1613,7 @@ function buildDOM(shadow: ShadowRoot): void {
   // ahead of the sidebar's own CSS so every rule below can reference them.
   // One <style> per shadow root: the enlarged view's rules ride along here
   // since it renders inside this same root.
-  style.textContent = getThemeCSS() + '\n' + SIDEBAR_CSS + '\n' + ENLARGED_VIEW_CSS;
+  style.textContent = getThemeCSS() + '\n' + SIDEBAR_CSS + '\n' + ENLARGED_VIEW_CSS + '\n' + TOOLTIP_CSS;
   shadow.appendChild(style);
 
   elSidebar = document.createElement('div');
@@ -1545,7 +1627,8 @@ function buildDOM(shadow: ShadowRoot): void {
   elResizer.setAttribute('role', 'separator');
   elResizer.setAttribute('aria-orientation', 'vertical');
   elResizer.setAttribute('aria-label', 'resize sidebar');
-  elResizer.title = 'resize sidebar';
+  elResizer.dataset.tip = 'resize sidebar';
+  elResizer.dataset.tipSide = 'left';
   elResizer.tabIndex = 0;
   elResizer.setAttribute('aria-valuemin', String(SIDEBAR_MIN_WIDTH));
   elResizer.setAttribute('aria-valuemax', String(SIDEBAR_MAX_WIDTH));
@@ -1599,7 +1682,7 @@ function buildDOM(shadow: ShadowRoot): void {
   elAddSwitch.setAttribute('role', 'switch');
   elAddSwitch.setAttribute('aria-checked', 'false');
   elAddSwitch.setAttribute('aria-label', ADD_SWITCH_NAME);
-  elAddSwitch.title = ADD_SWITCH_TITLES.off;
+  elAddSwitch.dataset.tip = ADD_SWITCH_TITLES.off;
   const switchTrack = document.createElement('span');
   switchTrack.className = 'add-switch-track';
   switchTrack.setAttribute('aria-hidden', 'true');
@@ -1615,26 +1698,62 @@ function buildDOM(shadow: ShadowRoot): void {
   elAddDesc.id = ADD_BUTTON_DESC_ID;
   elAddDesc.className = 'sr-only';
 
-  // export group: export, a chevron, and the chevron's menu. The menu lives
-  // inside this same (closed) shadow root — there is nowhere else it could
-  // go — positioned against the group.
+  // export group (design spec §AE): export and "more options", two separate
+  // buttons, and the menu "more options" opens. The menu lives inside this
+  // same (closed) shadow root — there is nowhere else it could go —
+  // positioned against the group.
   elExportGroup = document.createElement('div');
   elExportGroup.className = 'export-group';
 
   elBtnExport = makeIconButton(ICON_EXPORT, 'export feedback', 'btn-export');
+  elBtnExport.dataset.tipReason = NOTHING_TO_EXPORT_MESSAGE;
 
-  elBtnMenu = makeIconButton(ICON_CHEVRON_DOWN, 'more actions', 'btn-menu');
+  elBtnMenu = makeIconButton(ICON_MORE, 'more options', 'btn-menu');
   elBtnMenu.setAttribute('aria-haspopup', 'menu');
   elBtnMenu.setAttribute('aria-expanded', 'false');
 
   elActionMenu = document.createElement('div');
   elActionMenu.className = 'action-menu';
   elActionMenu.setAttribute('role', 'menu');
-  elActionMenu.setAttribute('aria-label', 'more actions');
+  elActionMenu.setAttribute('aria-label', 'more options');
   elActionMenu.dataset.open = 'false';
+  // What a delete-all reason sits beside.
+  elActionMenu.dataset.tipEdge = '';
 
-  elBtnImport = makeMenuItem(ICON_IMPORT, 'import');
-  elActionMenu.appendChild(elBtnImport);
+  elBtnImport = makeMenuItem(ICON_IMPORT, 'import', 'is-import');
+  const divider = document.createElement('div');
+  divider.className = 'action-menu-divider';
+  divider.setAttribute('role', 'separator');
+  elBtnDeleteAll = makeMenuItem(ICON_TRASH, 'delete all for this website', 'is-danger is-delete-all');
+  // Its reason sits beside the menu, to the left: the menu is against the
+  // window's right edge (§AF).
+  elBtnDeleteAll.dataset.tipReason = NOTHING_TO_DELETE_MESSAGE;
+  elBtnDeleteAll.dataset.tipSide = 'left';
+  elMenuList = document.createElement('div');
+  elMenuList.className = 'action-menu-list';
+  elMenuList.append(elBtnImport, divider, elBtnDeleteAll);
+
+  // The confirmation the menu morphs into (design spec §AF). Hidden until a
+  // question is asked; its text and confirming label are set per question.
+  elMenuConfirm = document.createElement('div');
+  elMenuConfirm.className = 'action-menu-confirm';
+  elMenuConfirm.hidden = true;
+  elMenuConfirmText = document.createElement('p');
+  elMenuConfirmText.className = 'action-menu-confirm-text';
+  elMenuConfirmText.id = MENU_CONFIRM_TEXT_ID;
+  const confirmActions = document.createElement('div');
+  confirmActions.className = 'action-menu-confirm-actions';
+  elMenuConfirmCancel = document.createElement('button');
+  elMenuConfirmCancel.type = 'button';
+  elMenuConfirmCancel.className = 'confirm-btn is-cancel';
+  elMenuConfirmCancel.textContent = CONFIRM_CANCEL_LABEL;
+  elMenuConfirmOk = document.createElement('button');
+  elMenuConfirmOk.type = 'button';
+  elMenuConfirmOk.className = 'confirm-btn is-danger is-confirm';
+  confirmActions.append(elMenuConfirmCancel, elMenuConfirmOk);
+  elMenuConfirm.append(elMenuConfirmText, confirmActions);
+
+  elActionMenu.append(elMenuList, elMenuConfirm);
 
   elExportGroup.appendChild(elBtnExport);
   elExportGroup.appendChild(elBtnMenu);
@@ -1710,6 +1829,11 @@ function buildDOM(shadow: ShadowRoot): void {
   elSidebar.appendChild(elFileInput);
 
   shadow.appendChild(elSidebar);
+  // One tooltip for the whole root — the panel and the enlarged view (§AG).
+  sidebarTooltips = attachTooltips(shadow);
+  // Nothing is known about the site's notes yet: start export and delete-all
+  // greyed out, as setSiteHasNotes(false) would.
+  syncActionAvailability();
   // The panel's fixed chrome (header, action row, banner, resize handle) is
   // not a scroller, so a wheel over it used to chain straight to the PAGE —
   // scrolling the page while the pointer was on the sidebar. Non-passive so
@@ -1736,7 +1860,7 @@ function makeIconButton(svgMarkup: string, ariaLabel: string, className: string)
   btn.type = 'button';
   btn.className = className;
   btn.setAttribute('aria-label', ariaLabel);
-  btn.title = ariaLabel;
+  btn.dataset.tip = ariaLabel;
   const span = document.createElement('span');
   span.className = 'icon';
   span.innerHTML = svgMarkup;
@@ -1744,13 +1868,14 @@ function makeIconButton(svgMarkup: string, ariaLabel: string, className: string)
   return btn;
 }
 
-/** One row of the chevron menu (§C2): a 16px leading icon plus a visible,
- *  lowercase label. `role="menuitem"` and the roving Tab/arrow behaviour are
- *  wired in initSidebar. */
-function makeMenuItem(svgMarkup: string, label: string): HTMLButtonElement {
+/** One row of the "more options" menu (§C2, §AE): a 16px leading icon plus a
+ *  visible, lowercase label. `role="menuitem"` and the roving Tab/arrow
+ *  behaviour are wired in initSidebar. `extraClass` names the item (and
+ *  marks the destructive one). */
+function makeMenuItem(svgMarkup: string, label: string, extraClass = ''): HTMLButtonElement {
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'action-menu-item';
+  btn.className = extraClass ? `action-menu-item ${extraClass}` : 'action-menu-item';
   btn.setAttribute('role', 'menuitem');
   const icon = document.createElement('span');
   icon.className = 'icon';
@@ -1823,8 +1948,8 @@ export function setAddButtonState(state: AddButtonState): void {
   elAddGroup.classList.toggle('is-switch-on', keepOn);
   elBtnAdd.setAttribute('aria-pressed', String(isOn));
   elBtnAdd.setAttribute('aria-label', ADD_BUTTON_NAME);
-  elBtnAdd.title = ADD_BUTTON_TITLES[state];
-  if (elAddSwitch) elAddSwitch.title = keepOn ? ADD_SWITCH_TITLES.on : ADD_SWITCH_TITLES.off;
+  elBtnAdd.dataset.tip = ADD_BUTTON_TITLES[state];
+  if (elAddSwitch) elAddSwitch.dataset.tip = keepOn ? ADD_SWITCH_TITLES.on : ADD_SWITCH_TITLES.off;
   elAddSwitch?.setAttribute('aria-checked', String(keepOn));
   // Merged: while the switch is on the group is one button, so it is one tab
   // stop too — the button half carries it, and both halves do the same thing
@@ -1935,6 +2060,9 @@ function wireAddGroup(): void {
 function wireExportGroup(): void {
   elBtnExport!.addEventListener('click', (e) => {
     e.stopPropagation();
+    // Greyed out with nothing to export (§AF): stays focusable and
+    // hoverable so it can say why, but does nothing.
+    if (isSoftDisabled(elBtnExport!)) return;
     callbacksRef?.onExport();
   });
 
@@ -1970,8 +2098,27 @@ function wireExportGroup(): void {
 
   elBtnImport!.addEventListener('click', (e) => {
     e.stopPropagation();
-    closeActionMenu();
-    elFileInput!.click();
+    if (callbacksRef?.onImport) {
+      callbacksRef.onImport();
+      return;
+    }
+    openImportPicker();
+  });
+
+  elBtnDeleteAll!.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (isSoftDisabled(elBtnDeleteAll!)) return;
+    callbacksRef?.onDeleteAll?.();
+  });
+
+  elMenuConfirmCancel!.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeActionMenu({ returnFocus: true });
+  });
+  elMenuConfirmOk!.addEventListener('click', (e) => {
+    e.stopPropagation();
+    settleMenuConfirm(true);
+    closeActionMenu({ returnFocus: true });
   });
 
   elFileInput!.addEventListener('change', () => {
@@ -2017,10 +2164,11 @@ let menuOpen = false;
 function openActionMenu(options: { focusFirstItem?: boolean } = {}): void {
   if (!elActionMenu || !elBtnMenu || menuOpen || elBtnMenu.disabled) return;
   menuOpen = true;
+  // Always opens as the item list, whatever it closed as.
+  showMenuList();
   elActionMenu.dataset.open = 'true';
   elExportGroup?.classList.add('is-menu-open');
   elBtnMenu.setAttribute('aria-expanded', 'true');
-  setChevronIcon(true);
   if (options.focusFirstItem) menuItems()[0]?.focus();
 }
 
@@ -2032,16 +2180,13 @@ function openActionMenu(options: { focusFirstItem?: boolean } = {}): void {
 function closeActionMenu(options: { returnFocus?: boolean } = {}): void {
   if (!elActionMenu || !elBtnMenu || !menuOpen) return;
   menuOpen = false;
+  // A question still open is answered no: closing is cancelling (§AF).
+  settleMenuConfirm(false);
+  sidebarTooltips?.hide();
   elActionMenu.dataset.open = 'false';
   elExportGroup?.classList.remove('is-menu-open');
   elBtnMenu.setAttribute('aria-expanded', 'false');
-  setChevronIcon(false);
   if (options.returnFocus) elBtnMenu.focus();
-}
-
-function setChevronIcon(open: boolean): void {
-  const icon = elBtnMenu?.querySelector('.icon');
-  if (icon) icon.innerHTML = open ? ICON_CHEVRON_UP : ICON_CHEVRON_DOWN;
 }
 
 function menuItems(): HTMLButtonElement[] {
@@ -2049,12 +2194,21 @@ function menuItems(): HTMLButtonElement[] {
 }
 
 /** Up/Down move between items (wrapping), Esc closes and returns focus to
- *  the chevron, Tab closes and lets focus move on normally (§C2). */
+ *  the button, Tab closes and lets focus move on normally (§C2). As a
+ *  confirmation (§AF), Esc cancels and Tab moves between its two buttons
+ *  rather than dismissing the question. */
 function onActionMenuKeyDown(e: KeyboardEvent): void {
   if (e.key === 'Escape') {
     e.preventDefault();
     e.stopPropagation();
     closeActionMenu({ returnFocus: true });
+    return;
+  }
+  if (menuView === 'confirm') {
+    if (e.key !== 'Tab') return;
+    e.preventDefault();
+    const onCancel = sidebarShadow?.activeElement === elMenuConfirmCancel;
+    (onCancel ? elMenuConfirmOk : elMenuConfirmCancel)?.focus();
     return;
   }
   if (e.key === 'Tab') {
@@ -2072,6 +2226,154 @@ function onActionMenuKeyDown(e: KeyboardEvent): void {
   const from = current >= 0 ? current : 0;
   const delta = e.key === 'ArrowDown' ? 1 : -1;
   items[(from + delta + items.length) % items.length].focus();
+}
+
+// ---------------------------------------------------------------------------
+// The menu as a confirmation (design spec §AF)
+//
+// Delete-all, and import when the site already has notes, ask in place: the
+// menu itself turns into the question. Its box morphs from the menu's size
+// to the full width of the panel (16px from each side, like the action row)
+// and the question's height; only the size animates, the contents swap at
+// once. The contents are laid out at their final width and pinned to the
+// box's top-right corner, so the growing box uncovers them rather than
+// reflowing them frame by frame. Anything that closes the menu — cancel,
+// Esc, a press outside, the sidebar closing, add mode — answers no.
+// ---------------------------------------------------------------------------
+
+const MENU_CONFIRM_TEXT_ID = 'menu-confirm-text';
+/** The morph's duration: a size change in an element already on screen, a
+ *  touch longer than the menu's 120ms entrance (motion spec: standard
+ *  easing for anything that stays on screen). */
+export const MENU_MORPH_MS = 200;
+/** The menu's own border and padding, which the question sits inside. */
+const MENU_BORDER_PX = 1;
+const MENU_PAD_PX = 4;
+
+type MenuView = 'list' | 'confirm';
+let menuView: MenuView = 'list';
+let menuConfirmResolve: ((answer: boolean) => void) | null = null;
+let menuMorph: Animation | null = null;
+
+function settleMenuConfirm(answer: boolean): void {
+  const resolve = menuConfirmResolve;
+  menuConfirmResolve = null;
+  resolve?.(answer);
+}
+
+/** Back to the item list (on every open), with the box's own sizing. */
+function showMenuList(): void {
+  menuMorph?.cancel();
+  menuMorph = null;
+  menuView = 'list';
+  if (!elActionMenu) return;
+  elActionMenu.classList.remove('is-confirm');
+  elActionMenu.style.width = '';
+  elActionMenu.setAttribute('role', 'menu');
+  elActionMenu.setAttribute('aria-label', 'more options');
+  elActionMenu.removeAttribute('aria-describedby');
+  if (elMenuList) elMenuList.hidden = false;
+  if (elMenuConfirm) elMenuConfirm.hidden = true;
+}
+
+/** The panel's content width: the box a confirmation fills. */
+function confirmWidthPx(): number {
+  return Math.max(0, sidebarWidth - PANEL_BORDER_PX - ACTION_ROW_PAD_X * 2);
+}
+
+/**
+ * Turn the open menu into a yes/no question (design spec §AF) and resolve
+ * with the answer: true only for the confirming button. Resolves false at
+ * once if the menu is not open (the user dismissed it while the question
+ * was being prepared), and false when anything closes the menu. Focus goes
+ * to "cancel", so a stray Enter is the safe answer.
+ *
+ * `tone` styles the confirming button: 'danger' (soft red) for a delete,
+ * 'accent' (yellow text, like "add note"'s glyph) for everything else.
+ */
+export type ConfirmTone = 'danger' | 'accent';
+
+export function confirmInMenu(message: string, confirmLabel: string, tone: ConfirmTone = 'danger'): Promise<boolean> {
+  if (!menuOpen || !elActionMenu || !elMenuList || !elMenuConfirm || !elMenuConfirmText || !elMenuConfirmOk) {
+    return Promise.resolve(false);
+  }
+  settleMenuConfirm(false);
+  sidebarTooltips?.hide();
+
+  return new Promise<boolean>((resolve) => {
+    menuConfirmResolve = resolve;
+    const menu = elActionMenu!;
+    const from = menu.getBoundingClientRect();
+
+    elMenuConfirmText!.textContent = message;
+    elMenuConfirmOk!.textContent = confirmLabel;
+    elMenuConfirmOk!.classList.toggle('is-danger', tone === 'danger');
+    elMenuConfirmOk!.classList.toggle('is-accent', tone === 'accent');
+    const width = confirmWidthPx();
+    menuView = 'confirm';
+    menu.classList.add('is-confirm');
+    menu.setAttribute('role', 'alertdialog');
+    menu.removeAttribute('aria-label');
+    menu.setAttribute('aria-describedby', MENU_CONFIRM_TEXT_ID);
+    elMenuList!.hidden = true;
+    elMenuConfirm!.hidden = false;
+    menu.style.width = `${width}px`;
+    elMenuConfirm!.style.width = `${Math.max(0, width - (MENU_BORDER_PX + MENU_PAD_PX) * 2)}px`;
+    const to = menu.getBoundingClientRect();
+
+    const reduced = reducedMotionQuery()?.matches ?? false;
+    if (!reduced && typeof menu.animate === 'function' && from.width > 0 && to.width > 0) {
+      menuMorph?.cancel();
+      menuMorph = menu.animate(
+        [
+          { width: `${from.width}px`, height: `${from.height}px` },
+          { width: `${to.width}px`, height: `${to.height}px` },
+        ],
+        { duration: MENU_MORPH_MS, easing: EASE_STD },
+      );
+      const morph = menuMorph;
+      morph.onfinish = () => {
+        if (menuMorph === morph) menuMorph = null;
+      };
+    }
+    elMenuConfirmCancel?.focus();
+  });
+}
+
+/** Close the menu and open the native file picker (§1.7). Called from the
+ *  import item's own click — or from the confirmation's "yes", still inside
+ *  that click's user activation, which a file picker requires. */
+export function openImportPicker(): void {
+  closeActionMenu();
+  elFileInput?.click();
+}
+
+/** Close the "more options" menu from outside (content.ts, when a question
+ *  cannot be asked because its count could not be read). */
+export function closeMoreOptionsMenu(): void {
+  closeActionMenu();
+}
+
+// ---------------------------------------------------------------------------
+// Disabled reasons (design spec §AF)
+//
+// Export with nothing to export, and delete-all with nothing to delete, are
+// "soft" disabled: they look and act disabled but stay focusable and
+// hoverable (aria-disabled, not the disabled attribute — a truly disabled
+// button gets no pointer events and no focus), so the shared tooltip
+// (tooltip.ts, §AG) can show their `data-tip-reason` on hover or focus.
+// ---------------------------------------------------------------------------
+
+function isSoftDisabled(el: HTMLElement): boolean {
+  return el.getAttribute('aria-disabled') === 'true';
+}
+
+function setSoftDisabled(el: HTMLElement | null, off: boolean): void {
+  if (!el || isSoftDisabled(el) === off) return;
+  if (off) el.setAttribute('aria-disabled', 'true');
+  else el.removeAttribute('aria-disabled');
+  // A tooltip up for the old state would now say the wrong thing.
+  sidebarTooltips?.hide();
 }
 
 /** Pointerdown anywhere inside the sidebar's shadow tree: close unless it
@@ -2231,6 +2533,14 @@ export function setImportButtonEnabled(enabled: boolean): void {
   syncActionAvailability();
 }
 
+/** Whether this site has any notes, on any page (design spec §AF):
+ *  content.ts re-reads it after every repaint. With none, export and
+ *  delete-all are soft-disabled and say why on hover or focus. */
+export function setSiteHasNotes(has: boolean): void {
+  siteHasNotes = has;
+  syncActionAvailability();
+}
+
 // ---------------------------------------------------------------------------
 // Availability of the action row's controls
 //
@@ -2243,15 +2553,24 @@ export function setImportButtonEnabled(enabled: boolean): void {
 
 let exportEnabled = true;
 let importEnabled = true;
+/** Whether the site has any notes (design spec §AF) — until content.ts says
+ *  so, export and delete-all are soft-disabled. */
+let siteHasNotes = false;
 /** True for the whole of add mode (design spec v3 §H). */
 let addModeHold = false;
 
 function syncActionAvailability(): void {
   // §H disables the whole export group; an in-flight export only disables
   // the half that would start a second one.
-  if (elBtnExport) elBtnExport.disabled = addModeHold || !exportEnabled;
+  const exportBlocked = addModeHold || !exportEnabled;
+  if (elBtnExport) elBtnExport.disabled = exportBlocked;
+  // Soft-disabled only for "nothing to export" (§AF): the add-mode hold and
+  // an export in flight are brief and plain from context, so they keep the
+  // plain disabled state and no tooltip.
+  setSoftDisabled(elBtnExport, !exportBlocked && !siteHasNotes);
   if (elBtnMenu) elBtnMenu.disabled = addModeHold;
   if (elBtnImport) elBtnImport.disabled = !importEnabled;
+  setSoftDisabled(elBtnDeleteAll, !siteHasNotes);
   elExportGroup?.classList.toggle('is-disabled', addModeHold);
 }
 
@@ -2583,6 +2902,7 @@ export function flushEnlargedView(): void {
  *  content script stays loaded") — this exists for tests and for a hard reset
  *  if the content script is ever torn down without a page navigation. */
 export function destroySidebar(): void {
+  settleMenuConfirm(false);
   enlargedView?.destroy();
   enlargedView = null;
   currentItems = [];
@@ -2613,6 +2933,17 @@ export function destroySidebar(): void {
   elBtnMenu = null;
   elActionMenu = null;
   elBtnImport = null;
+  elBtnDeleteAll = null;
+  elMenuList = null;
+  elMenuConfirm = null;
+  elMenuConfirmText = null;
+  elMenuConfirmCancel = null;
+  elMenuConfirmOk = null;
+  sidebarTooltips?.destroy();
+  sidebarTooltips = null;
+  siteHasNotes = false;
+  menuView = 'list';
+  menuMorph = null;
   elBtnClose = null;
   elFileInput = null;
   elHeading = null;
@@ -2637,7 +2968,7 @@ export function destroySidebar(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Notifications (showError / showWarning / showConfirmDialog). All copy
+// Notifications (showError / showWarning). All copy
 // passed in must already be lowercase (§3.4);
 // these render it verbatim so the §5 error-table strings stay byte-exact.
 // ---------------------------------------------------------------------------
@@ -2706,12 +3037,6 @@ function stopCountdownAnim(): void {
   elCountdownBar.hidden = true;
   elCountdownBar.style.transition = 'none';
   elCountdownBar.style.transform = 'scaleX(1)';
-}
-
-/** Native browser confirm — kept lowercase per §3.4. Async-shaped because
- *  the import flow awaits it and may later swap in a styled dialog. */
-export function showConfirmDialog(message: string): Promise<boolean> {
-  return Promise.resolve(window.confirm(message));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

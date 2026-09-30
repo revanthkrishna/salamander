@@ -1182,7 +1182,7 @@ class EnlargedView {
     this.deleteBtn.className = 'xp-delete';
     this.deleteBtn.innerHTML = ICON_TRASH; // the list's glyph, the only one (§S)
     this.deleteBtn.setAttribute('aria-label', 'delete note');
-    this.deleteBtn.title = 'delete note';
+    this.deleteBtn.dataset.tip = 'delete note';
     this.deleteBtn.addEventListener('click', () => this.deleteCurrent());
     this.head.append(this.titleEl, this.deleteBtn);
 
@@ -1577,11 +1577,11 @@ class EnlargedView {
     if (peek) {
       const label = `${role === 'prev' ? 'previous' : 'next'} note: feedback #${this.numberOf(card.item.id)}`;
       card.el.setAttribute('aria-label', label);
-      card.el.title = role === 'prev' ? 'previous note' : 'next note';
+      card.el.dataset.tip = role === 'prev' ? 'previous note' : 'next note';
       card.el.removeAttribute('aria-hidden');
     } else {
       card.el.removeAttribute('aria-label');
-      card.el.removeAttribute('title');
+      delete card.el.dataset.tip;
       card.el.setAttribute('aria-hidden', 'true');
     }
     if (wasFocused && !peek) {
@@ -2241,7 +2241,10 @@ function railButton(icon: string, label: string, title: string, extra: string): 
   b.type = 'button';
   b.className = `xp-rail-btn ${extra}`;
   b.setAttribute('aria-label', label);
-  b.title = title;
+  // The shared tooltip (tooltip.ts, design spec §AG), to the left: the rail
+  // stands against the window's right edge.
+  b.dataset.tip = title;
+  b.dataset.tipSide = 'left';
   b.innerHTML = icon;
   // aria-disabled (not `disabled`) at the ends, so a focused ↓ keeps focus
   // when the last note is reached; clicks are ignored by go()'s range check.

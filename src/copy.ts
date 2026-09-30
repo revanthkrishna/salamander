@@ -39,8 +39,11 @@ export const FINISH_NOTE_FIRST_MESSAGE = 'finish or cancel your note first.';
 /** Not one of the numbered §5 cases: the export round trip itself failed
  *  (zip assembly, chrome.downloads, or a dead service worker). */
 export const EXPORT_FAILED_MESSAGE = "couldn't export feedback. try again.";
-/** §5 #7, verbatim — shown through `alert()`, which needs the page's window. */
+/** §5 #7 — the reason export is greyed out, in its tooltip (design spec §AF);
+ *  also the warning if the site empties between the check and the export. */
 export const NOTHING_TO_EXPORT_MESSAGE = 'nothing to export';
+/** The reason "delete all for this website" is greyed out (design spec §AF). */
+export const NOTHING_TO_DELETE_MESSAGE = 'nothing to delete';
 
 // ─── Import (§1.7, §5) ───────────────────────────────────────────────────────
 
@@ -49,10 +52,26 @@ export const DOMAIN_COUNT_FAILED_MESSAGE = "couldn't check existing feedback. tr
  *  threw) rather than a validation failure §5 already has copy for. */
 export const IMPORT_FAILED_MESSAGE = "couldn't import this bundle. try again.";
 
-/** §5 #10, verbatim. */
-export function importReplaceConfirmMessage(existingCount: number): string {
-  return `importing will replace your current ${existingCount} feedback item(s) for this site. this cannot be undone. continue?`;
+/** The menu's confirmations (design spec §AF). */
+export const CONFIRM_CANCEL_LABEL = 'cancel';
+export const DELETE_ALL_CONFIRM_LABEL = 'yes, delete';
+export const IMPORT_REPLACE_CONFIRM_LABEL = 'yes, import';
+/** Asked when import is chosen and the site already has notes (§5 #10,
+ *  reworded for §AF: asked before the file is picked, so without a count). */
+export const IMPORT_REPLACE_CONFIRM_MESSAGE = 'your existing notes will be discarded. continue with import?';
+
+/** Delete-all failed in the service worker (design spec §AE). */
+export const DELETE_ALL_FAILED_MESSAGE = "couldn't delete feedback. try again.";
+
+/** Delete-all's confirmation (design spec §AF): the count, and how many
+ *  pages it spans, so it is plain this reaches beyond the page on screen.
+ *  Each noun agrees with its own number. */
+export function deleteAllConfirmMessage(itemCount: number, pageCount: number): string {
+  const notes = itemCount === 1 ? 'note' : 'notes';
+  const pages = pageCount === 1 ? 'page' : 'pages';
+  return `delete ${itemCount} ${notes} across ${pageCount} ${pages}?`;
 }
+
 
 /** §5's error copy, lowercase and verbatim. The one parameterised row
  *  (#5, domain mismatch) fills in from `ImportError.details`. */

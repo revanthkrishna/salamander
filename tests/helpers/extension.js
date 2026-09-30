@@ -30,9 +30,9 @@ const SELECTORS = {
   // Sidebar (src/sidebar.ts)
   sidebarHost: '#annotator-sidebar-host',
   sidebar: '#annotator-sidebar-host .sidebar',
-  // The action row is two groups (design spec v3 §A2/§C2): "add note" +
-  // its "keep add mode on" switch, and export + a chevron whose menu holds
-  // "import". The add button's aria-label is a fixed "add note" (its state is
+  // The action row is two groups (design spec v3 §A2, §AE): "add note" +
+  // its "keep add mode on" switch, and export beside a separate "more
+  // options" button whose menu holds "import" and "delete all". The add button's aria-label is a fixed "add note" (its state is
   // in aria-pressed; only the tooltip changes — setAddButtonState() in
   // src/sidebar.ts); it selects on its class, which is just as stable.
   addGroup: '#annotator-sidebar-host .add-group',
@@ -44,8 +44,17 @@ const SELECTORS = {
   btnExport: '#annotator-sidebar-host button[aria-label="export feedback"]',
   btnMenu: '#annotator-sidebar-host button.btn-menu',
   actionMenu: '#annotator-sidebar-host .action-menu',
-  // "import" is the chevron menu's one item, not a button of its own.
-  btnImport: '#annotator-sidebar-host .action-menu-item[role="menuitem"]',
+  // Items of the "more options" menu, not buttons of their own.
+  btnImport: '#annotator-sidebar-host .action-menu-item.is-import',
+  btnDeleteAll: '#annotator-sidebar-host .action-menu-item.is-delete-all',
+  // The "more options" menu turned into a question (design spec §AF) —
+  // import's replace and delete-all ask here, not in window.confirm().
+  menuConfirm: '#annotator-sidebar-host .action-menu.is-confirm',
+  menuConfirmText: '#annotator-sidebar-host .action-menu-confirm-text',
+  confirmCancel: '#annotator-sidebar-host .confirm-btn.is-cancel',
+  confirmOk: '#annotator-sidebar-host .confirm-btn.is-confirm',
+  // The shared tooltip (design spec §AG), one per shadow root.
+  sidebarTooltip: '#annotator-sidebar-host .sal-tip',
   btnClose: '#annotator-sidebar-host button[aria-label="close sidebar"]',
   fileInput: '#annotator-sidebar-host input[type="file"]',
   emptyState: '#annotator-sidebar-host .empty-state',
@@ -536,16 +545,6 @@ async function exportAndGetDownload(context, page) {
   };
 }
 
-/** Click "export" on an empty domain and capture the resulting
- *  `alert("nothing to export")` (§5 #7). Dismisses the dialog and returns its
- *  message. */
-async function exportAndGetEmptyAlert(page) {
-  // Dismiss inside the event: a native alert blocks the page, so if it opens
-  // before the click action returns, awaiting the click first deadlocks.
-  const message = handleNextDialog(page, (dialog) => dialog.dismiss());
-  await page.locator(SELECTORS.btnExport).click();
-  return message;
-}
 
 /**
  * Resolve with the next native dialog's message, after `respond` has
@@ -569,7 +568,20 @@ function handleNextDialog(page, respond, timeout = 5000) {
   });
 }
 
-/** Open the export group's chevron menu (design spec v3 §C2) and wait for it
+/**
+ * Wait for the "more options" menu to turn into a question (design spec
+ * §AF), answer it, and return the question. `accept` picks the confirming
+ * button, otherwise "cancel". Either answer closes the menu.
+ */
+async function answerConfirm(page, accept) {
+  await page.locator(SELECTORS.menuConfirm).waitFor({ state: 'visible', timeout: 5000 });
+  const message = await page.locator(SELECTORS.menuConfirmText).textContent();
+  await page.locator(accept ? SELECTORS.confirmOk : SELECTORS.confirmCancel).click();
+  await page.locator(SELECTORS.actionMenu).waitFor({ state: 'hidden', timeout: 5000 });
+  return message;
+}
+
+/** Open the "more options" menu (design spec v3 §C2, §AE) and wait for it
  *  to be shown. */
 async function openActionMenu(page) {
   await page.locator(SELECTORS.btnMenu).click();
@@ -579,13 +591,15 @@ async function openActionMenu(page) {
 /** Open the chevron menu, click its "import" item, pick `filePath` from the
  *  native file chooser, and wait for the round trip to settle (sidebar
  *  re-render / confirm dialog, if any). */
-async function importFile(page, filePath) {
+async function importFile(page, filePath, { confirm = false } = {}) {
   await openActionMenu(page);
-  const [chooser] = await Promise.all([
-    page.waitForEvent('filechooser', { timeout: 5000 }),
-    page.locator(SELECTORS.btnImport).click(),
-  ]);
+  const chooserPromise = page.waitForEvent('filechooser', { timeout: 5000 });
+  await page.locator(SELECTORS.btnImport).click();
+  // With notes on the site the menu asks first (§AF), before the picker.
+  const question = confirm ? await answerConfirm(page, true) : null;
+  const chooser = await chooserPromise;
   await chooser.setFiles(filePath);
+  return question;
 }
 
 /** Turn the "keep add mode on" switch on (design spec v3 §A2). The switch is
@@ -623,6 +637,6 @@ module.exports = {
   deleteCurrentNote,
   exportAndGetDownload,
   handleNextDialog,
-  exportAndGetEmptyAlert,
+  answerConfirm,
   importFile,
 };

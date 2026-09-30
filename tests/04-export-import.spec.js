@@ -31,12 +31,22 @@ async function openPageWithSidebar(pg) {
   await helper.activateExtension(context, pg);
 }
 
-test('exporting with zero feedback items shows "nothing to export" and downloads nothing', async () => {
+test('with no notes, export is greyed out and its tooltip says "nothing to export"', async () => {
   const page = await context.newPage();
   await openPageWithSidebar(page);
 
-  const message = await helper.exportAndGetEmptyAlert(page);
-  expect(message).toBe('nothing to export'); // §5 #7, verbatim
+  const exportBtn = page.locator(helper.SELECTORS.btnExport);
+  await expect(exportBtn).toHaveAttribute('aria-disabled', 'true');
+  await exportBtn.hover();
+  await expect(page.locator(helper.SELECTORS.sidebarTooltip)).toHaveAttribute('data-open', 'true');
+  await expect(page.locator(helper.SELECTORS.sidebarTooltip)).toHaveText('nothing to export'); // §5 #7
+  // A click does nothing: no dialog, no download.
+  await exportBtn.click({ force: true });
+  await expect(page.locator(helper.SELECTORS.thumbnail)).toHaveCount(0);
+
+  // A note makes it live.
+  await helper.captureFeedbackItem(page, { x: 150, y: 200, note: 'something', expectedCount: 1 });
+  await expect(exportBtn).not.toHaveAttribute('aria-disabled', 'true');
 });
 
 test('export downloads a correctly-named zip bundle', async () => {
@@ -89,12 +99,9 @@ test('importing when existing feedback is present asks for confirmation before r
   // that importing the (1-item) bundle above would replace.
   await helper.captureFeedbackItem(page, { x: 400, y: 200, note: 'local unsaved item', expectedCount: 2 });
 
-  const confirmMessage = helper.handleNextDialog(page, (dialog) => dialog.accept());
-  await helper.importFile(page, zipPath);
-  const message = await confirmMessage;
-  // §5 #10, verbatim modulo the item count.
-  expect(message).toContain('importing will replace your current 2 feedback item(s) for this site');
-  expect(message).toContain('this cannot be undone. continue?');
+  // Asked in the menu when import is chosen, before the picker (§AF).
+  const message = await helper.importFile(page, zipPath, { confirm: true });
+  expect(message).toBe('your existing notes will be discarded. continue with import?');
 
   await expect(page.locator(helper.SELECTORS.thumbnail)).toHaveCount(1);
   await expect(page.locator(helper.SELECTORS.thumbnailNote)).toHaveText('will be exported');
@@ -111,4 +118,44 @@ test('importing a non-zip file is rejected with the invalid-file-type error', as
   await expect(page.locator(helper.SELECTORS.notifText)).toHaveText(
     'invalid file type. please upload a .zip feedback bundle.',
   );
+});
+
+test('"delete all for this website" confirms with both counts, then empties every page', async () => {
+  const page = await context.newPage();
+  await openPageWithSidebar(page);
+  await helper.captureFeedbackItem(page, { x: 150, y: 200, note: 'on page one', expectedCount: 1 });
+  // A second page of the same site, so the delete has to reach beyond the one on screen.
+  await page.locator('#goto-page-two').click();
+  await page.locator(helper.SELECTORS.emptyState).waitFor({ state: 'visible', timeout: 5000 });
+  await helper.captureFeedbackItem(page, { x: 150, y: 200, note: 'on page two', expectedCount: 1 });
+  await helper.captureFeedbackItem(page, { x: 400, y: 200, note: 'also page two', expectedCount: 2 });
+
+  await helper.openActionMenu(page);
+  await page.locator(helper.SELECTORS.btnDeleteAll).click();
+  expect(await helper.answerConfirm(page, true)).toBe('delete 3 notes across 2 pages?');
+
+  await expect(page.locator(helper.SELECTORS.emptyState)).toBeVisible();
+  await expect(page.locator(helper.SELECTORS.thumbnail)).toHaveCount(0);
+  // Page one is empty too, not just the page on screen.
+  await page.locator('#goto-page-one').click();
+  await expect(page.locator(helper.SELECTORS.emptyState)).toBeVisible();
+  // ...and with nothing left, the item disables itself.
+  await helper.openActionMenu(page);
+  await expect(page.locator(helper.SELECTORS.btnDeleteAll)).toHaveAttribute('aria-disabled', 'true');
+  // ...and says why, beside the menu (§AF).
+  await page.locator(helper.SELECTORS.btnDeleteAll).hover();
+  await expect(page.locator(helper.SELECTORS.sidebarTooltip)).toHaveText('nothing to delete');
+});
+
+test('cancelling "delete all" leaves every note in place', async () => {
+  const page = await context.newPage();
+  await openPageWithSidebar(page);
+  await helper.captureFeedbackItem(page, { x: 150, y: 200, note: 'keep me', expectedCount: 1 });
+
+  await helper.openActionMenu(page);
+  await page.locator(helper.SELECTORS.btnDeleteAll).click();
+  await helper.answerConfirm(page, false);
+
+  await expect(page.locator(helper.SELECTORS.thumbnail)).toHaveCount(1);
+  await expect(page.locator(helper.SELECTORS.thumbnailNote)).toHaveText('keep me');
 });

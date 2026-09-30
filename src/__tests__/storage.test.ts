@@ -14,6 +14,7 @@ import {
   getDomainData,
   replaceDomainData,
   deleteDomainData,
+  getDomainCounts,
   setSidebarOpen,
   isSidebarOpen,
   clearSidebarState,
@@ -215,6 +216,21 @@ describe('storage.ts — domain/item CRUD', () => {
     expect(await getDomainData(DOMAIN)).toBeNull();
     expect(await imageStore.getImage(a.screenshotKey)).toBeNull();
     expect(await imageStore.getImage(b.screenshotKey)).toBeNull();
+  });
+
+  test('getDomainCounts counts items and the pages they are on, zero for an unknown domain', async () => {
+    expect(await getDomainCounts(DOMAIN)).toEqual({ items: 0, pages: 0 });
+    for (const [id, url] of [[1, 'a'], [2, 'a'], [3, 'b']] as const) {
+      const item = makeItem({ id, normalisedUrl: `https://example.com/${url}` });
+      await seedImage(item.screenshotKey);
+      await addItem(DOMAIN, item);
+    }
+    expect(await getDomainCounts(DOMAIN)).toEqual({ items: 3, pages: 2 });
+    // A page emptied by deletes is not a page with feedback.
+    await deleteItem(DOMAIN, 'https://example.com/b', 3);
+    expect(await getDomainCounts(DOMAIN)).toEqual({ items: 2, pages: 1 });
+    await deleteDomainData(DOMAIN);
+    expect(await getDomainCounts(DOMAIN)).toEqual({ items: 0, pages: 0 });
   });
 
   test('replaceDomainData discards the old blobs and installs the new record wholesale', async () => {
