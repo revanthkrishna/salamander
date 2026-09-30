@@ -811,13 +811,44 @@ function isTextEntry(target: EventTarget | undefined): boolean {
  * textarea and nothing else. Stopping at the host also keeps a page that
  * sets `html { overflow: auto }` from qualifying as the scroller.
  */
-export function lockPageScroll(hostEl: Element): ScrollLockHandle {
-  /** The part of the composed path that belongs to our UI, or null when the
-   *  event never touched it. */
+export function lockPageScroll(hostEl: Element, root: ShadowRoot | null = null): ScrollLockHandle {
+  /** The part of the composed path that belongs to our UI, innermost first,
+   *  or null when the event never touched it.
+   *
+   *  The UI lives in a CLOSED shadow root, and these listeners sit on
+   *  `window`, outside it. From there `composedPath()` is retargeted: it
+   *  stops at the host and never shows the element inside that the event
+   *  actually reached. Read naively, every key typed into the note textarea
+   *  looks like a key pressed on the bare host — so Space, the arrows and
+   *  Home/End were all cancelled as page scrolls, and the textarea could not
+   *  take a space or move its caret. So when the path stops at the host,
+   *  the inner target is recovered from the root itself: the focused element
+   *  for a key (keys go where focus is), the element under the pointer for a
+   *  wheel or a touch. An open root (the test harnesses force one) shows the
+   *  full path and needs none of this. */
   function ownPath(e: Event): EventTarget[] | null {
     const path = e.composedPath();
     const host = path.indexOf(hostEl);
-    return host > 0 ? path.slice(0, host) : null;
+    if (host < 0) return null;
+    if (host > 0) return path.slice(0, host);
+    const inner = innerTarget(e);
+    if (!inner) return [];
+    const out: EventTarget[] = [];
+    for (let n: Node | null = inner; n && n !== root; n = n.parentNode) out.push(n);
+    return out;
+  }
+
+  function innerTarget(e: Event): Element | null {
+    if (!root) return null;
+    if (e instanceof KeyboardEvent) return root.activeElement;
+    const point =
+      'touches' in e && (e as TouchEvent).touches.length
+        ? (e as TouchEvent).touches[0]
+        : 'clientX' in e
+          ? (e as MouseEvent)
+          : null;
+    if (!point || typeof root.elementFromPoint !== 'function') return null;
+    return root.elementFromPoint(point.clientX, point.clientY);
   }
 
   function consumable(e: Event, dx: number, dy: number): boolean {
@@ -845,7 +876,7 @@ export function lockPageScroll(hostEl: Element): ScrollLockHandle {
   const onKeydown = (e: KeyboardEvent): void => {
     const dir = SCROLL_KEYS[e.key];
     if (!dir) return;
-    if (isTextEntry(e.composedPath()[0])) return;
+    if (isTextEntry(ownPath(e)?.[0])) return;
     const dy = e.key === ' ' || e.key === 'Spacebar' ? (e.shiftKey ? -1 : 1) : dir.dy;
     if (!consumable(e, dir.dx, dy)) cancel(e);
   };
@@ -1048,9 +1079,10 @@ class EnlargedView {
 
     // The page is frozen for as long as the view is up (§T). Taken before
     // the keyboard isolation, which stops in-host key events reaching any
-    // later capture listener — the lock passes those through anyway, but
-    // this way its view of the keyboard matches the page's.
-    this.scrollLock = lockPageScroll(this.mount.host);
+    // later capture listener, so the lock does see every key — which is why
+    // it must be handed the (closed) shadow root: without it the lock cannot
+    // tell a key typed into the textarea from one pressed on the page.
+    this.scrollLock = lockPageScroll(this.mount.host, this.mount.shadow);
     this.isolation = installKeyboardIsolation(this.mount.host, this.onKeydown);
     window.addEventListener('resize', this.onResize);
     this.mql?.addEventListener?.('change', this.onReducedChange);
@@ -2117,7 +2149,16 @@ class EnlargedView {
       // item would reopen the view, auto-repeat after focus lands on x would
       // collapse it. Cancel activation outside the view and on auto-repeat
       // (the textarea keeps its repeated newlines/spaces).
-      const target = e.composedPath()[0];
+      //
+      // This runs at window capture, outside the closed root, where
+      // composedPath() stops at the host — and the host is not "in the
+      // view", so every Space and Enter typed into the note was being
+      // cancelled. When the path stops there, the key's real target is the
+      // root's focused element (keys go where focus is); when the path does
+      // reach inside (an open root, as the test harnesses use), it is used
+      // as-is.
+      const first = e.composedPath()[0];
+      const target = first === this.mount.host ? this.mount.shadow.activeElement : first;
       const inView = target instanceof Node && this.wrapper.contains(target);
       if (!inView || (e.repeat && target !== this.textarea)) e.preventDefault();
       return;
