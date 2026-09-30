@@ -83,7 +83,14 @@ import { AutosaveController } from './autosave';
 import { ICON_ARROW_DOWN, ICON_ARROW_UP, ICON_COLLAPSE, ICON_TRASH } from './icons';
 import { buildDrawingSvg, hasStrokes } from './drawing';
 import { DELETE_ERROR_MESSAGE, EMPTY_NOTE_MESSAGE, SAVE_ERROR_MESSAGE, saveErrorFor } from './copy';
-import { cancelAnimationFrameSafe, getContentViewportSize, reducedMotionQuery, requestAnimationFrameSafe } from './dom';
+import {
+  cancelAnimationFrameSafe,
+  getContentViewportSize,
+  keyTargetWithin,
+  pointTargetWithin,
+  reducedMotionQuery,
+  requestAnimationFrameSafe,
+} from './dom';
 import { FOCUS_RING_CSS, DISABLED_CSS, STATE_TRANSITION_CSS, RADII } from './theme';
 import {
   ACC,
@@ -838,17 +845,11 @@ export function lockPageScroll(hostEl: Element, root: ShadowRoot | null = null):
     return out;
   }
 
+  /** Only reached when the path stops at the host (dom.ts's rule). */
   function innerTarget(e: Event): Element | null {
     if (!root) return null;
-    if (e instanceof KeyboardEvent) return root.activeElement;
-    const point =
-      'touches' in e && (e as TouchEvent).touches.length
-        ? (e as TouchEvent).touches[0]
-        : 'clientX' in e
-          ? (e as MouseEvent)
-          : null;
-    if (!point || typeof root.elementFromPoint !== 'function') return null;
-    return root.elementFromPoint(point.clientX, point.clientY);
+    const t = e instanceof KeyboardEvent ? keyTargetWithin(e, hostEl, root) : pointTargetWithin(e, hostEl, root);
+    return t instanceof Element ? t : null;
   }
 
   function consumable(e: Event, dx: number, dy: number): boolean {
@@ -2153,12 +2154,8 @@ class EnlargedView {
       // This runs at window capture, outside the closed root, where
       // composedPath() stops at the host — and the host is not "in the
       // view", so every Space and Enter typed into the note was being
-      // cancelled. When the path stops there, the key's real target is the
-      // root's focused element (keys go where focus is); when the path does
-      // reach inside (an open root, as the test harnesses use), it is used
-      // as-is.
-      const first = e.composedPath()[0];
-      const target = first === this.mount.host ? this.mount.shadow.activeElement : first;
+      // cancelled. keyTargetWithin (dom.ts) recovers the key's real target.
+      const target = keyTargetWithin(e, this.mount.host, this.mount.shadow);
       const inView = target instanceof Node && this.wrapper.contains(target);
       if (!inView || (e.repeat && target !== this.textarea)) e.preventDefault();
       return;

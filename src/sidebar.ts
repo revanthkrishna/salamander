@@ -6,7 +6,8 @@
 // Salamander restyle). Structure per design spec §3.1:
 //   - header row: logo + wordmark, close
 //   - action row: the "add note" group (button + "keep on" switch) and the
-//     export group (button + chevron menu holding "import")
+//     export group: two buttons, export and "more options" (⋯), which opens
+//     a menu holding "import" and "delete all for this website"
 //   - notification banner (error/warning, auto-clears)
 //   - "this page (n)" heading + note list, or the empty state
 //
@@ -207,14 +208,12 @@ export interface SidebarCallbacks {
   onImportFile: (file: File) => void;
   /** "import" was chosen in the menu (design spec §AF). The menu stays open:
    *  content.ts decides whether to ask first (confirmInMenu, when the site
-   *  already has notes) and then calls openImportPicker(). Without this
-   *  callback the item opens the picker straight away. */
-  onImport?: () => void;
+   *  already has notes) and then calls openImportPicker(). */
+  onImport: () => void;
   /** "delete all for this website" — the menu's destructive item (design
    *  spec §AE, §AF). The menu stays open: content.ts reads the counts, asks
-   *  through confirmInMenu and runs the delete. Optional so that surfaces
-   *  with no delete flow (and older test harnesses) need not supply one. */
-  onDeleteAll?: () => void;
+   *  through confirmInMenu and runs the delete. */
+  onDeleteAll: () => void;
   /** "close" header button. Fired *after* the sidebar has already hidden
    *  itself and the page layout has been restored — the caller's only job is
    *  to tell the background service worker so it can clear the persisted
@@ -425,10 +424,14 @@ const ADD_SWITCH_SHOWN_CSS =
 const ADD_SWITCH_GRACE_MS = 250;
 /** The reveal/collapse itself. */
 const ADD_SWITCH_REVEAL_MS = 160;
-/** The chevron menu (§C2) floats over the note list, whose dock-magnified
- *  items carry z-index 0–100 (dockMotion.ts); one above the resize handle so
- *  an open menu is never struck through by it either. */
+/** The "more options" menu (§C2, §AE) floats over the note list, whose
+ *  dock-magnified items carry z-index 0–100 (dockMotion.ts); one above the
+ *  resize handle so an open menu is never struck through by it either. */
 const MENU_Z_INDEX = 102;
+/** The menu's own border and padding — the CSS below, and the width a
+ *  confirmation's contents are laid out at (confirmInMenu), both read them. */
+const MENU_BORDER_PX = 1;
+const MENU_PAD_PX = 4;
 /** How far (px) the note list's scrollport extends out over the page so
  *  dock-magnified items aren't clipped at the panel edge (see .body). Worst
  *  case at the 300px maximum width: 0.12 × 268px of scale + 22px of shift −
@@ -595,10 +598,11 @@ const SIDEBAR_CSS = `
   .btn-ghost.btn-close .icon { width: 18px; height: 18px; }
   .btn-ghost .icon svg { width: 100%; height: 100%; display: block; }
 
-  /* ─── Action row: "add note" + "keep on" switch, export + chevron menu ──
-     design spec v3 §A2 / §C2. Two groups, each one rounded box that carries
-     the fill, the border and the interaction states; the halves inside are
-     transparent, borderless and never change size. */
+  /* ─── Action row: "add note" + "keep on" switch, export + "more options" ─
+     design spec v3 §A2 / §AE. The add-note group is one rounded box that
+     carries the fill, the border and the interaction states, its halves
+     transparent, borderless and never changing size; export and "more
+     options" are two separate buttons, each its own box (see below). */
 
   .action-row {
     display: flex;
@@ -927,11 +931,11 @@ const SIDEBAR_CSS = `
        the panel, so it grows leftwards out over the page, like any popover. */
     width: max-content;
     min-width: 132px;
-    padding: 4px;
+    padding: ${MENU_PAD_PX}px;
     display: flex;
     flex-direction: column;
     gap: 2px;
-    border: 1px solid var(--sal-line);
+    border: ${MENU_BORDER_PX}px solid var(--sal-line);
     border-radius: var(--sal-radius-md);
     background: var(--sal-surface);
     box-shadow: var(--sal-shadow-pop);
@@ -1549,13 +1553,14 @@ let elAddGroup: HTMLDivElement | null = null;
 let elAddSwitch: HTMLButtonElement | null = null;
 /** Visually-hidden aria-describedby text for elBtnAdd (lock state/hint). */
 let elAddDesc: HTMLSpanElement | null = null;
-/** The export + chevron box (§C2) — one group, same role as elAddGroup. */
+/** Export and "more options" (§AE): pure layout, and the anchor the menu
+ *  hangs from. */
 let elExportGroup: HTMLDivElement | null = null;
 let elBtnExport: HTMLButtonElement | null = null;
-/** The chevron half that opens elActionMenu. */
+/** "more options" (⋯), the button that opens elActionMenu. */
 let elBtnMenu: HTMLButtonElement | null = null;
 let elActionMenu: HTMLDivElement | null = null;
-/** "import" — the menu's one item today. */
+/** "import" — the menu's first item. */
 let elBtnImport: HTMLButtonElement | null = null;
 /** "delete all for this website" (design spec §AE). */
 let elBtnDeleteAll: HTMLButtonElement | null = null;
@@ -1661,8 +1666,8 @@ function buildDOM(shadow: ShadowRoot): void {
   header.appendChild(wordmark);
   header.appendChild(elBtnClose);
 
-  // ── Action row: "add note" + "keep on" switch, export + chevron menu ────
-  //    (design spec v3 §A2 / §C2)
+  // ── Action row: "add note" + "keep on" switch, export + "more options" ──
+  //    (design spec v3 §A2, §AE)
   const actionRow = document.createElement('div');
   actionRow.className = 'action-row';
 
@@ -1850,11 +1855,11 @@ function makeGhostButton(svgMarkup: string, ariaLabel: string, extraClass = ''):
 }
 
 /** An icon-only <button>: an `.icon` span holding the raw SVG markup, with
- *  the label as both aria-label and tooltip. The action-row halves (design
- *  spec v3 §A2/§C2: "add note", export and the chevron — transparent and
- *  borderless, the surrounding `.add-group`/`.export-group` owns the fill,
- *  the border and the focus ring) and the ghost button above are all this
- *  shape; `className` picks the button's own size/radius rules. */
+ *  the label as both aria-label and tooltip. "add note" (design spec v3
+ *  §A2: transparent and borderless, the surrounding `.add-group` owns the
+ *  fill, the border and the focus ring), export and "more options" (§AE:
+ *  each its own box), and the ghost button above are all this shape;
+ *  `className` picks the button's own size/radius rules. */
 function makeIconButton(svgMarkup: string, ariaLabel: string, className: string): HTMLButtonElement {
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -2055,8 +2060,9 @@ function wireAddGroup(): void {
   });
 }
 
-/** The export group's listeners (design spec v3 §C2): export, the chevron
- *  and its menu, the menu's "import" item and the hidden file input. */
+/** The export group's listeners (design spec §AE, §AF): export, "more
+ *  options" and its menu — "import", "delete all for this website" and the
+ *  confirmation the menu turns into — and the hidden file input. */
 function wireExportGroup(): void {
   elBtnExport!.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -2078,8 +2084,8 @@ function wireExportGroup(): void {
     openActionMenu({ focusFirstItem: e.detail === 0 });
   });
   elBtnMenu!.addEventListener('keydown', (e) => {
-    // Esc closes a menu opened by pointer, where focus is still on the
-    // chevron rather than inside the menu (§C2's "Esc" applies either way).
+    // Esc closes a menu opened by pointer, where focus is still on "more
+    // options" rather than inside the menu (§C2's "Esc" applies either way).
     if (e.key === 'Escape' && menuOpen) {
       e.preventDefault();
       e.stopPropagation();
@@ -2098,17 +2104,15 @@ function wireExportGroup(): void {
 
   elBtnImport!.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (callbacksRef?.onImport) {
-      callbacksRef.onImport();
-      return;
-    }
-    openImportPicker();
+    // The menu stays open: content.ts asks first if it must, then calls
+    // openImportPicker() (§AF).
+    callbacksRef?.onImport();
   });
 
   elBtnDeleteAll!.addEventListener('click', (e) => {
     e.stopPropagation();
     if (isSoftDisabled(elBtnDeleteAll!)) return;
-    callbacksRef?.onDeleteAll?.();
+    callbacksRef?.onDeleteAll();
   });
 
   elMenuConfirmCancel!.addEventListener('click', (e) => {
@@ -2129,7 +2133,7 @@ function wireExportGroup(): void {
 }
 
 /** The panel chrome's listeners: close, the resize handle, and the two
- *  outside-pointerdown listeners that close the chevron menu. */
+ *  outside-pointerdown listeners that close the "more options" menu. */
 function wireChrome(shadow: ShadowRoot): void {
   elBtnClose!.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -2151,7 +2155,7 @@ function wireChrome(shadow: ShadowRoot): void {
 }
 
 // ---------------------------------------------------------------------------
-// The export group's chevron menu (design spec v3 §C2)
+// The "more options" menu (design spec v3 §C2, §AE)
 //
 // Lives inside the sidebar's own closed shadow root — there is nowhere else
 // it could go — and is shown/hidden via a `data-open` attribute so the CSS
@@ -2173,7 +2177,7 @@ function openActionMenu(options: { focusFirstItem?: boolean } = {}): void {
 }
 
 /**
- * Close the menu. `returnFocus` hands focus back to the chevron, which is
+ * Close the menu. `returnFocus` hands focus back to "more options", which is
  * right for Esc (§C2) and wrong for an outside click — the user has already
  * aimed somewhere else, and stealing focus back would fight them.
  */
@@ -2246,9 +2250,6 @@ const MENU_CONFIRM_TEXT_ID = 'menu-confirm-text';
  *  touch longer than the menu's 120ms entrance (motion spec: standard
  *  easing for anything that stays on screen). */
 export const MENU_MORPH_MS = 200;
-/** The menu's own border and padding, which the question sits inside. */
-const MENU_BORDER_PX = 1;
-const MENU_PAD_PX = 4;
 
 type MenuView = 'list' | 'confirm';
 let menuView: MenuView = 'list';
@@ -2271,6 +2272,7 @@ function showMenuList(): void {
   elActionMenu.style.width = '';
   elActionMenu.setAttribute('role', 'menu');
   elActionMenu.setAttribute('aria-label', 'more options');
+  elActionMenu.removeAttribute('aria-labelledby');
   elActionMenu.removeAttribute('aria-describedby');
   if (elMenuList) elMenuList.hidden = false;
   if (elMenuConfirm) elMenuConfirm.hidden = true;
@@ -2280,6 +2282,9 @@ function showMenuList(): void {
 function confirmWidthPx(): number {
   return Math.max(0, sidebarWidth - PANEL_BORDER_PX - ACTION_ROW_PAD_X * 2);
 }
+
+/** How confirmInMenu styles its confirming button. */
+export type ConfirmTone = 'danger' | 'accent';
 
 /**
  * Turn the open menu into a yes/no question (design spec §AF) and resolve
@@ -2291,8 +2296,6 @@ function confirmWidthPx(): number {
  * `tone` styles the confirming button: 'danger' (soft red) for a delete,
  * 'accent' (yellow text, like "add note"'s glyph) for everything else.
  */
-export type ConfirmTone = 'danger' | 'accent';
-
 export function confirmInMenu(message: string, confirmLabel: string, tone: ConfirmTone = 'danger'): Promise<boolean> {
   if (!menuOpen || !elActionMenu || !elMenuList || !elMenuConfirm || !elMenuConfirmText || !elMenuConfirmOk) {
     return Promise.resolve(false);
@@ -2313,7 +2316,10 @@ export function confirmInMenu(message: string, confirmLabel: string, tone: Confi
     menuView = 'confirm';
     menu.classList.add('is-confirm');
     menu.setAttribute('role', 'alertdialog');
+    // Named by the question itself (an alertdialog needs a name), and
+    // described by it too, as before.
     menu.removeAttribute('aria-label');
+    menu.setAttribute('aria-labelledby', MENU_CONFIRM_TEXT_ID);
     menu.setAttribute('aria-describedby', MENU_CONFIRM_TEXT_ID);
     elMenuList!.hidden = true;
     elMenuConfirm!.hidden = false;
@@ -2354,6 +2360,19 @@ export function closeMoreOptionsMenu(): void {
   closeActionMenu();
 }
 
+/** Whether the "more options" menu is open — content.ts checks it after a
+ *  round trip, since the user may have dismissed the menu meanwhile. */
+export function isMoreOptionsMenuOpen(): boolean {
+  return menuOpen;
+}
+
+/** Take down the sidebar's tooltip at once, without its fade — content.ts
+ *  calls it as a capture starts, since a tooltip resting on a sidebar control
+ *  can reach over the page and would otherwise end up in the screenshot. */
+export function hideTooltipNow(): void {
+  sidebarTooltips?.hide({ immediate: true });
+}
+
 // ---------------------------------------------------------------------------
 // Disabled reasons (design spec §AF)
 //
@@ -2377,7 +2396,7 @@ function setSoftDisabled(el: HTMLElement | null, off: boolean): void {
 }
 
 /** Pointerdown anywhere inside the sidebar's shadow tree: close unless it
- *  landed on the menu itself or on the chevron (whose own click handler
+ *  landed on the menu itself or on "more options" (whose own click handler
  *  toggles). */
 function onShadowPointerDown(e: Event): void {
   if (!menuOpen || !elActionMenu || !elBtnMenu) return;
@@ -2504,6 +2523,9 @@ export function closeSidebar(): void {
   if (elSidebar) {
     elSidebar.hidden = true;
   }
+  // The tooltip is the panel's sibling in the root, not its child: hiding
+  // the panel does not hide it.
+  sidebarTooltips?.hide();
   visible = false;
   syncDockMotion();
   clearMessage();
@@ -2534,7 +2556,8 @@ export function setImportButtonEnabled(enabled: boolean): void {
 }
 
 /** Whether this site has any notes, on any page (design spec §AF):
- *  content.ts re-reads it after every repaint. With none, export and
+ *  content.ts re-reads it after every repaint, and again whenever import or
+ *  delete-all reads the counts fresh. With none, export and
  *  delete-all are soft-disabled and say why on hover or focus. */
 export function setSiteHasNotes(has: boolean): void {
   siteHasNotes = has;
@@ -2561,7 +2584,7 @@ let addModeHold = false;
 
 function syncActionAvailability(): void {
   // §H disables the whole export group; an in-flight export only disables
-  // the half that would start a second one.
+  // the export button, which would start a second one.
   const exportBlocked = addModeHold || !exportEnabled;
   if (elBtnExport) elBtnExport.disabled = exportBlocked;
   // Soft-disabled only for "nothing to export" (§AF): the add-mode hold and
@@ -2579,7 +2602,7 @@ function syncActionAvailability(): void {
  * §H): the note list stops taking pointer and keyboard input and dims to
  * ~0.5, dock magnification is switched off at the handle (rather than fought
  * with CSS — magnified items also bleed out over the page add mode is about
- * to screenshot), and the export + chevron group is disabled with its menu
+ * to screenshot), and export and "more options" are disabled with the menu
  * closed. The "add note" group, the theme toggle and close deliberately stay
  * live: the user must always be able to stop, change theme or close.
  *

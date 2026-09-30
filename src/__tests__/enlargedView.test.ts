@@ -138,7 +138,9 @@ function setup(n = 3): void {
   sidebar.initSidebar({
     onAdd: () => {},
     onExport: () => {},
+    onImport: () => {},
     onImportFile: () => {},
+    onDeleteAll: () => {},
     onClose: () => {},
     onOpenItem: () => {},
   });
@@ -1494,7 +1496,7 @@ describe('Enter/Space isolation while the view is up', () => {
   test('activation keys aimed outside the view, or auto-repeating on its controls, are cancelled; the textarea keeps them', () => {
     setup(2);
     const onOpenItem = jest.fn();
-    sidebar.initSidebar({ onAdd: () => {}, onExport: () => {}, onImportFile: () => {}, onClose: () => {}, onOpenItem });
+    sidebar.initSidebar({ onAdd: () => {}, onExport: () => {}, onImport: () => {}, onImportFile: () => {}, onDeleteAll: () => {}, onClose: () => {}, onOpenItem });
     open(1);
     const listItem = shadow().querySelector<HTMLButtonElement>('button.thumbnail[data-item-id="1"]')!;
     expect(keydown(listItem, 'Enter').defaultPrevented).toBe(true);
@@ -1604,7 +1606,9 @@ describe('numbering by position', () => {
     sidebar.initSidebar({
       onAdd: () => {},
       onExport: () => {},
+      onImport: () => {},
       onImportFile: () => {},
+      onDeleteAll: () => {},
       onClose: () => {},
       onOpenItem: () => {},
     });

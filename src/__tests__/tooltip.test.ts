@@ -8,6 +8,7 @@ import {
   TOOLTIP_REASON_DELAY_MS,
   TOOLTIP_WARM_MS,
 } from '../tooltip';
+import { installKeyboardIsolation } from '../keyboardIsolation';
 
 let root: ShadowRoot;
 let handle: TooltipHandle;
@@ -200,6 +201,156 @@ describe('shared tooltip (design spec §AG)', () => {
     over(b);
     jest.advanceTimersByTime(TOOLTIP_DELAY_MS);
     expect(root.querySelector('.sal-tip')).toBeNull();
+    handle = attachTooltips(root); // for afterEach
+  });
+
+  // ── hides when what it points at goes away or the user moves on ─────────
+
+  /** A MutationObserver callback runs as a microtask. */
+  const flushObserver = (): Promise<void> => Promise.resolve();
+
+  function showOn(b: HTMLElement): void {
+    over(b);
+    jest.advanceTimersByTime(TOOLTIP_DELAY_MS);
+    expect(isShown()).toBe(true);
+  }
+
+  test('Esc hides it even under keyboard isolation installed after it (enlarged view, add mode)', () => {
+    // The real arrangement: a CLOSED root, the tooltip attached first, the
+    // isolation installed later on the same host — which stops every key
+    // inside the host at window capture.
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const closed = host.attachShadow({ mode: 'closed' });
+    const own = attachTooltips(closed);
+    const iso = installKeyboardIsolation(host);
+    try {
+      const b = document.createElement('button');
+      b.dataset.tip = 'delete note';
+      closed.appendChild(b);
+      over(b);
+      jest.advanceTimersByTime(TOOLTIP_DELAY_MS);
+      const t = closed.querySelector('.sal-tip') as HTMLElement;
+      expect(t.dataset.open).toBe('true');
+
+      // Esc aimed at the page (not inside this host) leaves it alone…
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }));
+      expect(t.dataset.open).toBe('true');
+      // …Esc inside the host hides it.
+      b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }));
+      expect(t.dataset.open).toBe('false');
+    } finally {
+      iso.release();
+      own.destroy();
+    }
+  });
+
+  test('its control removed while it is up: it hides', async () => {
+    const b = button('delete note');
+    showOn(b);
+    b.remove();
+    await flushObserver();
+    expect(isShown()).toBe(false);
+  });
+
+  test('an ancestor hidden or made inert while it is up: it hides', async () => {
+    const wrap = document.createElement('div');
+    root.appendChild(wrap);
+    const b = document.createElement('button');
+    b.dataset.tip = 'next note';
+    wrap.appendChild(b);
+
+    showOn(b);
+    wrap.hidden = true;
+    await flushObserver();
+    expect(isShown()).toBe(false);
+
+    wrap.hidden = false;
+    jest.advanceTimersByTime(TOOLTIP_WARM_MS);
+    showOn(b);
+    wrap.setAttribute('inert', '');
+    await flushObserver();
+    expect(isShown()).toBe(false);
+  });
+
+  test('its text changed while it is up (data-tip rewritten or removed): it hides', async () => {
+    const b = button('previous note');
+    showOn(b);
+    b.dataset.tip = 'next note';
+    await flushObserver();
+    expect(isShown()).toBe(false);
+
+    jest.advanceTimersByTime(TOOLTIP_WARM_MS);
+    showOn(b);
+    expect(tip().textContent).toBe('next note');
+    delete b.dataset.tip;
+    await flushObserver();
+    expect(isShown()).toBe(false);
+  });
+
+  test('restyling its control, or rewriting the same text, does not hide it', async () => {
+    const b = button('add note');
+    showOn(b);
+    b.style.transform = 'scale(1.1)';
+    b.dataset.tip = 'add note';
+    root.appendChild(document.createElement('div')); // unrelated DOM churn
+    await flushObserver();
+    expect(isShown()).toBe(true);
+  });
+
+  test('a scroll inside the root hides it (scroll is not composed, so the window never hears it)', () => {
+    const list = document.createElement('div');
+    root.appendChild(list);
+    const b = button('delete note');
+    showOn(b);
+    list.dispatchEvent(new Event('scroll'));
+    expect(isShown()).toBe(false);
+  });
+
+  test('a page scroll hides it too', () => {
+    const b = button('delete note');
+    showOn(b);
+    document.dispatchEvent(new Event('scroll'));
+    expect(isShown()).toBe(false);
+  });
+
+  test('hide({ immediate: true }) turns the fade off, even after a press already started it; the next show fades in again', () => {
+    const b = button('save');
+    showOn(b);
+    handle.hide({ immediate: true });
+    expect(isShown()).toBe(false);
+    expect(tip().style.transition).toBe('none');
+
+    jest.advanceTimersByTime(TOOLTIP_WARM_MS);
+    showOn(b);
+    expect(tip().style.transition).toBe('');
+
+    // A press hides it with the usual fade…
+    b.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, composed: true }));
+    expect(isShown()).toBe(false);
+    expect(tip().style.transition).toBe('');
+    // …which an immediate hide right after cuts short.
+    handle.hide({ immediate: true });
+    expect(tip().style.transition).toBe('none');
+
+    // A plain hide never touches it.
+    jest.advanceTimersByTime(TOOLTIP_WARM_MS);
+    showOn(b);
+    handle.hide();
+    expect(tip().style.transition).toBe('');
+  });
+
+  test('destroy() removes the window listeners and disconnects the observer', () => {
+    const disconnect = jest.spyOn(MutationObserver.prototype, 'disconnect');
+    const removeWin = jest.spyOn(window, 'removeEventListener');
+    const b = button('add note');
+    showOn(b);
+    handle.destroy();
+    expect(disconnect).toHaveBeenCalled();
+    expect(removeWin).toHaveBeenCalledWith('keydown', expect.any(Function), true);
+    expect(removeWin).toHaveBeenCalledWith('scroll', expect.any(Function), true);
+    disconnect.mockRestore();
+    removeWin.mockRestore();
     handle = attachTooltips(root); // for afterEach
   });
 });

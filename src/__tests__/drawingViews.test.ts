@@ -113,7 +113,7 @@ describe('the note list thumbnail', () => {
   });
 
   test('the sidebar stylesheet fills the image box with it and takes it off the pointer', () => {
-    sidebar.initSidebar({ onAdd() {}, onExport() {}, onImportFile() {}, onClose() {}, onOpenItem() {} });
+    sidebar.initSidebar({ onAdd() {}, onExport() {}, onImport() {}, onImportFile() {}, onDeleteAll() {}, onClose() {}, onOpenItem() {} });
     const root = document.getElementById('annotator-sidebar-host')!.shadowRoot!;
     const css = root.querySelector('style')!.textContent ?? '';
     const rule = css.match(/\n\s*\.thumbnail-drawing \{[^}]*\}/)?.[0] ?? '';
@@ -159,7 +159,7 @@ describe('the enlarged view', () => {
   }
 
   function setup(items: FeedbackItem[]): void {
-    sidebar.initSidebar({ onAdd() {}, onExport() {}, onImportFile() {}, onClose() {}, onOpenItem() {} });
+    sidebar.initSidebar({ onAdd() {}, onExport() {}, onImport() {}, onImportFile() {}, onDeleteAll() {}, onClose() {}, onOpenItem() {} });
     sidebar.openSidebar();
     sidebar.setThumbnails(items);
   }

@@ -65,3 +65,41 @@ export function cancelAnimationFrameSafe(id: number): void {
   }
   clearTimeout(id as unknown as ReturnType<typeof setTimeout>);
 }
+
+// ---------------------------------------------------------------------------
+// The real target of an event, seen from outside a closed shadow root
+//
+// Our UI lives in CLOSED shadow roots, and several listeners sit on `window`
+// (keyboard isolation, the enlarged view's scroll lock), outside them. From
+// there `composedPath()` is retargeted: it stops at the host and never shows
+// the element inside that the event actually reached. When the path stops
+// at the host the inner target is recovered from the root itself — the
+// focused element for a key (keys go where focus is), the element under the
+// pointer for a wheel or a touch. An open root (the test harnesses force
+// one) shows the full path, and its first entry is used as-is.
+// ---------------------------------------------------------------------------
+
+/** Where a key event inside `host`'s closed `root` really went:
+ *  `composedPath()[0]`, unless that is the host itself — then the root's
+ *  focused element. */
+export function keyTargetWithin(e: Event, host: Element, root: ShadowRoot): EventTarget | null {
+  const first = e.composedPath()[0] ?? null;
+  return first === host ? root.activeElement : first;
+}
+
+/** Where a wheel, touch or mouse event inside `host`'s closed `root` really
+ *  went: `composedPath()[0]`, unless that is the host itself — then the
+ *  element of the root under the (first) touch or the pointer, or null when
+ *  the event carries no position or the root cannot hit-test (jsdom). */
+export function pointTargetWithin(e: Event, host: Element, root: ShadowRoot): EventTarget | null {
+  const first = e.composedPath()[0] ?? null;
+  if (first !== host) return first;
+  const point =
+    'touches' in e && (e as TouchEvent).touches.length
+      ? (e as TouchEvent).touches[0]
+      : 'clientX' in e
+        ? (e as MouseEvent)
+        : null;
+  if (!point || typeof root.elementFromPoint !== 'function') return null;
+  return root.elementFromPoint(point.clientX, point.clientY);
+}

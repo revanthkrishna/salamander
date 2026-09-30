@@ -1242,6 +1242,37 @@ describe('add mode', () => {
 
   // ── sidebar widened during add mode ──────────────────────────────────────
 
+  test('leaving and re-entering add mode gives the new root exactly one tooltip', () => {
+    addMode.startAddMode(makeCallbacks());
+    expect(shadowRoot().querySelectorAll('.sal-tip')).toHaveLength(1);
+    addMode.exitAddMode();
+    addMode.startAddMode(makeCallbacks());
+    expect(shadowRoot().querySelectorAll('.sal-tip')).toHaveLength(1);
+    expect(document.querySelectorAll('#annotator-addmode-host')).toHaveLength(1);
+  });
+
+  test('save hides a showing tooltip with no fade, so the screenshot cannot catch it', () => {
+    jest.useFakeTimers();
+    try {
+      const cbs = makeCallbacks();
+      addMode.startAddMode(cbs);
+      drag(blocker(), 300, 300, 500, 450);
+      typeNote('tighten this gap');
+      const pencil = shadowRoot().querySelector('.btn-pencil') as HTMLButtonElement;
+      pencil.dispatchEvent(new MouseEvent('pointerover', { bubbles: true, composed: true }));
+      jest.advanceTimersByTime(1000);
+      const tip = shadowRoot().querySelector('.sal-tip') as HTMLElement;
+      expect(tip.dataset.open).toBe('true');
+
+      saveBtn().click();
+      expect(cbs.calls.ok).toHaveLength(1);
+      expect(tip.dataset.open).toBe('false');
+      expect(tip.style.transition).toBe('none');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   describe('sidebar width changing mid-selection', () => {
     afterEach(() => {
       sidebar.destroySidebar();
@@ -1249,7 +1280,7 @@ describe('add mode', () => {
     });
 
     test('widening the sidebar re-clamps a box placed flush right (shifted, size kept)', () => {
-      sidebar.initSidebar({ onAdd() {}, onExport() {}, onImportFile() {}, onClose() {}, onOpenItem() {} });
+      sidebar.initSidebar({ onAdd() {}, onExport() {}, onImport() {}, onImportFile() {}, onDeleteAll() {}, onClose() {}, onOpenItem() {} });
       sidebar.setSidebarWidth(240);
       sidebar.openSidebar();
       addMode.startAddMode(makeCallbacks());
@@ -1264,7 +1295,7 @@ describe('add mode', () => {
     });
 
     test('a box wider than the new bounds is shrunk to fit, and narrowing leaves it alone', () => {
-      sidebar.initSidebar({ onAdd() {}, onExport() {}, onImportFile() {}, onClose() {}, onOpenItem() {} });
+      sidebar.initSidebar({ onAdd() {}, onExport() {}, onImport() {}, onImportFile() {}, onDeleteAll() {}, onClose() {}, onOpenItem() {} });
       sidebar.setSidebarWidth(sidebar.SIDEBAR_MIN_WIDTH); // 210px (v5 §V, §AE)
       sidebar.openSidebar();
       setViewport(400, 800);

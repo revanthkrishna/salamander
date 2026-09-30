@@ -32,7 +32,8 @@ test('clicking the icon opens the sidebar, docked right, with the header/action-
   // gained a logo/wordmark (the theme toggle it also gained went again when
   // the extension became dark only, §AA). v3 §A2/§C2 then merged the
   // row into two groups — "add note" (icon-only) with a "keep add mode on"
-  // switch, and export with a chevron whose menu holds "import".
+  // switch, and export beside a "more options" button (§AE) whose menu holds
+  // "import" and "delete all for this website".
   // export/close keep a fixed aria-label; the add button's is state-dependent
   // (the tooltip changes with the state, the aria-label does not), so its selector
   // targets the stable .btn-add class instead (see SELECTORS.btnAdd).
@@ -46,7 +47,7 @@ test('clicking the icon opens the sidebar, docked right, with the header/action-
   await expect(page.locator(helper.SELECTORS.btnMenu)).toBeVisible();
   await expect(page.locator(helper.SELECTORS.btnClose)).toBeVisible();
 
-  // The "keep add mode on" switch and the chevron menu's "import" item are
+  // The "keep add mode on" switch and the "more options" menu's "import" item are
   // both hidden until asked for (§A2's reveal, §C2's menu) — and nothing
   // hidden may be focusable.
   await expect(page.locator(helper.SELECTORS.addSwitch)).toBeHidden();
@@ -59,7 +60,7 @@ test('clicking the icon opens the sidebar, docked right, with the header/action-
   await helper.openActionMenu(page);
   await expect(page.locator(helper.SELECTORS.btnImport)).toBeVisible();
   await expect(page.locator(helper.SELECTORS.btnMenu)).toHaveAttribute('aria-expanded', 'true');
-  // Esc closes it and hands focus back to the chevron (§C2).
+  // Esc closes it and hands focus back to "more options" (§C2).
   await page.keyboard.press('Escape');
   await expect(page.locator(helper.SELECTORS.btnImport)).toBeHidden();
 

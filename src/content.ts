@@ -67,6 +67,7 @@ import {
   ExportMessage,
   ImportReplaceMessage,
   GetDomainItemCountMessage,
+  GetDomainItemCountResponse,
   DeleteDomainDataMessage,
   GetPenColorMessage,
   SetPenColorMessage,
@@ -190,8 +191,8 @@ function enterAddMode(): void {
   // half-collapse frame. A no-op when it isn't open.
   sidebar.collapseEnlargedView({ immediate: true, force: true });
   // The sidebar goes "on hold" for the whole of add mode (design spec v3
-  // §H): the note list stops taking input and dims, the export + chevron
-  // group is disabled and its menu closed, and dock magnification is
+  // §H): the note list stops taking input and dims, export and "more
+  // options" are disabled and the menu closed, and dock magnification is
   // switched off — swollen note items grow out over the page, which is
   // exactly what add mode selects and screenshots, and suspending snaps them
   // back to rest instantly (no release animation still in flight at capture
@@ -464,7 +465,10 @@ function ensureStarted(): void {
  */
 async function handleCaptureOk(result: addMode.AddModeResult): Promise<void> {
   const outcome = await capture.captureAndSave(result, {
-    hide: addMode.hideOverlayUI,
+    hide: () => {
+      sidebar.hideTooltipNow();
+      addMode.hideOverlayUI();
+    },
     show: addMode.showOverlayUI,
   });
 
@@ -576,8 +580,8 @@ async function refreshThumbnails(): Promise<void> {
   const response = await send(message);
   // Every repaint follows a change that may have emptied or first filled the
   // site (a save, a delete, an import, a navigation), so it is also when
-  // "delete all" learns whether it has anything to delete.
-  void refreshDeleteAllAvailability();
+  // export and "delete all" learn whether they have anything to act on.
+  void refreshSiteHasNotes();
   if (!response || !response.ok) {
     sidebar.setThumbnails([]);
     if (response && !response.ok) sidebar.showError(response.message);
@@ -587,46 +591,50 @@ async function refreshThumbnails(): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// "delete all for this website" (design spec §AE)
+// The site's counts, "delete all for this website" and import's question
+// (design spec §AE, §AF)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Whether the site (every page of it, not just this one) has any notes, as
- *  of the last read — what greys out export and delete-all (§AF). */
-let siteHasFeedback = false;
 let deleteAllInFlight = false;
 
-function syncDeleteAll(): void {
-  sidebar.setSiteHasNotes(siteHasFeedback);
-}
-
-/** Re-read the site's item count, and with it whether export and "delete
- *  all" have anything to act on. A count that cannot be read greys them out:
- *  the safe direction for the one irreversible action in the product. */
-async function refreshDeleteAllAvailability(): Promise<void> {
+/** Read the site's note and page counts (every page, not just this one),
+ *  through the service worker's write queue, so every write sent before is
+ *  counted. A successful read also catches the sidebar up on whether the
+ *  site has notes — what greys out export and delete-all (§AF). A failed
+ *  one changes nothing; the caller decides what that means. */
+async function readSiteCounts(): Promise<GetDomainItemCountResponse | undefined> {
   const message: GetDomainItemCountMessage = {
     type: 'GET_DOMAIN_ITEM_COUNT',
     domain: normaliseDomain(location.host),
   };
   const response = await send(message);
-  siteHasFeedback = response?.ok === true && response.count > 0;
-  syncDeleteAll();
+  if (response?.ok) sidebar.setSiteHasNotes(response.count > 0);
+  return response;
+}
+
+/** Re-read whether the site has any notes, and with it whether export and
+ *  "delete all" have anything to act on. A count that cannot be read greys
+ *  them out: the safe direction for the one irreversible action in the
+ *  product. */
+async function refreshSiteHasNotes(): Promise<void> {
+  const response = await readSiteCounts();
+  if (!response?.ok) sidebar.setSiteHasNotes(false);
 }
 
 /**
  * Delete every note on every page of this site, and every screenshot, after
  * the menu turns into a question quoting both counts (§AF) — so it is plain
- * this reaches beyond the page on screen. The counts are read fresh at click
- * time (not trusted from the last repaint), through the same write queue the
- * delete then goes through, so the number the user agrees to is the number
- * deleted. Unreachable during add mode (the whole group is disabled, §H) and
- * the enlarged view (the panel is inert behind it).
+ * this reaches beyond the page on screen. The counts are read fresh when
+ * asked (not trusted from the last repaint), through the same write queue
+ * the delete then goes through, so the question counts every write sent
+ * before it. Unreachable during add mode (the whole group is disabled, §H)
+ * and the enlarged view (the panel is inert behind it).
  */
 async function handleDeleteAll(): Promise<void> {
   if (deleteAllInFlight) return;
   const domain = normaliseDomain(location.host);
 
-  const countMessage: GetDomainItemCountMessage = { type: 'GET_DOMAIN_ITEM_COUNT', domain };
-  const counts = await send(countMessage);
+  const counts = await readSiteCounts();
   if (!counts || !counts.ok) {
     sidebar.closeMoreOptionsMenu();
     sidebar.showError(counts ? counts.message : DELETE_ALL_FAILED_MESSAGE);
@@ -634,10 +642,8 @@ async function handleDeleteAll(): Promise<void> {
   }
   if (counts.count === 0) {
     // Emptied since the item was last enabled (e.g. from the enlarged view):
-    // nothing to ask, just catch the menu up.
+    // nothing to ask — readSiteCounts has already greyed the item out.
     sidebar.closeMoreOptionsMenu();
-    siteHasFeedback = false;
-    syncDeleteAll();
     return;
   }
 
@@ -664,19 +670,17 @@ async function handleDeleteAll(): Promise<void> {
 
 /**
  * "import" was chosen in the menu (§1.7, design spec §AF). With notes on the
- * site the menu first turns into "importing will replace your existing notes.
- * go ahead?" — asked BEFORE the file is chosen, so once the file checks out
- * it replaces without asking again. With none, the picker opens straight away.
- * The count is read fresh rather than trusted from the last repaint, so notes
- * added from another tab are never replaced unasked; the round trip takes
- * milliseconds, well inside the user activation a file picker needs.
+ * site the menu first turns into "your existing notes will be discarded.
+ * continue with import?" — asked BEFORE the file is chosen, so once the file
+ * checks out it replaces without asking again. With none, the picker opens
+ * straight away (unless the menu was dismissed during the round trip).
+ * The count is read fresh when asked rather than trusted from the last
+ * repaint, so notes added from another tab before the click are counted;
+ * the round trip takes milliseconds, well inside the user activation a file
+ * picker needs.
  */
 async function handleImportRequest(): Promise<void> {
-  const message: GetDomainItemCountMessage = {
-    type: 'GET_DOMAIN_ITEM_COUNT',
-    domain: normaliseDomain(location.host),
-  };
-  const counts = await send(message);
+  const counts = await readSiteCounts();
   if (!counts || !counts.ok) {
     // Without the count there is no knowing whether a replace would discard
     // anything, so the only safe answer is to stop (§5 #10).
@@ -691,6 +695,10 @@ async function handleImportRequest(): Promise<void> {
       'accent',
     );
     if (!confirmed) return;
+  } else if (!sidebar.isMoreOptionsMenuOpen()) {
+    // Dismissed during the round trip: the user has moved on, so no picker.
+    // (The question above already answers no in that case.)
+    return;
   }
   sidebar.openImportPicker();
 }
@@ -745,7 +753,7 @@ async function handleExport(): Promise<void> {
         // reached if the site emptied since the last check (another tab):
         // say so, and grey it out now.
         sidebar.showWarning(NOTHING_TO_EXPORT_MESSAGE);
-        void refreshDeleteAllAvailability();
+        void refreshSiteHasNotes();
       } else {
         sidebar.showError(response.message);
       }

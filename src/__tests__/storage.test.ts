@@ -499,3 +499,77 @@ describe('storage.ts — the pencil colour (chrome.storage.session)', () => {
     expect(chrome.storage.local.set).not.toHaveBeenCalled();
   });
 });
+
+describe('storage.ts — a failed chrome.storage.local call rejects (chrome.runtime.lastError)', () => {
+  const DOMAIN_X = 'example.com';
+
+  /** The next call of `method` fails the way Chrome reports it: lastError
+   *  set only while the callback runs, nothing written. */
+  function failNext(method: 'get' | 'set' | 'remove', message = 'IO error'): void {
+    (chrome.storage.local[method] as jest.Mock).mockImplementationOnce((_arg: unknown, callback?: (r?: unknown) => void) => {
+      (chrome.runtime as any).lastError = { message };
+      try {
+        callback?.(undefined);
+      } finally {
+        (chrome.runtime as any).lastError = null;
+      }
+    });
+  }
+
+  let warn: jest.SpyInstance;
+  beforeEach(() => {
+    warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  test('a failed remove fails deleteDomainData', async () => {
+    const a = makeItem({ id: 1 });
+    await seedImage(a.screenshotKey);
+    await addItem(DOMAIN_X, a);
+    failNext('remove', 'quota exceeded');
+    await expect(deleteDomainData(DOMAIN_X)).rejects.toThrow('quota exceeded');
+    // Nothing was removed, so the record is still there to show.
+    expect(await getDomainCounts(DOMAIN_X)).toEqual({ items: 1, pages: 1 });
+  });
+
+  test('a failed set fails addItem, and a failed get fails the read', async () => {
+    failNext('set');
+    await expect(addItem(DOMAIN_X, makeItem({ id: 1 }))).rejects.toThrow('IO error');
+    expect(await getDomainData(DOMAIN_X)).toBeNull();
+
+    failNext('get');
+    await expect(getPageItems(DOMAIN_X, 'https://example.com/page')).rejects.toThrow('IO error');
+  });
+
+  test('deleteItem: a key left behind once the index no longer points at it is an orphan, not a failure', async () => {
+    const a = makeItem({ id: 1 });
+    await seedImage(a.screenshotKey);
+    await addItem(DOMAIN_X, a);
+    // deleteItem writes the index, then removes the item key.
+    failNext('remove');
+    await expect(deleteItem(DOMAIN_X, a.normalisedUrl, 1)).resolves.toBeUndefined();
+    expect(await getPageItems(DOMAIN_X, a.normalisedUrl)).toEqual([]);
+    expect(await imageStore.getImage(a.screenshotKey)).toBeNull();
+  });
+
+  test('replaceDomainData: old keys left behind after the new record landed are orphans, not a failure', async () => {
+    const old = makeItem({ id: 1, screenshotKey: 'old-shot' });
+    await seedImage(old.screenshotKey);
+    await addItem(DOMAIN_X, old);
+    const fresh = makeItem({ id: 7, screenshotKey: 'new-shot' });
+    failNext('remove');
+    await expect(
+      replaceDomainData(DOMAIN_X, { meta: { nextItemNumber: 8, version: STORAGE_VERSION }, pages: { [fresh.normalisedUrl]: [fresh] } }),
+    ).resolves.toBeUndefined();
+    expect((await getPageItems(DOMAIN_X, fresh.normalisedUrl)).map((i) => i.id)).toEqual([7]);
+  });
+
+  test('but a failed write of the new record fails replaceDomainData', async () => {
+    failNext('set');
+    await expect(
+      replaceDomainData(DOMAIN_X, { meta: { nextItemNumber: 2, version: STORAGE_VERSION }, pages: {} }),
+    ).rejects.toThrow('IO error');
+  });
+});

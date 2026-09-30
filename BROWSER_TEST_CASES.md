@@ -408,9 +408,10 @@ Place a box first (click or drag) for each of these; the pencil only exists once
 - [ ] **5.0. ("more options" menu, §AE)** Click **more options** (⋯) → a menu opens below it with
       **import**, a divider, and **delete all for this website** in red. Both labels are on one
       line, at every sidebar width (at the narrowest, the menu reaches a little past the panel's
-      left edge — expected). The button keeps its lit state while open. Check it closes on:
-      picking an item, Esc (focus returns to the button), a click anywhere else in the sidebar, a
-      click on the page behind, and Tab. Open it with the keyboard (Tab to the button, then Enter,
+      left edge — expected). The button keeps its lit state while open. Check it closes on: Esc
+      (focus returns to the button), a click anywhere else in the sidebar, a click on the page
+      behind, and Tab. (Choosing an item either opens the file picker — import on a site with no
+      notes — or turns the menu into a question, 5.0a / 5.3.) Open it with the keyboard (Tab to the button, then Enter,
       Space or ↓) → focus lands on "import"; ↑/↓ move between items, including delete-all when it
       is greyed out. Nothing in the menu should be reachable by Tab while it is closed. Measure the
       gaps: import sits the same distance from the menu's edge as from the divider, and so does
@@ -443,6 +444,14 @@ Place a box first (click or drag) for each of these; the pencil only exists once
       and colours in add mode, the enlarged view's rail and peeks and delete: after about a
       second a themed tooltip appears (above, or to the left for the rail and the resize handle),
       and moving straight to the next control shows its tooltip at once. Clicking hides it.
+- [ ] **5.3b. (Tooltips never linger, §AG)** Each of these should leave no tooltip behind:
+      in the enlarged view, hover a rail button until its tooltip shows, then press Esc (the view
+      collapses; the tooltip goes with it); hover a peeking neighbour until "next note" shows,
+      then press ↓ (the peek becomes the main note; its tooltip goes); hover a note's delete in
+      the list until its tooltip shows, then scroll the list with the wheel; with a tooltip up in
+      the panel, close the sidebar from the toolbar icon. In add mode, hover the pencil until its
+      tooltip shows, then click save: the saved screenshot (open it in the enlarged view) shows
+      no trace of the tooltip, not even a faded one.
 - [ ] **5.4. (Wrong file type)** Try importing a `.txt` or `.png` file → "invalid file type. please
       upload a .zip feedback bundle."
 - [ ] **5.5. (Corrupted zip)** Rename some random non-zip file to `.zip` and try importing it →

@@ -18,6 +18,7 @@
 import * as imageStore from '../imageStore';
 import * as storage from '../storage';
 import type { CaptureMessage, NewFeedbackItem } from '../messages';
+import { DELETE_ALL_FAILED_MESSAGE } from '../copy';
 
 jest.mock('../imageStore');
 jest.mock('../storage', () => ({
@@ -1068,6 +1069,33 @@ describe('handleDeleteDomainData (design spec §AE)', () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const response = await background.handleDeleteDomainData({ type: 'DELETE_DOMAIN_DATA', domain: 'example.com' });
     expect(response).toEqual({ ok: false, message: "couldn't delete feedback. try again." });
+    warn.mockRestore();
+  });
+
+  it('a chrome.storage.local remove that reports lastError reaches the user as the delete-all copy', async () => {
+    // The real storage.ts for this one, over setup.ts's chrome.storage mock.
+    const actual = jest.requireActual('../storage') as typeof storage;
+    mockedStorage.deleteDomainData.mockImplementationOnce(actual.deleteDomainData);
+    await new Promise<void>((resolve) =>
+      chrome.storage.local.set(
+        {
+          'domain:example.com': { meta: { nextItemNumber: 2, version: 2 }, pages: { 'https://example.com/': [1] } },
+          'item:example.com:1': { id: 1, normalisedUrl: 'https://example.com/', screenshotKey: 'shot-1' },
+        },
+        () => resolve(),
+      ),
+    );
+    (chrome.storage.local.remove as jest.Mock).mockImplementationOnce((_keys: unknown, callback?: () => void) => {
+      (chrome.runtime as any).lastError = { message: 'IO error' };
+      try {
+        callback?.();
+      } finally {
+        (chrome.runtime as any).lastError = null;
+      }
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const response = await background.handleDeleteDomainData({ type: 'DELETE_DOMAIN_DATA', domain: 'example.com' });
+    expect(response).toEqual({ ok: false, message: DELETE_ALL_FAILED_MESSAGE });
     warn.mockRestore();
   });
 

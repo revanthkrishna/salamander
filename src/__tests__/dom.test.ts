@@ -2,7 +2,14 @@
 // share. Each degrades where the API is missing (jsdom, a torn-down
 // context); the fallbacks are what these pin.
 
-import { getContentViewportSize, reducedMotionQuery, requestAnimationFrameSafe, cancelAnimationFrameSafe } from '../dom';
+import {
+  getContentViewportSize,
+  reducedMotionQuery,
+  requestAnimationFrameSafe,
+  cancelAnimationFrameSafe,
+  keyTargetWithin,
+  pointTargetWithin,
+} from '../dom';
 
 describe('dom.ts — getContentViewportSize', () => {
   test('falls back to window.innerWidth/innerHeight where the document has no layout (jsdom)', () => {
@@ -90,5 +97,91 @@ describe('dom.ts — requestAnimationFrameSafe', () => {
     const cb = (): void => {};
     expect(requestAnimationFrameSafe(cb)).toBe(42);
     expect(raf).toHaveBeenCalledWith(cb);
+  });
+});
+
+describe('dom.ts — the real target of an event, seen from window (keyTargetWithin / pointTargetWithin)', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  /** Dispatch `e` at `target` and hand back what the helper saw from a
+   *  window capture listener — where the real callers sit. */
+  function seenFromWindow<T>(target: EventTarget, e: Event, read: (e: Event) => T): T {
+    let seen: T | undefined;
+    const listener = (ev: Event): void => {
+      seen = read(ev);
+    };
+    window.addEventListener(e.type, listener, true);
+    try {
+      target.dispatchEvent(e);
+    } finally {
+      window.removeEventListener(e.type, listener, true);
+    }
+    return seen as T;
+  }
+
+  function mount(mode: 'open' | 'closed'): { host: HTMLElement; root: ShadowRoot; input: HTMLTextAreaElement } {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = host.attachShadow({ mode });
+    const input = document.createElement('textarea');
+    root.appendChild(input);
+    return { host, root, input };
+  }
+
+  test('open root: the key\'s own target, straight from the composed path', () => {
+    const { host, root, input } = mount('open');
+    const other = document.createElement('button');
+    root.appendChild(other);
+    other.focus(); // focus elsewhere: the path wins, not activeElement
+    const t = seenFromWindow(input, new KeyboardEvent('keydown', { key: ' ', bubbles: true, composed: true }), (e) =>
+      keyTargetWithin(e, host, root),
+    );
+    expect(t).toBe(input);
+  });
+
+  test('closed root: the path stops at the host, so the key goes to the root\'s focused element', () => {
+    const { host, root, input } = mount('closed');
+    input.focus();
+    const t = seenFromWindow(input, new KeyboardEvent('keydown', { key: ' ', bubbles: true, composed: true }), (e) => {
+      expect(e.composedPath()[0]).toBe(host);
+      return keyTargetWithin(e, host, root);
+    });
+    expect(t).toBe(input);
+  });
+
+  test('outside the host: the page\'s own target, untouched', () => {
+    const { host, root } = mount('closed');
+    const page = document.createElement('input');
+    document.body.appendChild(page);
+    const t = seenFromWindow(page, new KeyboardEvent('keydown', { key: 'a', bubbles: true, composed: true }), (e) =>
+      keyTargetWithin(e, host, root),
+    );
+    expect(t).toBe(page);
+  });
+
+  test('pointer: open root uses the path; closed root hit-tests the root at the event\'s point', () => {
+    const open = mount('open');
+    const w1 = new MouseEvent('wheel', { bubbles: true, composed: true, clientX: 10, clientY: 20 });
+    expect(seenFromWindow(open.input, w1, (e) => pointTargetWithin(e, open.host, open.root))).toBe(open.input);
+
+    const closed = mount('closed');
+    const hit = jest.fn(() => closed.input);
+    (closed.root as unknown as { elementFromPoint: typeof hit }).elementFromPoint = hit;
+    const w2 = new MouseEvent('wheel', { bubbles: true, composed: true, clientX: 10, clientY: 20 });
+    expect(seenFromWindow(closed.input, w2, (e) => pointTargetWithin(e, closed.host, closed.root))).toBe(closed.input);
+    expect(hit).toHaveBeenCalledWith(10, 20);
+  });
+
+  test('pointer, closed root: no position, or no hit-testing (jsdom), gives null', () => {
+    const { host, root, input } = mount('closed');
+    const noPoint = new Event('wheel', { bubbles: true, composed: true });
+    const hasHitTest = typeof (root as unknown as { elementFromPoint?: unknown }).elementFromPoint === 'function';
+    expect(seenFromWindow(input, noPoint, (e) => pointTargetWithin(e, host, root))).toBeNull();
+    if (!hasHitTest) {
+      const w = new MouseEvent('wheel', { bubbles: true, composed: true, clientX: 1, clientY: 1 });
+      expect(seenFromWindow(input, w, (e) => pointTargetWithin(e, host, root))).toBeNull();
+    }
   });
 });

@@ -17,6 +17,7 @@ import { bytesToDataUrl } from '../dataUrl';
 import { buildFeedbackMarkdown } from '../bundle';
 import { parseImportBundle } from '../import';
 import type { DomainData, Drawing, FeedbackItem } from '../types';
+import { EXPORT_FAILED_MESSAGE } from '../copy';
 
 jest.mock('../imageStore', () => ({
   getImage: jest.fn(),
@@ -369,5 +370,25 @@ describe('export: per-page numbering and the round trip', () => {
     for (const name of Object.keys(first)) {
       expect(Array.from(second[name])).toEqual(Array.from(first[name]));
     }
+  });
+});
+
+describe('export: a read that fails', () => {
+  test('a rejecting load is an export failure with the export copy, not an unanswered message', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const res = await exportDomain(
+      'example.com',
+      async () => {
+        throw new Error('IO error');
+      },
+      ENV,
+    );
+    expect(res).toEqual({ ok: false, code: 'EXPORT_FAILED', message: EXPORT_FAILED_MESSAGE });
+    expect(downloads).toHaveLength(0);
+    warn.mockRestore();
+  });
+
+  test('an empty site is still EMPTY, not a failure', async () => {
+    await expect(exportDomain('example.com', async () => null, ENV)).resolves.toEqual({ ok: false, code: 'EMPTY' });
   });
 });

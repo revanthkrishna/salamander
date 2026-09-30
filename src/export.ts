@@ -49,13 +49,16 @@ export async function exportDomain(
   loadDomain: (domain: string) => Promise<DomainData | null> = storage.getDomainData,
   env: ExportEnvironment = LIVE_ENVIRONMENT,
 ): Promise<ExportResponse> {
-  const data = await loadDomain(domain);
-  const allItems = data ? Object.values(data.pages).flat() : [];
-  if (!data || allItems.length === 0) {
-    return { ok: false, code: 'EMPTY' };
-  }
-
   try {
+    // Inside the try: a read that fails (storage.ts rejects on
+    // chrome.runtime.lastError) is an export failure like any other, not an
+    // unanswered message.
+    const data = await loadDomain(domain);
+    const allItems = data ? Object.values(data.pages).flat() : [];
+    if (!data || allItems.length === 0) {
+      return { ok: false, code: 'EMPTY' };
+    }
+
     const now = env.now();
     const header: ExportHeader = {
       extensionVersion: env.extensionVersion(),

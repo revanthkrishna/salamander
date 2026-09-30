@@ -45,7 +45,9 @@ function makeCallbacks(): sidebar.SidebarCallbacks & {
     addDoubleClick: number;
     addSwitch: boolean[];
     export: number;
+    import: number;
     importFile: File[];
+    deleteAll: number;
     close: number;
     openItem: FeedbackItem[];
     deleteItem: FeedbackItem[];
@@ -56,7 +58,9 @@ function makeCallbacks(): sidebar.SidebarCallbacks & {
     addDoubleClick: 0,
     addSwitch: [] as boolean[],
     export: 0,
+    import: 0,
     importFile: [] as File[],
+    deleteAll: 0,
     close: 0,
     openItem: [] as FeedbackItem[],
     deleteItem: [] as FeedbackItem[],
@@ -67,7 +71,9 @@ function makeCallbacks(): sidebar.SidebarCallbacks & {
     onAddSwitchChange: (on: boolean) => { calls.addSwitch.push(on); },
     onAddDoubleClick: () => { calls.addDoubleClick++; },
     onExport: () => { calls.export++; },
+    onImport: () => { calls.import++; },
     onImportFile: (file: File) => { calls.importFile.push(file); },
+    onDeleteAll: () => { calls.deleteAll++; },
     onClose: () => { calls.close++; },
     onOpenItem: (item: FeedbackItem) => { calls.openItem.push(item); },
     onDeleteItem: (item: FeedbackItem) => { calls.deleteItem.push(item); },
@@ -629,17 +635,22 @@ describe('sidebar shell', () => {
     expect(cb.calls.export).toBe(1);
   });
 
-  test('the menu\'s "import" item opens a .zip-only native file picker and forwards the chosen file', () => {
+  test('the menu\'s "import" item leads to a .zip-only native file picker and forwards the chosen file', () => {
     const cb = makeCallbacks();
     sidebar.initSidebar(cb);
 
     const fileInput = shadowRoot().querySelector('input[type="file"]') as HTMLInputElement;
     expect(fileInput.accept).toBe('.zip');
 
-    // The item is what clicks the hidden input, and it closes the menu first.
+    // The item hands over to content.ts (onImport), which opens the picker
+    // through openImportPicker(): that clicks the hidden input, closing the
+    // menu first.
     const picker = jest.spyOn(fileInput, 'click').mockImplementation(() => {});
     (shadowRoot().querySelector('.btn-menu') as HTMLButtonElement).click();
     (shadowRoot().querySelector('.action-menu-item') as HTMLButtonElement).click();
+    expect(cb.calls.import).toBe(1);
+    expect(picker).not.toHaveBeenCalled();
+    sidebar.openImportPicker();
     expect(picker).toHaveBeenCalledTimes(1);
     expect((shadowRoot().querySelector('.action-menu') as HTMLElement).dataset.open).toBe('false');
     picker.mockRestore();
@@ -1565,7 +1576,7 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// design spec v3 §C2 — export + chevron menu (replaces the import button)
+// design spec v3 §C2, §AE — export and the "more options" menu
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('export and "more options" (design spec v3 §C2, §AE)', () => {
@@ -1582,7 +1593,7 @@ describe('export and "more options" (design spec v3 §C2, §AE)', () => {
     const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     return css().match(new RegExp(`(^|\\n)\\s*${escaped}\\s*\\{[^}]*\\}`))?.[0] ?? '';
   }
-  function chevron(): HTMLButtonElement {
+  function moreBtn(): HTMLButtonElement {
     return shadowRoot().querySelector('.btn-menu') as HTMLButtonElement;
   }
   function menu(): HTMLElement {
@@ -1605,20 +1616,20 @@ describe('export and "more options" (design spec v3 §C2, §AE)', () => {
 
   test('"more options" is a menu button with an ellipsis that does not change when open', () => {
     sidebar.initSidebar(makeCallbacks());
-    expect(chevron().getAttribute('aria-haspopup')).toBe('menu');
-    expect(chevron().getAttribute('aria-expanded')).toBe('false');
-    const glyph = chevron().innerHTML;
+    expect(moreBtn().getAttribute('aria-haspopup')).toBe('menu');
+    expect(moreBtn().getAttribute('aria-expanded')).toBe('false');
+    const glyph = moreBtn().innerHTML;
     expect(glyph.match(/<circle/g)).toHaveLength(3);
 
-    chevron().click();
+    moreBtn().click();
     expect(isOpen()).toBe(true);
-    expect(chevron().getAttribute('aria-expanded')).toBe('true');
-    expect(chevron().innerHTML).toBe(glyph);
+    expect(moreBtn().getAttribute('aria-expanded')).toBe('true');
+    expect(moreBtn().innerHTML).toBe(glyph);
     expect((shadowRoot().querySelector('.export-group') as HTMLElement).classList.contains('is-menu-open')).toBe(true);
 
-    chevron().click();
+    moreBtn().click();
     expect(isOpen()).toBe(false);
-    expect(chevron().getAttribute('aria-expanded')).toBe('false');
+    expect(moreBtn().getAttribute('aria-expanded')).toBe('false');
   });
 
   test('with no notes on the site, export and delete-all are soft-disabled and carry their reasons (§AF)', () => {
@@ -1640,7 +1651,7 @@ describe('export and "more options" (design spec v3 §C2, §AE)', () => {
 
     // Clicks do nothing while off.
     exportBtn.click();
-    chevron().click();
+    moreBtn().click();
     deleteAllItem().click();
     expect(onExport).not.toHaveBeenCalled();
     expect(onDeleteAll).not.toHaveBeenCalled();
@@ -1670,7 +1681,7 @@ describe('export and "more options" (design spec v3 §C2, §AE)', () => {
     sidebar.initSidebar(makeCallbacks());
     const down = (el: Element) =>
       el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
-    chevron().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 0 }));
+    moreBtn().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 0 }));
     expect(shadowRoot().activeElement).toBe(importItem());
     down(importItem());
     expect(shadowRoot().activeElement).toBe(deleteAllItem());
@@ -1690,7 +1701,7 @@ describe('export and "more options" (design spec v3 §C2, §AE)', () => {
   test('confirmInMenu turns the open menu into the question, full panel width, focus on cancel', async () => {
     sidebar.initSidebar(makeCallbacks());
     sidebar.setSidebarWidth(260);
-    chevron().click();
+    moreBtn().click();
     const answer = sidebar.confirmInMenu('delete 5 notes across 3 pages?', 'yes, delete');
 
     expect(isOpen()).toBe(true);
@@ -1715,19 +1726,19 @@ describe('export and "more options" (design spec v3 §C2, §AE)', () => {
   test('cancel, Esc and a press outside all answer no, and close it', async () => {
     sidebar.initSidebar(makeCallbacks());
 
-    chevron().click();
+    moreBtn().click();
     let answer = sidebar.confirmInMenu('sure?', 'yes');
     confirmBtn('cancel').click();
     await expect(answer).resolves.toBe(false);
     expect(isOpen()).toBe(false);
 
-    chevron().click();
+    moreBtn().click();
     answer = sidebar.confirmInMenu('sure?', 'yes');
     confirmFace().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     await expect(answer).resolves.toBe(false);
-    expect(shadowRoot().activeElement).toBe(chevron());
+    expect(shadowRoot().activeElement).toBe(moreBtn());
 
-    chevron().click();
+    moreBtn().click();
     answer = sidebar.confirmInMenu('sure?', 'yes');
     // A press inside the question is not "outside".
     pointerDown(confirmFace());
@@ -1739,7 +1750,7 @@ describe('export and "more options" (design spec v3 §C2, §AE)', () => {
 
   test('Tab moves between the two buttons instead of dismissing the question', () => {
     sidebar.initSidebar(makeCallbacks());
-    chevron().click();
+    moreBtn().click();
     void sidebar.confirmInMenu('sure?', 'yes');
     const tab = () =>
       confirmFace().dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
@@ -1752,11 +1763,11 @@ describe('export and "more options" (design spec v3 §C2, §AE)', () => {
 
   test('reopening shows the item list again, at its own size', async () => {
     sidebar.initSidebar(makeCallbacks());
-    chevron().click();
+    moreBtn().click();
     const answer = sidebar.confirmInMenu('sure?', 'yes');
     confirmBtn('cancel').click();
     await answer;
-    chevron().click();
+    moreBtn().click();
     expect(menu().classList.contains('is-confirm')).toBe(false);
     expect((menu().querySelector('.action-menu-list') as HTMLElement).hidden).toBe(false);
     expect(confirmFace().hidden).toBe(true);
@@ -1766,7 +1777,7 @@ describe('export and "more options" (design spec v3 §C2, §AE)', () => {
 
   test('the confirming button is red for a delete and yellow text otherwise', () => {
     sidebar.initSidebar(makeCallbacks());
-    chevron().click();
+    moreBtn().click();
     void sidebar.confirmInMenu('delete 1 note across 1 page?', 'yes, delete');
     expect(confirmBtn('confirm').classList.contains('is-danger')).toBe(true);
     expect(confirmBtn('confirm').classList.contains('is-accent')).toBe(false);
@@ -1785,38 +1796,108 @@ describe('export and "more options" (design spec v3 §C2, §AE)', () => {
   test('closing the sidebar answers an open question no', async () => {
     sidebar.initSidebar(makeCallbacks());
     sidebar.openSidebar();
-    chevron().click();
+    moreBtn().click();
     const answer = sidebar.confirmInMenu('sure?', 'yes');
     sidebar.closeSidebar();
     await expect(answer).resolves.toBe(false);
   });
 
-  test('import with no onImport callback opens the picker at once; with one, it defers', () => {
-    const click = jest.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
-    sidebar.initSidebar(makeCallbacks());
-    chevron().click();
-    importItem().click();
-    expect(click).toHaveBeenCalledTimes(1);
-    expect(isOpen()).toBe(false);
-    sidebar.destroySidebar();
+  test('closing the sidebar hides a tooltip that is up (it is the panel\'s sibling, not its child)', () => {
+    jest.useFakeTimers();
+    try {
+      sidebar.initSidebar(makeCallbacks());
+      sidebar.openSidebar();
+      const exportBtn = shadowRoot().querySelector('.btn-export') as HTMLButtonElement;
+      exportBtn.dispatchEvent(new MouseEvent('pointerover', { bubbles: true, composed: true }));
+      jest.advanceTimersByTime(1000);
+      const tip = shadowRoot().querySelector('.sal-tip') as HTMLElement;
+      expect(tip.dataset.open).toBe('true');
+      expect(tip.parentNode).toBe(shadowRoot());
+      sidebar.closeSidebar();
+      expect(tip.dataset.open).toBe('false');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 
-    const onImport = jest.fn();
-    sidebar.initSidebar({ ...makeCallbacks(), onImport });
-    chevron().click();
-    importItem().click();
-    expect(onImport).toHaveBeenCalledTimes(1);
-    expect(click).toHaveBeenCalledTimes(1);
+  test('a second question replaces the first: the first is answered no, and one question shows', async () => {
+    sidebar.initSidebar(makeCallbacks());
+    moreBtn().click();
+    const first = sidebar.confirmInMenu('delete 2 notes across 1 page?', 'yes, delete');
+    const second = sidebar.confirmInMenu('importing will replace your existing notes. go ahead?', 'yes, import', 'accent');
+    await expect(first).resolves.toBe(false);
+    expect(menu().querySelectorAll('.action-menu-confirm')).toHaveLength(1);
+    expect(menu().querySelector('.action-menu-confirm-text')!.textContent).toBe(
+      'importing will replace your existing notes. go ahead?',
+    );
     expect(isOpen()).toBe(true);
+    confirmBtn('confirm').click();
+    await expect(second).resolves.toBe(true);
+  });
+
+  test('a soft-disabled delete-all clicked while a question is up does not ask again', async () => {
+    const cbs = makeCallbacks();
+    sidebar.initSidebar(cbs); // no notes: delete-all is soft-disabled
+    moreBtn().click();
+    let settled = false;
+    const answer = sidebar.confirmInMenu('importing will replace your existing notes. go ahead?', 'yes, import', 'accent');
+    void answer.then(() => {
+      settled = true;
+    });
+    deleteAllItem().click();
+    await Promise.resolve();
+    expect(cbs.calls.deleteAll).toBe(0);
+    expect(settled).toBe(false);
+    expect(menu().classList.contains('is-confirm')).toBe(true);
+    confirmBtn('cancel').click();
+    await expect(answer).resolves.toBe(false);
+  });
+
+  test('as a question the menu is named by it (aria-labelledby); back as a list, by its own label', async () => {
+    sidebar.initSidebar(makeCallbacks());
+    moreBtn().click();
+    expect(menu().getAttribute('aria-label')).toBe('more options');
+    expect(menu().hasAttribute('aria-labelledby')).toBe(false);
+
+    const answer = sidebar.confirmInMenu('sure?', 'yes');
+    expect(menu().getAttribute('role')).toBe('alertdialog');
+    expect(menu().hasAttribute('aria-label')).toBe(false);
+    expect(menu().getAttribute('aria-labelledby')).toBe('menu-confirm-text');
+    expect(menu().getAttribute('aria-describedby')).toBe('menu-confirm-text');
+    expect(shadowRoot().getElementById('menu-confirm-text')!.textContent).toBe('sure?');
+
+    confirmBtn('cancel').click();
+    await answer;
+    moreBtn().click();
+    expect(menu().getAttribute('role')).toBe('menu');
+    expect(menu().getAttribute('aria-label')).toBe('more options');
+    expect(menu().hasAttribute('aria-labelledby')).toBe(false);
+    expect(menu().hasAttribute('aria-describedby')).toBe(false);
+  });
+
+  test('import calls onImport and leaves the menu open; openImportPicker() closes it and opens the picker', () => {
+    const click = jest.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
+    const cbs = makeCallbacks();
+    sidebar.initSidebar(cbs);
+    moreBtn().click();
+    importItem().click();
+    expect(cbs.calls.import).toBe(1);
+    // content.ts decides whether to ask first: nothing is picked yet.
+    expect(click).not.toHaveBeenCalled();
+    expect(isOpen()).toBe(true);
+    expect(sidebar.isMoreOptionsMenuOpen()).toBe(true);
+
     sidebar.openImportPicker();
-    expect(click).toHaveBeenCalledTimes(2);
+    expect(click).toHaveBeenCalledTimes(1);
     expect(isOpen()).toBe(false);
+    expect(sidebar.isMoreOptionsMenuOpen()).toBe(false);
     click.mockRestore();
   });
 
   test('the menu is never capped, so no label wraps at any panel width', () => {
     sidebar.initSidebar(makeCallbacks());
     sidebar.setSidebarWidth(sidebar.SIDEBAR_MIN_WIDTH);
-    chevron().click();
+    moreBtn().click();
     expect(menu().style.maxWidth).toBe('');
   });
 
@@ -1824,33 +1905,33 @@ describe('export and "more options" (design spec v3 §C2, §AE)', () => {
     sidebar.initSidebar(makeCallbacks());
 
     // detail >= 1 is a real pointer click.
-    chevron().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+    moreBtn().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
     expect(isOpen()).toBe(true);
     expect(shadowRoot().activeElement).not.toBe(importItem());
-    chevron().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+    moreBtn().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
 
     // detail 0 is Enter/Space on the button.
-    chevron().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 0 }));
+    moreBtn().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 0 }));
     expect(isOpen()).toBe(true);
     expect(shadowRoot().activeElement).toBe(importItem());
   });
 
-  test('ArrowDown/ArrowUp on the chevron open the menu straight into it', () => {
+  test('ArrowDown/ArrowUp on "more options" open the menu straight into it', () => {
     sidebar.initSidebar(makeCallbacks());
-    chevron().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    moreBtn().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
     expect(isOpen()).toBe(true);
     expect(shadowRoot().activeElement).toBe(importItem());
   });
 
-  test('Esc closes and returns focus to the chevron; Tab just closes', () => {
+  test('Esc closes and returns focus to "more options"; Tab just closes', () => {
     sidebar.initSidebar(makeCallbacks());
 
-    chevron().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 0 }));
+    moreBtn().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 0 }));
     importItem().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     expect(isOpen()).toBe(false);
-    expect(shadowRoot().activeElement).toBe(chevron());
+    expect(shadowRoot().activeElement).toBe(moreBtn());
 
-    chevron().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 0 }));
+    moreBtn().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 0 }));
     importItem().dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
     expect(isOpen()).toBe(false);
   });
@@ -1859,12 +1940,12 @@ describe('export and "more options" (design spec v3 §C2, §AE)', () => {
     sidebar.initSidebar(makeCallbacks());
 
     // Inside the shadow root: the shadow-level listener sees the real path.
-    chevron().click();
+    moreBtn().click();
     pointerDown(shadowRoot().querySelector('.header') as HTMLElement);
     expect(isOpen()).toBe(false);
 
     // On the menu itself: stays open.
-    chevron().click();
+    moreBtn().click();
     pointerDown(importItem());
     expect(isOpen()).toBe(true);
 
@@ -1877,11 +1958,11 @@ describe('export and "more options" (design spec v3 §C2, §AE)', () => {
   test('closing the sidebar closes the menu', () => {
     sidebar.initSidebar(makeCallbacks());
     sidebar.openSidebar();
-    chevron().click();
+    moreBtn().click();
     expect(isOpen()).toBe(true);
     sidebar.closeSidebar();
     expect(isOpen()).toBe(false);
-    expect(chevron().getAttribute('aria-expanded')).toBe('false');
+    expect(moreBtn().getAttribute('aria-expanded')).toBe('false');
   });
 
   test('two separate buttons, each the same box as "add note", with a small gap (§AE)', () => {

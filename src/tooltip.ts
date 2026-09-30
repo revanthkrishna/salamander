@@ -17,8 +17,10 @@
 // is one (the "more options" menu, which sits against the window's right edge).
 //
 // Timing matches the native tooltips it replaces: about a second's hover
-// before the first appears, none on keyboard focus, hidden on any press; and
-// once one is showing, the next appears at once. A disabled reason is quicker
+// before the first appears, none on keyboard focus, hidden on any press, on
+// Esc and on any scroll; and once one is showing, the next appears at once.
+// It also hides when the control it points at goes away under it: removed,
+// hidden, made inert, or given different text. A disabled reason is quicker
 // (300ms) and also appears on keyboard focus, since it carries information the
 // control's name does not.
 //
@@ -105,8 +107,11 @@ export const TOOLTIP_CSS = `
 `;
 
 export interface TooltipHandle {
-  /** Hide whatever is showing now (a control's state changed under it). */
-  hide: () => void;
+  /** Hide whatever is showing now (a control's state changed under it).
+   *  `immediate` skips the fade-out — and cuts short one already under way —
+   *  for a caller about to take a screenshot, which the fading tooltip would
+   *  otherwise still be in. The next show fades in as usual. */
+  hide: (opts?: { immediate?: boolean }) => void;
   /** Remove the tooltip and every listener. */
   destroy: () => void;
 }
@@ -147,6 +152,30 @@ export function attachTooltips(root: ShadowRoot): TooltipHandle {
   let pointerY: number | null = null;
 
   const isOpen = (): boolean => tip.dataset.open === 'true';
+
+  // While a tooltip is up, watch for its control going away under it — the
+  // list repainting under a hovered delete, a peek card retiring (its
+  // data-tip is deleted, then the card is removed), the panel closing or
+  // going inert behind the enlarged view — none of which moves the pointer,
+  // so nothing else would hide it. Observed only while open; `style` is not
+  // in the filter, so the per-frame style writes of the motion code never
+  // wake it. jsdom and every supported browser have MutationObserver; the
+  // guard only keeps a stripped-down environment from throwing.
+  const observer =
+    typeof MutationObserver === 'function'
+      ? new MutationObserver(() => {
+          if (!anchor || !isOpen()) return;
+          if (!anchor.isConnected || anchor.closest('[hidden], [inert]') || textFor(anchor) !== tip.textContent) {
+            hide();
+          }
+        })
+      : null;
+  const OBSERVED: MutationObserverInit = {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ['hidden', 'inert', 'data-tip', 'data-tip-reason', 'aria-disabled'],
+  };
   const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
   function clearTimer(): void {
@@ -169,6 +198,8 @@ export function attachTooltips(root: ShadowRoot): TooltipHandle {
     clearTimer();
     const text = textFor(el);
     if (!text || !el.isConnected) return;
+    // Our own writes below (the text) are not a reason to hide.
+    observer?.disconnect();
     if (anchor && anchor !== el) anchor.removeAttribute('aria-describedby');
     anchor = el;
     tip.textContent = text;
@@ -176,12 +207,19 @@ export function attachTooltips(root: ShadowRoot): TooltipHandle {
     // announced; a plain tooltip repeats the name and is not.
     if (isReason(el)) el.setAttribute('aria-describedby', tip.id);
     place(el);
+    // An immediate hide left the transition off; fade in as usual.
+    tip.style.transition = '';
     tip.dataset.open = 'true';
+    observer?.observe(root, OBSERVED);
   }
 
-  function hide(): void {
+  function hide(opts: { immediate?: boolean } = {}): void {
     clearTimer();
+    // Set even when already closed: a press hides with the usual fade, and a
+    // screenshot taken right after must not catch its tail.
+    if (opts.immediate) tip.style.transition = 'none';
     if (!isOpen()) return;
+    observer?.disconnect();
     tip.dataset.open = 'false';
     hiddenAt = now();
     anchor?.removeAttribute('aria-describedby');
@@ -249,9 +287,30 @@ export function attachTooltips(root: ShadowRoot): TooltipHandle {
     const el = tipTarget(e.target);
     if (el && el === anchor) hide();
   };
+  // Esc, pressed anywhere in this root. Listened for on `window` in the
+  // capture phase, not on the root: the enlarged view (enlargedView.ts) and
+  // add mode's comment box (addMode.ts) install keyboard isolation
+  // (keyboardIsolation.ts), which stops every key inside the host with
+  // stopImmediatePropagation() at window capture — so a listener on the
+  // root, or one on window registered AFTER the isolation, never hears it.
+  // Window capture listeners run in registration order, so this relies on
+  // attachTooltips() running before any isolation on the same host is
+  // installed. It does for every caller: sidebar.ts attaches in
+  // initSidebar(), and the enlarged view only ever opens inside an
+  // initialised sidebar (and is destroyed before it); addMode.ts attaches in
+  // buildDOM(), and installs its isolation later, in buildCommentDOM(). A
+  // new caller must keep that order. The path check keeps an Esc meant for
+  // the page from touching our tooltip, as the root listener did; the
+  // closed root's host is on the path even though its inside is not.
   const onKey = (e: Event): void => {
-    if ((e as KeyboardEvent).key === 'Escape') hide();
+    if ((e as KeyboardEvent).key !== 'Escape') return;
+    if (!e.composedPath().includes(root.host)) return;
+    hide();
   };
+  // Any scroll. `scroll` does not bubble and is not composed: the window
+  // listener hears the page's scrollers (capture reaches every target in
+  // the document) but nothing scrolled inside this shadow root — the note
+  // list, the enlarged view's note — so the root listens too.
   const onScroll = (): void => hide();
 
   root.addEventListener('pointerover', onOver);
@@ -260,21 +319,24 @@ export function attachTooltips(root: ShadowRoot): TooltipHandle {
   root.addEventListener('pointerdown', onDown, true);
   root.addEventListener('focusin', onFocusIn);
   root.addEventListener('focusout', onFocusOut);
-  root.addEventListener('keydown', onKey, true);
+  window.addEventListener('keydown', onKey, true);
   window.addEventListener('scroll', onScroll, true);
+  root.addEventListener('scroll', onScroll, true);
 
   return {
     hide,
     destroy: () => {
       hide();
+      observer?.disconnect();
       root.removeEventListener('pointerover', onOver);
       root.removeEventListener('pointerout', onOut);
       root.removeEventListener('pointermove', onMove);
       root.removeEventListener('pointerdown', onDown, true);
       root.removeEventListener('focusin', onFocusIn);
       root.removeEventListener('focusout', onFocusOut);
-      root.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('keydown', onKey, true);
       window.removeEventListener('scroll', onScroll, true);
+      root.removeEventListener('scroll', onScroll, true);
       tip.remove();
     },
   };

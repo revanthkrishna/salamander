@@ -58,24 +58,63 @@ function itemKey(domain: string, id: number): string {
 
 // ---------------------------------------------------------------------------
 // Internal Promise-based helpers (chrome.storage.local)
+//
+// A failed call (quota exceeded, a corrupt database) reports itself only
+// through chrome.runtime.lastError inside the callback, so each helper
+// rejects when it is set: a write or delete that did not happen must not
+// look like one that did. Every caller is a background.ts handler whose
+// catch turns the rejection into that message's existing error copy
+// (export.ts's likewise). The session helpers further down are deliberately
+// left as they are: the sidebar state and the pencil's colour are
+// best-effort conveniences.
 // ---------------------------------------------------------------------------
 
+/** chrome.runtime.lastError as an Error, or null when the call succeeded. */
+function localStorageError(): Error | null {
+  const err = chrome.runtime?.lastError;
+  return err ? new Error(err.message) : null;
+}
+
 function storageGet(keys: string | string[] | null): Promise<Record<string, unknown>> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(keys, (result) => resolve(result));
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.get(keys, (result) => {
+      const err = localStorageError();
+      if (err) reject(err);
+      else resolve(result);
+    });
   });
 }
 
 function storageSet(items: Record<string, unknown>): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.storage.local.set(items, () => resolve());
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.set(items, () => {
+      const err = localStorageError();
+      if (err) reject(err);
+      else resolve();
+    });
   });
 }
 
 function storageRemove(keys: string | string[]): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.storage.local.remove(keys, () => resolve());
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.remove(keys, () => {
+      const err = localStorageError();
+      if (err) reject(err);
+      else resolve();
+    });
   });
+}
+
+/** storageRemove for keys nothing points at any more (an item key after its
+ *  index entry is gone): failing to remove them leaves orphans, which cost
+ *  space and nothing else, so it is logged rather than failing a write that
+ *  has already landed. */
+async function removeOrphans(keys: string | string[]): Promise<void> {
+  try {
+    await storageRemove(keys);
+  } catch (err) {
+    console.warn('[Annotator] could not remove unreferenced keys:', err);
+  }
 }
 
 function emptyIndex(): DomainIndex {
@@ -291,7 +330,9 @@ export async function deleteItem(
     index.pages[normalisedUrl] = remaining;
   }
   await storageSet({ [domainKey(domain)]: index });
-  await storageRemove(key);
+  // The index no longer points at the item: it is deleted as far as the
+  // user can tell, whatever happens to its key.
+  await removeOrphans(key);
   if (removed) await imageStore.deleteImage(removed.screenshotKey);
 }
 
@@ -313,7 +354,8 @@ export async function replaceDomainData(domain: string, data: DomainData): Promi
   await storageSet(split);
   if (existingIndex) {
     const stale = itemKeysOf(domain, existingIndex).filter((k) => !(k in split));
-    if (stale.length > 0) await storageRemove(stale);
+    // The new record has landed; the old keys are orphans already.
+    if (stale.length > 0) await removeOrphans(stale);
   }
 }
 

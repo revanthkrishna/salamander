@@ -498,8 +498,9 @@ const ADD_MODE_CSS = `
   }
   .btn-pencil .icon { width: 16px; height: 16px; display: inline-flex; }
   .btn-pencil .icon svg { width: 100%; height: 100%; display: block; }
-  /* Open takes the hover fill, like the chevron's (§C2). Before :hover and
-     :active so the press fill still reads while it is open. */
+  /* Open takes the hover fill, like the sidebar's "more options" button
+     (§AE). Before :hover and :active so the press fill still reads while
+     it is open. */
   .btn-pencil[aria-expanded="true"] { background: var(--sal-hover); color: var(--sal-text); }
   .btn-pencil:not(:disabled):hover { background: var(--sal-hover); color: var(--sal-text); }
   .btn-pencil:not(:disabled):active { background: var(--sal-press); color: var(--sal-text); }
@@ -542,7 +543,7 @@ const ADD_MODE_CSS = `
   .swatch:focus-visible { ${FOCUS_RING_CSS} }
   .swatch:disabled { ${DISABLED_CSS} }
 
-  /* The pencil's menu — the export group's chevron menu (§C2), same
+  /* The pencil's menu — the sidebar's "more options" menu (§C2, §AE), same
      surface, item and motion: closed is the base state and carries the exit
      (90ms, accelerating), [data-open] the entrance (120ms, standard).
      visibility rather than [hidden] so both directions animate and nothing
@@ -1850,8 +1851,10 @@ function handleSaveClick(): void {
   capturing = true;
   closeDrawMenu();
   setDrawToolsDisabled(true);
-  // Nothing of ours may be in the screenshot, a tooltip included.
-  addModeTooltips?.hide();
+  // Nothing of ours may be in the screenshot, a tooltip included — and
+  // without its fade: the capture follows within a frame or two, well inside
+  // the 90ms fade-out, and a press has usually started one already.
+  addModeTooltips?.hide({ immediate: true });
 
   // The drawing travels as its own layer, cropped to the final rect; the
   // screenshot underneath is taken with every stroke hidden (§AB).

@@ -40,4 +40,4 @@ The cross-cutting gotchas the plan opened with are unchanged and are the things 
 
 ## Open items carried forward
 
-From `docs/REFACTOR_NOTES_2026-09-22.md` §1.3 and the technical review: remove the `UPDATE_NOTE` alias in the release after 2.0.0; a shared menu controller for the chevron and pencil menus; the `sidebar.ts` / `enlargedView.ts` file splits and CSS-out-of-TypeScript, to be done with the Playwright suite as the checkpoint; surfacing `updateItem`'s `found` result; a spread of the optional `drawing` field in `handleImportReplace` if a future codec ever decodes one.
+From `docs/REFACTOR_NOTES_2026-09-22.md` §1.3 and the technical review: remove the `UPDATE_NOTE` alias in the release after 2.0.0; a shared menu controller for the "more options" and pencil menus; the `sidebar.ts` / `enlargedView.ts` file splits and CSS-out-of-TypeScript, to be done with the Playwright suite as the checkpoint; surfacing `updateItem`'s `found` result; a spread of the optional `drawing` field in `handleImportReplace` if a future codec ever decodes one.

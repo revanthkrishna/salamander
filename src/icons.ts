@@ -29,9 +29,6 @@ export const ICON_COMMENT = strokeIcon(
   '<path d="M20 14a2 2 0 0 1-2 2H8.5L4 19.5V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/>',
 );
 
-/** Drawn as two variants rather than a rotation so the open/closed arrow is
- *  the exact path the spec names. */
-
 /** "more options" (design spec §AE): a horizontal ellipsis, the standard
  *  "more" glyph. Three filled dots rather than stroked ones — a 1.8px round
  *  cap is too small to read as a dot at 16px. */

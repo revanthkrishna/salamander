@@ -601,7 +601,7 @@ the user can drag to:
                       + ACTION_ROW_PAD_X * 2          // left + right margin
                       + ADD_GROUP_PX + ADD_SWITCH_WIDTH_PX   // add button + its switch, revealed
                       + ACTION_ROW_GAP                // the gap between the two groups
-                      + EXPORT_GROUP_PX               // export + chevron (§AE: two buttons, 82px)
+                      + EXPORT_GROUP_PX               // export + "more options" (§AE: two buttons, 82px)
 
 Derive it from those constants — never hardcode the total, since §Q changes the switch's width.
 
@@ -922,8 +922,8 @@ opens, closes and takes the keyboard) stands.
 - Each is the same box as **add note**: 38px wide including its 1px `line` border, 36px tall,
   `radius-md`, `surface` fill. Hover: `hover` fill and `line-strong` border. Press: `press` fill.
   Each takes its own focus ring. No press scale (§2).
-- **more options**: a horizontal ellipsis (three filled dots, 16px), `aria-label`/`title`
-  "more options", `aria-haspopup="menu"`, `aria-expanded`. The glyph does not change when open;
+- **more options**: a horizontal ellipsis (three filled dots, 16px), `aria-label` and tooltip
+  (§AG) "more options", `aria-haspopup="menu"`, `aria-expanded`. The glyph does not change when open;
   open, the button keeps its hover treatment.
 - Why they split: once the menu held a destructive action, a chevron fused to export read as
   "export options". Delete-everything must never be mistaken for that.
@@ -937,23 +937,24 @@ opens, closes and takes the keyboard) stands.
   edge, it grows leftwards; at the narrowest panel widths that takes it past the panel's left
   edge, out over the page, like any popover.
 - **delete all for this website**: trash icon, `danger` ink; hover and keyboard focus
-  `danger-soft` fill, press `danger-hover`. Disabled whenever the site has no feedback (and while
-  a delete is in flight). ↑/↓ skip it while disabled.
+  `danger-soft` fill, press `danger-hover`. Greyed out whenever the site has no feedback — soft
+  disabled (`aria-disabled`), so it stays focusable and ↑/↓ still reach it, to read its reason
+  (§AF). While a delete is in flight it stays as it is; a second activation is simply ignored.
+- **import** is disabled (the `disabled` attribute) while an import is in flight.
 
 ## Behaviour
 - "This website" is the domain as defined throughout: `www.` stripped, port kept, subdomains
   separate. The delete reaches every page of it, not just the one on screen.
-- Activating it closes the menu, then reads the site's item and page counts fresh and confirms
-  with the native dialog:
-
-      delete all {n} feedback item(s) across {p} page(s) of this site? this cannot be undone.
-
-  Cancel does nothing. OK deletes every item, every screenshot and the domain's index in one
-  write, through the service worker's write queue (so a save still in flight lands first and is
-  deleted with the rest). The list then repaints from storage: the empty state, and the item
-  disables itself.
-- If the count cannot be read, nothing is deleted and the count error is shown. If the site has
-  emptied since the item was enabled, nothing is asked and the item just disables.
+- Activating it keeps the menu open, reads the site's note and page counts fresh, and turns the
+  menu into the question — **"delete 5 notes across 3 pages?"**, **yes, delete** / **cancel** —
+  as §AF describes (superseding the native `confirm()` and its copy that stood here first).
+  **cancel** (or anything else that closes the menu) does nothing. **yes, delete** deletes every
+  item, every screenshot and the domain's index, through the service worker's write queue (so a
+  save still in flight lands first and is deleted with the rest). The list then repaints from
+  storage: the empty state, and the item greys itself out.
+- If the count cannot be read, the menu closes, nothing is deleted and the count error ("couldn't
+  check existing feedback. try again.") is shown. If the site has emptied since the item was
+  enabled, the menu closes, nothing is asked, and the item greys out.
 - A failed delete shows "couldn't delete feedback. try again." and repaints whatever survived.
 - Unreachable during add mode (the whole group is disabled, §H) and behind the enlarged view (the
   panel is inert).
@@ -991,9 +992,14 @@ questions were being asked in the website's name. They are now asked in place, b
 - Import: **"your existing notes will be discarded. continue with import?"**, **yes, import** /
   **cancel**. Asked
   when import is chosen, before the file picker — so after a file is picked and checks out it
-  replaces without asking again. With no notes on the site the picker opens at once. The count is
-  read fresh, so notes added from another tab are never replaced unasked.
-- While a question is up the menu is `role="alertdialog"`, described by the question. Focus
+  replaces without asking again. With no notes on the site the picker opens at once — unless the
+  menu was dismissed while the count was being read, in which case nothing opens. The count is
+  read fresh when import is chosen, so notes added from another tab before then are counted.
+- Every fresh count (delete-all's and import's) also catches the greyed-out state of export and
+  delete-all up with it.
+- While a question is up the menu is `role="alertdialog"`, named and described by the question
+  (`aria-labelledby`/`aria-describedby`); back as the list it is `role="menu"` with its own label.
+  Asking a second question while one is up answers the first no and shows only the second. Focus
   starts on **cancel**, so a stray Enter is the safe answer; Tab moves between the two buttons
   rather than dismissing it.
 - **Answers no, and closes:** **cancel**, Esc (focus returns to **more options**), a press
@@ -1035,14 +1041,18 @@ disabled control gets no hover to show one.
   use it. On a tall strip (the resize handle) it sits level with the pointer.
 - **Timing — the native tooltips' own:** about 1s of hover before the first appears
   (`TOOLTIP_DELAY_MS`, macOS's default); not on keyboard focus; hidden on any press, on leaving,
-  on Esc and on scroll. Once one is showing, the next appears at once, and for 500ms after one
+  on Esc (inside that surface, even under the keyboard isolation of the enlarged view and add
+  mode) and on any scroll (the page's, or a scroller inside the panel). Also hidden when its
+  control goes away under it — removed, hidden, made inert, or given different text — and when
+  the panel closes. Once one is showing, the next appears at once, and for 500ms after one
   hides. A disabled reason (§AF) is quicker, 300ms, and also appears on keyboard focus.
 - **Markup:** a control's text is `data-tip`; its disabled reason is `data-tip-reason`, shown
   instead while `aria-disabled="true"`. One tooltip element and one set of delegated listeners
   per shadow root (the panel with the enlarged view; add mode), so a label that changes with state
   is an attribute write. A reason is announced (`aria-describedby` while shown); a plain tooltip
   repeats the control's name and is not.
-- In add mode it is hidden the moment a capture starts: nothing of ours may be in a screenshot.
+- In add mode it is hidden the moment a capture starts, with no fade-out: nothing of ours may be
+  in a screenshot.
 - Not a tooltip, and unchanged: add mode's placement hint that follows the cursor (§N).
 
 ## The "keep on" switch's reveal no longer ghosts (2026-09-29)

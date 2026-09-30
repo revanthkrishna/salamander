@@ -148,6 +148,10 @@ function makeStorageAreaMock(data: Record<string, unknown>) {
 
 // Reset storage between tests
 beforeEach(() => {
+  // storage.ts rejects when chrome.runtime.lastError is set in a callback, so
+  // a test that simulated a failure must never leak it into the next one
+  // (several test files replace chrome.runtime wholesale, hence the guard).
+  if ((global as any).chrome?.runtime) (global as any).chrome.runtime.lastError = null;
   Object.keys(storageData).forEach(k => delete storageData[k]);
   Object.keys(sessionStorageData).forEach(k => delete sessionStorageData[k]);
   jest.clearAllMocks();

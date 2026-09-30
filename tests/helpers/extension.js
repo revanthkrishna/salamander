@@ -547,28 +547,6 @@ async function exportAndGetDownload(context, page) {
 
 
 /**
- * Resolve with the next native dialog's message, after `respond` has
- * answered it (accept or dismiss) from inside the `dialog` event. Answering
- * there, rather than after awaiting whatever action opened the dialog, keeps
- * that action from hanging on a page the dialog is blocking.
- */
-function handleNextDialog(page, respond, timeout = 5000) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      page.off('dialog', onDialog);
-      reject(new Error(`no dialog within ${timeout}ms`));
-    }, timeout);
-    async function onDialog(dialog) {
-      clearTimeout(timer);
-      const message = dialog.message();
-      await respond(dialog);
-      resolve(message);
-    }
-    page.once('dialog', onDialog);
-  });
-}
-
-/**
  * Wait for the "more options" menu to turn into a question (design spec
  * §AF), answer it, and return the question. `accept` picks the confirming
  * button, otherwise "cancel". Either answer closes the menu.
@@ -588,9 +566,9 @@ async function openActionMenu(page) {
   await page.locator(SELECTORS.btnImport).waitFor({ state: 'visible', timeout: 5000 });
 }
 
-/** Open the chevron menu, click its "import" item, pick `filePath` from the
- *  native file chooser, and wait for the round trip to settle (sidebar
- *  re-render / confirm dialog, if any). */
+/** Open the "more options" menu, click its "import" item, pick `filePath`
+ *  from the native file chooser, and wait for the round trip to settle
+ *  (sidebar re-render; the in-menu question first, if `confirm`). */
 async function importFile(page, filePath, { confirm = false } = {}) {
   await openActionMenu(page);
   const chooserPromise = page.waitForEvent('filechooser', { timeout: 5000 });
@@ -636,7 +614,6 @@ module.exports = {
   editNoteAndBlur,
   deleteCurrentNote,
   exportAndGetDownload,
-  handleNextDialog,
   answerConfirm,
   importFile,
 };

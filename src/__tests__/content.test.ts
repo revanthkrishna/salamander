@@ -331,6 +331,38 @@ describe('content.ts: "add note" toggle + "keep on" switch (design spec v3 §A2)
     expect(addModeShadow()!.querySelector('.comment-box')).toBeNull();
   });
 
+  test('a capture takes the sidebar\'s tooltip down at once, so it stays out of the screenshot', async () => {
+    loadContent();
+    activate();
+    const btn = addButton();
+    btn.click();
+    placeSelection();
+    const textarea = addModeShadow()!.querySelector('.note-input') as HTMLTextAreaElement;
+    textarea.value = 'tooltip check';
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+
+    // A sidebar tooltip is up (the pointer resting on a sidebar control).
+    const shadow = sidebarShadow();
+    const tipped = shadow.querySelector('[data-tip]') as HTMLElement;
+    jest.useFakeTimers();
+    tipped.dispatchEvent(new MouseEvent('pointerover', { bubbles: true, composed: true }));
+    jest.advanceTimersByTime(1000);
+    jest.useRealTimers();
+    const tip = shadow.querySelector('.sal-tip') as HTMLElement;
+    expect(tip.dataset.open).toBe('true');
+
+    let hideTip: string | undefined;
+    captureAndSave.mockImplementationOnce(async (_r: unknown, ui: { hide: () => void }) => {
+      ui.hide();
+      hideTip = `${tip.dataset.open}|${tip.style.transition}`;
+      return { ok: true, item: makeItem({ id: 7 }) };
+    });
+    (addModeShadow()!.querySelector('.btn-save') as HTMLButtonElement).click();
+    await flushMicrotasks();
+    await flushMicrotasks();
+    expect(hideTip).toBe('false|none');
+  });
+
   test('cancel inside the comment box while the switch is on cancels only that note and stays in add mode', async () => {
     loadContent();
     activate();
@@ -508,7 +540,7 @@ describe('content.ts: the sidebar is on hold during add mode (design spec v3 §H
     expect(menuBtn().disabled).toBe(false);
   });
 
-  test('an open chevron menu is closed by entering add mode', () => {
+  test('an open "more options" menu is closed by entering add mode', () => {
     loadContent();
     activate();
     const menu = () => sidebarShadow().querySelector('.action-menu') as HTMLElement;
@@ -923,6 +955,54 @@ describe('content.ts: import (§1.7) — asked in the menu before the file is pi
   test('a site with no notes: the picker opens straight away, nothing is asked', async () => {
     await open();
     await chooseImport();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(pickerSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('the menu dismissed during the count round trip (count 0): no picker opens', async () => {
+    await open();
+    const fileClick = jest.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
+    const base = (chrome.runtime.sendMessage as jest.Mock).getMockImplementation()!;
+    let reply: ((r?: unknown) => void) | undefined;
+    (chrome.runtime.sendMessage as jest.Mock).mockImplementation((message: any, callback?: (r?: unknown) => void) => {
+      if (message?.type === 'GET_DOMAIN_ITEM_COUNT') {
+        reply = callback; // held: the round trip is still in flight
+        return;
+      }
+      base(message, callback);
+    });
+    try {
+      (sidebarShadow().querySelector('.btn-menu') as HTMLButtonElement).click();
+      importItem().click();
+      await flushMicrotasks();
+      expect(reply).toBeDefined();
+      // The user presses somewhere on the page before the count arrives.
+      document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, composed: true }));
+      expect(menuOpen()).toBe(false);
+
+      reply!({ ok: true, count: 0, pageCount: 0 });
+      await flushMicrotasks();
+      await flushMicrotasks();
+      expect(pickerSpy).not.toHaveBeenCalled();
+      expect(fileClick).not.toHaveBeenCalled();
+    } finally {
+      fileClick.mockRestore();
+    }
+  });
+
+  test('the fresh count also catches the sidebar up: a site emptied elsewhere greys out export and delete-all', async () => {
+    countReply = { ok: true, count: 2, pageCount: 1 };
+    await open();
+    const exportBtn = sidebarShadow().querySelector('.btn-export') as HTMLButtonElement;
+    const deleteAll = sidebarShadow().querySelector('.action-menu-item.is-delete-all') as HTMLButtonElement;
+    expect(exportBtn.hasAttribute('aria-disabled')).toBe(false);
+    expect(deleteAll.hasAttribute('aria-disabled')).toBe(false);
+
+    // Emptied from another tab since the last repaint.
+    countReply = { ok: true, count: 0, pageCount: 0 };
+    await chooseImport();
+    expect(exportBtn.getAttribute('aria-disabled')).toBe('true');
+    expect(deleteAll.getAttribute('aria-disabled')).toBe('true');
     expect(confirmSpy).not.toHaveBeenCalled();
     expect(pickerSpy).toHaveBeenCalledTimes(1);
   });
