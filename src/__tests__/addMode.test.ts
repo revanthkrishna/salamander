@@ -978,27 +978,55 @@ describe('add mode', () => {
 
   // ── comment box ────────────────────────────────────────────────────────────
 
-  test('save is disabled while the textarea is empty, enabled once text is entered', () => {
+  test('save is greyed out while the textarea is empty, live once text is entered', () => {
     addMode.startAddMode(makeCallbacks());
     place(blocker(), 300, 200);
-    expect(saveBtn().disabled).toBe(true);
+    // Soft-disabled (aria-disabled), so it stays hoverable and can say why.
+    expect(saveBtn().getAttribute('aria-disabled')).toBe('true');
+    expect(saveBtn().disabled).toBe(false);
+    expect(saveBtn().dataset.tipReason).toBe('enter a note to save');
 
     typeNote('looks broken here');
-    expect(saveBtn().disabled).toBe(false);
+    expect(saveBtn().hasAttribute('aria-disabled')).toBe(false);
+
+    typeNote('');
+    expect(saveBtn().getAttribute('aria-disabled')).toBe('true');
   });
 
-  test('save stays disabled for whitespace-only text', () => {
-    addMode.startAddMode(makeCallbacks());
+  test('save stays greyed out for whitespace-only text, and clicking it then does nothing', () => {
+    const cbs = makeCallbacks();
+    addMode.startAddMode(cbs);
     place(blocker(), 300, 200);
 
     typeNote('   ');
-    expect(saveBtn().disabled).toBe(true);
+    expect(saveBtn().getAttribute('aria-disabled')).toBe('true');
+    click(saveBtn(), 0, 0);
+    expect(cbs.calls.ok).toHaveLength(0);
+    expect(saveBtn().textContent).toBe('save');
   });
 
-  test('placeholder text is lowercase per §3.4 ("what should change here?")', () => {
+  test('greyed-out save says "enter a note to save" on hover', () => {
+    jest.useFakeTimers();
+    try {
+      addMode.startAddMode(makeCallbacks());
+      place(blocker(), 300, 200);
+      saveBtn().dispatchEvent(new MouseEvent('pointerover', { bubbles: true, composed: true }));
+      jest.advanceTimersByTime(300);
+      const tip = shadowRoot().querySelector('.sal-tip') as HTMLElement;
+      expect(tip.dataset.open).toBe('true');
+      expect(tip.textContent).toBe('enter a note to save');
+      // Typing makes it live: the reason goes.
+      typeNote('now there is one');
+      expect(tip.dataset.open).toBe('false');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('placeholder text is lowercase per §3.4 ("type a note…")', () => {
     addMode.startAddMode(makeCallbacks());
     place(blocker(), 300, 200);
-    expect(textarea().placeholder).toBe('what should change here?');
+    expect(textarea().placeholder).toBe('type a note\u2026');
   });
 
   test('counter: hidden at 0-900 chars, muted at 901-979, danger at 980-1000, formatted "n/1000"', () => {
@@ -1034,48 +1062,34 @@ describe('add mode', () => {
     expect(css).toMatch(/\.counter\[data-danger="true"\]\s*\{[^}]*color:\s*var\(--sal-danger\)[^}]*font-weight:\s*600/);
   });
 
-  test('comment box wrapper is a plain 296px shadowPop container; the text area and footer form the visible surface (design spec §3.2 v2 §C)', () => {
+  test('the comment box is one 296px surface: the sidebar\'s background, a 1px line drawn inside, 6px padding all round', () => {
     addMode.startAddMode(makeCallbacks());
     const rule = cssRule('.comment-box');
     expect(rule).toMatch(/width:\s*296px/);
-    expect(rule).toMatch(/box-shadow:\s*var\(--sal-shadow-pop\)/);
-    // no fill/border of its own — those live on the textarea/footer; the
-    // radius only shapes the drop shadow to the merged surface (no square
-    // shadow corners)
-    expect(rule).not.toMatch(/background:/);
-    expect(rule).not.toMatch(/border:/);
+    expect(rule).toMatch(/box-sizing:\s*border-box/);
+    expect(rule).toMatch(/padding:\s*6px/);
+    expect(rule).toMatch(/background:\s*var\(--sal-bg\)/);
+    expect(rule).toMatch(/box-shadow:\s*var\(--sal-shadow-pop\), inset 0 0 0 1px var\(--sal-line\)/);
     expect(rule).toMatch(/border-radius:\s*var\(--sal-radius-lg\)/);
     expect(addModeOwnCSS()).not.toMatch(/\.comment-box:(hover|focus)/);
     expect(addModeOwnCSS()).not.toMatch(/border-(left|right):/); // no dividers between buttons
   });
 
-  test('the footer is a raised extension tucked under the text area by one radius-lg, sitting behind it (z-index)', () => {
-    addMode.startAddMode(makeCallbacks());
-    const textareaRule = cssRule('.note-input');
-    expect(textareaRule).toMatch(/z-index:\s*1/);
-
-    const footer = cssRule('.footer');
-    expect(footer).toMatch(/z-index:\s*0/);
-    expect(footer).toMatch(/margin-top:\s*calc\(-1 \* var\(--sal-radius-lg\)\)/);
-    expect(footer).toMatch(/background:\s*var\(--sal-raised\)/);
-    expect(footer).toMatch(/border-radius:\s*0 0 var\(--sal-radius-lg\) var\(--sal-radius-lg\)/);
-    expect(footer).not.toMatch(/border-top:/); // hidden under the textarea — no divider needed
-  });
-
-  test('the footer extension carries the note\'s 1px line border, drawn inside (v4 §O)', () => {
+  test('the button row sits 6px below the text area, with no surface of its own', () => {
     addMode.startAddMode(makeCallbacks());
     const footer = cssRule('.footer');
-    expect(footer).toMatch(/box-shadow:\s*inset 0 0 0 1px var\(--sal-line\)/);
-    // Drawn inside, not as a real border that would bleed past the text
-    // area's edges above it.
-    expect(footer).not.toMatch(/(^|[^-])border:\s*1px/);
+    expect(footer).toMatch(/padding-top:\s*6px/);
+    expect(footer).not.toMatch(/background|box-shadow|margin-top|border/);
   });
 
   test('textarea is its own bordered surface: line border at rest, lineStrong on hover, accent on focus (colour change only)', () => {
     addMode.startAddMode(makeCallbacks());
     expect(cssRule('.note-input')).toMatch(/border:\s*1px solid var\(--sal-line\)/);
-    expect(cssRule('.note-input')).toMatch(/border-radius:\s*var\(--sal-radius-lg\)/);
+    // Concentric with the box's corners, like the buttons: radius-lg less the 6px padding.
+    expect(cssRule('.note-input')).toMatch(/border-radius:\s*calc\(var\(--sal-radius-lg\) - 6px\)/);
     expect(cssRule('.note-input')).toMatch(/outline:\s*none/);
+    // Text inset by the box's own 6px padding, so everything shares one inset.
+    expect(cssRule('.note-input')).toMatch(/padding:\s*6px;/);
     expect(cssRule('.note-input:hover')).toMatch(/border-color:\s*var\(--sal-line-strong\);/);
     const focus = cssRule('.note-input:focus');
     expect(focus).toMatch(/border-color:\s*var\(--sal-accent\);/);
@@ -1085,25 +1099,29 @@ describe('add mode', () => {
     expect(css.indexOf('.note-input:focus')).toBeGreaterThan(css.indexOf('.note-input:hover'));
   });
 
-  test('save/cancel buttons: rounded-sm, ~30px tall, padded, standard (non-inset) focus ring (design spec §2, v2 §C)', () => {
+  test('save/cancel buttons look like the sidebar\'s button bar: bordered surface, same size, standard focus ring', () => {
     addMode.startAddMode(makeCallbacks());
     expect(cssRule('.btn')).toMatch(/height:\s*30px/);
-    expect(cssRule('.btn')).toMatch(/border-radius:\s*var\(--sal-radius-sm\)/);
-    expect(cssRule('.btn')).toMatch(/padding:\s*0 12px/);
+    // Concentric with the bar's corners: radius-lg less its 6px padding.
+    expect(cssRule('.btn')).toMatch(/border-radius:\s*calc\(var\(--sal-radius-lg\) - 6px\)/);
+    expect(cssRule('.btn-pencil')).toMatch(/border-radius:\s*calc\(var\(--sal-radius-lg\) - 6px\)/);
+    // The 1px border is inside the box; the padding gives it back, so the
+    // width is what it was with 12px of padding and no border.
+    expect(cssRule('.btn')).toMatch(/padding:\s*0 11px/);
+    expect(cssRule('.btn')).toMatch(/border:\s*1px solid var\(--sal-line\)/);
+    expect(cssRule('.btn')).toMatch(/background:\s*var\(--sal-surface\)/);
+    expect(cssRule('.btn:not(:disabled):hover')).toMatch(/background:\s*var\(--sal-hover\);\s*border-color:\s*var\(--sal-line-strong\)/);
+    expect(cssRule('.btn:not(:disabled):active')).toMatch(/background:\s*var\(--sal-press\);\s*border-color:\s*var\(--sal-line-strong\)/);
+    expect(cssRule('.btn:focus-visible')).toMatch(/box-shadow:\s*0 0 0 2px var\(--sal-bg\), 0 0 0 4px var\(--sal-focus\)/);
 
-    expect(cssRule('.btn-save')).toMatch(/color:\s*var\(--sal-accent-ink\)/);
+    // Save: yellow text like "add note"'s glyph, and never a yellow fill.
+    expect(cssRule('.btn-save')).toMatch(/color:\s*var\(--sal-accent-icon\)/);
     expect(cssRule('.btn-save')).toMatch(/font-weight:\s*700/);
-    expect(cssRule('.btn-save:not(:disabled):hover')).toMatch(/background:\s*var\(--sal-accent\);\s*color:\s*var\(--sal-on-accent\)/);
-    expect(cssRule('.btn-save:not(:disabled):active')).toMatch(/background:\s*var\(--sal-accent-press\)/);
-    const saveFocus = cssRule('.btn-save:not(:disabled):focus-visible');
-    expect(saveFocus).toMatch(/background:\s*var\(--sal-accent\)/);
-    expect(saveFocus).toMatch(/box-shadow:\s*0 0 0 2px var\(--sal-bg\), 0 0 0 4px var\(--sal-focus\)/);
-    expect(cssRule('.btn-save:disabled')).toMatch(/color:\s*var\(--sal-muted\);\s*opacity:\s*0\.5/);
+    expect(addModeOwnCSS()).not.toMatch(/\.btn-save[^{]*\{[^}]*background:\s*var\(--sal-accent/);
+    expect(addModeOwnCSS()).toMatch(/\.btn-save:disabled,\s*\.btn-save\[aria-disabled="true"\] \{ color:\s*var\(--sal-muted\);\s*opacity:\s*0\.5/);
+    expect(addModeOwnCSS()).toMatch(/\.btn-save\[aria-disabled="true"\]:hover,\s*\.btn-save\[aria-disabled="true"\]:active \{ background:\s*var\(--sal-surface\);\s*border-color:\s*var\(--sal-line\)/);
 
-    expect(cssRule('.btn-cancel')).toMatch(/color:\s*var\(--sal-muted\)/);
-    expect(cssRule('.btn-cancel:not(:disabled):hover')).toMatch(/background:\s*var\(--sal-hover\)/);
-    expect(cssRule('.btn-cancel:not(:disabled):active')).toMatch(/background:\s*var\(--sal-press\)/);
-    expect(cssRule('.btn-cancel:focus-visible')).toMatch(/box-shadow:\s*0 0 0 2px var\(--sal-bg\), 0 0 0 4px var\(--sal-focus\)/);
+    expect(cssRule('.btn-cancel')).toMatch(/color:\s*var\(--sal-text\)/);
 
     // Left: the pencil tools; right: the counter, then cancel, then save
     // (design spec §AB moved the counter over from the left).
@@ -1112,6 +1130,19 @@ describe('add mode', () => {
     place(blocker(), 300, 200);
     const classes = (Array.from(shadowRoot().querySelectorAll('.footer > *')) as HTMLElement[]).map((el) => el.className);
     expect(classes).toEqual(['draw-tools', 'counter', 'btn btn-cancel', 'btn btn-save']);
+  });
+
+  test('the pencil is drawn like the sidebar\'s buttons too: bordered surface, still 28px', () => {
+    addMode.startAddMode(makeCallbacks());
+    const rule = cssRule('.btn-pencil');
+    expect(rule).toMatch(/width:\s*28px/);
+    expect(rule).toMatch(/height:\s*28px/);
+    expect(rule).toMatch(/border:\s*1px solid var\(--sal-line\)/);
+    expect(rule).toMatch(/background:\s*var\(--sal-surface\)/);
+    expect(rule).toMatch(/color:\s*var\(--sal-text\)/);
+    expect(cssRule('.btn-pencil:not(:disabled):hover')).toMatch(/background:\s*var\(--sal-hover\);\s*border-color:\s*var\(--sal-line-strong\)/);
+    expect(cssRule('.btn-pencil:not(:disabled):active')).toMatch(/background:\s*var\(--sal-press\);\s*border-color:\s*var\(--sal-line-strong\)/);
+    expect(cssRule('.btn-pencil[aria-expanded="true"]')).toMatch(/background:\s*var\(--sal-hover\);\s*border-color:\s*var\(--sal-line-strong\)/);
   });
 
   test('textarea has a maxlength of 1000', () => {
@@ -1166,6 +1197,7 @@ describe('add mode', () => {
     addMode.showOverlayUI();
     expect(shadowRoot().querySelector('.visuals')!.getAttribute('data-hidden')).toBe('false');
     expect(saveBtn().disabled).toBe(false); // note still present, so re-enabled
+    expect(saveBtn().hasAttribute('aria-disabled')).toBe(false);
     expect(saveBtn().textContent).toBe('save');
     expect(cancelBtn().disabled).toBe(false);
     expect(textarea().readOnly).toBe(false);

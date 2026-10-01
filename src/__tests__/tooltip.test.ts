@@ -175,7 +175,7 @@ describe('shared tooltip (design spec §AG)', () => {
     expect(tip().dataset.side).toBe('below');
   });
 
-  test('side "left" places it to the left; without room there it falls back', () => {
+  test('side "left" places it to the left; without room there, to the right, then above', () => {
     const b = button('exit enlarged view (esc)', { 'data-tip-side': 'left' });
     placeAt(b, 300, 600);
     over(b);
@@ -183,11 +183,22 @@ describe('shared tooltip (design spec §AG)', () => {
     expect(tip().dataset.side).toBe('left');
     handle.hide();
 
-    const edge = button('next note', { 'data-tip-side': 'left' });
+    // No room on the left: the right side, if it fits there.
+    const edge = button('erase all', { 'data-tip-side': 'left' });
     placeAt(edge, 300, 0);
     over(edge);
     jest.advanceTimersByTime(TOOLTIP_DELAY_MS);
-    expect(tip().dataset.side).not.toBe('left');
+    expect(tip().dataset.side).toBe('right');
+    handle.hide();
+
+    // Room on neither side: above.
+    const squeezed = button('next note', { 'data-tip-side': 'left' });
+    placeAt(squeezed, 300, 0);
+    squeezed.getBoundingClientRect = () =>
+      ({ top: 300, left: 0, bottom: 332, right: window.innerWidth, width: window.innerWidth, height: 32, x: 0, y: 300, toJSON() {} }) as DOMRect;
+    over(squeezed);
+    jest.advanceTimersByTime(TOOLTIP_DELAY_MS);
+    expect(tip().dataset.side).toBe('above');
   });
 
   test('hide() and destroy() clean up', () => {

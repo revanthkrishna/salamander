@@ -14,7 +14,9 @@
 // is the text shown instead while the control is soft-disabled
 // (`aria-disabled="true"`): why it is off. `data-tip-side="left"` places the
 // tooltip to the left, beside the nearest `[data-tip-edge]` ancestor if there
-// is one (the "more options" menu, which sits against the window's right edge).
+// is one (the "more options" menu, which sits against the window's right edge;
+// add mode's pencil menu). Without room on the left it goes to the right of
+// that edge, and above if neither side fits.
 //
 // Timing matches the native tooltips it replaces: about a second's hover
 // before the first appears, none on keyboard focus, hidden on any press, on
@@ -94,6 +96,12 @@ export const TOOLTIP_CSS = `
     border-left: none;
     border-top: none;
   }
+  .sal-tip[data-side="right"]::after {
+    left: -5px;
+    top: calc(var(--tip-arrow, 50%) - 4.5px);
+    border-right: none;
+    border-top: none;
+  }
   .sal-tip[data-side="left"]::after {
     right: -5px;
     top: calc(var(--tip-arrow, 50%) - 4.5px);
@@ -116,7 +124,7 @@ export interface TooltipHandle {
   destroy: () => void;
 }
 
-type Side = 'below' | 'above' | 'left';
+type Side = 'below' | 'above' | 'left' | 'right';
 
 function isReason(el: HTMLElement): boolean {
   return el.getAttribute('aria-disabled') === 'true' && !!el.dataset.tipReason;
@@ -243,10 +251,19 @@ export function attachTooltips(root: ShadowRoot): TooltipHandle {
       x = edge.left - GAP_PX - w;
       y = Math.min(Math.max(cy - h / 2, EDGE_PX), vh - h - EDGE_PX);
       arrow = cy - y;
-      // No room on the left: fall back to above.
-      if (x < EDGE_PX) side = 'above';
+      // No room on the left: the right of the same edge instead (add mode's
+      // pencil menu near the window's left edge), and above if neither fits.
+      if (x < EDGE_PX) {
+        const right = edge.right + GAP_PX;
+        if (right + w <= vw - EDGE_PX) {
+          x = right;
+          side = 'right';
+        } else {
+          side = 'above';
+        }
+      }
     }
-    if (side !== 'left') {
+    if (side !== 'left' && side !== 'right') {
       const cx = r.left + r.width / 2;
       x = Math.min(Math.max(cx - w / 2, EDGE_PX), vw - w - EDGE_PX);
       y = r.top - GAP_PX - h;

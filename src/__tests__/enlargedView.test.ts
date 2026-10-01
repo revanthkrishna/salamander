@@ -824,6 +824,35 @@ describe('navigation', () => {
     expect(mainCard()!.dataset.itemId).toBe('3');
   });
 
+  test('greyed out at the ends, ↑ and ↓ say why on hover; in between they show their own names', () => {
+    setup(2);
+    open(1);
+    settleOpen();
+    const tip = () => shadow().querySelector('.sal-tip') as HTMLElement;
+    const hover = (b: HTMLElement) => b.dispatchEvent(new MouseEvent('pointerover', { bubbles: true, composed: true }));
+    const leave = (b: HTMLElement) => b.dispatchEvent(new MouseEvent('pointerout', { bubbles: true, composed: true }));
+
+    hover(upBtn());
+    jest.advanceTimersByTime(300);
+    expect(tip().dataset.open).toBe('true');
+    expect(tip().textContent).toBe('this is the first note');
+    leave(upBtn());
+
+    jest.advanceTimersByTime(2000); // cold again
+    hover(downBtn());
+    jest.advanceTimersByTime(1000);
+    expect(tip().textContent).toBe('next note (↓)');
+    leave(downBtn());
+
+    downBtn().click();
+    jest.advanceTimersByTime(T.carousel + 2000);
+    expect(downBtn().getAttribute('aria-disabled')).toBe('true');
+    hover(downBtn());
+    jest.advanceTimersByTime(300);
+    expect(tip().dataset.open).toBe('true');
+    expect(tip().textContent).toBe('this is the last note');
+  });
+
   test('rapid ↓↓ retargets instead of dropping the second press', () => {
     setup(4);
     open(1);

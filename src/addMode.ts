@@ -58,6 +58,7 @@ import {
   PEN_COLORS,
   PenColor,
 } from './drawing';
+import { ENTER_A_NOTE_MESSAGE, NOTE_PLACEHOLDER, NOTHING_TO_ERASE_MESSAGE } from './copy';
 import { ICON_ERASER, ICON_PENCIL, PENCIL_CURSOR } from './icons';
 import { attachTooltips, TooltipHandle, TOOLTIP_CSS } from './tooltip';
 
@@ -114,14 +115,17 @@ const DRAG_THRESHOLD = 5;
  *  overflowed; widening the box keeps every button's padding the same as
  *  everywhere else in the UI, where squeezing cancel/save would not. */
 const COMMENT_WIDTH = 296;
+/** The comment box's padding: the same 6px on every side and between the
+ *  text area and the button row, so the text area's edges line up with the
+ *  buttons'. Everything inside (text area, pencil, cancel, save) takes the
+ *  box's radius-lg corners less that padding, concentric with them. */
+const COMMENT_PAD_PX = 6;
+const COMMENT_INNER_RADIUS_CSS = `calc(var(--sal-radius-lg) - ${COMMENT_PAD_PX}px)`;
 /** Comment box height before its first layout pass (offsetHeight is 0 until
- *  then): 88px textarea + 42px of visible footer bar (design spec §3.2 v2
- *  §C — the footer's own 56px height, made of a 20px top padding that
- *  absorbs the hidden radius-lg overlap, a 30px button row and 6px bottom
- *  padding, minus the 14px negative margin that tucks it under the
- *  textarea's bottom edge). Only used to pick a flip candidate on the very
- *  first render; every later render measures the real element. */
-const COMMENT_FALLBACK_HEIGHT = 130;
+ *  then): 6px padding + 88px textarea + 6px gap + 30px button row + 6px
+ *  padding. Only used to pick a flip candidate on the very first render;
+ *  every later render measures the real element. */
+const COMMENT_FALLBACK_HEIGHT = 136;
 const COMMENT_MARGIN = 8;
 const MAX_NOTE_LENGTH = 1000;
 /** Counter visibility (design spec §3.2): hidden at 0–900 chars, muted at
@@ -177,8 +181,8 @@ const TOOLTIP_FALLBACK_HEIGHT = 28;
 const DRAW_MENU_FALLBACK_HEIGHT = 42;
 const DRAW_MENU_GAP = 6;
 /** How far above the comment box's bottom edge the menu's bottom sits when
- *  it opens upward: the footer's visible height (42px, COMMENT_FALLBACK_HEIGHT's
- *  footer share) plus a 4px gap, so it clears the pencil button. */
+ *  it opens upward: clear of the pencil (6px padding + its 30px row) with
+ *  10px to spare. */
 const DRAW_MENU_ABOVE_OFFSET = 46;
 /** Pointer samples closer than this (CSS px) to the previous point add
  *  nothing visible and are dropped, so a slow stroke with coalesced events
@@ -376,18 +380,21 @@ const ADD_MODE_CSS = `
   .visuals[data-drawing="true"] .comment-box,
   .visuals[data-drawing="true"] .comment-box * { cursor: ${PENCIL_CURSOR} !important; }
 
-  /* The wrapper itself has no fill/border/radius of its own (design spec
-     §3.2 v2 §C): it just positions and drop-shadows its two block children,
-     the text area and the footer "extension", which each own their own
-     rounded surface and together read as one merged shape. */
+  /* One rounded surface holding the text area and, below it, the button
+     row, both inset by COMMENT_PAD_PX so their edges line up. */
   .comment-box {
     position: absolute;
     width: ${COMMENT_WIDTH}px;
     color: var(--sal-text);
     font-family: var(--sal-font-body);
-    box-shadow: var(--sal-shadow-pop);
-    /* Same radius as the two rounded children, so the drop shadow follows
-       the merged shape instead of casting a square one. */
+    /* The box is the surface (design spec, 2026-09-30): the sidebar's own
+       background, like its button bar, with the text area and the button
+       row inset by the same padding all round. Its 1px line is an inset
+       shadow, so the padding is measured from its outer edge. */
+    box-sizing: border-box;
+    padding: ${COMMENT_PAD_PX}px;
+    background: var(--sal-bg);
+    box-shadow: var(--sal-shadow-pop), inset 0 0 0 1px var(--sal-line);
     border-radius: var(--sal-radius-lg);
     /* .visuals inherits pointer-events: none from the host (the host is
        pointer-events: none so the blocker underneath can own page-click
@@ -399,15 +406,12 @@ const ADD_MODE_CSS = `
     pointer-events: auto;
   }
 
-  /* Text area is its own fully-rounded surface (design spec §3.2 v2 §C):
-     radius lg on all four corners, a real 1px border (box-sizing: border-box
-     keeps it from growing the box), surface fill. Hover/focus only ever
-     change the border colour — no extra ring, no shape change. Positioned
-     above the footer (z-index 1 vs 0) so its rounded bottom corners paint
-     over the footer's square top ones. */
+  /* The text area: a bordered surface inset in the box, its corners
+     concentric with the box's (COMMENT_INNER_RADIUS_CSS), like the buttons
+     below it. A real 1px border (box-sizing: border-box keeps it from
+     growing the box), surface fill. Hover/focus only ever change the border
+     colour — no extra ring, no shape change. */
   .note-input {
-    position: relative;
-    z-index: 1;
     display: block;
     width: 100%;
     height: 88px;
@@ -415,10 +419,11 @@ const ADD_MODE_CSS = `
     margin: 0;
     resize: none;
     border: 1px solid var(--sal-line);
-    border-radius: var(--sal-radius-lg);
+    border-radius: ${COMMENT_INNER_RADIUS_CSS};
     outline: none;
     background: var(--sal-surface);
-    padding: 10px 12px;
+    /* The box's own padding, so text, edges and buttons share one inset. */
+    padding: ${COMMENT_PAD_PX}px;
     font-family: var(--sal-font-body);
     font-size: 13px;
     line-height: 1.4;
@@ -430,30 +435,15 @@ const ADD_MODE_CSS = `
   /* After :hover so focus wins while both apply. */
   .note-input:focus { border-color: var(--sal-accent); }
 
-  /* Button bar "extension" (design spec §3.2 v2 §C, same pattern as the
-     sidebar's hovered note-list item): tucked under the text area's bottom
-     edge by exactly one radius-lg via a negative margin, with that same
-     amount added back as top padding so the counter/buttons never render
-     inside the hidden zone. .footer is a plain block child of .comment-box
-     just like .note-input, so both span the same 296px width and their
-     edges line up exactly. Its own 1px line border is drawn INSIDE via an
-     inset shadow (design spec v4 §O, the same treatment as the note's hover
-     extension in v2 §B): a real border would sit outside the padding box and
-     bleed half a pixel past the text area's edges, an inset shadow paints on
-     the element's own edge, so the two line up exactly. */
+  /* The button row: the pencil tools on the left, the counter, cancel and
+     save on the right, COMMENT_PAD_PX below the text area. */
   .footer {
-    position: relative;
-    z-index: 0;
-    margin-top: calc(-1 * var(--sal-radius-lg));
-    box-sizing: border-box;
-    padding: calc(var(--sal-radius-lg) + 6px) 6px 6px 6px;
-    border-radius: 0 0 var(--sal-radius-lg) var(--sal-radius-lg);
-    background: var(--sal-raised);
-    box-shadow: inset 0 0 0 1px var(--sal-line);
+    padding-top: ${COMMENT_PAD_PX}px;
     display: flex;
     align-items: center;
     gap: 4px;
   }
+
 
   /* Right side (design spec §AB): the counter sits just left of cancel. It
      only takes up room once it shows — hidden, it would push the bar past
@@ -478,7 +468,10 @@ const ADD_MODE_CSS = `
     margin-right: auto;
   }
 
-  /* The pencil: a 28px ghost icon button (§X) and a menu button (§C2). */
+  /* The pencil: a 28px icon button (§X) and a menu button (§C2), drawn like
+     the sidebar's button bar (§AE): surface fill, 1px line border, text-
+     coloured glyph; hover and press change the fill and light the border.
+     border-box, so the border does not change its 28px size. */
   .btn-pencil {
     width: 28px;
     height: 28px;
@@ -488,10 +481,10 @@ const ADD_MODE_CSS = `
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: none;
-    border-radius: var(--sal-radius-sm);
-    background: transparent;
-    color: var(--sal-muted);
+    border: 1px solid var(--sal-line);
+    border-radius: ${COMMENT_INNER_RADIUS_CSS};
+    background: var(--sal-surface);
+    color: var(--sal-text);
     cursor: pointer;
     outline: none;
     ${STATE_TRANSITION_CSS}
@@ -501,10 +494,10 @@ const ADD_MODE_CSS = `
   /* Open takes the hover fill, like the sidebar's "more options" button
      (§AE). Before :hover and :active so the press fill still reads while
      it is open. */
-  .btn-pencil[aria-expanded="true"] { background: var(--sal-hover); color: var(--sal-text); }
-  .btn-pencil:not(:disabled):hover { background: var(--sal-hover); color: var(--sal-text); }
-  .btn-pencil:not(:disabled):active { background: var(--sal-press); color: var(--sal-text); }
-  .btn-pencil:focus-visible { color: var(--sal-text); ${FOCUS_RING_CSS} }
+  .btn-pencil[aria-expanded="true"] { background: var(--sal-hover); border-color: var(--sal-line-strong); }
+  .btn-pencil:not(:disabled):hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
+  .btn-pencil:not(:disabled):active { background: var(--sal-press); border-color: var(--sal-line-strong); }
+  .btn-pencil:focus-visible { ${FOCUS_RING_CSS} }
   .btn-pencil:disabled { ${DISABLED_CSS} }
 
   /* The swatches: a radio group of 18px-wide targets, each holding a 12px
@@ -538,7 +531,8 @@ const ADD_MODE_CSS = `
   .swatch:not(:disabled):hover .swatch-dot { box-shadow: 0 0 0 1px var(--sal-muted); }
   .swatch[aria-checked="true"] .swatch-dot,
   .swatch[aria-checked="true"]:not(:disabled):hover .swatch-dot {
-    box-shadow: 0 0 0 2px var(--sal-raised), 0 0 0 3.5px var(--sal-text);
+    /* The gap is the bar's own fill, so the ring floats clear of the dot. */
+    box-shadow: 0 0 0 2px var(--sal-bg), 0 0 0 3.5px var(--sal-text);
   }
   .swatch:focus-visible { ${FOCUS_RING_CSS} }
   .swatch:disabled { ${DISABLED_CSS} }
@@ -611,20 +605,26 @@ const ADD_MODE_CSS = `
   .draw-menu-item:not(:disabled):hover { background: var(--sal-hover); }
   .draw-menu-item:focus-visible { background: var(--sal-hover); }
   .draw-menu-item:not(:disabled):active { background: var(--sal-press); }
-  .draw-menu-item:disabled { ${DISABLED_CSS} }
+  .draw-menu-item:disabled,
+  .draw-menu-item[aria-disabled="true"] { ${DISABLED_CSS} }
+  .draw-menu-item[aria-disabled="true"]:hover,
+  .draw-menu-item[aria-disabled="true"]:active { background: transparent; }
   .draw-menu-item .icon { width: 16px; height: 16px; flex-shrink: 0; display: inline-flex; }
   .draw-menu-item .icon svg { width: 100%; height: 100%; display: block; }
 
-  /* Ghost buttons (design spec §2 "save"/"cancel" rows, restyled per v2 §C):
-     rounded-sm, ~30px tall, padded — free-floating inside the raised bar
-     rather than flush against its edges. No vertical dividers between them. */
+  /* Cancel and save (design spec §2 rows, restyled per v2 §C), drawn like
+     the sidebar's button bar (§AE): surface fill and a 1px line border that
+     hover and press light up. 30px tall, free-floating inside the bar, with
+     corners concentric with the bar's (COMMENT_INNER_RADIUS_CSS). The
+     border is inside the box (border-box), and the side padding gives back
+     its 1px, so the buttons keep their size. */
   .btn {
     height: 30px;
     margin: 0;
-    padding: 0 12px;
-    border: none;
-    border-radius: var(--sal-radius-sm);
-    background: transparent;
+    padding: 0 11px;
+    border: 1px solid var(--sal-line);
+    border-radius: ${COMMENT_INNER_RADIUS_CSS};
+    background: var(--sal-surface);
     font-family: var(--sal-font-body);
     font-size: 13px;
     cursor: pointer;
@@ -633,30 +633,32 @@ const ADD_MODE_CSS = `
   }
   .btn:disabled { ${DISABLED_CSS} }
 
+  .btn:not(:disabled):hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
+  .btn:not(:disabled):active { background: var(--sal-press); border-color: var(--sal-line-strong); }
+  .btn:focus-visible { ${FOCUS_RING_CSS} }
+
   .btn-cancel {
-    color: var(--sal-muted);
+    color: var(--sal-text);
     font-weight: 500;
   }
-  .btn-cancel:not(:disabled):hover { background: var(--sal-hover); color: var(--sal-text); }
-  .btn-cancel:not(:disabled):active { background: var(--sal-press); color: var(--sal-text); }
-  .btn-cancel:focus-visible { color: var(--sal-text); ${FOCUS_RING_CSS} }
 
+  /* Save is yellow text on the plain button, like "add note"'s glyph: it
+     never fills yellow; hover and press are the plain button's. */
   .btn-save {
-    color: var(--sal-accent-ink);
+    color: var(--sal-accent-icon);
     font-weight: 700;
   }
-  .btn-save:not(:disabled):hover { background: var(--sal-accent); color: var(--sal-on-accent); }
-  .btn-save:not(:disabled):active { background: var(--sal-accent-press); color: var(--sal-on-accent); }
-  .btn-save:not(:disabled):focus-visible {
-    background: var(--sal-accent);
-    color: var(--sal-on-accent);
-    ${FOCUS_RING_CSS}
-  }
   /* Empty note: muted text at half opacity (design spec §2 "save disabled"). */
-  .btn-save:disabled { color: var(--sal-muted); opacity: 0.5; }
-  /* While capturing (after save), keep the ink colour so "saving…" reads as
+  .btn-save:disabled,
+  .btn-save[aria-disabled="true"] { color: var(--sal-muted); opacity: 0.5; }
+  /* Greyed out but still hoverable (so its reason can show): no hover or
+     press change, no pointer. */
+  .btn-save[aria-disabled="true"] { cursor: default; }
+  .btn-save[aria-disabled="true"]:hover,
+  .btn-save[aria-disabled="true"]:active { background: var(--sal-surface); border-color: var(--sal-line); }
+  /* While capturing (after save), keep the yellow text so "saving…" reads as
      in-progress rather than as the empty-note disabled state. */
-  .comment-box[aria-busy="true"] .btn-save:disabled { color: var(--sal-accent-ink); opacity: 1; }
+  .comment-box[aria-busy="true"] .btn-save:disabled { color: var(--sal-accent-icon); opacity: 1; }
 
   /* Motion-design skill: reduced motion keeps the opacity change (still
      communicates state) but drops the transition itself, so the preview and
@@ -1028,7 +1030,7 @@ function buildCommentDOM(): void {
 
   elTextarea = document.createElement('textarea');
   elTextarea.className = 'note-input';
-  elTextarea.placeholder = 'what should change here?';
+  elTextarea.placeholder = NOTE_PLACEHOLDER;
   elTextarea.maxLength = MAX_NOTE_LENGTH;
   elTextarea.setAttribute('aria-label', 'feedback note');
   elTextarea.addEventListener('input', updateCounterAndSaveState);
@@ -1050,7 +1052,10 @@ function buildCommentDOM(): void {
   elSaveBtn.type = 'button';
   elSaveBtn.className = 'btn btn-save';
   elSaveBtn.textContent = SAVE_LABEL;
-  elSaveBtn.disabled = true;
+  // An empty note greys it out with aria-disabled, so it stays hoverable
+  // and can say why; only "saving…" disables it outright.
+  elSaveBtn.dataset.tipReason = ENTER_A_NOTE_MESSAGE;
+  setSaveEmpty(true);
   elSaveBtn.addEventListener('click', handleSaveClick);
 
   // Left: the pencil and its swatches; right: counter, cancel, save
@@ -1146,11 +1151,18 @@ function buildDrawMenu(): HTMLDivElement {
   elDrawMenu.setAttribute('role', 'menu');
   elDrawMenu.setAttribute('aria-label', 'drawing options');
   elDrawMenu.dataset.open = 'false';
+  // "erase all"'s reason sits beside the menu, not over it (§AG).
+  elDrawMenu.dataset.tipEdge = '';
 
   elEraseItem = document.createElement('button');
   elEraseItem.type = 'button';
   elEraseItem.className = 'draw-menu-item';
   elEraseItem.setAttribute('role', 'menuitem');
+  // Greyed out while nothing is drawn, but still hoverable and focusable
+  // (aria-disabled, not disabled), so it can say why — like the sidebar's
+  // "delete all for this website" (§AF).
+  elEraseItem.dataset.tipReason = NOTHING_TO_ERASE_MESSAGE;
+  elEraseItem.dataset.tipSide = 'left';
   const icon = document.createElement('span');
   icon.className = 'icon';
   icon.innerHTML = ICON_ERASER;
@@ -1159,6 +1171,7 @@ function buildDrawMenu(): HTMLDivElement {
   elEraseItem.appendChild(icon);
   elEraseItem.appendChild(label);
   elEraseItem.addEventListener('click', () => {
+    if (elEraseItem?.getAttribute('aria-disabled') === 'true') return;
     eraseAll();
     closeDrawMenu({ returnFocus: true });
   });
@@ -1680,9 +1693,15 @@ function eraseAll(): void {
   updateDrawControls();
 }
 
-/** "erase all" is disabled while there is nothing drawn (§AB). */
+/** "erase all" is greyed out while there is nothing drawn (§AB). */
 function updateDrawControls(): void {
-  if (elEraseItem) elEraseItem.disabled = strokes.length === 0;
+  if (!elEraseItem) return;
+  const off = strokes.length === 0;
+  if ((elEraseItem.getAttribute('aria-disabled') === 'true') === off) return;
+  if (off) elEraseItem.setAttribute('aria-disabled', 'true');
+  else elEraseItem.removeAttribute('aria-disabled');
+  // A tooltip up for the old state would now say the wrong thing.
+  addModeTooltips?.hide();
 }
 
 /** Checked state and the radio group's roving tabindex: only the checked
@@ -1732,8 +1751,10 @@ function drawMenuFitsBelow(): boolean {
   return top + commentHeight + DRAW_MENU_GAP + menuH <= getBounds().height;
 }
 
+/** The menu's items, greyed-out ones included: the keyboard reaches them
+ *  too, and focus shows why they are off. */
 function drawMenuItems(): HTMLButtonElement[] {
-  return elEraseItem && !elEraseItem.disabled ? [elEraseItem] : [];
+  return elEraseItem ? [elEraseItem] : [];
 }
 
 function onShadowPointerDown(e: Event): void {
@@ -1822,7 +1843,17 @@ function updateCounterAndSaveState(): void {
   elCounter.textContent = `${len}/${MAX_NOTE_LENGTH}`;
   elCounter.dataset.warn = String(len > COUNTER_WARN_ABOVE);
   elCounter.dataset.danger = String(len >= COUNTER_DANGER_AT);
-  elSaveBtn.disabled = elTextarea.value.trim().length === 0;
+  setSaveEmpty(elTextarea.value.trim().length === 0);
+}
+
+/** Save greyed out (soft: aria-disabled) while the note is empty. Its click
+ *  does nothing then — handleSaveClick checks the note itself. */
+function setSaveEmpty(empty: boolean): void {
+  if (!elSaveBtn || (elSaveBtn.getAttribute('aria-disabled') === 'true') === empty) return;
+  if (empty) elSaveBtn.setAttribute('aria-disabled', 'true');
+  else elSaveBtn.removeAttribute('aria-disabled');
+  // A tooltip up for the old state would now say the wrong thing.
+  addModeTooltips?.hide();
 }
 
 function handleCancelClick(): void {
@@ -1834,7 +1865,7 @@ function handleCancelClick(): void {
 function handleSaveClick(): void {
   if (!elTextarea || !elSaveBtn || !elCancelBtn) return;
   const note = elTextarea.value.trim();
-  if (note.length === 0) return; // save is disabled in this state, but guard anyway
+  if (note.length === 0) return; // greyed out (aria-disabled) in this state: no-op
 
   // Capturing (design spec §3.2): lock the note and both buttons until the
   // capture pipeline either exits add mode (success) or calls
@@ -1958,7 +1989,8 @@ export function showOverlayUI(): void {
   elComment?.removeAttribute('aria-busy');
   if (elSaveBtn) {
     elSaveBtn.textContent = SAVE_LABEL;
-    elSaveBtn.disabled = elTextarea ? elTextarea.value.trim().length === 0 : true;
+    elSaveBtn.disabled = false;
+    setSaveEmpty(elTextarea ? elTextarea.value.trim().length === 0 : true);
   }
   if (elCancelBtn) elCancelBtn.disabled = false;
   capturing = false;

@@ -183,6 +183,7 @@ perfect — make sound styling decisions where they're rough, stay within the to
   padding: "cancel" (muted; hover fill hover + text colour; press fill press) and "save"
   (accentInk bold at rest; accent fill + onAccent on hover/press/focus-visible; muted .5 disabled).
   Button radius sm, ~30px tall, padding 0 12px. No vertical dividers. shadowPop wraps the whole thing.
+  **Superseded 2026-09-30** — see "Add mode's buttons match the sidebar's" at the end.
 
 ## D. Enlarged view — replaces the modal
 Clicking a note no longer opens a centered modal. The SIDEBAR ITSELF expands:
@@ -987,6 +988,9 @@ questions were being asked in the website's name. They are now asked in place, b
   delete-all that is the menu item's soft danger treatment (`danger-soft` fill, `danger` ink); for
   import it is the plain button with `accent-icon` (yellow) text, like **add note**'s glyph —
   importing is not a delete.
+- Too narrow for both labels on one line (at the narrowest panel widths), the two buttons stack
+  instead: full width, 8px apart, the confirming one on top and **cancel** at the bottom. A label
+  never wraps. Measured each time a question is asked, since the confirming label differs.
 - Delete-all: **"delete 5 notes across 3 pages?"**, **yes, delete** / **cancel**. Each noun agrees
   with its own count ("delete 1 note across 1 page?"). The counts are read fresh when it is chosen.
 - Import: **"your existing notes will be discarded. continue with import?"**, **yes, import** /
@@ -1061,3 +1065,38 @@ an overflow change applies at once while the width grows over 160ms, so the full
 was drawn past a box only a few px wide and its rounded end showed as a faint half circle beside
 the button for the first frames. Nothing needs the overflow: at full width the track fits
 exactly, and the focus ring is the switch's own box-shadow, which its overflow never clips.
+
+## Add mode's buttons match the sidebar's (2026-09-30)
+The comment box's **pencil**, **cancel** and **save** are drawn like the sidebar's button bar (§AE):
+`surface` fill, 1px `line` border; hover → `hover` fill + `lineStrong` border; press → `press` fill
++ `lineStrong` border; focus-visible → the standard ring. Pencil and cancel carry `text`-coloured
+ink. **save** is bold `accent-icon` (yellow) text, like **add note**'s glyph, and never fills
+yellow — its hover and press are the plain button's. Disabled (empty note) stays muted at .5;
+"saving…" keeps the yellow text. Sizes are unchanged: the border is inside the box, and cancel/save
+take 11px of side padding in place of 12px, so they are exactly as wide as before. The open pencil
+keeps the hover treatment, like the open "more options" button.
+
+The comment box is now one surface: the sidebar's own background (`bg`), a 1px `line` drawn inside
+(inset shadow), radius-lg, and 6px of padding on every side and between the text area and the
+button row — so the text area's edges line up with the pencil's left and save's right. The text
+area is no longer a separate rounded block with a bar tucked under it. Everything inside it (text
+area, pencil, cancel, save) takes radius-lg (14) less the 6px padding = 8px, concentric with the
+box's corners. Height: 6 + 88 + 6 + 30 + 6 = 136px. The selected swatch's ring gap is `bg`.
+
+Greyed-out controls in the comment box say why, like the sidebar's (§AF), so they are
+`aria-disabled` rather than `disabled` (still hoverable and focusable; a click does nothing):
+- **save** with an empty (or whitespace-only) note: **"enter a note to save"**, above it. While
+  "saving…" it is plainly `disabled` instead, with no tooltip.
+- **erase all** with nothing drawn: **"nothing to erase"**, beside the pencil menu — to its left,
+  or to its right when the box is too close to the window's left edge (the tooltip's `left` side
+  now falls back to `right`, then `above`). The keyboard reaches it (↓ from the pencil), and focus
+  shows the reason.
+
+The text area's own inner padding is the box's 6px too, so the text, the text area's edges and the
+buttons share one inset. Its placeholder (here and in the enlarged view) is **"type a note…"**
+(was "what should change here?").
+
+The enlarged view's **↑** and **↓** (already `aria-disabled` at the ends) say why when greyed out:
+**"this is the first note"** / **"this is the last note"**, to the left of the rail like their
+names. Other disabled states stay without a reason by design: export and ⋯ while add mode is on,
+export/import while one is in flight, and the comment box's controls during "saving…".

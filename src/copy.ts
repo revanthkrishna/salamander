@@ -44,6 +44,15 @@ export const EXPORT_FAILED_MESSAGE = "couldn't export feedback. try again.";
 export const NOTHING_TO_EXPORT_MESSAGE = 'nothing to export';
 /** The reason "delete all for this website" is greyed out (design spec §AF). */
 export const NOTHING_TO_DELETE_MESSAGE = 'nothing to delete';
+/** The reason add mode's "erase all" is greyed out (design spec §AB). */
+export const NOTHING_TO_ERASE_MESSAGE = 'nothing to erase';
+/** The reason add mode's "save" is greyed out: the note is empty (§3.2). */
+export const ENTER_A_NOTE_MESSAGE = 'enter a note to save';
+/** Placeholder of the note's text area, in add mode and the enlarged view. */
+export const NOTE_PLACEHOLDER = 'type a note\u2026';
+/** Why the enlarged view's ↑ / ↓ are greyed out at the ends (design spec §AG). */
+export const FIRST_NOTE_MESSAGE = 'this is the first note';
+export const LAST_NOTE_MESSAGE = 'this is the last note';
 
 // ─── Import (§1.7, §5) ───────────────────────────────────────────────────────
 

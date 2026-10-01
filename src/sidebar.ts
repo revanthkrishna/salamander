@@ -432,6 +432,8 @@ const MENU_Z_INDEX = 102;
  *  confirmation's contents are laid out at (confirmInMenu), both read them. */
 const MENU_BORDER_PX = 1;
 const MENU_PAD_PX = 4;
+/** Gap between the confirmation's two buttons, side by side or stacked. */
+const CONFIRM_ACTIONS_GAP_PX = 8;
 /** How far (px) the note list's scrollport extends out over the page so
  *  dock-magnified items aren't clipped at the panel edge (see .body). Worst
  *  case at the 300px maximum width: 0.12 × 268px of scale + 22px of shift −
@@ -1035,9 +1037,16 @@ const SIDEBAR_CSS = `
   .action-menu-confirm-actions {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
+    gap: ${CONFIRM_ACTIONS_GAP_PX}px;
   }
+  /* Too narrow for both labels on one line (confirmInMenu measures): the
+     buttons stack and span the box, the confirming one on top and cancel at
+     the bottom. A label never wraps. */
+  .action-menu-confirm-actions.is-stacked { flex-direction: column-reverse; }
+  .action-menu-confirm-actions.is-stacked .confirm-btn { width: 100%; }
   .confirm-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
     height: 32px;
     margin: 0;
     padding: 0 12px;
@@ -1571,6 +1580,7 @@ let elMenuConfirm: HTMLDivElement | null = null;
 let elMenuConfirmText: HTMLParagraphElement | null = null;
 let elMenuConfirmCancel: HTMLButtonElement | null = null;
 let elMenuConfirmOk: HTMLButtonElement | null = null;
+let elMenuConfirmActions: HTMLDivElement | null = null;
 /** The panel's tooltips (design spec §AG), the enlarged view's included. */
 let sidebarTooltips: TooltipHandle | null = null;
 let elBtnClose: HTMLButtonElement | null = null;
@@ -1748,6 +1758,7 @@ function buildDOM(shadow: ShadowRoot): void {
   elMenuConfirmText.id = MENU_CONFIRM_TEXT_ID;
   const confirmActions = document.createElement('div');
   confirmActions.className = 'action-menu-confirm-actions';
+  elMenuConfirmActions = confirmActions;
   elMenuConfirmCancel = document.createElement('button');
   elMenuConfirmCancel.type = 'button';
   elMenuConfirmCancel.className = 'confirm-btn is-cancel';
@@ -2283,6 +2294,17 @@ function confirmWidthPx(): number {
   return Math.max(0, sidebarWidth - PANEL_BORDER_PX - ACTION_ROW_PAD_X * 2);
 }
 
+/** Side by side when both buttons fit on one line at their natural
+ *  (unwrapped) widths; otherwise stacked full width, cancel at the bottom.
+ *  Measured per question, since the confirming label differs. */
+function layoutConfirmActions(): void {
+  const actions = elMenuConfirmActions;
+  if (!actions || !elMenuConfirmCancel || !elMenuConfirmOk) return;
+  actions.classList.remove('is-stacked');
+  const needed = elMenuConfirmCancel.offsetWidth + CONFIRM_ACTIONS_GAP_PX + elMenuConfirmOk.offsetWidth;
+  actions.classList.toggle('is-stacked', needed > actions.clientWidth);
+}
+
 /** How confirmInMenu styles its confirming button. */
 export type ConfirmTone = 'danger' | 'accent';
 
@@ -2325,6 +2347,7 @@ export function confirmInMenu(message: string, confirmLabel: string, tone: Confi
     elMenuConfirm!.hidden = false;
     menu.style.width = `${width}px`;
     elMenuConfirm!.style.width = `${Math.max(0, width - (MENU_BORDER_PX + MENU_PAD_PX) * 2)}px`;
+    layoutConfirmActions();
     const to = menu.getBoundingClientRect();
 
     const reduced = reducedMotionQuery()?.matches ?? false;
@@ -2962,6 +2985,7 @@ export function destroySidebar(): void {
   elMenuConfirmText = null;
   elMenuConfirmCancel = null;
   elMenuConfirmOk = null;
+  elMenuConfirmActions = null;
   sidebarTooltips?.destroy();
   sidebarTooltips = null;
   siteHasNotes = false;

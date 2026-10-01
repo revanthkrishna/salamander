@@ -82,7 +82,15 @@ import { AutosaveController } from './autosave';
 // one the note list's hover delete draws.
 import { ICON_ARROW_DOWN, ICON_ARROW_UP, ICON_COLLAPSE, ICON_TRASH } from './icons';
 import { buildDrawingSvg, hasStrokes } from './drawing';
-import { DELETE_ERROR_MESSAGE, EMPTY_NOTE_MESSAGE, SAVE_ERROR_MESSAGE, saveErrorFor } from './copy';
+import {
+  DELETE_ERROR_MESSAGE,
+  EMPTY_NOTE_MESSAGE,
+  FIRST_NOTE_MESSAGE,
+  LAST_NOTE_MESSAGE,
+  NOTE_PLACEHOLDER,
+  SAVE_ERROR_MESSAGE,
+  saveErrorFor,
+} from './copy';
 import {
   cancelAnimationFrameSafe,
   getContentViewportSize,
@@ -1192,7 +1200,7 @@ class EnlargedView {
     this.textarea = document.createElement('textarea');
     this.textarea.className = 'xp-note-input';
     this.textarea.setAttribute('aria-label', 'note');
-    this.textarea.placeholder = 'what should change here?';
+    this.textarea.placeholder = NOTE_PLACEHOLDER;
     this.textarea.addEventListener('input', this.onInput);
     this.textarea.addEventListener('blur', this.onBlur);
     // The failure/empty-note line, directly under the textarea and out of
@@ -1209,6 +1217,9 @@ class EnlargedView {
     this.btnExit = railButton(ICON_COLLAPSE, 'exit enlarged view', 'exit enlarged view (esc)', 'xp-exit');
     this.btnUp = railButton(ICON_ARROW_UP, 'previous note', 'previous note (↑)', 'xp-prev');
     this.btnDown = railButton(ICON_ARROW_DOWN, 'next note', 'next note (↓)', 'xp-next');
+    // Greyed out at the ends, they say why instead (tooltip.ts's reasons).
+    this.btnUp.dataset.tipReason = FIRST_NOTE_MESSAGE;
+    this.btnDown.dataset.tipReason = LAST_NOTE_MESSAGE;
     this.btnExit.addEventListener('click', () => void this.requestCollapse());
     this.btnUp.addEventListener('click', () => this.go(-1));
     this.btnDown.addEventListener('click', () => this.go(1));

@@ -46,9 +46,9 @@ test('clicking add places a default box matching the sidebar thumbnail size (267
   expect(box.height).toBeCloseTo(100, 0);
 
   await expect(page.locator(helper.SELECTORS.commentBox)).toBeVisible();
-  await expect(page.locator(helper.SELECTORS.noteInput)).toHaveAttribute('placeholder', 'what should change here?');
+  await expect(page.locator(helper.SELECTORS.noteInput)).toHaveAttribute('placeholder', 'type a note\u2026');
   await expect(page.locator(helper.SELECTORS.btnSave)).toHaveText('save');
-  await expect(page.locator(helper.SELECTORS.btnSave)).toBeDisabled();
+  await expect(page.locator(helper.SELECTORS.btnSave)).toHaveAttribute('aria-disabled', 'true');
   // No visible v1 square handles remain (design spec §3.2 — replaced by
   // invisible .resize-zone hit zones).
   await expect(page.locator('#annotator-addmode-host .handle')).toHaveCount(0);
@@ -129,10 +129,10 @@ test('save is disabled while the note is empty, and capturing produces a numbere
 
   await helper.enterAddMode(page);
   await helper.placeSelectionBox(page, 150, 200);
-  await expect(page.locator(helper.SELECTORS.btnSave)).toBeDisabled();
+  await expect(page.locator(helper.SELECTORS.btnSave)).toHaveAttribute('aria-disabled', 'true');
 
   await helper.typeAddModeNote(page, 'the fixed header overlaps this button');
-  await expect(page.locator(helper.SELECTORS.btnSave)).toBeEnabled();
+  await expect(page.locator(helper.SELECTORS.btnSave)).not.toHaveAttribute('aria-disabled', 'true');
   await helper.clickAddModeSave(page);
 
   // Add mode exits, sidebar restores, thumbnail #1 appears (§1.2 step 4).

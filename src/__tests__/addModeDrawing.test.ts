@@ -420,17 +420,53 @@ describe('the pencil menu and erase all', () => {
     expect(Array.from(tools.children).map((c) => c.className)).toEqual(['btn-pencil', 'swatches']);
   });
 
-  test('it opens and closes the menu; erase all is disabled while nothing is drawn', () => {
+  test('it opens and closes the menu; erase all is greyed out while nothing is drawn', () => {
     editing();
     pencil().click();
     expect(menuOpen()).toBe(true);
     expect(pencil().getAttribute('aria-expanded')).toBe('true');
-    expect(eraseItem().disabled).toBe(true);
+    // Soft-disabled (aria-disabled), so it stays hoverable and can say why.
+    expect(eraseItem().getAttribute('aria-disabled')).toBe('true');
+    expect(eraseItem().disabled).toBe(false);
     pencil().click();
     expect(menuOpen()).toBe(false);
 
     stroke([[110, 110], [120, 120]]);
-    expect(eraseItem().disabled).toBe(false);
+    expect(eraseItem().hasAttribute('aria-disabled')).toBe(false);
+  });
+
+  test('greyed out, erase all says "nothing to erase" beside the menu, and a click does nothing', () => {
+    jest.useFakeTimers();
+    try {
+      editing();
+      // Let placement's deferred focus into the note land first.
+      jest.runOnlyPendingTimers();
+      pencil().click();
+      expect(eraseItem().dataset.tipReason).toBe('nothing to erase');
+      expect(eraseItem().dataset.tipSide).toBe('left');
+      expect(menu().hasAttribute('data-tip-edge')).toBe(true);
+      eraseItem().dispatchEvent(new MouseEvent('pointerover', { bubbles: true, composed: true }));
+      jest.advanceTimersByTime(300);
+      const tip = q<HTMLElement>('.sal-tip')!;
+      expect(tip.dataset.open).toBe('true');
+      expect(tip.textContent).toBe('nothing to erase');
+
+      eraseItem().click();
+      expect(menuOpen()).toBe(true); // ignored: no erase, no close
+      expect(ownCSS()).toMatch(/\.draw-menu-item\[aria-disabled="true"\]:hover,\s*\.draw-menu-item\[aria-disabled="true"\]:active \{ background: transparent; \}/);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('keyboard reaches the greyed-out erase all too, and focus shows why', () => {
+    editing();
+    pencil().focus();
+    key(pencil(), 'ArrowDown');
+    expect(root().activeElement).toBe(eraseItem());
+    const tip = q<HTMLElement>('.sal-tip')!;
+    expect(tip.dataset.open).toBe('true');
+    expect(tip.textContent).toBe('nothing to erase');
   });
 
   test('erase all removes every stroke, closes the menu and hands focus back to the pencil', () => {
@@ -443,7 +479,7 @@ describe('the pencil menu and erase all', () => {
     expect(paths()).toHaveLength(0);
     expect(menuOpen()).toBe(false);
     expect(root().activeElement).toBe(pencil());
-    expect(eraseItem().disabled).toBe(true);
+    expect(eraseItem().getAttribute('aria-disabled')).toBe('true');
   });
 
   test('esc closes the menu and returns focus to the pencil (the key hook, and dismissDrawingMenu)', () => {

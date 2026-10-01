@@ -1788,6 +1788,32 @@ describe('export and "more options" (design spec v3 §C2, §AE)', () => {
     expect(css).toMatch(/\.confirm-btn\.is-accent \{[^}]*color:\s*var\(--sal-accent-icon\)/);
   });
 
+  test('too narrow for both labels on one line, the buttons stack full width with cancel at the bottom', () => {
+    sidebar.initSidebar(makeCallbacks());
+    moreBtn().click();
+    const actions = menu().querySelector('.action-menu-confirm-actions') as HTMLElement;
+    // jsdom has no layout: give the buttons natural widths and the row a width.
+    const size = (el: HTMLElement, prop: 'offsetWidth' | 'clientWidth', px: number) =>
+      Object.defineProperty(el, prop, { configurable: true, get: () => px });
+    size(confirmBtn('cancel'), 'offsetWidth', 70);
+    size(confirmBtn('confirm'), 'offsetWidth', 96);
+
+    size(actions, 'clientWidth', 200); // 70 + 8 + 96 = 174 fits
+    void sidebar.confirmInMenu('delete 1 note across 1 page?', 'yes, delete');
+    expect(actions.classList.contains('is-stacked')).toBe(false);
+
+    size(actions, 'clientWidth', 151); // the narrowest panel: does not fit
+    void sidebar.confirmInMenu('delete 1 note across 1 page?', 'yes, delete');
+    expect(actions.classList.contains('is-stacked')).toBe(true);
+
+    const css = shadowRoot().querySelector('style')!.textContent ?? '';
+    // Cancel is first in the DOM, so column-reverse puts it at the bottom.
+    expect(css).toMatch(/\.action-menu-confirm-actions\.is-stacked \{[^}]*flex-direction:\s*column-reverse/);
+    expect(css).toMatch(/\.action-menu-confirm-actions\.is-stacked \.confirm-btn \{[^}]*width:\s*100%/);
+    expect(css).toMatch(/\.confirm-btn \{[^}]*white-space:\s*nowrap/);
+    expect(actions.firstElementChild).toBe(confirmBtn('cancel'));
+  });
+
   test('asked while the menu is closed, the answer is no at once', async () => {
     sidebar.initSidebar(makeCallbacks());
     await expect(sidebar.confirmInMenu('sure?', 'yes')).resolves.toBe(false);

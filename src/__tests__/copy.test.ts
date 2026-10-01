@@ -19,6 +19,11 @@ import {
   IMPORT_REPLACE_CONFIRM_LABEL,
   DELETE_ALL_CONFIRM_LABEL,
   NOTHING_TO_DELETE_MESSAGE,
+  NOTHING_TO_ERASE_MESSAGE,
+  ENTER_A_NOTE_MESSAGE,
+  FIRST_NOTE_MESSAGE,
+  LAST_NOTE_MESSAGE,
+  NOTE_PLACEHOLDER,
   deleteAllConfirmMessage,
   saveErrorFor,
 } from '../copy';
@@ -53,6 +58,11 @@ describe('§5 import copy (verbatim)', () => {
     expect(deleteAllConfirmMessage(2, 1)).toBe('delete 2 notes across 1 page?');
     expect(DELETE_ALL_CONFIRM_LABEL).toBe('yes, delete');
     expect(NOTHING_TO_DELETE_MESSAGE).toBe('nothing to delete');
+    expect(NOTHING_TO_ERASE_MESSAGE).toBe('nothing to erase');
+    expect(ENTER_A_NOTE_MESSAGE).toBe('enter a note to save');
+    expect(NOTE_PLACEHOLDER).toBe('type a note\u2026');
+    expect(FIRST_NOTE_MESSAGE).toBe('this is the first note');
+    expect(LAST_NOTE_MESSAGE).toBe('this is the last note');
   });
 
   test('#7 and #8', () => {
