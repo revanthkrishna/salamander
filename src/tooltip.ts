@@ -22,7 +22,9 @@
 // before the first appears, none on keyboard focus, hidden on any press, on
 // Esc and on any scroll; and once one is showing, the next appears at once.
 // It also hides when the control it points at goes away under it: removed,
-// hidden, made inert, or given different text. A disabled reason is quicker
+// hidden, made inert, or given different text. One that is open is placed
+// again when a transition ends on its control or an ancestor (a menu that was
+// still opening when it appeared). A disabled reason is quicker
 // (300ms) and also appears on keyboard focus, since it carries information the
 // control's name does not.
 //
@@ -126,8 +128,30 @@ export interface TooltipHandle {
 
 type Side = 'below' | 'above' | 'left' | 'right';
 
+/**
+ * Soft-disabled: the control looks and acts disabled but stays hoverable and
+ * focusable (`aria-disabled="true"`, not the `disabled` attribute, which takes
+ * away pointer events and focus), so its `data-tip-reason` can say why it is
+ * off. Only `"true"` counts.
+ */
+export function isSoftDisabled(el: HTMLElement | null): boolean {
+  return el?.getAttribute('aria-disabled') === 'true';
+}
+
+/**
+ * Soft-disable `el` (`off`) or enable it again: sets `aria-disabled="true"`,
+ * or removes the attribute. Returns true only when the state changed, so a
+ * caller can hide a tooltip that was up for the old state — this does not.
+ */
+export function setSoftDisabled(el: HTMLElement | null, off: boolean): boolean {
+  if (!el || isSoftDisabled(el) === off) return false;
+  if (off) el.setAttribute('aria-disabled', 'true');
+  else el.removeAttribute('aria-disabled');
+  return true;
+}
+
 function isReason(el: HTMLElement): boolean {
-  return el.getAttribute('aria-disabled') === 'true' && !!el.dataset.tipReason;
+  return isSoftDisabled(el) && !!el.dataset.tipReason;
 }
 
 function textFor(el: HTMLElement): string | undefined {
@@ -329,6 +353,16 @@ export function attachTooltips(root: ShadowRoot): TooltipHandle {
   // the document) but nothing scrolled inside this shadow root — the note
   // list, the enlarged view's note — so the root listens too.
   const onScroll = (): void => hide();
+  // A tooltip placed while its control was still moving — a reason shown on
+  // keyboard focus the moment add mode's pencil menu opens, measured at the
+  // menu's scaled-down entrance size — is placed again once a transition on
+  // the control or anything around it ends. Only re-placed: the text, side
+  // logic and timing are untouched.
+  const onTransitionEnd = (e: Event): void => {
+    if (!anchor || !isOpen()) return;
+    const target = e.target;
+    if (target instanceof Node && (target === anchor || target.contains(anchor))) place(anchor);
+  };
 
   root.addEventListener('pointerover', onOver);
   root.addEventListener('pointerout', onOut);
@@ -339,6 +373,7 @@ export function attachTooltips(root: ShadowRoot): TooltipHandle {
   window.addEventListener('keydown', onKey, true);
   window.addEventListener('scroll', onScroll, true);
   root.addEventListener('scroll', onScroll, true);
+  root.addEventListener('transitionend', onTransitionEnd);
 
   return {
     hide,
@@ -354,6 +389,7 @@ export function attachTooltips(root: ShadowRoot): TooltipHandle {
       window.removeEventListener('keydown', onKey, true);
       window.removeEventListener('scroll', onScroll, true);
       root.removeEventListener('scroll', onScroll, true);
+      root.removeEventListener('transitionend', onTransitionEnd);
       tip.remove();
     },
   };

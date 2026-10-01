@@ -3,6 +3,8 @@
 
 import {
   attachTooltips,
+  isSoftDisabled,
+  setSoftDisabled,
   TooltipHandle,
   TOOLTIP_DELAY_MS,
   TOOLTIP_REASON_DELAY_MS,
@@ -201,6 +203,56 @@ describe('shared tooltip (design spec §AG)', () => {
     expect(tip().dataset.side).toBe('above');
   });
 
+  test('an open tooltip is placed again when a transition ends on its control or an ancestor, not elsewhere', () => {
+    // Add mode's pencil menu: opened by keyboard, its greyed-out "erase all"
+    // is focused at once and its reason measured against the menu's
+    // scaled-down entrance rect. The menu is the [data-tip-edge] it sits
+    // beside — here at the window's left edge, so the reason goes right.
+    const menu = document.createElement('div');
+    menu.dataset.tipEdge = '';
+    root.appendChild(menu);
+    const item = document.createElement('button');
+    item.dataset.tipReason = 'nothing to erase';
+    item.dataset.tipSide = 'left';
+    item.setAttribute('aria-disabled', 'true');
+    menu.appendChild(item);
+    const unrelated = button('add note');
+    const rect = (left: number, width: number) => () =>
+      ({ top: 300, left, bottom: 332, right: left + width, width, height: 32, x: left, y: 300, toJSON() {} }) as DOMRect;
+    menu.getBoundingClientRect = rect(0, 127); // scale(0.96) of 132px
+    item.getBoundingClientRect = rect(4, 119);
+
+    item.focus();
+    expect(isShown()).toBe(true);
+    expect(tip().dataset.side).toBe('right');
+    const before = tip().style.transform;
+
+    // The entrance finishes: full size.
+    menu.getBoundingClientRect = rect(0, 132);
+    item.getBoundingClientRect = rect(4, 124);
+    // A transition ending elsewhere does not move it…
+    unrelated.dispatchEvent(new Event('transitionend', { bubbles: true }));
+    expect(tip().style.transform).toBe(before);
+    // …the menu's does.
+    menu.dispatchEvent(new Event('transitionend', { bubbles: true }));
+    expect(tip().style.transform).not.toBe(before);
+    expect(tip().dataset.side).toBe('right');
+    const settled = tip().style.transform;
+
+    // So does one on the control itself.
+    menu.getBoundingClientRect = rect(10, 132);
+    item.dispatchEvent(new Event('transitionend', { bubbles: true }));
+    expect(tip().style.transform).not.toBe(settled);
+
+    // Closed, nothing is placed.
+    item.blur();
+    expect(isShown()).toBe(false);
+    const closed = tip().style.transform;
+    menu.getBoundingClientRect = rect(40, 132);
+    menu.dispatchEvent(new Event('transitionend', { bubbles: true }));
+    expect(tip().style.transform).toBe(closed);
+  });
+
   test('hide() and destroy() clean up', () => {
     const b = button('add note');
     over(b);
@@ -362,6 +414,49 @@ describe('shared tooltip (design spec §AG)', () => {
     expect(removeWin).toHaveBeenCalledWith('scroll', expect.any(Function), true);
     disconnect.mockRestore();
     removeWin.mockRestore();
+    // The root's transitionend listener goes too: a tooltip shown by a new
+    // handle is not re-placed by the old one.
+    const removeRoot = jest.spyOn(root, 'removeEventListener');
+    const again = attachTooltips(root);
+    again.destroy();
+    expect(removeRoot).toHaveBeenCalledWith('transitionend', expect.any(Function));
+    removeRoot.mockRestore();
     handle = attachTooltips(root); // for afterEach
+  });
+});
+
+describe('soft-disabled controls (aria-disabled="true")', () => {
+  test('setSoftDisabled sets and removes the attribute, and reports only a change', () => {
+    const b = document.createElement('button');
+    expect(setSoftDisabled(b, true)).toBe(true);
+    expect(b.getAttribute('aria-disabled')).toBe('true');
+    expect(setSoftDisabled(b, true)).toBe(false); // already off
+    expect(b.getAttribute('aria-disabled')).toBe('true');
+    expect(setSoftDisabled(b, false)).toBe(true);
+    expect(b.hasAttribute('aria-disabled')).toBe(false); // removed, not "false"
+    expect(setSoftDisabled(b, false)).toBe(false); // already on
+    expect(setSoftDisabled(null, true)).toBe(false);
+  });
+
+  test('setSoftDisabled treats an explicit "false" as already enabled', () => {
+    const b = document.createElement('button');
+    b.setAttribute('aria-disabled', 'false');
+    expect(setSoftDisabled(b, false)).toBe(false);
+    expect(setSoftDisabled(b, true)).toBe(true);
+    expect(b.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  test('isSoftDisabled is true only for aria-disabled="true"', () => {
+    const b = document.createElement('button');
+    expect(isSoftDisabled(null)).toBe(false);
+    expect(isSoftDisabled(b)).toBe(false); // absent
+    b.setAttribute('aria-disabled', 'false');
+    expect(isSoftDisabled(b)).toBe(false);
+    b.setAttribute('aria-disabled', 'true');
+    expect(isSoftDisabled(b)).toBe(true);
+    // The native attribute is a different state: plainly disabled, no reason.
+    const native = document.createElement('button');
+    native.disabled = true;
+    expect(isSoftDisabled(native)).toBe(false);
   });
 });

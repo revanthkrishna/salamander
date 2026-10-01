@@ -60,7 +60,7 @@ import {
 } from './drawing';
 import { ENTER_A_NOTE_MESSAGE, NOTE_PLACEHOLDER, NOTHING_TO_ERASE_MESSAGE } from './copy';
 import { ICON_ERASER, ICON_PENCIL, PENCIL_CURSOR } from './icons';
-import { attachTooltips, TooltipHandle, TOOLTIP_CSS } from './tooltip';
+import { attachTooltips, isSoftDisabled, setSoftDisabled, TooltipHandle, TOOLTIP_CSS } from './tooltip';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -108,12 +108,12 @@ const MIN_SIZE = 20;
  *  "drag" (draw a custom-sized box between mousedown and the current/mouseup
  *  point) — REQUIREMENTS §1.2. */
 const DRAG_THRESHOLD = 5;
-/** The comment box's width. 296, not the original 280: the bottom bar now
+/** The comment box's width. 296, not the original 280: the button row now
  *  holds the pencil and its three swatches as well as the counter, cancel and
  *  save, and with the counter showing (900+ characters) that row needs 279px
- *  of content. 280 minus the bar's own 6px padding left only 268, so it
- *  overflowed; widening the box keeps every button's padding the same as
- *  everywhere else in the UI, where squeezing cancel/save would not. */
+ *  of content. 280 less the box's COMMENT_PAD_PX on either side left only
+ *  268, so it overflowed; widening the box keeps every button's padding the
+ *  same as everywhere else in the UI, where squeezing cancel/save would not. */
 const COMMENT_WIDTH = 296;
 /** The comment box's padding: the same 6px on every side and between the
  *  text area and the button row, so the text area's edges line up with the
@@ -121,11 +121,15 @@ const COMMENT_WIDTH = 296;
  *  box's radius-lg corners less that padding, concentric with them. */
 const COMMENT_PAD_PX = 6;
 const COMMENT_INNER_RADIUS_CSS = `calc(var(--sal-radius-lg) - ${COMMENT_PAD_PX}px)`;
+/** The text area's height. */
+const NOTE_INPUT_HEIGHT_PX = 88;
+/** The button row's height: cancel and save (.btn). */
+const COMMENT_ROW_PX = 30;
 /** Comment box height before its first layout pass (offsetHeight is 0 until
- *  then): 6px padding + 88px textarea + 6px gap + 30px button row + 6px
- *  padding. Only used to pick a flip candidate on the very first render;
- *  every later render measures the real element. */
-const COMMENT_FALLBACK_HEIGHT = 136;
+ *  then): padding + text area + gap + button row + padding. Only used to pick
+ *  a flip candidate on the very first render; every later render measures
+ *  the real element. */
+const COMMENT_FALLBACK_HEIGHT = COMMENT_PAD_PX * 3 + NOTE_INPUT_HEIGHT_PX + COMMENT_ROW_PX;
 const COMMENT_MARGIN = 8;
 const MAX_NOTE_LENGTH = 1000;
 /** Counter visibility (design spec §3.2): hidden at 0–900 chars, muted at
@@ -181,9 +185,9 @@ const TOOLTIP_FALLBACK_HEIGHT = 28;
 const DRAW_MENU_FALLBACK_HEIGHT = 42;
 const DRAW_MENU_GAP = 6;
 /** How far above the comment box's bottom edge the menu's bottom sits when
- *  it opens upward: clear of the pencil (6px padding + its 30px row) with
- *  10px to spare. */
-const DRAW_MENU_ABOVE_OFFSET = 46;
+ *  it opens upward: clear of the pencil (padding + button row) with 10px to
+ *  spare. */
+const DRAW_MENU_ABOVE_OFFSET = COMMENT_PAD_PX + COMMENT_ROW_PX + 10;
 /** Pointer samples closer than this (CSS px) to the previous point add
  *  nothing visible and are dropped, so a slow stroke with coalesced events
  *  on a 120Hz+ pointer does not store thousands of near-duplicates. */
@@ -414,7 +418,7 @@ const ADD_MODE_CSS = `
   .note-input {
     display: block;
     width: 100%;
-    height: 88px;
+    height: ${NOTE_INPUT_HEIGHT_PX}px;
     box-sizing: border-box;
     margin: 0;
     resize: none;
@@ -541,12 +545,13 @@ const ADD_MODE_CSS = `
      surface, item and motion: closed is the base state and carries the exit
      (90ms, accelerating), [data-open] the entrance (120ms, standard).
      visibility rather than [hidden] so both directions animate and nothing
-     inside is focusable while it is closed. A child of the comment box
-     rather than of the footer, whose z-index sits under the text area: it
-     opens below the box, or above the pencil when there is no room below. */
+     inside is focusable while it is closed. A child of the comment box, so
+     it is placed against the box and lines up with the pencil
+     (COMMENT_PAD_PX in): it opens below the box, or above the pencil when
+     there is no room below. */
   .draw-menu {
     position: absolute;
-    left: 6px;
+    left: ${COMMENT_PAD_PX}px;
     top: calc(100% + ${DRAW_MENU_GAP}px);
     z-index: 2;
     min-width: 132px;
@@ -602,10 +607,11 @@ const ADD_MODE_CSS = `
     outline: none;
     ${STATE_TRANSITION_CSS}
   }
-  .draw-menu-item:not(:disabled):hover { background: var(--sal-hover); }
+  .draw-menu-item:hover { background: var(--sal-hover); }
   .draw-menu-item:focus-visible { background: var(--sal-hover); }
-  .draw-menu-item:not(:disabled):active { background: var(--sal-press); }
-  .draw-menu-item:disabled,
+  .draw-menu-item:active { background: var(--sal-press); }
+  /* Greyed out (soft-disabled) while nothing is drawn; these outrank the
+     hover and press above on specificity. */
   .draw-menu-item[aria-disabled="true"] { ${DISABLED_CSS} }
   .draw-menu-item[aria-disabled="true"]:hover,
   .draw-menu-item[aria-disabled="true"]:active { background: transparent; }
@@ -614,12 +620,12 @@ const ADD_MODE_CSS = `
 
   /* Cancel and save (design spec §2 rows, restyled per v2 §C), drawn like
      the sidebar's button bar (§AE): surface fill and a 1px line border that
-     hover and press light up. 30px tall, free-floating inside the bar, with
-     corners concentric with the bar's (COMMENT_INNER_RADIUS_CSS). The
-     border is inside the box (border-box), and the side padding gives back
-     its 1px, so the buttons keep their size. */
+     hover and press light up. COMMENT_ROW_PX tall, free-floating inside the
+     box, with corners concentric with the box's (COMMENT_INNER_RADIUS_CSS).
+     The border is inside the box (border-box), and the side padding gives
+     back its 1px, so the buttons keep their size. */
   .btn {
-    height: 30px;
+    height: ${COMMENT_ROW_PX}px;
     margin: 0;
     padding: 0 11px;
     border: 1px solid var(--sal-line);
@@ -1059,8 +1065,8 @@ function buildCommentDOM(): void {
   elSaveBtn.addEventListener('click', handleSaveClick);
 
   // Left: the pencil and its swatches; right: counter, cancel, save
-  // (design spec §AB). The menu hangs off the comment box itself — see the
-  // .draw-menu rule for why not off the footer.
+  // (design spec §AB). The menu hangs off the comment box itself, placed
+  // against the box — see the .draw-menu rule.
   footer.appendChild(buildDrawTools());
   footer.appendChild(elCounter);
   footer.appendChild(elCancelBtn);
@@ -1171,7 +1177,7 @@ function buildDrawMenu(): HTMLDivElement {
   elEraseItem.appendChild(icon);
   elEraseItem.appendChild(label);
   elEraseItem.addEventListener('click', () => {
-    if (elEraseItem?.getAttribute('aria-disabled') === 'true') return;
+    if (isSoftDisabled(elEraseItem)) return;
     eraseAll();
     closeDrawMenu({ returnFocus: true });
   });
@@ -1695,13 +1701,9 @@ function eraseAll(): void {
 
 /** "erase all" is greyed out while there is nothing drawn (§AB). */
 function updateDrawControls(): void {
-  if (!elEraseItem) return;
-  const off = strokes.length === 0;
-  if ((elEraseItem.getAttribute('aria-disabled') === 'true') === off) return;
-  if (off) elEraseItem.setAttribute('aria-disabled', 'true');
-  else elEraseItem.removeAttribute('aria-disabled');
-  // A tooltip up for the old state would now say the wrong thing.
-  addModeTooltips?.hide();
+  // A tooltip up for the old state would now say the wrong thing: hide it
+  // now, not on the tooltip's MutationObserver (a microtask later).
+  if (setSoftDisabled(elEraseItem, strokes.length === 0)) addModeTooltips?.hide();
 }
 
 /** Checked state and the radio group's roving tabindex: only the checked
@@ -1849,11 +1851,8 @@ function updateCounterAndSaveState(): void {
 /** Save greyed out (soft: aria-disabled) while the note is empty. Its click
  *  does nothing then — handleSaveClick checks the note itself. */
 function setSaveEmpty(empty: boolean): void {
-  if (!elSaveBtn || (elSaveBtn.getAttribute('aria-disabled') === 'true') === empty) return;
-  if (empty) elSaveBtn.setAttribute('aria-disabled', 'true');
-  else elSaveBtn.removeAttribute('aria-disabled');
   // A tooltip up for the old state would now say the wrong thing.
-  addModeTooltips?.hide();
+  if (setSoftDisabled(elSaveBtn, empty)) addModeTooltips?.hide();
 }
 
 function handleCancelClick(): void {

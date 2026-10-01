@@ -543,7 +543,7 @@ Run each of these in the dark theme (the only one — design spec §AA).
 ## 7. Text case convention (§3.4)
 
 - [ ] **7.1.** Scan every piece of visible text you've encountered so far — button labels,
-      placeholder text ("what should change here?"), error messages, confirm dialogs, the
+      placeholder text ("type a note…"), error messages, confirm dialogs, the
       empty-state message. All of it should be **lowercase**, no exceptions, no title case.
 
 ## 8. End-to-end journey smoke tests (§4)

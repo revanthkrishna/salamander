@@ -1132,6 +1132,15 @@ describe('add mode', () => {
     expect(classes).toEqual(['draw-tools', 'counter', 'btn btn-cancel', 'btn btn-save']);
   });
 
+  test('a greyed-out save keeps its resting look on hover and press: its override comes after the plain button\'s hover', () => {
+    addMode.startAddMode(makeCallbacks());
+    // Both selectors are (0,3,0), so the greyed-out one wins only by coming later.
+    const css = addModeOwnCSS();
+    expect(css.indexOf('.btn:not(:disabled):hover')).toBeGreaterThan(-1);
+    expect(css.indexOf('.btn-save[aria-disabled="true"]:hover')).toBeGreaterThan(css.indexOf('.btn:not(:disabled):hover'));
+    expect(css.indexOf('.btn-save[aria-disabled="true"]:active')).toBeGreaterThan(css.indexOf('.btn:not(:disabled):active'));
+  });
+
   test('the pencil is drawn like the sidebar\'s buttons too: bordered surface, still 28px', () => {
     addMode.startAddMode(makeCallbacks());
     const rule = cssRule('.btn-pencil');

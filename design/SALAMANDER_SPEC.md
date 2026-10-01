@@ -108,6 +108,7 @@ States: regular · hover · press · focus-visible (keyboard) · disabled.
   - counter: hidden at 0–900 chars, muted mono 11px at 901–979, danger 600 at 980–1000 (update the existing thresholds: warn at >900, danger at ≥980). Format "942/1000".
   - "ok" is renamed "save". Save is disabled while the trimmed note is empty.
   - while capturing (after save): textarea + buttons disabled, save label may read "saving…".
+  - **Superseded 2026-09-30** — see "Add mode's buttons match the sidebar's" at the end.
 
 ### 3.3 Enlarged modal
 - Backdrop `backdrop` token over the page area only (keep the sidebar-width inset logic).
@@ -756,7 +757,8 @@ Left side, in this order: a **pencil icon button**, then the **three colour swat
 the character counter (moved here from the left), then cancel and save.
 
 - The pencil button tells people the swatches belong to the pencil, and is also a menu button: it
-  opens a small menu (same treatment as the export group's chevron menu, §C2) holding **erase all**.
+  opens a small menu (same treatment as the export group's chevron menu, §C2) holding **erase all**
+  (greyed out with "nothing to erase" while nothing is drawn — see the 2026-09-30 note).
   28px (the small-small size, §X). `aria-haspopup="menu"`, `aria-expanded`, a label such as
   "drawing options". Esc closes the menu and returns focus to the button.
 - **(impl)** The comment box is 296px wide, not §3.2's 280: the bar now carries the pencil, three
@@ -1041,8 +1043,9 @@ disabled control gets no hover to show one.
   the control. Fades in 120ms (standard), out 90ms (accelerating); instant under reduced motion.
 - **Placement:** ABOVE the control and centred on it, kept 8px inside the window; flipped below
   when there is no room above (a control at the top of the window). `data-tip-side="left"` places it to the left, beside the nearest
-  `[data-tip-edge]` (the "more options" menu) — the enlarged view's rail and the resize handle
-  use it. On a tall strip (the resize handle) it sits level with the pointer.
+  `[data-tip-edge]` (the "more options" menu; add mode's pencil menu) — the enlarged view's rail,
+  the resize handle and erase all use it. Without room on the left it goes to the right of that
+  edge, then above. On a tall strip (the resize handle) it sits level with the pointer.
 - **Timing — the native tooltips' own:** about 1s of hover before the first appears
   (`TOOLTIP_DELAY_MS`, macOS's default); not on keyboard focus; hidden on any press, on leaving,
   on Esc (inside that surface, even under the keyboard isolation of the enlarged view and add

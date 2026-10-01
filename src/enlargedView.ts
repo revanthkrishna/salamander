@@ -100,6 +100,7 @@ import {
   requestAnimationFrameSafe,
 } from './dom';
 import { FOCUS_RING_CSS, DISABLED_CSS, STATE_TRANSITION_CSS, RADII } from './theme';
+import { setSoftDisabled } from './tooltip';
 import {
   ACC,
   STD,
@@ -1672,8 +1673,8 @@ class EnlargedView {
   }
 
   private updateRail(): void {
-    this.btnUp.setAttribute('aria-disabled', String(this.idx <= 0));
-    this.btnDown.setAttribute('aria-disabled', String(this.idx >= this.items.length - 1));
+    setSoftDisabled(this.btnUp, this.idx <= 0);
+    setSoftDisabled(this.btnDown, this.idx >= this.items.length - 1);
   }
 
   /** The header bar and the editor always fade together — they are the
@@ -2254,9 +2255,9 @@ function railButton(icon: string, label: string, title: string, extra: string): 
   b.dataset.tip = title;
   b.dataset.tipSide = 'left';
   b.innerHTML = icon;
-  // aria-disabled (not `disabled`) at the ends, so a focused ↓ keeps focus
-  // when the last note is reached; clicks are ignored by go()'s range check.
-  b.setAttribute('aria-disabled', 'false');
+  // Soft-disabled at the ends (updateRail), not `disabled`, so a focused ↓
+  // keeps focus when the last note is reached; clicks are ignored by go()'s
+  // range check.
   return b;
 }
 

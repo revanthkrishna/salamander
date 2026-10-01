@@ -31,7 +31,7 @@
 
 import { FeedbackItem } from './types';
 import { CONFIRM_CANCEL_LABEL, NOTHING_TO_DELETE_MESSAGE, NOTHING_TO_EXPORT_MESSAGE } from './copy';
-import { attachTooltips, TooltipHandle, TOOLTIP_CSS } from './tooltip';
+import { attachTooltips, isSoftDisabled, setSoftDisabled, TooltipHandle, TOOLTIP_CSS } from './tooltip';
 import { renderThumbnailList, THUMBNAIL_IMAGE_HEIGHT_PX } from './thumbnails';
 import { attachDockMotion, DockMotionHandle } from './dockMotion';
 import { getContentViewportSize, reducedMotionQuery } from './dom';
@@ -644,7 +644,6 @@ const SIDEBAR_CSS = `
     ${STATE_TRANSITION_CSS}
   }
   .add-group.is-on { color: var(--sal-on-accent); }
-  .add-group.is-disabled { ${DISABLED_CSS} }
 
   .btn-add {
     /* Above the switch, so the tucked part of the segment is hidden behind
@@ -698,12 +697,6 @@ const SIDEBAR_CSS = `
      of the two Enter will hit (§A2 micro states). Keyboard-only, like every
      other control here. */
   .btn-add:focus-visible { ${FOCUS_RING_CSS} outline: none; }
-  .btn-add[disabled] { cursor: default; }
-  .add-group.is-disabled .btn-add:hover,
-  .add-group.is-disabled .btn-add:active {
-    background: var(--sal-surface);
-    border-color: var(--sal-line);
-  }
   .btn-add .icon { width: 17px; height: 17px; flex-shrink: 0; display: inline-flex; }
   .btn-add .icon svg { width: 100%; height: 100%; display: block; }
 
@@ -752,11 +745,6 @@ const SIDEBAR_CSS = `
   .add-switch:hover { background: var(--sal-hover); }
   .add-switch:active { background: var(--sal-press); }
   .add-switch:focus-visible { ${FOCUS_RING_CSS} outline: none; }
-  .add-group.is-disabled .add-switch:hover,
-  .add-group.is-disabled .add-switch:active {
-    background: var(--sal-surface);
-    border-color: var(--sal-line);
-  }
 
   /* Merged (§A2 micro states): with the switch on the two halves are one
      button, so they paint as one. The group has no fill of its own now, so
@@ -2079,7 +2067,7 @@ function wireExportGroup(): void {
     e.stopPropagation();
     // Greyed out with nothing to export (§AF): stays focusable and
     // hoverable so it can say why, but does nothing.
-    if (isSoftDisabled(elBtnExport!)) return;
+    if (isSoftDisabled(elBtnExport)) return;
     callbacksRef?.onExport();
   });
 
@@ -2122,7 +2110,7 @@ function wireExportGroup(): void {
 
   elBtnDeleteAll!.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (isSoftDisabled(elBtnDeleteAll!)) return;
+    if (isSoftDisabled(elBtnDeleteAll)) return;
     callbacksRef?.onDeleteAll();
   });
 
@@ -2403,20 +2391,10 @@ export function hideTooltipNow(): void {
 // "soft" disabled: they look and act disabled but stay focusable and
 // hoverable (aria-disabled, not the disabled attribute — a truly disabled
 // button gets no pointer events and no focus), so the shared tooltip
-// (tooltip.ts, §AG) can show their `data-tip-reason` on hover or focus.
+// (tooltip.ts, §AG) can show their `data-tip-reason` on hover or focus. The
+// attribute is written by tooltip.ts's setSoftDisabled(); see
+// syncActionAvailability().
 // ---------------------------------------------------------------------------
-
-function isSoftDisabled(el: HTMLElement): boolean {
-  return el.getAttribute('aria-disabled') === 'true';
-}
-
-function setSoftDisabled(el: HTMLElement | null, off: boolean): void {
-  if (!el || isSoftDisabled(el) === off) return;
-  if (off) el.setAttribute('aria-disabled', 'true');
-  else el.removeAttribute('aria-disabled');
-  // A tooltip up for the old state would now say the wrong thing.
-  sidebarTooltips?.hide();
-}
 
 /** Pointerdown anywhere inside the sidebar's shadow tree: close unless it
  *  landed on the menu itself or on "more options" (whose own click handler
@@ -2613,10 +2591,12 @@ function syncActionAvailability(): void {
   // Soft-disabled only for "nothing to export" (§AF): the add-mode hold and
   // an export in flight are brief and plain from context, so they keep the
   // plain disabled state and no tooltip.
-  setSoftDisabled(elBtnExport, !exportBlocked && !siteHasNotes);
+  // A tooltip up for the old state would now say the wrong thing: hide it
+  // now, not on the tooltip's MutationObserver (a microtask later).
+  if (setSoftDisabled(elBtnExport, !exportBlocked && !siteHasNotes)) sidebarTooltips?.hide();
   if (elBtnMenu) elBtnMenu.disabled = addModeHold;
   if (elBtnImport) elBtnImport.disabled = !importEnabled;
-  setSoftDisabled(elBtnDeleteAll, !siteHasNotes);
+  if (setSoftDisabled(elBtnDeleteAll, !siteHasNotes)) sidebarTooltips?.hide();
   elExportGroup?.classList.toggle('is-disabled', addModeHold);
 }
 
