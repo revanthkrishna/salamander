@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "salamander",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "minimum_chrome_version": "105",
   "description": "capture feedback for websites. screenshot elements, mark issues, add notes. export and share with colleagues or AI agents",
   "permissions": ["storage", "scripting", "tabs", "unlimitedStorage", "downloads"],

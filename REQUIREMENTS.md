@@ -2,7 +2,7 @@
 
 > Chrome extension for capturing visual feedback on any webpage. The reviewer selects an area of the page, optionally draws on it, writes a note; the extension screenshots the area and records where in the DOM it was. Feedback is exported as a bundle (screenshots + one human/agent-readable `feedback.md`) that a developer or an AI coding agent can act on without the live page.
 
-**Status:** describes the behaviour of the shipped code (version 2.0.0). The code is the source of truth; where this file and the code disagree, this file is wrong. Design rationale lives in `design/SALAMANDER_SPEC.md` (visual, section references like §AB below) and `design/MOTION_SPEC.md`; implementation detail in `TECH_DESIGN.md`. Every requirement has a stable ID (`FR-…` functional, `NF-…` non-functional, `E-…` error cases, `EC-…` edge cases).
+**Status:** describes the behaviour of the shipped code (version 2.1.0). The code is the source of truth; where this file and the code disagree, this file is wrong. Design rationale lives in `design/SALAMANDER_SPEC.md` (visual, section references like §AB below) and `design/MOTION_SPEC.md`; implementation detail in `TECH_DESIGN.md`. Every requirement has a stable ID (`FR-…` functional, `NF-…` non-functional, `E-…` error cases, `EC-…` edge cases).
 
 ---
 
