@@ -1,7 +1,7 @@
 # Privacy policy
 
 **Extension:** salamander
-**Last updated:** 26 September 2026
+**Last updated:** 7 October 2026
 
 ## The short version
 
@@ -35,7 +35,7 @@ Everything is held in your browser's own local storage on your device (`chrome.s
 
 ## Deleting your data
 
-Delete an individual note from the sidebar, or uninstall the extension to remove everything it has stored. No copy is kept anywhere else, because no copy was ever made anywhere else.
+Delete an individual note from the sidebar, clear every note for a website with "delete all for this website" in the more options menu, or uninstall the extension to remove everything it has stored. No copy is kept anywhere else, because no copy was ever made anywhere else.
 
 ## Permissions
 
