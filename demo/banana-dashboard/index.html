@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Peelbase — shipment health</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #13201A;
+    --ink-2: #4A574E;
+    --ink-3: #78857B;
+    --paper: #F4F5F1;
+    --card: #FFFFFF;
+    --line: #E2E5DD;
+    --banana: #E5B008;
+    --leaf: #2F6B4F;
+    --leaf-soft: #EAF1EC;
+    --good: #2F6B4F;
+    --warn: #99700A;
+    --bad: #A33A2B;
+    --radius: 10px;
+    --shadow: 0 1px 2px rgba(19, 32, 26, .05), 0 1px 3px rgba(19, 32, 26, .04);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 14px/1.5 Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout { display: grid; grid-template-columns: 232px 1fr; min-height: calc(100vh - 56px); }
+
+  /* ── Top bar ───────────────────────────────────────────── */
+  .topbar {
+    height: 56px; background: #143D2C; color: #EAF1EC;
+    display: flex; align-items: center; gap: 18px; padding: 0 18px 0 14px;
+  }
+  .topbar .brand-name { color: #fff; }
+  .topbar-search {
+    flex: 1; max-width: 420px; display: flex; align-items: center; gap: 8px;
+    background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 8px; padding: 7px 11px; color: #C6D6CC;
+  }
+  .topbar-search svg { width: 15px; height: 15px; flex: none; }
+  .topbar-search input {
+    flex: 1; background: none; border: 0; outline: none;
+    color: #fff; font: 400 13px Inter, sans-serif;
+  }
+  .topbar-search input::placeholder { color: #A9BFB2; }
+  .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  .icon-btn {
+    width: 32px; height: 32px; border-radius: 8px; border: 0; cursor: pointer;
+    background: rgba(255, 255, 255, .08); color: #EAF1EC;
+    display: grid; place-items: center;
+  }
+  .icon-btn:hover { background: rgba(255, 255, 255, .16); }
+  .icon-btn svg { width: 16px; height: 16px; }
+  .topbar .avatar { background: var(--banana); color: #1B2B22; }
+  /* The action group rides in the bar; the two buttons keep their
+     deliberately mismatched heights, and export stays a bare link. */
+  .topbar .btn-primary { background: var(--banana); color: #1B2B22; }
+  .topbar .btn-primary:hover { background: #F0BE1E; }
+  .topbar .btn-secondary {
+    background: rgba(255, 255, 255, .08); color: #EAF1EC;
+    border-color: rgba(255, 255, 255, .22);
+  }
+  .topbar .btn-secondary:hover { background: rgba(255, 255, 255, .16); color: #fff; }
+  .topbar .link-action { color: #A8CBFF; }
+
+  /* ── Sidebar ───────────────────────────────────────────── */
+  .nav {
+    background: var(--card);
+    border-right: 1px solid var(--line);
+    padding: 20px 14px;
+    display: flex; flex-direction: column; gap: 26px;
+  }
+  .brand { display: flex; align-items: center; gap: 9px; padding: 0 8px; }
+  .brand-mark {
+    width: 26px; height: 26px; border-radius: 8px;
+    background: var(--banana);
+    display: grid; place-items: center;
+    font-size: 15px; line-height: 1;
+  }
+  .brand-name {
+    font-family: Fraunces, Georgia, serif;
+    font-weight: 600; font-size: 18px; letter-spacing: -.01em;
+  }
+  .nav-group { display: flex; flex-direction: column; gap: 2px; }
+  .nav-label {
+    font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--ink-3); padding: 0 8px 6px;
+  }
+  .nav a {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 8px;
+    color: var(--ink-2); text-decoration: none; font-weight: 500;
+  }
+  .nav a:hover { background: var(--paper); color: var(--ink); }
+  .nav a.is-active { background: var(--leaf-soft); color: var(--leaf); }
+  .nav a svg { width: 16px; height: 16px; flex: none; }
+  .nav-footer { margin-top: auto; border-top: 1px solid var(--line); padding-top: 14px; }
+  .who { display: flex; align-items: center; gap: 10px; padding: 4px 8px; }
+  .avatar {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: var(--leaf); color: #fff;
+    display: grid; place-items: center; font-size: 12px; font-weight: 600;
+  }
+  .who-name { font-weight: 500; font-size: 13px; }
+  .who-org { font-size: 12px; color: var(--ink-3); }
+
+  /* ── Main ──────────────────────────────────────────────── */
+  main { padding: 26px 30px 44px; max-width: 1180px; }
+  .crumbs { font-size: 12px; color: var(--ink-3); margin-bottom: 14px; }
+  .page-head { margin-bottom: 22px; }
+  h1 {
+    font-family: Fraunces, Georgia, serif;
+    font-size: 27px; font-weight: 600; letter-spacing: -.015em;
+    margin: 0 0 5px;
+  }
+  .page-sub { color: var(--ink-2); font-size: 13px; margin: 0; }
+  .toolbar { display: flex; align-items: center; gap: 12px; }
+
+  .btn {
+    font: 500 14px Inter, sans-serif;
+    border-radius: 8px; border: 1px solid transparent;
+    cursor: pointer; white-space: nowrap;
+  }
+  /* Deliberate inconsistency: these two sit side by side at different heights. */
+  .btn-primary {
+    background: var(--ink); color: #fff;
+    padding: 13px 22px; font-size: 15px;
+  }
+  .btn-primary:hover { background: #1E3227; }
+  .btn-secondary {
+    background: var(--card); color: var(--ink-2);
+    border-color: var(--line); padding: 6px 12px; font-size: 13px;
+  }
+  .btn-secondary:hover { border-color: #C9D0C4; color: var(--ink); }
+  /* Deliberate: an action that behaves like a button, dressed as a link. */
+  .link-action { color: #2563C9; text-decoration: underline; font-size: 13px; }
+
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 15px 16px 16px;
+  }
+  .card-label { font-size: 12px; font-weight: 500; color: var(--ink-3); margin-bottom: 9px; }
+  .card-label.shout { text-transform: uppercase; letter-spacing: .06em; }
+  .figure {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 25px; font-weight: 500; letter-spacing: -.02em;
+    display: flex; align-items: baseline; gap: 5px;
+  }
+  .figure .unit { font-size: 13px; color: var(--ink-3); }
+  .delta { font-size: 12px; margin-top: 7px; display: flex; align-items: center; gap: 5px; }
+  .delta.up { color: var(--good); }
+  .delta.down { color: var(--bad); }
+  .delta .muted { color: var(--ink-3); }
+
+  .ripeness { display: flex; gap: 3px; margin-top: 10px; }
+  .ripeness span { height: 6px; flex: 1; border-radius: 2px; background: var(--line); }
+  .ripeness span.on:nth-child(1) { background: #4E8B3C; }
+  .ripeness span.on:nth-child(2) { background: #8DB12A; }
+  .ripeness span.on:nth-child(3) { background: #D9C11B; }
+  .ripeness span.on:nth-child(4) { background: var(--banana); }
+  .ripeness span.on:nth-child(5) { background: #C98A24; }
+  .ripeness span.on:nth-child(6) { background: #8A5A2B; }
+
+  .panel {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 18px;
+  }
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; padding: 15px 18px; border-bottom: 1px solid var(--line);
+  }
+  .panel-title { font-size: 14px; font-weight: 600; margin: 0; }
+  .panel-note { font-size: 12px; color: var(--ink-3); margin: 3px 0 0; }
+  .seg {
+    display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+    background: var(--card);
+    /* Deliberate: the range picker breaks out past the card's right edge. */
+    transform: translateX(26px);
+  }
+  .seg button {
+    font: 500 12px Inter, sans-serif; background: var(--card); color: var(--ink-2);
+    border: 0; border-right: 1px solid var(--line); padding: 6px 11px; cursor: pointer;
+  }
+  .seg button:last-child { border-right: 0; }
+  .seg button[aria-pressed="true"] { background: var(--leaf-soft); color: var(--leaf); }
+  .chart-wrap { padding: 16px 18px 10px; position: relative; }
+  svg.chart { display: block; width: 100%; height: 210px; overflow: visible; }
+  .grid line { stroke: var(--line); stroke-width: 1; }
+  .axis text { font: 400 11px "IBM Plex Mono", monospace; fill: var(--ink-3); }
+  .series-line { fill: none; stroke: var(--leaf); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .series-area { fill: url(#leafFade); }
+  .hover-line { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0; }
+  .hover-dot { fill: var(--leaf); stroke: #fff; stroke-width: 2; opacity: 0; }
+  .tip {
+    position: absolute; pointer-events: none; opacity: 0; transform: translate(-50%, -100%);
+    background: var(--ink); color: #fff; border-radius: 7px; padding: 7px 10px;
+    font-size: 12px; white-space: nowrap; box-shadow: var(--shadow);
+  }
+  .tip b { font-family: "IBM Plex Mono", monospace; font-weight: 500; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 11px 18px; border-bottom: 1px solid var(--line); }
+  th {
+    font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover { background: #FAFBF8; }
+  td.num { font-family: "IBM Plex Mono", monospace; }
+  .route { font-weight: 500; }
+  .route small { display: block; color: var(--ink-3); font-weight: 400; font-size: 12px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 500; padding: 3px 9px 3px 7px; border-radius: 999px;
+    border: 1px solid transparent;
+  }
+  .pill svg { width: 12px; height: 12px; }
+  .pill.good { background: var(--leaf-soft); color: var(--good); border-color: #CFE2D5; }
+  .pill.warn { background: #FBF3DF; color: var(--warn); border-color: #EEDFB4; }
+  .pill.bad  { background: #FBECE9; color: var(--bad);  border-color: #F0D2CC; }
+  .table-foot {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 18px; font-size: 12px; color: var(--ink-3);
+  }
+  .ghost {
+    font: 500 12px Inter, sans-serif; background: var(--card); color: var(--ink-2);
+    border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px; cursor: pointer;
+  }
+  :focus-visible { outline: 2px solid var(--leaf); outline-offset: 2px; }
+  @media (max-width: 1080px) { .cards { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 820px) { .layout { grid-template-columns: 1fr; } .nav { display: none; } }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">🍌</span>
+    <span class="brand-name">Peelbase</span>
+  </div>
+  <div class="topbar-search">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+    <input type="search" placeholder="Search shipments, containers, growers" aria-label="Search">
+  </div>
+  <div class="topbar-right">
+    <a href="#" class="link-action">Export CSV</a>
+    <button class="btn btn-secondary" type="button">Filters</button>
+    <button class="btn btn-primary" type="button">Add shipment</button>
+    <button class="icon-btn" type="button" aria-label="Notifications">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6.5a4 4 0 1 1 8 0v3l1.2 2H2.8L4 9.5z"/><path d="M6.4 12.5a1.7 1.7 0 0 0 3.2 0"/></svg>
+    </button>
+    <button class="icon-btn" type="button" aria-label="Settings">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.6M8 12.6v1.6M14.2 8h-1.6M3.4 8H1.8M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1M12.4 12.4l-1.1-1.1M4.7 4.7 3.6 3.6"/></svg>
+    </button>
+    <span class="avatar" aria-hidden="true">RK</span>
+  </div>
+</header>
+
+<div class="layout">
+  <nav class="nav">
+    <div class="nav-group">
+      <span class="nav-label">Operations</span>
+      <a href="#" class="is-active">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
+        Overview
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1.5 5.5h9v6h-9z"/><path d="M10.5 7.5h2.6l1.4 2v2h-4z"/><circle cx="4.5" cy="12.5" r="1.3"/><circle cx="11.5" cy="12.5" r="1.3"/></svg>
+        Shipments
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 13.5V7M6.5 13.5V3M10.5 13.5V9M14 13.5h-13"/></svg>
+        Ripeness
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2.5 14 6l-6 3.5L2 6z"/><path d="M2 10l6 3.5L14 10"/></svg>
+        Inventory
+      </a>
+    </div>
+
+    <div class="nav-group">
+      <span class="nav-label">Network</span>
+      <a href="#">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c3 3.5 3 8.5 0 12-3-3.5-3-8.5 0-12z"/></svg>
+        Growers
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 13.5V6l5-3.5L13 6v7.5z"/><path d="M6.5 13.5v-4h3v4"/></svg>
+        Distribution centers
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 3.5h11v9h-11z"/><path d="M2.5 6.5h11"/></svg>
+        Reports
+      </a>
+    </div>
+
+    <div class="nav-footer">
+      <div class="who">
+        <span class="avatar" aria-hidden="true">RK</span>
+        <span>
+          <span class="who-name">Revanth K.</span><br>
+          <span class="who-org">Trópico Fruit Co.</span>
+        </span>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <p class="crumbs">Operations / Overview</p>
+
+    <div class="page-head">
+      <div>
+        <!-- Deliberately redundant heading: a demo annotation target. -->
+        <h1>Banana Analytics Overview Dashboard</h1>
+        <p class="page-sub">Week 39 · 14 active routes · updated 4 minutes ago</p>
+      </div>
+    </div>
+
+    <section class="cards">
+      <div class="card">
+        <p class="card-label">Total bunches shipped</p>
+        <p class="figure">48,210 <span class="unit">bunches</span></p>
+        <p class="delta up">▲ 6.4% <span class="muted">vs last week</span></p>
+      </div>
+      <div class="card">
+        <p class="card-label shout">Spoilge rate</p>
+        <p class="figure">3.8 <span class="unit">%</span></p>
+        <p class="delta down">▲ 0.9 pts <span class="muted">vs last week</span></p>
+      </div>
+      <div class="card">
+        <p class="card-label">Avg ripeness score</p>
+        <p class="figure">4.2 <span class="unit">/ 7</span></p>
+        <div class="ripeness" role="img" aria-label="Ripeness stage 4 of 7: turning yellow">
+          <span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span></span><span></span>
+        </div>
+      </div>
+      <div class="card">
+        <p class="card-label">on-time delivery</p>
+        <p class="figure">91.5 <span class="unit">%</span></p>
+        <p class="delta up">▲ 1.2 pts <span class="muted">vs last week</span></p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title">Bunches shipped per day</h2>
+          <p class="panel-note">Pallets leaving all distribution centers, in thousands</p>
+        </div>
+        <div class="seg" role="group" aria-label="Time range">
+          <button type="button" aria-pressed="false">7d</button>
+          <button type="button" aria-pressed="true">14d</button>
+          <button type="button" aria-pressed="false">30d</button>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <svg class="chart" id="chart" role="img" aria-label="Bunches shipped per day over the last 14 days, rising from 5.2k to 7.4k"></svg>
+        <div class="tip" id="tip"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title">Shipments in transit</h2>
+          <p class="panel-note">Sorted by arrival window</p>
+        </div>
+        <button class="ghost" type="button">View all</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Route</th>
+            <th scope="col">Container</th>
+            <th scope="col">Bunches</th>
+            <th scope="col">Ripeness</th>
+            <th scope="col">Arrives</th>
+            <th scope="col">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="route">Guayaquil → Rotterdam<small>Reefer line 4</small></td>
+            <td class="num">TRPU‑4471908</td>
+            <td class="num">6,400</td>
+            <td class="num">3.1 / 7</td>
+            <td class="num">Sep 24</td>
+            <td><span class="pill good"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2.5 6.4 4.8 8.7 9.5 3.9"/></svg>On schedule</span></td>
+          </tr>
+          <tr>
+            <td class="route">Puerto Limón → Philadelphia<small>Reefer line 1</small></td>
+            <td class="num">MSCU‑7719340</td>
+            <td class="num">5,150</td>
+            <td class="num">4.6 / 7</td>
+            <td class="num">Sep 23</td>
+            <td><span class="pill warn"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3v3.4M6 8.6v.2"/><circle cx="6" cy="6" r="4.4"/></svg>Ripening fast</span></td>
+          </tr>
+          <tr>
+            <td class="route">Davao → Yokohama<small>Reefer line 7</small></td>
+            <td class="num">HLXU‑2206518</td>
+            <td class="num">8,020</td>
+            <td class="num">2.4 / 7</td>
+            <td class="num">Sep 26</td>
+            <td><span class="pill good"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2.5 6.4 4.8 8.7 9.5 3.9"/></svg>On schedule</span></td>
+          </tr>
+          <tr>
+            <td class="route">Santa Marta → Dover<small>Reefer line 2</small></td>
+            <td class="num">CMAU‑9930277</td>
+            <td class="num">4,780</td>
+            <td class="num">5.9 / 7</td>
+            <td class="num">Sep 22</td>
+            <td><span class="pill bad"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 2.8v3.6M6 8.8v.2"/><path d="M6 1.6 11 10.4H1z"/></svg>Cold chain break</span></td>
+          </tr>
+          <tr>
+            <td class="route">Kribi → Algeciras<small>Reefer line 9</small></td>
+            <td class="num">SUDU‑1148602</td>
+            <td class="num">3,960</td>
+            <td class="num">3.8 / 7</td>
+            <td class="num">Sep 25</td>
+            <td><span class="pill good"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2.5 6.4 4.8 8.7 9.5 3.9"/></svg>On schedule</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="table-foot">
+        <span>Showing 5 of 14 shipments</span>
+        <span>Last sync 09:41</span>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+// One series, so no legend: the panel title names it. Thin 2px line, recessive
+// grid, crosshair + tooltip on hover.
+(function () {
+  const data = [
+    ['Sep 9', 5.2], ['Sep 10', 5.6], ['Sep 11', 5.1], ['Sep 12', 5.9],
+    ['Sep 13', 6.3], ['Sep 14', 6.0], ['Sep 15', 6.6], ['Sep 16', 6.2],
+    ['Sep 17', 6.8], ['Sep 18', 7.1], ['Sep 19', 6.5], ['Sep 20', 7.0],
+    ['Sep 21', 7.3], ['Sep 22', 7.4],
+  ];
+  const svg = document.getElementById('chart');
+  const tip = document.getElementById('tip');
+  const NS = 'http://www.w3.org/2000/svg';
+  const pad = { t: 10, r: 8, b: 26, l: 34 };
+
+  function draw() {
+    const w = svg.clientWidth, h = svg.clientHeight;
+    if (!w) return;
+    svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    svg.textContent = '';
+
+    const lo = 4, hi = 8;
+    const x = (i) => pad.l + (i * (w - pad.l - pad.r)) / (data.length - 1);
+    const y = (v) => pad.t + (1 - (v - lo) / (hi - lo)) * (h - pad.t - pad.b);
+
+    const defs = document.createElementNS(NS, 'defs');
+    defs.innerHTML = '<linearGradient id="leafFade" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0%" stop-color="#2F6B4F" stop-opacity=".16"/>' +
+      '<stop offset="100%" stop-color="#2F6B4F" stop-opacity="0"/></linearGradient>';
+    svg.appendChild(defs);
+
+    const grid = document.createElementNS(NS, 'g');
+    grid.setAttribute('class', 'grid');
+    const axis = document.createElementNS(NS, 'g');
+    axis.setAttribute('class', 'axis');
+    for (let v = lo; v <= hi; v++) {
+      const ln = document.createElementNS(NS, 'line');
+      ln.setAttribute('x1', pad.l); ln.setAttribute('x2', w - pad.r);
+      ln.setAttribute('y1', y(v)); ln.setAttribute('y2', y(v));
+      grid.appendChild(ln);
+      const t = document.createElementNS(NS, 'text');
+      t.setAttribute('x', pad.l - 9); t.setAttribute('y', y(v) + 4);
+      t.setAttribute('text-anchor', 'end'); t.textContent = v + 'k';
+      axis.appendChild(t);
+    }
+    data.forEach(([label], i) => {
+      if (i % 3 !== 0 && i !== data.length - 1) return;
+      const t = document.createElementNS(NS, 'text');
+      t.setAttribute('x', x(i)); t.setAttribute('y', h - 6);
+      t.setAttribute('text-anchor', 'middle'); t.textContent = label;
+      axis.appendChild(t);
+    });
+    svg.appendChild(grid); svg.appendChild(axis);
+
+    const line = data.map(([, v], i) => `${i ? 'L' : 'M'}${x(i)},${y(v)}`).join(' ');
+    const area = document.createElementNS(NS, 'path');
+    area.setAttribute('class', 'series-area');
+    area.setAttribute('d', `${line} L${x(data.length - 1)},${y(lo)} L${x(0)},${y(lo)} Z`);
+    svg.appendChild(area);
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('class', 'series-line');
+    path.setAttribute('d', line);
+    svg.appendChild(path);
+
+    const hover = document.createElementNS(NS, 'line');
+    hover.setAttribute('class', 'hover-line');
+    hover.setAttribute('y1', pad.t); hover.setAttribute('y2', h - pad.b);
+    svg.appendChild(hover);
+    const dot = document.createElementNS(NS, 'circle');
+    dot.setAttribute('class', 'hover-dot'); dot.setAttribute('r', 4.5);
+    svg.appendChild(dot);
+
+    svg.onpointermove = (e) => {
+      const r = svg.getBoundingClientRect();
+      const i = Math.max(0, Math.min(data.length - 1,
+        Math.round(((e.clientX - r.left - pad.l) / (w - pad.l - pad.r)) * (data.length - 1))));
+      const px = x(i), py = y(data[i][1]);
+      hover.setAttribute('x1', px); hover.setAttribute('x2', px); hover.style.opacity = 1;
+      dot.setAttribute('cx', px); dot.setAttribute('cy', py); dot.style.opacity = 1;
+      tip.innerHTML = `${data[i][0]} · <b>${data[i][1].toFixed(1)}k</b> bunches`;
+      tip.style.left = px + 'px';
+      tip.style.top = (py - 10) + 'px';
+      tip.style.opacity = 1;
+    };
+    svg.onpointerleave = () => {
+      hover.style.opacity = 0; dot.style.opacity = 0; tip.style.opacity = 0;
+    };
+  }
+
+  draw();
+  addEventListener('resize', draw);
+
+  document.querySelectorAll('.seg button').forEach((b) => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.seg button').forEach((o) => o.setAttribute('aria-pressed', 'false'));
+      b.setAttribute('aria-pressed', 'true');
+    });
+  });
+})();
+</script>
+</body>
+</html>

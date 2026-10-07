@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orbit — Pricing</title>
+<style>
+  :root {
+    --ink: #0F172A;
+    --ink-2: #334155;
+    --muted: #64748B;
+    --line: #E2E8F0;
+    --bg: #FFFFFF;
+    --soft: #F8FAFC;
+    --brand: #4F46E5;
+    --brand-2: #6366F1;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 40px; }
+
+  nav { border-bottom: 1px solid var(--line); }
+  nav .wrap { display: flex; align-items: center; height: 68px; gap: 36px; }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; letter-spacing: -0.02em; }
+  .logo i { width: 26px; height: 26px; border-radius: 50%; background: conic-gradient(from 200deg, var(--brand), #A78BFA, var(--brand)); display: block; position: relative; }
+  .logo i::after { content: ''; position: absolute; inset: 7px; border-radius: 50%; background: #fff; }
+  .links { display: flex; gap: 28px; font-size: 15px; color: var(--ink-2); }
+  .links .on { color: var(--ink); font-weight: 600; }
+  .nav-cta { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+  .btn { height: 40px; padding: 0 18px; border-radius: 10px; border: 1px solid var(--line); background: #fff; font-weight: 600; font-size: 14px; color: var(--ink); display: inline-flex; align-items: center; }
+  .btn.signin { font-size: 20px; }
+  .btn.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+  header { text-align: center; padding: 40px 0 18px; }
+  .pill { display: inline-flex; gap: 8px; align-items: center; font-size: 13px; color: var(--brand); background: #EEF2FF; border-radius: 999px; padding: 6px 12px; font-weight: 600; }
+  h1 { font-size: 52px; letter-spacing: -0.035em; line-height: 1.05; margin: 16px 0 12px; }
+  .sub { font-size: 18px; color: var(--muted); margin: 0; }
+
+  .stats { display: flex; justify-content: center; gap: 16px; margin: 24px 0 22px; }
+  .stat { width: 190px; border: 1px solid var(--line); border-radius: 14px; padding: 14px 18px; background: var(--soft); text-align: left; }
+  .stat b { display: block; font-size: 28px; letter-spacing: -0.03em; white-space: nowrap; }
+  .stat span { font-size: 13px; color: var(--muted); }
+
+  .plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; align-items: start; }
+  .plan { border: 1px solid var(--line); border-radius: 18px; padding: 20px 24px; background: #fff; position: relative; }
+  .plan.pop { border-color: var(--brand); box-shadow: 0 12px 40px rgba(79,70,229,0.14); }
+  .plan .tag { position: absolute; top: -12px; left: 24px; background: var(--brand); color: #fff; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; }
+  .plan h3 { margin: 0 0 4px; font-size: 18px; }
+  .plan p { margin: 0 0 16px; font-size: 14px; color: var(--muted); }
+  .price { font-size: 40px; font-weight: 700; letter-spacing: -0.03em; }
+  .price small { font-size: 15px; color: var(--muted); font-weight: 500; letter-spacing: 0; }
+  ul { list-style: none; padding: 0; margin: 12px 0 16px; font-size: 14px; color: var(--ink-2); }
+  li { padding: 5px 0 5px 24px; position: relative; }
+  li::before { content: ''; position: absolute; left: 2px; top: 10px; width: 10px; height: 6px; border-left: 2px solid var(--brand); border-bottom: 2px solid var(--brand); transform: rotate(-45deg); }
+  .choose { display: flex; align-items: center; justify-content: center; width: 100%; height: 44px; border-radius: 11px; border: 0; background: var(--brand); color: #fff; font-weight: 600; font-size: 15px; }
+  .plan:not(.pop) .choose { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  /* The planted bugs */
+  .plan .choose.off { height: 54px; width: 84%; background: #22C55E; color: #fff; border: 0; border-radius: 3px; margin-left: 14px; font-size: 17px; }
+</style>
+</head>
+<body>
+  <nav>
+    <div class="wrap">
+      <div class="logo"><i></i>orbit</div>
+      <div class="links"><span>Product</span><span class="on">Pricing</span><span>Customers</span><span>Docs</span></div>
+      <div class="nav-cta"><span class="btn signin">Sign in</span><span class="btn primary">Get started</span></div>
+    </div>
+  </nav>
+  <header>
+    <div class="wrap">
+      <span class="pill">New · Weekly digests</span>
+      <h1 id="title">Analytics your whole team can read.</h1>
+      <p class="sub" id="sub"><span id="typo">Recieve weekly reports</span> in your inbox. No dashboards to dig through.</p>
+      <div class="stats">
+        <div class="stat" id="stat-events"><b>12,480,000,000+</b><span>events tracked</span></div>
+        <div class="stat"><b>99.99%</b><span>uptime</span></div>
+        <div class="stat"><b>4.9/5</b><span>average rating</span></div>
+      </div>
+    </div>
+  </header>
+  <section>
+    <div class="wrap plans">
+      <div class="plan">
+        <h3>Starter</h3><p>For side projects</p>
+        <div class="price">$0<small>/mo</small></div>
+        <ul><li>1 project</li><li>7-day history</li><li>Email support</li></ul>
+        <span class="choose">Choose Starter</span>
+      </div>
+      <div class="plan pop">
+        <span class="tag">Most popular</span>
+        <h3>Team</h3><p>For growing teams</p>
+        <div class="price">$24<small>/mo</small></div>
+        <ul><li>Unlimited projects</li><li>1-year history</li><li>Weekly digests</li></ul>
+        <span class="choose" id="cta-team">Choose Team</span>
+      </div>
+      <div class="plan">
+        <h3>Business</h3><p>For whole companies</p>
+        <div class="price">$89<small>/mo</small></div>
+        <ul><li>SSO &amp; audit log</li><li>Unlimited history</li><li>Priority support</li></ul>
+        <span class="choose off" id="cta-business">Choose Business</span>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

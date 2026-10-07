@@ -3,3 +3,14 @@ node_modules/
 *.js.map
 test-results/
 salamander.zip
+
+# local Claude Code settings
+.claude/
+
+# promo film: music, recorded footage and renders stay local
+# (re-record the footage with `node promo/capture2.js`)
+*.mp4
+*.mp3
+*.wav
+promo/public/take/
+promo/out/
