@@ -388,7 +388,10 @@ export async function updateNote(
 }
 
 /** Remove an item and its screenshot blob (§1.5 — deleting a feedback item
- *  must not orphan its image). No-op if the item can't be found. */
+ *  must not orphan its image). No-op if the item can't be found. Once the
+ *  index write has landed the note is deleted: a key or a screenshot that
+ *  cannot be removed after that is logged, never reported as a failed
+ *  delete of a note that is already gone. */
 export async function deleteItem(
   domain: string,
   normalisedUrl: string,
@@ -415,9 +418,9 @@ export async function deleteItem(
   }
   await storageSet({ [domainKey(domain)]: index });
   // The index no longer points at the item: it is deleted as far as the
-  // user can tell, whatever happens to its key.
+  // user can tell, whatever happens to its key and its screenshot.
   await removeOrphans(key);
-  if (removed) await imageStore.deleteImage(removed.screenshotKey);
+  if (removed) await removeOrphanImages([removed.screenshotKey]);
 }
 
 /** Import's replace-only semantics (§1.7): discard everything currently

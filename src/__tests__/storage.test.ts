@@ -772,6 +772,17 @@ describe('storage.ts — a failed chrome.storage.local call rejects (chrome.runt
     expect(warn).toHaveBeenCalled();
   });
 
+  test('deleteItem: a screenshot that cannot be deleted once the index write landed is an orphan, not a failure', async () => {
+    const a = makeItem({ id: 1 });
+    await seedImage(a.screenshotKey);
+    await addItem(DOMAIN_X, a);
+    const del = jest.spyOn(imageStore, 'deleteImage').mockRejectedValueOnce(new Error('IDB closed'));
+    await expect(deleteItem(DOMAIN_X, a.normalisedUrl, 1)).resolves.toBeUndefined();
+    del.mockRestore();
+    expect(await getPageItems(DOMAIN_X, a.normalisedUrl)).toEqual([]);
+    expect(warn).toHaveBeenCalled();
+  });
+
 });
 
 describe('the chrome.storage fake (setup.ts) behaves like the real one', () => {
