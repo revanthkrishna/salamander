@@ -284,12 +284,10 @@ describe('Option/Alt+N', () => {
   test('adds one note, switch off, and the page never sees the key', () => {
     const h = harness();
     const e = altN();
-    const stop = jest.spyOn(e, 'stopImmediatePropagation');
-    h.control.onGlobalKeyDown(e);
+    expect(h.control.onGlobalKeyDown(e)).toBe('stop');
     expect(h.active()).toBe(true);
     expect(last(h.paints)).toBe('on');
     expect(e.defaultPrevented).toBe(true);
-    expect(stop).toHaveBeenCalled();
   });
 
   test('does nothing with the sidebar off the page, while placing, with the enlarged view open, or while typing', () => {
@@ -303,7 +301,7 @@ describe('Option/Alt+N', () => {
       set(h);
       const starts = h.starts();
       const e = altN();
-      h.control.onGlobalKeyDown(e);
+      expect(h.control.onGlobalKeyDown(e)).toBe('pass');
       expect(h.starts()).toBe(starts);
       expect(e.defaultPrevented).toBe(false);
     }

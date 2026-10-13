@@ -60,6 +60,7 @@ import type { PenColor } from './drawing';
 import { createAddModeControl } from './addModeControl';
 import { createSiteActions } from './siteActions';
 import { NavigationWatch, watchNavigation } from './navigation';
+import { KEY_PRIORITY, registerKeyHandler } from './keyRouter';
 
 /** The running instance, as a later injection into the same JS world sees
  *  it: whether its extension context is still alive, and how to shut it
@@ -132,6 +133,8 @@ let started = false;
 /** SPA navigation detection (src/navigation.ts), once started. */
 let navigation: NavigationWatch | null = null;
 let tornDown = false;
+/** The add-mode controller's key handler (Esc, Option/Alt+N), once started. */
+let releaseGlobalKeys: (() => void) | null = null;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The pencil's colour (design spec §AB)
@@ -295,10 +298,12 @@ function ensureStarted(): void {
   navigation = watchNavigation(handleUrlChange);
   window.addEventListener('beforeunload', handleBeforeUnload);
   window.addEventListener('pagehide', handleBeforeUnload);
-  // Esc-exits-add-mode (§A2) — see onGlobalKeyDown's doc comment
-  // (src/addModeControl.ts) for why this has to be registered once, here,
-  // rather than per add-mode session.
-  window.addEventListener('keydown', addControl.onGlobalKeyDown, true);
+  // Esc-exits-add-mode and Option/Alt+N (§A2) — once, here, for the page's
+  // lifetime, at its place in the key router's table (src/keyRouter.ts).
+  releaseGlobalKeys = registerKeyHandler({
+    priority: KEY_PRIORITY.GLOBAL_ESC_AND_SHORTCUT,
+    handle: addControl.onGlobalKeyDown,
+  });
 }
 
 function openAndReport(): void {
@@ -499,7 +504,8 @@ function teardown(): void {
     navigation = null;
     window.removeEventListener('beforeunload', handleBeforeUnload);
     window.removeEventListener('pagehide', handleBeforeUnload);
-    window.removeEventListener('keydown', addControl.onGlobalKeyDown, true);
+    releaseGlobalKeys?.();
+    releaseGlobalKeys = null;
   }
   sidebar.destroySidebar();
   if (window.__annotatorActive === instance) delete window.__annotatorActive;

@@ -20,6 +20,7 @@ import type * as SidebarModule from './sidebar';
 import type { CaptureOutcome, OverlayControls } from './capture';
 import type { PenColor } from './drawing';
 import { isAddNoteShortcut } from './shortcut';
+import type { KeyVerdict } from './keyRouter';
 
 export interface AddModeControlDeps {
   addMode: Pick<
@@ -60,8 +61,9 @@ export interface AddModeControl {
   onButtonDoubleClick: () => void;
   /** The switch flicked (sidebar.SidebarCallbacks.onAddSwitchChange). */
   setSwitch: (on: boolean) => void;
-  /** Esc and Option/Alt+N, on `window` in the capture phase. */
-  onGlobalKeyDown: (e: KeyboardEvent) => void;
+  /** Esc and Option/Alt+N, heard through the key router; 'stop' when the
+   *  shortcut acted, so the page never sees the key. */
+  onGlobalKeyDown: (e: KeyboardEvent) => KeyVerdict;
 }
 
 /**
@@ -289,43 +291,39 @@ export function createAddModeControl(deps: AddModeControlDeps): AddModeControl {
   }
 
   /** Esc always exits add mode and turns the switch off (§A2), regardless of
-   *  what state add mode is in ('placing' or 'editing'). Installed on
-   *  `window` in the capture phase, once, by content.ts's ensureStarted() —
-   *  i.e. *before* addMode.ts ever installs its own capture-phase
-   *  keyboardIsolation listener for a given add-mode session, so this always
-   *  sees the keydown first (capture-phase listeners on the same node run in
-   *  registration order) and can act on it even though addMode.ts's
-   *  isolation would otherwise stop the event from ever reaching a
-   *  page/document-level listener. */
-  function onGlobalKeyDown(e: KeyboardEvent): void {
-    if (isAddNoteShortcut(e)) {
-      onAddNoteShortcut(e);
-      return;
-    }
-    if (e.key !== 'Escape') return;
+   *  what state add mode is in ('placing' or 'editing'). Registered once, by
+   *  content.ts's ensureStarted(), with the key router at
+   *  GLOBAL_ESC_AND_SHORTCUT — before every isolation (keyRouter.ts), so it
+   *  sees the keydown even though add mode's isolation stops the event from
+   *  ever reaching a page/document-level listener. */
+  function onGlobalKeyDown(e: KeyboardEvent): KeyVerdict {
+    if (isAddNoteShortcut(e)) return onAddNoteShortcut(e);
+    if (e.key !== 'Escape') return 'pass';
     // Esc during IME composition cancels the composition, not add mode.
-    if (e.isComposing || e.keyCode === 229) return;
-    if (!addMode.isAddModeActive()) return;
+    if (e.isComposing || e.keyCode === 229) return 'pass';
+    if (!addMode.isAddModeActive()) return 'pass';
     // An open pencil menu takes this Esc for itself (design spec §AB, §C2):
     // it closes and focus returns to the pencil; the next Esc exits.
-    if (addMode.dismissDrawingMenu()) return;
+    if (addMode.dismissDrawingMenu()) return 'pass';
     exitFully();
+    return 'pass';
   }
 
   /** Option+N / Alt+N (src/shortcut.ts): one note, like a single click on
    *  add. Only while the sidebar is open, and nothing happens while a note is
    *  being placed, while the enlarged view is open or while the user is
    *  typing. When it does act, the page never sees the key (a page access key
-   *  "n" or a web app's own Alt+N stays quiet while the sidebar is open). */
-  function onAddNoteShortcut(e: KeyboardEvent): void {
-    if (!sidebar.isSidebarOnPage()) return;
-    if (addMode.isAddModeActive() || sidebar.isEnlargedViewOpen()) return;
-    if (deps.isTypingTarget()) return;
+   *  "n" or a web app's own Alt+N stays quiet while the sidebar is open):
+   *  'stop'. */
+  function onAddNoteShortcut(e: KeyboardEvent): KeyVerdict {
+    if (!sidebar.isSidebarOnPage()) return 'pass';
+    if (addMode.isAddModeActive() || sidebar.isEnlargedViewOpen()) return 'pass';
+    if (deps.isTypingTarget()) return 'pass';
     e.preventDefault();
-    e.stopImmediatePropagation();
     clearPendingAddOff();
     addKeptOn = false;
     enter();
+    return 'stop';
   }
 
   return { enter, exitFully, onButtonClick, onButtonDoubleClick, setSwitch, onGlobalKeyDown };
