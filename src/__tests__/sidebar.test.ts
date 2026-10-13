@@ -14,6 +14,7 @@ import * as sidebar from '../sidebar';
 import { FeedbackItem } from '../types';
 import { ICON_WARNING } from '../icons';
 import { _resetThemeStateForTests } from '../theme';
+import { cssRuleIn } from './helpers/css';
 
 function getHost(): HTMLElement | null {
   return document.getElementById('annotator-sidebar-host');
@@ -923,8 +924,7 @@ describe('sidebar review fixes', () => {
   }
   /** The first `selector { ... }` rule body in the sidebar's stylesheet. */
   function cssRule(selector: string): string {
-    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return css().match(new RegExp(`(^|\\n)\\s*${escaped}\\s*\\{[^}]*\\}`))?.[0] ?? '';
+    return cssRuleIn(css(), selector);
   }
   function body(): HTMLElement {
     return shadowRoot().querySelector('.body') as HTMLElement;
@@ -1103,8 +1103,7 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     return shadowRoot().querySelector('style')!.textContent ?? '';
   }
   function cssRule(selector: string): string {
-    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return css().match(new RegExp(`(^|\\n)\\s*${escaped}\\s*\\{[^}]*\\}`))?.[0] ?? '';
+    return cssRuleIn(css(), selector);
   }
   function group(): HTMLElement {
     return shadowRoot().querySelector('.add-group') as HTMLElement;
@@ -1621,8 +1620,7 @@ describe('export and "more options" (design spec v3 §C2, §AE)', () => {
     return shadowRoot().querySelector('style')!.textContent ?? '';
   }
   function cssRule(selector: string): string {
-    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return css().match(new RegExp(`(^|\\n)\\s*${escaped}\\s*\\{[^}]*\\}`))?.[0] ?? '';
+    return cssRuleIn(css(), selector);
   }
   function moreBtn(): HTMLButtonElement {
     return shadowRoot().querySelector('.btn-menu') as HTMLButtonElement;
@@ -2123,8 +2121,7 @@ describe('sidebar on hold during add mode (design spec v3 §H)', () => {
     return shadowRoot().querySelector('style')!.textContent ?? '';
   }
   function cssRule(selector: string): string {
-    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return css().match(new RegExp(`(^|\\n)\\s*${escaped}\\s*\\{[^}]*\\}`))?.[0] ?? '';
+    return cssRuleIn(css(), selector);
   }
   function body(): HTMLElement {
     return shadowRoot().querySelector('.body') as HTMLElement;
@@ -2265,8 +2262,7 @@ describe('note-in-list hover extension (design spec v2 §B)', () => {
     return shadowRoot().querySelector('style')!.textContent ?? '';
   }
   function cssRule(selector: string): string {
-    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return css().match(new RegExp(`(^|\\n)\\s*${escaped}\\s*\\{[^}]*\\}`))?.[0] ?? '';
+    return cssRuleIn(css(), selector);
   }
 
   test('the thumbnail keeps radius on all four corners and paints above the note extension', () => {
@@ -2341,8 +2337,7 @@ describe('note-in-list hover delete (design spec v4 §L)', () => {
     return shadowRoot().querySelector('style')!.textContent ?? '';
   }
   function cssRule(selector: string): string {
-    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return css().match(new RegExp(`(^|\\n)\\s*${escaped}\\s*\\{[^}]*\\}`))?.[0] ?? '';
+    return cssRuleIn(css(), selector);
   }
   function openWith(ids: number[]): void {
     sidebar.openSidebar();
@@ -2458,9 +2453,7 @@ describe('note-in-list hover delete (design spec v4 §L)', () => {
 
 describe('scroll isolation', () => {
   function cssRule(selector: string): string {
-    const text = shadowRoot().querySelector('style')!.textContent ?? '';
-    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return text.match(new RegExp(`(^|\\n)\\s*${escaped}\\s*\\{[^}]*\\}`))?.[0] ?? '';
+    return cssRuleIn(shadowRoot().querySelector('style')!.textContent ?? '', selector);
   }
 
   test('the list never hands its scroll on to the page', () => {

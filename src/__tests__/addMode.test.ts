@@ -12,6 +12,7 @@ import * as sidebar from '../sidebar';
 import { getSidebarWidth } from '../sidebar';
 import { TOOLTIP_CSS } from '../tooltip';
 import { getThemeCSS } from '../theme';
+import { cssRuleIn } from './helpers/css';
 
 // addMode.ts uses attachShadow({ mode: 'closed' }); force 'open' for this test
 // file only so we can assert on the rendered DOM, same trick as sidebar.test.ts.
@@ -94,8 +95,7 @@ function addModeOwnCSS(): string {
 
 /** The first `selector { ... }` rule body in add mode's own CSS. */
 function cssRule(selector: string): string {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return addModeOwnCSS().match(new RegExp(`(^|\\n)\\s*${escaped}\\s*\\{[^}]*\\}`))?.[0] ?? '';
+  return cssRuleIn(addModeOwnCSS(), selector);
 }
 
 function typeNote(text: string): void {
