@@ -366,18 +366,18 @@ describe('opening on a note', () => {
     expect(scroller().scrollTop).toBe(0);
   });
 
-  test('every note with a visible list thumbnail morphs from it; the rest fade in', () => {
+  test('every note with a visible list thumbnail morphs from it — one cut by the list\'s edge too; the rest fade in', () => {
     setup();
     const wraps = qa<HTMLElement>('.thumbnail-image-wrap');
-    stubRect(wraps[0], { left: 740, top: 150, width: 267, height: 100 });
-    stubRect(wraps[1], { left: 740, top: 344, width: 267, height: 100 });
     stubRect(q('.body')!, { left: 724, top: 130, width: 300, height: 400 });
-    // The third is scrolled out of the list's viewport: no rect to morph from.
-    stubRect(wraps[2], { left: 740, top: 538, width: 267, height: 100 });
+    stubRect(wraps[0], { left: 740, top: 150, width: 267, height: 100 });
+    // Half under the list's bottom edge: still visible, so it morphs, clipped.
+    stubRect(wraps[1], { left: 740, top: 480, width: 267, height: 100 });
+    // Scrolled out of the list's viewport: no rect to morph from.
+    stubRect(wraps[2], { left: 740, top: 600, width: 267, height: 100 });
     open(5);
 
-    const clones = qa('.xp-card').map((c) => c.dataset.itemId);
-    expect(clones).toEqual(['3', '5']);
+    expect(qa('.xp-card').map((c) => c.dataset.itemId)).toEqual(['3', '5']);
     for (const id of [3, 5]) {
       const frame = q(`.xp-card[data-item-id="${id}"] .xp-card-frame`)!;
       const morph = animCalls.find((c) => c.el === frame)!;
@@ -387,6 +387,16 @@ describe('opening on a note', () => {
       // The real screenshot waits under its clone; the list's is hidden.
       expect(shotOf(id).style.visibility).toBe('hidden');
     }
+    // The cut one starts clipped by exactly what the list hides (50px on
+    // screen, in the frame's own scaled px) and ends unclipped.
+    const cutFrame = animCalls.find((c) => c.el === q('.xp-card[data-item-id="5"] .xp-card-frame'))!;
+    const first = cutFrame.keyframes[0];
+    const sy = Number(String(first.transform).match(/scale\([^,]+, ([^)]+)\)/)![1]);
+    expect(first.clipPath).toBe(`inset(0px 0px ${Math.round((50 / sy) * 1000) / 1000}px 0px)`);
+    expect(cutFrame.keyframes[cutFrame.keyframes.length - 1].clipPath).toBe('inset(0px 0px 0px 0px)');
+    // The whole one carries no clip at all.
+    const wholeFrame = animCalls.find((c) => c.el === q('.xp-card[data-item-id="3"] .xp-card-frame'))!;
+    expect('clipPath' in wholeFrame.keyframes[0]).toBe(false);
     expect(wraps[0].style.visibility).toBe('hidden');
     expect(wraps[2].style.visibility).toBe('');
     // Other pages' notes and the scrolled-out one fade in, never morph.
@@ -556,6 +566,25 @@ describe('closing', () => {
     expect(scrollFade.options.duration).toBe(T.stageOut);
     jest.advanceTimersByTime(T.collapseSettle);
     expect(listWrap(3).style.visibility).toBe('');
+  });
+
+  test('a thumbnail the list cuts on the way back is landed on exactly as cut, and stays so', () => {
+    setup();
+    open(3);
+    settleOpen();
+    stubRect(scroller(), { left: 1024 - 768, top: TOP_BAR_H, width: 767, height: 768 - TOP_BAR_H });
+    stubRect(q('.xp-content')!, { left: 1024 - 768 + 32, top: TOP_BAR_H - scroller().scrollTop, width: 703, height: 2000 });
+    stubRect(q('.body')!, { left: 724, top: 130, width: 300, height: 400 });
+    // 30px of it under the list's top edge.
+    stubRect(q('button.thumbnail[data-item-id="3"] .thumbnail-image-wrap')!, { left: 740, top: 100, width: 267, height: 100 });
+    animCalls = [];
+    exitBtn().click();
+    const frame = q<HTMLElement>('.xp-card[data-item-id="3"] .xp-card-frame')!;
+    const kf = animCalls.find((c) => c.el === frame)!.keyframes;
+    expect(kf[0].clipPath).toBe('inset(0px 0px 0px 0px)');
+    expect(kf[kf.length - 1].clipPath).toBe('inset(30px 0px 0px 0px)');
+    // After the morph ends, before the swap: still cut.
+    expect(frame.style.clipPath).toBe('inset(30px 0px 0px 0px)');
   });
 
   test('collapse during the expand reverses from the live panel width, clones and all', () => {

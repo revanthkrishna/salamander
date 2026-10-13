@@ -194,6 +194,25 @@ export interface MorphKeyframes {
  * be the contain-fit of `aspect` into `to` inset by `to.pad`, relative to
  * the frame's top-left.
  */
+/** How much of a card's top and bottom is hidden, in viewport px — a list
+ *  thumbnail cut by the edge of the list's scrollport. */
+export interface EdgeCut {
+  top: number;
+  bottom: number;
+}
+
+export const NO_CUT: EdgeCut = { top: 0, bottom: 0 };
+
+export function lerpCut(a: EdgeCut, b: EdgeCut, p: number): EdgeCut {
+  return { top: lerp(a.top, b.top, p), bottom: lerp(a.bottom, b.bottom, p) };
+}
+
+/** The frame's `clip-path` for `cut`, in its own (pre-transform) px: a cut
+ *  of `cut.top` on screen is `cut.top / sy` inside a frame scaled by `sy`. */
+export function cutClipPath(cut: EdgeCut, sy = 1): string {
+  return `inset(${r3(cut.top / sy)}px 0px ${r3(cut.bottom / sy)}px 0px)`;
+}
+
 export function morphKeyframes(
   from: Slot,
   to: Slot,
@@ -201,6 +220,9 @@ export function morphKeyframes(
   ease: Ease,
   steps: number,
   frameRadius: number,
+  /** When given, the frame is clipped along the way: the cut eases from
+   *  `clip.from` (at First) to `clip.to` (at Last) on the same curve. */
+  clip?: { from: EdgeCut; to: EdgeCut },
 ): MorphKeyframes {
   const out: MorphKeyframes = { frame: [], media: [], badge: [] };
   const lastImg = containFit(aspect, insetBox({ x: 0, y: 0, w: to.w, h: to.h }, to.pad));
@@ -212,11 +234,13 @@ export function morphKeyframes(
     const sfy = s.h / to.h;
     const tfx = s.x - to.x;
     const tfy = s.y - to.y;
-    out.frame.push({
+    const frame: Keyframe = {
       offset,
       transform: `translate(${r3(tfx)}px, ${r3(tfy)}px) scale(${r5(sfx)}, ${r5(sfy)})`,
       borderRadius: `${r3(frameRadius / sfx)}px / ${r3(frameRadius / sfy)}px`,
-    });
+    };
+    if (clip) frame.clipPath = cutClipPath(lerpCut(clip.from, clip.to, ease(offset)), sfy);
+    out.frame.push(frame);
 
     // The screenshot's on-screen box at this sample, and the child transform
     // that puts it there *through* the frame's own (non-uniform) transform.

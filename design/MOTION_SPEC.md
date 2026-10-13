@@ -43,8 +43,10 @@ the deleted card's shrink). No bounce, no overshoot anywhere (Corporate: 0–3%;
 Elements that exist in **both** views never fade — they travel from their old rect to their new one
 (FLIP: transform/scale, or an equivalent property-level tween — see §13):
 1. the sidebar panel background
-2. **every note whose list thumbnail is visible** in the list's scrollport (the clicked one always),
-   list slot ↔ its place in the grid
+2. **every note whose list thumbnail is visible** in the list's scrollport — wholly or in part —
+   list slot ↔ its place in the grid. One cut by the list's edge leaves (and lands) exactly as cut:
+   its clone's frame is clipped by the hidden amount, easing to nothing (or from nothing) on the
+   morph's own curve
 3. the logo + wordmark, which ride the panel's left edge as it moves (and move from the docked
    header's 16px inset to the content column's 32px on the panel's own curve)
 
@@ -54,7 +56,7 @@ Everything that exists in only **one** view fades in place — no slide, no scal
 
 | | morphs (shared element, travels) | fades only (no movement) |
 |---|---|---|
-| **list-view-only** | — | close button, add/export row, "this page (n)", list items not visible in the list's scrollport, every list note's text |
+| **list-view-only** | — | close button, add/export row, "this page (n)", list items entirely out of the list's scrollport, every list note's text |
 | **enlarged-view-only** | — | exit button, page headings, every note's "#n" + delete header and text area, notes of other pages (and scrolled-out ones) including their screenshots, the "note required" / failure lines |
 | **shared (both views)** | panel bg, every visible list thumbnail ↔ its note's screenshot, logo+wordmark | number badge (on the clone; fades out as it leaves the list, back in as it lands on it) |
 | **backdrop** | — | scrim (fade only, never travels) |
