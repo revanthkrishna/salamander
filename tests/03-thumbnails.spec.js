@@ -269,3 +269,26 @@ test('Space activates the view\'s buttons, even on a site too short to scroll', 
   await page.keyboard.press('Space');
   await page.locator(S.enlarged).waitFor({ state: 'detached', timeout: 5000 });
 });
+
+test('one click on a delete deletes, and the view does not scroll — even on a note the edge cuts', async () => {
+  const page = await context.newPage();
+  await openPageWithSidebar(page);
+  for (let i = 0; i < 5; i++) {
+    await helper.captureFeedbackItem(page, { x: 100 + (i % 3) * 300, y: 150 + Math.floor(i / 3) * 180, note: `note ${i + 1}`, expectedCount: i + 1 });
+  }
+  // A short window: the second row's text areas are below the fold.
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await helper.openThumbnail(page, 1);
+  const scroller = page.locator(S.enlargedScroll);
+  await scroller.evaluate((el) => (el.scrollTop = 30));
+  await page.waitForTimeout(100);
+  const before = await scroller.evaluate((el) => el.scrollTop);
+  expect(before).toBe(30);
+
+  // Note 4's delete is on screen; its text area is not.
+  await page.locator(S.enlargedDelete).nth(3).click();
+  await expect(page.locator(S.enlargedNote)).toHaveCount(4);
+  expect(await noteTexts(page)).toEqual(['note 1', 'note 2', 'note 3', 'note 5']);
+  await page.waitForTimeout(500);
+  expect(await scroller.evaluate((el) => el.scrollTop)).toBe(before);
+});

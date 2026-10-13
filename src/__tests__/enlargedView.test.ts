@@ -895,6 +895,36 @@ describe('delete', () => {
     expect(shotOf(30).style.top).toBe(`${layout.notes.get(30)!.shot.y}px`);
   });
 
+  test('a click on a delete deletes, without scrolling the view first; the scroll position stays', async () => {
+    setup();
+    open(3);
+    settleOpen();
+    scroller().scrollTop = 240;
+    // Chrome focuses a button on pointerdown; that focus must not scroll it
+    // into view, or the button moves out from under the pointer.
+    const del = deleteOf(7);
+    del.dispatchEvent(new Event('pointerdown', { bubbles: true, composed: true }));
+    del.focus();
+    expect(scroller().scrollTop).toBe(240);
+    del.click();
+    jest.advanceTimersByTime(T.deleteStep);
+    await flush();
+    expect(q('.xp-note[data-item-id="7"]')).toBeNull();
+    // The focus the view moves on to the next delete is quiet too.
+    expect(shadow().activeElement).toBe(deleteOf(8));
+    expect(scroller().scrollTop).toBe(240);
+  });
+
+  test('keyboard focus still brings a note into view', () => {
+    setup();
+    open(3);
+    settleOpen();
+    scroller().scrollTop = 0;
+    keydown(exitBtn(), 'Shift');
+    deleteOf(8).focus();
+    expect(scroller().scrollTop).toBeGreaterThan(0);
+  });
+
   test('focus moves on to the next note\'s delete', async () => {
     setup();
     open(3);

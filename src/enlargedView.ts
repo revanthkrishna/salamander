@@ -1178,6 +1178,7 @@ class EnlargedView {
     }
     w.append(this.scrim, this.bg, this.stage, this.front);
     w.addEventListener('focusin', this.onFocusIn);
+    w.addEventListener('pointerdown', this.onPointerDown, true);
     this.mount.shadow.appendChild(w);
   }
 
@@ -1813,7 +1814,8 @@ class EnlargedView {
 
     if (focusWasHere) {
       const rest = order.filter((n) => n !== note && this.notes.has(n.item.id));
-      rest[Math.min(at, rest.length - 1)]?.del.focus({ preventScroll: true });
+      const next = rest[Math.min(at, rest.length - 1)];
+      if (next) this.focusQuietly(next.del);
     }
   }
 
@@ -2032,18 +2034,43 @@ class EnlargedView {
 
   // ─── Focus + scrolling ────────────────────────────────────────────────────
 
+  /** Focus scrolls its control into view only when the keyboard moved it.
+   *  A click focuses what it lands on, and scrolling then would move the
+   *  control out from under the pointer between mousedown and mouseup —
+   *  the click lands elsewhere and is lost (a delete that took two clicks
+   *  on a scrolled view). Set by pointerdown, cleared by any key. Focus the
+   *  view moves itself (after a delete) is quiet too: the scroll stays
+   *  where the reviewer left it. */
+  private pointerFocus = false;
+  private quietFocus = false;
+
+  private onPointerDown = (): void => {
+    this.pointerFocus = true;
+  };
+
+  /** Move focus without the reveal-scroll onFocusIn would do. */
+  private focusQuietly(el: HTMLElement): void {
+    this.quietFocus = true;
+    try {
+      el.focus({ preventScroll: true });
+    } finally {
+      this.quietFocus = false;
+    }
+  }
+
   private onFocusIn = (e: FocusEvent): void => {
     const t = e.target;
     if (!(t instanceof Node) || this.state !== 'open') return;
+    const reveal = !this.pointerFocus && !this.quietFocus;
     for (const note of this.notes.values()) {
       if (note.wrap.contains(t)) {
         this.anchorId = note.item.id;
-        this.revealNote(note);
+        if (reveal) this.revealNote(note);
         return;
       }
     }
     const page = this.pages.find((p) => p.heading.el.contains(t));
-    if (page) this.revealBox(page.part.box);
+    if (page && reveal) this.revealBox(page.part.box);
   };
 
   /** Scroll just enough to show a note whole (header to text area), with a
@@ -2095,6 +2122,7 @@ class EnlargedView {
 
   private onKeydown = (e: KeyboardEvent): void => {
     if (this.state === 'closed' || this.state === 'closing') return;
+    this.pointerFocus = false;
     // Keys that belong to an IME composition (Esc cancels it) aren't ours.
     if (e.isComposing || e.keyCode === 229) return;
     // This runs at window capture, outside the closed root, where
