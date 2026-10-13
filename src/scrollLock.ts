@@ -111,7 +111,7 @@ function spaceActivates(target: EventTarget | undefined): boolean {
  * Deliberately NOT `overflow: hidden` on the host's documentElement/body.
  * On a page with a classic scrollbar that hands the scrollbar's width back
  * to the content, which changes the layout viewport — and this extension
- * reads that viewport twice over: content.ts shrinks the page by the docked
+ * reads that viewport twice over: pageResize.ts shrinks the page by the docked
  * sidebar's width, and the FLIP morphs measure list-thumbnail rects in
  * viewport coordinates at the exact moment the view opens and closes. A
  * width change there is a visible jump in the middle of the morph. Nothing

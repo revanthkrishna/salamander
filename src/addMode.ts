@@ -1310,9 +1310,10 @@ function isUndoChord(e: KeyboardEvent): boolean {
 
 /**
  * Every key pressed inside add mode's host, before keyboardIsolation stops
- * it (see buildCommentDOM). Esc arrives here after content.ts's global
- * handler has already had it — which asks dismissDrawingMenu() first, so an
- * open menu eats one Esc before add mode does.
+ * it (see buildCommentDOM). Esc arrives here after the add-mode controller's
+ * Esc handler (src/addModeControl.ts, earlier in the key router) has already
+ * had it — which asks dismissDrawingMenu() first, so an open menu eats one
+ * Esc before add mode does.
  */
 function handleIsolatedKeydown(e: KeyboardEvent): void {
   if (mode !== 'editing' || !shadow || e.isComposing) return;
@@ -1521,8 +1522,9 @@ export function getPenColor(): PenColor {
 }
 
 /** Close the pencil menu if it is open, handing focus back to the pencil.
- *  True if it was — content.ts's global Esc handler asks this first, so Esc
- *  with the menu down closes the menu rather than add mode (§AB). */
+ *  True if it was — the add-mode controller's Esc handler
+ *  (src/addModeControl.ts) asks this first, so Esc with the menu down closes
+ *  the menu rather than add mode (§AB). */
 export function dismissDrawingMenu(): boolean {
   if (!drawMenuOpen) return false;
   closeDrawMenu({ returnFocus: true });
