@@ -75,6 +75,10 @@ export class PageHeading {
   /** Bumped by every rename, so a reply that arrives after a newer rename
    *  never reverts it. */
   private renameSeq = 0;
+  /** The monospace advance the address was last fitted with (fitAddress),
+   *  so a change of what sits beside it — a new name, the rename field —
+   *  can refit it. 0 until the view has measured it. */
+  private charW = 0;
 
   constructor(private readonly opts: PageHeadingOptions) {
     this.url = opts.url;
@@ -174,6 +178,7 @@ export class PageHeading {
     this.editBtn.hidden = true;
     this.editor.hidden = false;
     this.el.classList.add('is-editing');
+    this.fitAddress();
     this.input.focus({ preventScroll: true });
     this.input.select();
   }
@@ -216,9 +221,15 @@ export class PageHeading {
   /**
    * Fit the address to the room the line leaves it, ellipsizing in the
    * middle. `charW` is the monospace face's advance (measureCharWidth); a
-   * layout-less environment (0) leaves the full address.
+   * layout-less environment (0) leaves the full address. Called again by
+   * the heading itself whenever the name beside it changes width. Also
+   * gives a name its own ellipsis cut short a tooltip with all of it.
    */
-  fitAddress(charW: number): void {
+  fitAddress(charW: number = this.charW): void {
+    this.charW = charW;
+    // A name cut short by its 60% cap says the rest in its tooltip.
+    if (this.nameEl.scrollWidth > this.nameEl.clientWidth + 1) this.nameEl.dataset.tip = this.name;
+    else delete this.nameEl.dataset.tip;
     const full = displayUrl(this.url);
     this.urlEl.textContent = full;
     const room = this.urlEl.clientWidth;
@@ -240,12 +251,14 @@ export class PageHeading {
     this.nameEl.hidden = false;
     this.editBtn.hidden = false;
     this.el.classList.remove('is-editing');
+    this.fitAddress();
     if (refocus && hadFocus) this.editBtn.focus({ preventScroll: true });
   }
 
   private renderName(): void {
     this.nameEl.textContent = this.name;
     this.editBtn.setAttribute('aria-label', editPageNameLabel(this.name));
+    if (this.charW) this.fitAddress();
   }
 
   private setStatus(text: string): void {
