@@ -426,15 +426,31 @@ describe('opening on a note', () => {
     expect(fadeOf(exitBtn())!.options.delay).toBe(T.exitDelay);
   });
 
-  test('the panel grows leftward from the docked width; the logo moves to the content\'s inset', () => {
+  test('the panel grows leftward from the docked width; the logo drops to the top bar\'s centre line', () => {
     setup();
     open(3);
     const width = animCalls.find((c) => c.el === q('.xp-bg') && 'width' in c.keyframes[0])!;
     expect(width.keyframes[0].width).toBe(`${sidebar.getSidebarWidth()}px`);
     expect(width.keyframes[1].width).toBe(`${panelWidthFor(window.innerWidth, sidebar.getSidebarWidth())}px`);
     expect(width.options.duration).toBe(T.expand);
-    const left = animCalls.find((c) => c.el === q('.xp-brand') && 'left' in c.keyframes[0])!;
-    expect([left.keyframes[0].left, left.keyframes[1].left]).toEqual(['16px', '32px']);
+    const top = animCalls.find((c) => c.el === q('.xp-brand') && 'top' in c.keyframes[0])!;
+    // Docked, the logo is centred in a 56px header; in the panel, with the
+    // exit button in a 68px bar: 6px lower, and never sideways.
+    expect([top.keyframes[0].top, top.keyframes[1].top]).toEqual(['0px', `${(TOP_BAR_H - 56) / 2}px`]);
+    expect(animCalls.some((c) => c.el === q('.xp-brand') && 'left' in c.keyframes[0])).toBe(false);
+  });
+
+  test('the top bar has one margin on every side: the exit button\'s top and right, the logo\'s left, the content\'s inset', () => {
+    setupPage(1);
+    open(1);
+    const css = q('style')!.textContent!;
+    const rule = (sel: string) => css.slice(css.indexOf(`${sel} {`), css.indexOf('}', css.indexOf(`${sel} {`)));
+    expect(rule('.xp-exit')).toMatch(/top: 16px; right: 16px;/);
+    expect(rule('.xp-brand')).toMatch(/left: 16px;/);
+    expect(rule('.xp-content')).toMatch(/margin: 0 0 0 16px;/);
+    // The bar is that margin either side of the 36px button, and the logo is
+    // centred with it once dropped: (56 / 2) + 6 = 68 / 2.
+    expect(TOP_BAR_H).toBe(16 + 36 + 16);
   });
 
   test('full images: fetched as notes near the viewport (IntersectionObserver), and only land on their own note', async () => {

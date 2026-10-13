@@ -95,12 +95,20 @@ export const PEEK_PX = 80;
  *  panel (design spec §AH, "about 25% down"). */
 export const LANDING_FRACTION = 0.25;
 
-/** The panel's top bar: the logo + wordmark and the exit button. The same
- *  56px as the docked sidebar's header, so the logo never moves vertically
- *  as the panel grows. The scroller starts below it. */
-export const TOP_BAR_H = 56;
+/** The panel's margin, the same on every side of its top bar (design spec
+ *  §AH, revised 2026-10-12): the exit button's top and right, the logo's
+ *  left — and the content column's inset, so the logo, the page headings
+ *  and the notes share one left edge, and the docked sidebar's own 16px
+ *  inset carries straight over. */
+export const PANEL_MARGIN = 16;
+/** The exit button, a 36px secondary icon button (design spec §X). */
+export const EXIT_BTN_PX = 36;
+/** The panel's top bar: the logo + wordmark and the exit button, the button
+ *  PANEL_MARGIN from the top as from the right, so the bar is that margin
+ *  either side of it. The scroller starts below it. */
+export const TOP_BAR_H = PANEL_MARGIN + EXIT_BTN_PX + PANEL_MARGIN;
 /** The content column's inset from the panel's left and right edges. */
-export const PANEL_PAD_X = 32;
+export const PANEL_PAD_X = PANEL_MARGIN;
 /** The tallest a screenshot may be is what leaves its header line and text
  *  area on screen with it, less this much air (see maxShotHeightFor). */
 const SHOT_HEIGHT_MARGIN = 48;

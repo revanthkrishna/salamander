@@ -285,9 +285,13 @@ describe('opening on a note: a quarter of the way down, the notes before it peek
   });
 
   test('a page\'s first row lands there too, its heading on screen and the previous page\'s last row peeking', () => {
-    const g = site();
-    const top = scrollTopFor(g, 3, 1000 - TOP_BAR_H)!;
-    expect(onPanel(g.rows[2].top, top, 1000)).toBeCloseTo(LANDING_FRACTION, 2);
+    // Enough after it that the landing is not clamped by the content's end.
+    const g = computeGridLayout(
+      [page('a', [900, 200], [900, 200]), page('b', [900, 200], [900, 200], [900, 200], [900, 200])],
+      { contentW: 1000 },
+    );
+    const top = scrollTopFor(g, 3, 1200 - TOP_BAR_H)!;
+    expect(onPanel(g.rows[2].top, top, 1200)).toBeCloseTo(LANDING_FRACTION, 2);
     expect(g.headings[1].box.y).toBeGreaterThanOrEqual(top);
     expect(g.rows[1].bottom - top).toBeGreaterThanOrEqual(PEEK_PX);
   });
@@ -297,9 +301,9 @@ describe('opening on a note: a quarter of the way down, the notes before it peek
       [page('a', [900, 100], [900, 100]), page('b', [900, 100], [900, 100])],
       { contentW: 1000 },
     );
-    const top = scrollTopFor(g, 3, 520 - TOP_BAR_H)!;
+    const top = scrollTopFor(g, 3, 600 - TOP_BAR_H)!;
     expect(g.rows[1].bottom - top).toBe(PEEK_PX);
-    expect(onPanel(g.rows[2].top, top, 520)).toBeGreaterThan(LANDING_FRACTION);
+    expect(onPanel(g.rows[2].top, top, 600)).toBeGreaterThan(LANDING_FRACTION);
   });
 
   test('clamped to what the content can scroll', () => {

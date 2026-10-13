@@ -294,7 +294,7 @@ interface NumberTrack {
   anim: Animation | null;
 }
 
-/** Live numeric tweens per element + property key (opacity, width, left). */
+/** Live numeric tweens per element + property key (opacity, width, left, top). */
 const tracks = new WeakMap<Element, Map<string, NumberTrack>>();
 
 /** Current (possibly mid-flight) value of `el`'s tracked `key`, or
@@ -322,7 +322,7 @@ export interface NumberAnimOptions {
  */
 export function animateNumber(
   el: HTMLElement,
-  prop: 'opacity' | 'width' | 'left',
+  prop: 'opacity' | 'width' | 'left' | 'top',
   to: number,
   opts: NumberAnimOptions,
 ): void {

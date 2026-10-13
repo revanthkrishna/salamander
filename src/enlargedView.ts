@@ -112,7 +112,9 @@ import { fitHeadings, measureCharWidth, PageHeading, RenameResult } from './page
 import {
   Box,
   GridLayout,
+  EXIT_BTN_PX,
   NOTE_TEXT_H,
+  PANEL_MARGIN,
   PANEL_PAD_X,
   PEEK_PX,
   TOP_BAR_H,
@@ -196,11 +198,13 @@ export const T = {
  *  ~38px past the edge at the 300px maximum width). */
 const FRONT_BLEED_PX = 48;
 const FRAME_RADIUS = RADII.md;
-/** The docked sidebar's logo inset; in the panel it moves to the content
- *  column's inset (PANEL_PAD_X), so the logo, the headings and the notes
- *  share one left edge. */
-const BRAND_LEFT_DOCKED = 16;
-const EXIT_BTN = 36;
+/** The docked sidebar's header: the logo sits 16px in (PANEL_MARGIN, the
+ *  same in the panel) and centred in a 56px row. In the panel's taller top
+ *  bar it is centred with the exit button, so it moves down this much as
+ *  the panel grows (and back), on the panel's own curve. */
+const DOCKED_HEADER_H = 56;
+const BRAND_DROP_PX = (TOP_BAR_H - DOCKED_HEADER_H) / 2;
+const EXIT_BTN = EXIT_BTN_PX;
 /** What the top bar's notice leaves for the logo + wordmark on its left
  *  and the exit button on its right. */
 const NOTICE_RESERVE_PX = 300;
@@ -354,8 +358,8 @@ export const ENLARGED_VIEW_CSS = `
   .xp-front { z-index: ${Z_FRONT}; clip-path: inset(${TOP_BAR_H}px 0 0 0); }
 
   .xp-brand {
-    position: absolute; top: 0; left: ${BRAND_LEFT_DOCKED}px;
-    height: ${TOP_BAR_H}px;
+    position: absolute; top: 0; left: ${PANEL_MARGIN}px;
+    height: ${DOCKED_HEADER_H}px;
     display: flex; align-items: center; gap: 10px;
     pointer-events: none;
     white-space: nowrap;
@@ -370,7 +374,7 @@ export const ENLARGED_VIEW_CSS = `
   /* Exit: one secondary icon button, top right — v5 §U's collapse-panel
      glyph. */
   .xp-exit {
-    position: absolute; top: ${(TOP_BAR_H - EXIT_BTN) / 2}px; right: ${PANEL_PAD_X}px;
+    position: absolute; top: ${PANEL_MARGIN}px; right: ${PANEL_MARGIN}px;
     width: ${EXIT_BTN}px; height: ${EXIT_BTN}px; margin: 0; padding: 0;
     display: flex; align-items: center; justify-content: center;
     background: var(--sal-surface);
@@ -384,7 +388,7 @@ export const ENLARGED_VIEW_CSS = `
   /* The top bar's notice (the site could not be read in full), right-
      aligned against the exit button. */
   .xp-notice {
-    position: absolute; top: 0; right: ${PANEL_PAD_X + EXIT_BTN + 16}px;
+    position: absolute; top: 0; right: ${PANEL_MARGIN + EXIT_BTN + PANEL_MARGIN}px;
     margin: 0;
     font-size: 12px; line-height: ${TOP_BAR_H}px;
     color: var(--sal-danger);
@@ -997,7 +1001,7 @@ class EnlargedView {
     if (this.reduced) {
       // §12: geometry jumps, only opacity moves.
       this.setPanelWidth(this.panelW, 0);
-      this.setBrandLeft(PANEL_PAD_X, 0);
+      this.setBrandTop(BRAND_DROP_PX, 0);
       fadeTo(this.scrim, 1, { duration: T.rdScrimIn, curve: STD });
       fadeTo(sb, 0, { duration: T.rdListOut, curve: ACC });
       this.scroller.style.opacity = '0';
@@ -1009,7 +1013,7 @@ class EnlargedView {
     }
 
     this.setPanelWidth(this.panelW, T.expand, from);
-    this.setBrandLeft(PANEL_PAD_X, T.expand, BRAND_LEFT_DOCKED);
+    this.setBrandTop(BRAND_DROP_PX, T.expand, 0);
     // Backdrop first (Modal-with-Content), list-only chrome dissolves out
     // (entrance-exit: Dissolve Exit, ease-in), then the grid a band at a
     // time, and the exit button last.
@@ -1259,10 +1263,10 @@ class EnlargedView {
     }
   }
 
-  /** The logo moves from the docked header's inset to the content column's
-   *  as the panel grows (and back), on the panel's own curve. */
-  private setBrandLeft(to: number, duration: number, from?: number): void {
-    animateNumber(this.brand, 'left', to, { duration, from, curve: STD });
+  /** The logo moves from the docked header's centre line to the top bar's
+   *  (BRAND_DROP_PX) as the panel grows, and back, on the panel's curve. */
+  private setBrandTop(to: number, duration: number, from?: number): void {
+    animateNumber(this.brand, 'top', to, { duration, from, curve: STD });
   }
 
   /** The wordmark, which the list header hides at a narrow sidebar width
@@ -1552,14 +1556,14 @@ class EnlargedView {
       this.panelSnapTimer = setTimeout(() => {
         this.panelSnapTimer = null;
         this.setPanelWidth(this.mount.getSidebarWidth(), 0);
-        this.setBrandLeft(BRAND_LEFT_DOCKED, 0);
+        this.setBrandTop(0, 0);
       }, T.rdStageOut);
       this.settleTimer = setTimeout(() => this.finish(true), T.rdCollapseSettle);
       return;
     }
 
     this.setPanelWidth(this.mount.getSidebarWidth(), T.collapse);
-    this.setBrandLeft(BRAND_LEFT_DOCKED, T.collapse);
+    this.setBrandTop(0, T.collapse);
     fadeTo(this.scrim, 0, { duration: T.scrimOut, delay: T.scrimOutDelay, curve: ACC });
     fadeTo(sb, 1, { duration: T.listIn, delay: T.listInDelay, curve: STD });
 
