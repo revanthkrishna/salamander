@@ -47,8 +47,9 @@ Elements that exist in **both** views never fade — they travel from their old 
    list slot ↔ its place in the grid. One cut by the list's edge leaves (and lands) exactly as cut:
    its clone's frame is clipped by the hidden amount, easing to nothing (or from nothing) on the
    morph's own curve
-3. the logo + wordmark, which ride the panel's left edge as it moves (and move from the docked
-   header's 16px inset to the content column's 32px on the panel's own curve)
+3. the logo + wordmark, which ride the panel's left edge as it moves (keeping the docked 16px
+   inset, and dropping 6px on the panel's own curve to centre on the exit button in the 68px top
+   bar)
 
 Everything that exists in only **one** view fades in place — no slide, no scale, no translate.
 
@@ -64,7 +65,7 @@ Everything that exists in only **one** view fades in place — no slide, no scal
 ## 4. Geometry
 
 Computed, not fixed (`src/enlargedLayout.ts`, design spec §AH): the panel is
-`max(0.75·vw, min(560, vw), sidebarWidth)`; the content column is the scroller's width less 32px
+`max(0.75·vw, min(560, vw), sidebarWidth)`; the content column is the scroller's width less 16px
 each side; each note's screenshot is its selection's CSS size, never scaled up, scaled down to fit
 the column or the visible height; columns of `clamp(shot, 267, column)` packed three to a row and
 centred; the opening scroll position lands the note's row 25% down the panel with at least 80px of what precedes it showing above. A clone's
@@ -81,7 +82,7 @@ layout read of the content's origin per gesture).
   position, measure the list rects of every visible thumbnail on this page (after scroll; the dock
   transform included). Hide those list thumbnails and their notes' real screenshots; place clones
   on the list rects. Focus the clicked note's text area (caret at the end); the list goes inert.
-- **0–450ms, `std`**: panel grows leftward, width 300 → 75% of the viewport; the logo moves 16 → 32px.
+- **0–450ms, `std`**: panel grows leftward, width 300 → 75% of the viewport; the logo drops 6px.
 - **0–450ms, `std`, same curve**: every clone morphs list slot → its note's screenshot box.
   Identical curve and duration to the panel, so a clone never outruns the panel's left edge.
 - **0–200ms, `std`**: scrim fades in. **0–150ms, `acc`**: the list fades out.
@@ -98,7 +99,7 @@ layout read of the content's origin per gesture).
 
 - **t0**: flush every pending edit; repaint the (still hidden) list if the view changed this
   page's notes; centre it on the note focus returns to; measure the visible list rects once.
-- **0–340ms, `std`**: panel contracts back to the docked width; the logo moves 32 → 16px. Every
+- **0–340ms, `std`**: panel contracts back to the docked width; the logo rises 6px. Every
   note **on screen in the panel** that has a visible thumbnail in the list gets a clone at its
   current box, which morphs into that thumbnail, its badge fading back in (150ms `std`). Clones
   still in flight (a collapse mid-open) reverse from where they are.

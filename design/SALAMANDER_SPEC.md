@@ -1151,43 +1151,54 @@ with one wide note, and the tops of the next row cut off by the bottom edge. Dec
 - Unchanged: the sidebar grows leftward to 75% of the viewport (at least 560px or the viewport,
   never narrower than the docked width), over the scrim, right-anchored; the page is never
   re-laid out.
-- **Top bar, 56px** — the docked header's height, so the logo never moves vertically: the logo
-  and wordmark top left, and **one exit button** top right — a 36px secondary icon button with
-  v5 §U's collapse-panel glyph (the owner asked to keep it, 2026-10-12, after a first build drew
+- **Top bar, 68px, one 16px margin on every side** (revised 2026-10-12): the logo and wordmark
+  top left, 16px in (the docked header's own inset, so the logo never moves sideways), centred
+  with the exit button — it drops 6px from the docked header's 56px centre line as the panel
+  grows; and **one exit button** 16px from the top and 16px from the right — a 36px secondary
+  icon button with v5 §U's collapse-panel glyph (the owner asked to keep it, 2026-10-12, after a first build drew
   an arrow), "exit enlarged view (esc)". The x / ↑ / ↓ rail and the peek carousel are gone.
-- **The scroller** fills the panel below the top bar. Its content column is inset **32px** each
-  side (`PANEL_PAD_X`); the logo moves from the docked 16px to the same 32px as the panel grows,
-  so the logo, the headings and the first notes share one left edge, and the exit button's right
-  edge is the column's right edge. **(impl)** A thin scrollbar in `line-strong`, a stable gutter
+- **The scroller** fills the panel below the top bar. Its content column is inset the same
+  **16px** each side (`PANEL_PAD_X = PANEL_MARGIN`), so the logo, the headings and the first notes
+  share one left edge, and the exit button's right edge is the column's right edge. A thin scrollbar in `line-strong`, a stable gutter
   (the column never changes width with its content's height), overscroll contained. The content
   is hard-cut by the top bar's edge (no fade) — which is what makes the peek read as "more above".
 
 ## A page heading
 
-`[name][✎]  example.com/pricing  [this page]`, one 36px line:
+Two lines (revised 2026-10-12): the name and its pencil on a 40px line, and 2px under it the
+address with "this page" to its right on a 20px line —
+
+    [name][✎]
+    example.com/pricing [this page]
+
 
 - **Name** — the display serif, italic, 28px/34px, `text`: the reviewer's name for the page, else
   the HTML title captured with its first note (`context.pageMeta.title`), else "untitled page".
-  It keeps its own width up to 60% of the line and ellipsizes past that, so the address gives way
-  first.
-- **✎** — a 28px ghost button (the add-mode pencil glyph), muted at rest; `aria-label` "edit page
-  name: {name}".
+  It ellipsizes past 85% of the line, with all of it in its tooltip.
+- **✎** — the note delete's button without the red (the owner's call, 2026-10-12): the same 28px
+  box, radius, 1px `line` border, `surface` fill and muted glyph — the add-mode pencil — with a
+  neutral `hover` / `press` tint instead of the danger one; `aria-label` "edit page name: {name}",
+  tooltip "edit page name".
 - **Address** — the normalised URL without its scheme (the same for every page of the site), the
   mono face, 12px, **regular ink (`text`), not muted** — it is what tells two pages with the same
   title apart. Too long for its room, it is ellipsized **in the middle**, keeping the host and the
   last path segment; the face is monospace, so the room is a character count measured from the
   face itself (and again once the font has loaded). Its tooltip is the full URL.
-- **"this page"** — on the page on screen only: 11px/600 body face, `accent-icon` ink, a 1px
-  `line-strong` inset outline, radius sm, 20px tall. Quiet, but the one yellow word in the row.
-  **(impl)**
+- **"this page"** — on the page on screen only, to the right of the address: 11px/600 body face
+  in **regular ink (`text`)**, a 1px `line` inset outline, radius sm, 20px tall — a small label,
+  not a yellow one (revised 2026-10-12).
 - Each page's notes are a `role="group"` named by its heading.
 
 ### Renaming
 
-- ✎ swaps the name for a **text field** styled like the note text areas (surface, 1px `line`
-  inset, `line-strong` on hover, `accent` on focus), 360px × 32px, body face 14px, holding the
-  current name, all selected — with **✓ save** (32px, `accent-icon` glyph, like add mode's save)
-  and **× cancel** (32px) beside it. The line stays 36px tall, so renaming moves nothing.
+- ✎ swaps the name for a **text field** that is the name made editable in place (revised
+  2026-10-12): the **same serif, italic, 28px on a 34px line**, in the note text areas' field
+  (surface, 1px `line` inset, `line-strong` on hover, `accent` on focus), 40px tall, 12px of side
+  padding pulled back by a negative margin so the text stays exactly where the name's was. It is
+  as wide as its text plus that padding — growing as you type, measured from a mirror in the same
+  face — at least 160px, at most what the line leaves beside **✓ save** (`accent-icon` glyph, like
+  add mode's save) and **× cancel**, both the 28px button. It opens holding the current name, all
+  selected. The line stays 40px tall, so renaming moves nothing.
 - **Enter** or ✓ saves; **Esc** or × cancels — that Esc never collapses the view. Focus leaving
   the field and its two buttons **saves**, like a rename in Finder or Figma: a name typed and
   clicked away from is never silently lost. Collapsing mid-rename saves too. **(impl)**
@@ -1207,7 +1218,8 @@ with one wide note, and the tops of the next row cut off by the bottom edge. Dec
 
 ## A note
 
-A column of three bands: **header line**, **screenshot**, **text area**.
+One **group** (revised 2026-10-12): its **bar**, directly above its **screenshot**, and its
+**text area** directly below — centred on the image.
 
 - **Screenshot** at the selection's own CSS size (`selectionRect`; the PNG is at the capture's
   dpr). Never scaled up. Scaled down, aspect kept, only if it is wider than the content column, or
@@ -1223,14 +1235,12 @@ A column of three bands: **header line**, **screenshot**, **text area**.
   window. 96px is four lines of the 14px/1.45 note face; it never grows with its text, it scrolls
   inside. Styled as before (surface, inset `line`, `accent` on focus, `danger` when empty).
   **(impl)**
-- **Header line, 28px, 8px above the screenshot band:** "#n" — the number only, mono 12px/600,
-  `muted`; per page, as everywhere (§AD) — and a 28px delete (the list's trash glyph and
-  treatment, §S, §X's small size: a page of 32px buttons was heavy). It spans the column: "#n"
-  at its left edge, delete at its right. **On a shared line at the top of the row**, not glued to
-  its own screenshot: the screenshots are centred against each other, so per-screenshot headers
-  would step up and down with every height and break the row's top edge, while a shared line gives
-  the row three clean bands — headers, images, notes — and the header and the text area frame
-  each column at the same width. **(impl)**
+- **The bar, 28px, 8px above its own image:** "#n" — the number only, mono 12px/600, `muted`;
+  per page, as everywhere (§AD) — and a 28px delete (the list's trash glyph and treatment, §S),
+  **side by side, 8px apart, the pair centred horizontally over the image**. (The first build put
+  every bar of a row on one shared line at the row's top; with images of different heights that
+  left a short image's delete far above it. The owner asked for the bar right above its image.)
+- The **text area** sits 12px under its own image, centred on it.
 - Clicking a screenshot puts the cursor in its note.
 - Full images load lazily: `GET_IMAGE` as a note comes within 800px of the viewport
   (IntersectionObserver on the scroller); the inline thumbnail stands in until then. Every box is
@@ -1242,10 +1252,11 @@ A column of three bands: **header line**, **screenshot**, **text area**.
   still fits the content width with **32px** between columns, so a wide note ends up alone.
 - Columns keep their own widths (never equalised); **every row is centred** — which centres the
   one- and two-note rows, and splits a full row's leftover evenly.
-- In a row the header lines share a y; the screenshots are **centred vertically** against each
-  other in the band (the tallest fills it); the **text areas all start at one y**, 12px under the
-  band.
-- **Vertical rhythm (impl):** 24px above the first heading; heading 36 + 16 to its first row;
+- Each note's group is **centred vertically in its row** (the tallest fills it), so the images
+  stay centred against each other; the bars and the text areas follow their own image and do
+  **not** line up across the row (revised 2026-10-12).
+- **Vertical rhythm (impl):** 24px above the first heading; heading 62 (40 + 2 + 20) + 16 to its
+  first row;
   **40px** between rows (room for a note's one-line message, 16px + 6px, in the gap); **64px**
   from a page's last row to the next heading, so a page break reads as one; 64px at the end.
 - **Narrow windows:** fewer per row, down to one (at the 560px minimum panel, one default note per
@@ -1274,19 +1285,24 @@ A column of three bands: **header line**, **screenshot**, **text area**.
   included), and whatever precedes it — the previous row's bottom, on this page or the page before
   — **peeks** above it, cut off by the top bar. **At least 80px** of it always shows: on a short
   window, where a quarter of the way down would leave less, the row sits lower instead (a page's
-  first row, which brings its heading with it, sits lower sooner — it needs 80 + 64 + 52px
+  first row, which brings its heading with it, sits lower sooner — it needs 80 + 64 + 78px
   above). With nothing before it (the site's first row), or too little content above to fill the
   space, it starts at the top with no peek. If the row is too tall for that, it gives up as much
   as its text area needs to be on screen. Content shorter than the window is simply all there,
-  from the top. On a 1440×900 window a mid-page row's header line lands at 225px (25%), with
-  ~130px of the previous row above it. (The first build placed the row by the 80px peek alone,
+  from the top. On a 1440×900 window a mid-page row's top lands at 225px (25%), with the end of
+  the previous row above it. (The first build placed the row by the 80px peek alone,
   which put it ~14% down on a 900px window, hugging the top bar; the owner chose 25%.)
 
 ## Keyboard and accessibility
 
 - Tab moves through the controls in reading order — exit, then per page its ✎ (or, renaming, the
-  field, ✓, ×), then each note's delete and text area — wrapping (the view is modal). Focus
-  brought to a note scrolls just enough to show it whole, with 24px to spare.
+  field, ✓, ×), then each note's delete and text area — wrapping (the view is modal). Focus the
+  **keyboard** brings to a note scrolls just enough to show it whole, with 24px to spare. Focus a
+  **click** gives does not scroll anything (revised 2026-10-12): Chrome focuses a button on
+  pointerdown, and scrolling then moved the delete out from under the pointer before mouseup, so
+  a delete on a scrolled view took two clicks. Nor does the focus the view hands to the next
+  delete after a deletion: the scroll stays where the reviewer left it, unless the content got too
+  short for it.
 - **Esc** collapses — unless a page is being renamed (Esc cancels that) or a note is empty
   (refused). **↑/↓** scroll 64px, PageUp/PageDown a screen less the 80px peek, Home/End to the
   ends, whenever focus is not in a text field. Keyboard isolation (NF-ISO-1) is unchanged: the

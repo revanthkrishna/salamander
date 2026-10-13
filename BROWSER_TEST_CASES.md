@@ -271,18 +271,21 @@ notes, one very wide), then page C (one tall note, one default).
       list *grows* into its place in the grid; page A's and C's notes, the headings and the text
       areas fade in, a row at a time. Nothing jumps when the animation ends.
 - [ ] **3.1a. (the page)** The view is one scrolling page of all three pages, A first: each under a
-      heading — the page's name in the italic serif, a pencil, its address in monospace (not
-      grey), and on B only a small "this page" label. The list behind still shows only B's notes.
+      heading of two lines — the page's name in the italic serif with a pencil (the delete's button,
+      not red), and under it its address in monospace (not grey), followed on B only by a small
+      "this page" label in the same ink (not yellow). The list behind still shows only B's notes.
       Logo top left; one exit button top right (the collapse-panel glyph); no ↑/↓ rail, no peek cards.
+      The exit button is as far from the top as from the right (16px), the logo as far from the
+      left, and the logo is centred with the exit button.
 - [ ] **3.1b. (opening position)** The clicked note's text area has the cursor (yellow edge, caret
       at the end of its text). Above B's heading, the bottom ~80px of A's last row shows, cut off
       by the top bar. Opening A's first note instead starts at the very top with nothing peeking.
 - [ ] **3.1c. (rows)** Up to three notes per row, each at its screenshot's real size (compare with
       the selection you made) — never stretched, never enlarged; the wide one is scaled down to
       the column and has a row to itself; the tiny one sits centred over a text area wider than it.
-      Rows of one or two are centred. In a row the "#n" + delete lines line up, the screenshots
-      are centred against each other, and the text areas all start at one height and are all the
-      same size. Narrow the window: fewer per row, down to one; nothing overlaps.
+      Rows of one or two are centred. Each note's "#n" and delete sit together, centred, just above
+      its own screenshot, and its text area just below; the screenshots are centred against each
+      other, so with different heights the bars and text areas sit at different heights. Narrow the window: fewer per row, down to one; nothing overlaps.
 - [ ] **3.2. (editing)** Edit two notes on different pages, pause — **nothing** appears (no
       "saved"). Collapse and reopen: both edits were kept. Break the save (e.g. offline) — the
       failure shows as plain red text under that note's text area, and nothing moves.
@@ -291,7 +294,7 @@ notes, one very wide), then page C (one tall note, one default).
       grows.
 - [ ] **3.3a. (keyboard)** Tab goes exit → A's pencil → A's notes (delete, then text area, each) →
       B's pencil → … and wraps; a note brought into view by Tab scrolls just enough to show it
-      whole. With focus on a button, ↑/↓, page up/down and home/end scroll the view.
+      whole (a click on a note never scrolls). With focus on a button, ↑/↓, page up/down and home/end scroll the view.
 - [ ] **3.3b. (empty note)** Clear a note (or leave only spaces): "note required" appears under it
       at once, with a red edge. Now try to leave — exit, Esc, clicking the dimmed page, the toolbar
       icon, closing the sidebar: every one is refused, the view scrolls to the empty note and puts
@@ -309,7 +312,8 @@ notes, one very wide), then page C (one tall note, one default).
       Then leave by every route (exit, Esc, the scrim, closing the sidebar, entering add mode, an
       in-page SPA navigation) and confirm the page scrolls normally again each time.
 - [ ] **3.3e. (renaming a page)** Click a heading's pencil: the name becomes a text field holding
-      it, all selected, with ✓ and × beside it, and nothing below moves. Type a new name, Enter →
+      it in the same italic serif and size, all selected and wide enough for it (it grows as you
+      type), with ✓ and × beside it, and nothing below moves. Type a new name, Enter →
       the heading shows it. Rename again and press Esc → the old name stays and the view stays
       open. Click away from a half-typed name → it is saved. Save an empty name → the page's
       title comes back. Collapse and reopen → the name is kept; export → each of that page's notes
@@ -318,7 +322,8 @@ notes, one very wide), then page C (one tall note, one default).
 - [ ] **3.4.** Click a note's **delete** — the trash glyph must be the SAME one the note list's
       hover delete uses (v5 §S). The note shrinks away immediately (no confirmation), the notes
       after it renumber and slide into their re-packed places, and focus moves to the next
-      note's delete. A page's last note takes its heading with it. Deleting the site's last note
+      note's delete. Scroll part-way down first and do it again: the first click deletes, and the
+      view does not jump. A page's last note takes its heading with it. Deleting the site's last note
       collapses back to the empty list. Reload to confirm it's really gone.
 - [ ] **3.5.** After capturing several items, confirm the newest one appears at the **bottom** of
       the sidebar list (chronological order, not reverse).
