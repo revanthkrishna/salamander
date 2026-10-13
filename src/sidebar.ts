@@ -924,10 +924,10 @@ function onResizerKeyDown(e: KeyboardEvent): void {
   setSidebarWidth(next, { persist: true });
 }
 
-/** True once initSidebar() has built the host. Production code never asks
- *  (initSidebar is idempotent and every entry point calls it first); this is
- *  the tests' probe for construction/teardown. */
-export function isSidebarInitialised(): boolean {
+/** Test-only: true once initSidebar() has built the host. Production code
+ *  never asks (initSidebar is idempotent and every entry point calls it
+ *  first); this is the tests' probe for construction/teardown. */
+export function _isSidebarInitialisedForTests(): boolean {
   return dom !== null;
 }
 
@@ -1336,12 +1336,18 @@ function syncDockMotion(): void {
  * there while a selection is being made or captured. Suspending snaps the
  * list back to rest instantly (no release animation, no pending frame), and
  * the flag survives list repaints and close/reopen until it is lifted.
- * Exported for the tests, which suspend magnification *without* the rest of
- * the hold; production callers go through setAddModeHold().
+ * Production callers go through setAddModeHold(); the tests reach it
+ * through _setDockMagnificationSuspendedForTests, to suspend magnification
+ * *without* the rest of the hold.
  */
-export function setDockMagnificationSuspended(suspended: boolean): void {
+function setDockMagnificationSuspended(suspended: boolean): void {
   dockSuspended = suspended;
   syncDockSuspension();
+}
+
+/** Test-only: setDockMagnificationSuspended without the rest of the hold. */
+export function _setDockMagnificationSuspendedForTests(suspended: boolean): void {
+  setDockMagnificationSuspended(suspended);
 }
 
 /** Push the two suspension flags to the live dock layer, if there is one:

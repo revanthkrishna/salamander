@@ -195,7 +195,7 @@ describe('sidebar shell', () => {
     sidebar.initSidebar(makeCallbacks());
     sidebar.initSidebar(makeCallbacks());
     expect(html().querySelectorAll('#annotator-sidebar-host')).toHaveLength(1);
-    expect(sidebar.isSidebarInitialised()).toBe(true);
+    expect(sidebar._isSidebarInitialisedForTests()).toBe(true);
   });
 
   // ── page resize ──────────────────────────────────────────────────────────
@@ -815,7 +815,7 @@ describe('sidebar shell', () => {
     sidebar.destroySidebar();
 
     expect(getHost()).toBeNull();
-    expect(sidebar.isSidebarInitialised()).toBe(false);
+    expect(sidebar._isSidebarInitialisedForTests()).toBe(false);
     expect(html().style.getPropertyValue('margin-right')).toBe('');
     expect(html().style.color).toBe('green');
   });
@@ -1012,12 +1012,12 @@ describe('sidebar review fixes', () => {
 
   // ── #1: dock suspension for add mode / capture ─────────────────────────────
 
-  test('setDockMagnificationSuspended stops the list magnifying, and survives repaints until lifted', () => {
+  test('suspending dock magnification stops the list magnifying, and survives repaints until lifted', () => {
     openWithItems();
     hoverList();
     expect(body().classList.contains('is-bleeding')).toBe(true);
 
-    sidebar.setDockMagnificationSuspended(true);
+    sidebar._setDockMagnificationSuspendedForTests(true);
     // Instantly back to rest: nothing painting over the page any more.
     expect(body().classList.contains('is-bleeding')).toBe(false);
     for (const li of Array.from(list().children) as HTMLElement[]) expect(li.style.transform).toBe('');
@@ -1030,7 +1030,7 @@ describe('sidebar review fixes', () => {
     hoverList();
     expect(body().classList.contains('is-bleeding')).toBe(false);
 
-    sidebar.setDockMagnificationSuspended(false);
+    sidebar._setDockMagnificationSuspendedForTests(false);
     hoverList();
     expect(body().classList.contains('is-bleeding')).toBe(true);
   });
