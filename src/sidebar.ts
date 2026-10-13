@@ -44,7 +44,13 @@ import { NOTHING_TO_EXPORT_MESSAGE, SITE_LOAD_FAILED_MESSAGE } from './copy';
 import { attachTooltips, isSoftDisabled, setSoftDisabled, TooltipHandle, TOOLTIP_CSS } from './tooltip';
 import { renderThumbnailList } from './thumbnails';
 import { attachDockMotion, DockMotionHandle } from './dockMotion';
-import { getContentViewportSize, keyTargetWithin, reducedMotionQuery } from './dom';
+import {
+  cancelAnimationFrameSafe,
+  getContentViewportSize,
+  keyTargetWithin,
+  reducedMotionQuery,
+  requestAnimationFrameSafe,
+} from './dom';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
 import { KEY_PRIORITY } from './keyRouter';
 import { ICON_CLOSE, ICON_COMMENT, ICON_EXPORT, ICON_MORE } from './icons';
@@ -835,6 +841,12 @@ let resizeDragging = false;
 /** Distance between the cursor and the panel's left edge when the drag began,
  *  so the panel does not jump by up to the handle's own width on grab. */
 let resizeGrabOffset = 0;
+/** The latest pointer x of the drag, not yet applied, and the frame that
+ *  will apply it: the width (five inline declarations on <html>, the
+ *  backstop sheet and a synthetic `resize` for the page) is written once
+ *  per frame, however many mousemoves arrive in it. */
+let resizePendingX: number | null = null;
+let resizeFrame: number | null = null;
 
 /** The viewport's right edge in client coordinates: the scrollbar-excluded
  *  width (dom.ts's getContentViewportSize), which is exactly where the
@@ -861,11 +873,24 @@ function onResizerMouseDown(e: MouseEvent): void {
 
 function onResizeDragMove(e: MouseEvent): void {
   if (!resizeDragging) return;
-  setSidebarWidth(viewportRightEdge() - e.clientX - resizeGrabOffset);
+  resizePendingX = e.clientX;
+  if (resizeFrame === null) resizeFrame = requestAnimationFrameSafe(applyPendingResize);
+}
+
+/** The frame's one width write: the latest pointer position of the drag. */
+function applyPendingResize(): void {
+  resizeFrame = null;
+  if (resizePendingX === null) return;
+  const x = resizePendingX;
+  resizePendingX = null;
+  setSidebarWidth(viewportRightEdge() - x - resizeGrabOffset);
 }
 
 function onResizeDragEnd(): void {
   if (!resizeDragging) return;
+  // The last move before the release lands now, not a frame later.
+  if (resizeFrame !== null) cancelAnimationFrameSafe(resizeFrame);
+  applyPendingResize();
   endResizeDrag();
   // Commit: one storage write per gesture, not one per frame.
   setSidebarWidth(getSidebarWidth(), { persist: true });
@@ -873,6 +898,9 @@ function onResizeDragEnd(): void {
 
 function endResizeDrag(): void {
   resizeDragging = false;
+  if (resizeFrame !== null) cancelAnimationFrameSafe(resizeFrame);
+  resizeFrame = null;
+  resizePendingX = null;
   dom?.resizer.classList.remove('dragging');
   window.removeEventListener('mousemove', onResizeDragMove, true);
   window.removeEventListener('mouseup', onResizeDragEnd, true);

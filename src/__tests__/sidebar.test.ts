@@ -15,6 +15,7 @@ import { FeedbackItem } from '../types';
 import { ICON_WARNING } from '../icons';
 import { _resetThemeStateForTests } from '../theme';
 import { cssRuleIn } from './helpers/css';
+import { requestAnimationFrameSafe } from '../dom';
 
 function getHost(): HTMLElement | null {
   return document.getElementById('annotator-sidebar-host');
@@ -482,11 +483,17 @@ describe('sidebar shell', () => {
     expect(sidebar.clampSidebarWidth(100)).toBe(sidebar.SIDEBAR_MIN_WIDTH);
   });
 
-  test('dragging the handle resizes the panel and the page shrink together, live', () => {
+  /** The drag writes the width once per frame. */
+  function nextFrame(): Promise<void> {
+    return new Promise((resolve) => requestAnimationFrameSafe(() => resolve()));
+  }
+
+  test('dragging the handle resizes the panel and the page shrink together, live (once a frame)', async () => {
     sidebar.initSidebar(makeCallbacks());
     sidebar.openSidebar();
 
     dragResizerTo(window.innerWidth - 240);
+    await nextFrame();
 
     expect(sidebar.getSidebarWidth()).toBe(240);
     const panel = shadowRoot().querySelector('.sidebar') as HTMLElement;
@@ -497,17 +504,45 @@ describe('sidebar shell', () => {
     );
   });
 
-  test('the drag is clamped to the resizable range in both directions', () => {
+  test('the drag is clamped to the resizable range in both directions', async () => {
     sidebar.initSidebar(makeCallbacks());
     sidebar.openSidebar();
 
     dragResizerTo(window.innerWidth - 20); // far too narrow
+    await nextFrame();
     expect(sidebar.getSidebarWidth()).toBe(sidebar.SIDEBAR_MIN_WIDTH);
 
     window.dispatchEvent(
       new MouseEvent('mousemove', { clientX: window.innerWidth - 900, bubbles: true }),
     );
+    await nextFrame();
     expect(sidebar.getSidebarWidth()).toBe(300);
+  });
+
+  test('moves within one frame are one write (one synthetic resize for the page), at the latest position', async () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+    let resizes = 0;
+    const onResize = () => resizes++;
+    window.addEventListener('resize', onResize);
+    dragResizerTo(window.innerWidth - 280);
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: window.innerWidth - 260, bubbles: true }));
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: window.innerWidth - 250, bubbles: true }));
+    expect(resizes).toBe(0);
+    await nextFrame();
+    window.removeEventListener('resize', onResize);
+    expect(resizes).toBe(1);
+    expect(sidebar.getSidebarWidth()).toBe(250);
+  });
+
+  test('a release before the frame still lands the last move, and persists it', () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+    (chrome.storage.local.set as jest.Mock).mockClear();
+    dragResizerTo(window.innerWidth - 230);
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    expect(sidebar.getSidebarWidth()).toBe(230);
+    expect(chrome.storage.local.set).toHaveBeenCalledWith({ sidebarWidth: 230 }, expect.any(Function));
   });
 
   test('the drag stops tracking the mouse once the button is released', () => {
