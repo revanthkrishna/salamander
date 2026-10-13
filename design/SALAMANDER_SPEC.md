@@ -1312,4 +1312,4 @@ MOTION_SPEC's curves and durations are reused unchanged.
 Add mode cannot coexist with the view (and Option/Alt+N does nothing while it is open); the scrim,
 the ~¾ width and its right anchoring stay; the theme and tokens stay; the page never re-lays out;
 the host page cannot scroll while it is open (§T), though the view's own scroller and text areas
-do — a text area at its end hands the wheel on to the scroller, not to the page.
+do — a text area at its end hands the wheel on to the scroller, not to the page. Space on a focused button (or link, or any control Space activates) is its click and is never cancelled as a scroll — on a site too short to scroll, cancelling it left delete, exit and the pencil unreachable by Space.

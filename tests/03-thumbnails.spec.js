@@ -243,3 +243,29 @@ test('delete is immediate: the rest renumber; the site\'s last note collapses to
   await expect(page.locator(S.thumbnail)).toHaveCount(0);
   await expect(page.locator(S.emptyState)).toBeVisible();
 });
+
+test('Space activates the view\'s buttons, even on a site too short to scroll', async () => {
+  const page = await context.newPage();
+  await openPageWithSidebar(page);
+  await helper.captureFeedbackItem(page, { x: 150, y: 200, note: 'stays', expectedCount: 1 });
+  await helper.captureFeedbackItem(page, { x: 450, y: 200, note: 'goes', expectedCount: 2 });
+
+  await helper.openThumbnail(page, 0);
+  // Two notes fit on screen: the view has nothing to scroll.
+  expect(await page.locator(S.enlargedScroll).evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
+
+  // The pencil opens the rename field; Space in the field types a space.
+  await page.locator(S.pageEdit).focus();
+  await page.keyboard.press('Space');
+  await expect(page.locator(S.pageInput)).toBeFocused();
+  await page.keyboard.press('Escape');
+
+  await page.locator(S.enlargedDelete).nth(1).focus();
+  await page.keyboard.press('Space');
+  await expect(page.locator(S.enlargedNote)).toHaveCount(1);
+  expect(await noteTexts(page)).toEqual(['stays']);
+
+  await page.locator(S.enlargedExit).focus();
+  await page.keyboard.press('Space');
+  await page.locator(S.enlarged).waitFor({ state: 'detached', timeout: 5000 });
+});

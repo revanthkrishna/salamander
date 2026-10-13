@@ -81,6 +81,26 @@ function isTextEntry(target: EventTarget | undefined): boolean {
   return target instanceof HTMLElement && target.isContentEditable;
 }
 
+/** ARIA roles whose element Space activates (or toggles) rather than
+ *  scrolling past. */
+const SPACE_ROLES = new Set(['button', 'checkbox', 'switch', 'radio', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'tab', 'option']);
+
+/** A control Space activates — a button, a link, a select, a summary, or
+ *  anything with one of SPACE_ROLES. On one of these Space is the click, not
+ *  a page scroll: the browser runs no scroll for it, and cancelling the
+ *  keydown would cancel the activation too (a keyboard user could not
+ *  press delete, exit or the pencil with Space on a site too short to
+ *  scroll). Only Space is exempted this way; the arrows and the page keys
+ *  still scroll from a focused button. */
+function spaceActivates(target: EventTarget | undefined): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target instanceof HTMLButtonElement || target instanceof HTMLSelectElement) return true;
+  if (target instanceof HTMLAnchorElement && target.hasAttribute('href')) return true;
+  if (target.tagName === 'SUMMARY') return true;
+  const role = target.getAttribute('role');
+  return role !== null && SPACE_ROLES.has(role);
+}
+
 /**
  * Stops the host page scrolling under the enlarged view, at the EVENT level
  * (design spec v5 §T): capture-phase `wheel` / `touchmove` with
@@ -172,8 +192,11 @@ export function lockPageScroll(hostEl: Element, root: ShadowRoot | null = null):
   const onKeydown = (e: KeyboardEvent): void => {
     const dir = SCROLL_KEYS[e.key];
     if (!dir) return;
-    if (isTextEntry(ownPath(e)?.[0])) return;
-    const dy = e.key === ' ' || e.key === 'Spacebar' ? (e.shiftKey ? -1 : 1) : dir.dy;
+    const target = ownPath(e)?.[0];
+    if (isTextEntry(target)) return;
+    const space = e.key === ' ' || e.key === 'Spacebar';
+    if (space && spaceActivates(target)) return;
+    const dy = space ? (e.shiftKey ? -1 : 1) : dir.dy;
     if (!consumable(e, dir.dx, dy)) cancel(e);
   };
 

@@ -1125,6 +1125,30 @@ describe('v5 §T — the page does not scroll while the view is open', () => {
     expect(fire(exitBtn(), 'wheel', { deltaY: 120 } as WheelEventInit).defaultPrevented).toBe(true);
   });
 
+  test('Space on a focused button is its click, never cancelled — even when nothing can scroll', () => {
+    setupPage(2); // two notes: nothing to scroll
+    open(1);
+    settleOpen();
+    for (const el of [deleteOf(2), exitBtn(), heading(PRICING).querySelector<HTMLElement>('.xp-page-edit')!]) {
+      el.focus();
+      expect(keydown(el, ' ').defaultPrevented).toBe(false);
+    }
+    // The page keys from a button still are, and Space on the page itself.
+    expect(keydown(exitBtn(), 'PageDown').defaultPrevented).toBe(true);
+    expect(keydown(document.body, ' ').defaultPrevented).toBe(true);
+  });
+
+  test('the lock sees keys typed inside the view: it is installed before the keyboard isolation', () => {
+    // The isolation stops in-host keys at window capture (stopImmediatePropagation),
+    // so a lock registered after it would never see them. ArrowRight is a key the
+    // view itself does not handle, so only the lock can cancel it.
+    setupPage(2);
+    open(1);
+    settleOpen();
+    exitBtn().focus();
+    expect(keydown(exitBtn(), 'ArrowRight').defaultPrevented).toBe(true);
+  });
+
   test('the scroller holds still while a morph is in flight', () => {
     setup();
     open(3);

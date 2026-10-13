@@ -72,12 +72,32 @@ describe('page scroll lock over a closed shadow root', () => {
     expect(keydown(textarea, ' ', { shiftKey: true }).defaultPrevented).toBe(false);
   });
 
-  test('the lock still holds: Space on a control that cannot scroll is cancelled', () => {
+  test('Space on a button is its click and goes through; the page keys on it are still cancelled', () => {
     const { host, root, button } = setup();
     lock(host, root);
     button.focus();
-    expect(keydown(button, ' ').defaultPrevented).toBe(true);
+    expect(keydown(button, ' ').defaultPrevented).toBe(false);
+    expect(keydown(button, 'Spacebar').defaultPrevented).toBe(false);
     expect(keydown(button, 'PageDown').defaultPrevented).toBe(true);
+  });
+
+  test('so do the other controls Space activates; a plain focusable that cannot scroll still has it cancelled', () => {
+    const { host, root } = setup();
+    const link = document.createElement('a');
+    link.href = '#x';
+    const role = document.createElement('div');
+    role.setAttribute('role', 'switch');
+    role.tabIndex = 0;
+    const plain = document.createElement('div');
+    plain.tabIndex = 0;
+    root.append(link, role, plain);
+    lock(host, root);
+    for (const el of [link, role]) {
+      el.focus();
+      expect(keydown(el, ' ').defaultPrevented).toBe(false);
+    }
+    plain.focus();
+    expect(keydown(plain, ' ').defaultPrevented).toBe(true);
   });
 
   test('a key pressed on the page itself is cancelled', () => {
