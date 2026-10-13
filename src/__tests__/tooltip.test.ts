@@ -425,6 +425,36 @@ describe('shared tooltip (design spec §AG)', () => {
   });
 });
 
+describe('keyboard shortcut keycap (data-tip-key)', () => {
+  test('the shortcut follows the text as a key', () => {
+    const b = button('add note', { 'data-tip-key': '⌥N' });
+    over(b);
+    jest.advanceTimersByTime(TOOLTIP_DELAY_MS);
+    expect(isShown()).toBe(true);
+    const cap = tip().querySelector('kbd.sal-tip-key');
+    expect(cap?.textContent).toBe('⌥N');
+    expect(tip().textContent).toBe('add note⌥N');
+  });
+
+  test('removing the shortcut from a shown tooltip hides it', () => {
+    const b = button('add note', { 'data-tip-key': '⌥N' });
+    over(b);
+    jest.advanceTimersByTime(TOOLTIP_DELAY_MS);
+    delete b.dataset.tipKey;
+    return Promise.resolve().then(() => {
+      expect(isShown()).toBe(false);
+    });
+  });
+
+  test('a disabled reason never shows the shortcut', () => {
+    const b = button('add note', { 'data-tip-key': '⌥N', 'data-tip-reason': 'not now', 'aria-disabled': 'true' });
+    over(b);
+    jest.advanceTimersByTime(TOOLTIP_REASON_DELAY_MS);
+    expect(tip().textContent).toBe('not now');
+    expect(tip().querySelector('kbd')).toBeNull();
+  });
+});
+
 describe('soft-disabled controls (aria-disabled="true")', () => {
   test('setSoftDisabled sets and removes the attribute, and reports only a change', () => {
     const b = document.createElement('button');

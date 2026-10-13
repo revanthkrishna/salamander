@@ -506,6 +506,84 @@ describe('content.ts: "add note" toggle + "keep on" switch (design spec v3 §A2)
   });
 });
 
+describe('content.ts: Option/Alt+N adds one note (src/shortcut.ts)', () => {
+  function pressShortcut(init: KeyboardEventInit = {}): KeyboardEvent {
+    const e = new KeyboardEvent('keydown', { code: 'KeyN', key: 'Dead', altKey: true, bubbles: true, cancelable: true, ...init });
+    window.dispatchEvent(e);
+    return e;
+  }
+
+  test('enters add mode for one note (switch off), and the page never sees the key', () => {
+    loadContent();
+    activate();
+    const e = pressShortcut();
+    expect(addMode.isAddModeActive()).toBe(true);
+    expect(addGroup().classList.contains('is-on')).toBe(true);
+    expect(addGroup().classList.contains('is-switch-on')).toBe(false);
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  test('does nothing while a note is already being placed', () => {
+    loadContent();
+    activate();
+    addButton().click();
+    const e = pressShortcut();
+    expect(addMode.isAddModeActive()).toBe(true);
+    expect(addGroup().classList.contains('is-switch-on')).toBe(false);
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  test('does nothing while the sidebar is closed', () => {
+    loadContent();
+    activate();
+    (sidebarShadow().querySelector('.btn-close') as HTMLButtonElement).click();
+    const e = pressShortcut();
+    expect(addMode.isAddModeActive()).toBe(false);
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  test('does nothing while the user is typing in the page', () => {
+    loadContent();
+    activate();
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+    const e = pressShortcut();
+    expect(addMode.isAddModeActive()).toBe(false);
+    expect(e.defaultPrevented).toBe(false);
+    input.remove();
+  });
+
+  test('does nothing while the enlarged view is open', async () => {
+    pageItems = [makeItem({ id: 7 })];
+    loadContent();
+    activate();
+    await flushMicrotasks();
+    (sidebarShadow().querySelector('button.thumbnail') as HTMLButtonElement).click();
+    expect(sidebarApi.isEnlargedViewOpen()).toBe(true);
+    pressShortcut();
+    expect(sidebarApi.isEnlargedViewOpen()).toBe(true);
+    expect(addMode.isAddModeActive()).toBe(false);
+  });
+
+  test('other modifiers leave it alone', () => {
+    loadContent();
+    activate();
+    pressShortcut({ ctrlKey: true });
+    pressShortcut({ shiftKey: true });
+    pressShortcut({ metaKey: true });
+    expect(addMode.isAddModeActive()).toBe(false);
+  });
+
+  test("add note's tooltip names the shortcut only while it would add one", () => {
+    loadContent();
+    activate();
+    expect(addButton().dataset.tipKey).toMatch(/^(⌥N|Alt\+N)$/);
+    addButton().click();
+    expect(addButton().dataset.tipKey).toBeUndefined();
+  });
+});
+
 describe('content.ts: the sidebar is on hold during add mode (design spec v3 §H)', () => {
   function body(): HTMLElement {
     return sidebarShadow().querySelector('.body') as HTMLElement;

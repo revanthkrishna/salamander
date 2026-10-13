@@ -33,6 +33,7 @@
 // re-inject + re-ACTIVATE on a later full-page reload.
 
 import { normaliseUrl, normaliseDomain } from './urlNorm';
+import { isAddNoteShortcut, isTypingTarget } from './shortcut';
 import * as sidebar from './sidebar';
 import * as addMode from './addMode';
 import * as capture from './capture';
@@ -331,6 +332,10 @@ function setAddSwitch(on: boolean): void {
  *  can act on it even though addMode.ts's isolation would otherwise stop the
  *  event from ever reaching a page/document-level listener. */
 function handleGlobalKeyDown(e: KeyboardEvent): void {
+  if (isAddNoteShortcut(e)) {
+    handleAddNoteShortcut(e);
+    return;
+  }
   if (e.key !== 'Escape') return;
   // Esc during IME composition cancels the composition, not add mode.
   if (e.isComposing || e.keyCode === 229) return;
@@ -339,6 +344,22 @@ function handleGlobalKeyDown(e: KeyboardEvent): void {
   // it closes and focus returns to the pencil; the next Esc exits.
   if (addMode.dismissDrawingMenu()) return;
   exitAddModeFully();
+}
+
+/** Option+N / Alt+N (src/shortcut.ts): one note, like a single click on add.
+ *  Only while the sidebar is open, and nothing happens while a note is being
+ *  placed, while the enlarged view is open or while the user is typing. When
+ *  it does act, the page never sees the key (a page access key "n" or a web
+ *  app's own Alt+N stays quiet while the sidebar is open). */
+function handleAddNoteShortcut(e: KeyboardEvent): void {
+  if (!sidebar.isSidebarOnPage()) return;
+  if (addMode.isAddModeActive() || sidebar.isEnlargedViewOpen()) return;
+  if (isTypingTarget()) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  clearPendingAddOff();
+  addKeptOn = false;
+  enterAddMode();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

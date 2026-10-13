@@ -30,6 +30,7 @@
 // changes for the sidebar's lifetime.
 
 import { FeedbackItem } from './types';
+import { addNoteShortcutLabel } from './shortcut';
 import { CONFIRM_CANCEL_LABEL, NOTHING_TO_DELETE_MESSAGE, NOTHING_TO_EXPORT_MESSAGE } from './copy';
 import { attachTooltips, isSoftDisabled, setSoftDisabled, TooltipHandle, TOOLTIP_CSS } from './tooltip';
 import { renderThumbnailList, THUMBNAIL_IMAGE_HEIGHT_PX } from './thumbnails';
@@ -1953,6 +1954,9 @@ export function setAddButtonState(state: AddButtonState): void {
   elBtnAdd.setAttribute('aria-pressed', String(isOn));
   elBtnAdd.setAttribute('aria-label', ADD_BUTTON_NAME);
   elBtnAdd.dataset.tip = ADD_BUTTON_TITLES[state];
+  // The shortcut adds a note, so it is named only while there is none to add.
+  if (state === 'off') elBtnAdd.dataset.tipKey = addNoteShortcutLabel();
+  else delete elBtnAdd.dataset.tipKey;
   if (elAddSwitch) elAddSwitch.dataset.tip = keepOn ? ADD_SWITCH_TITLES.on : ADD_SWITCH_TITLES.off;
   elAddSwitch?.setAttribute('aria-checked', String(keepOn));
   // Merged: while the switch is on the group is one button, so it is one tab
@@ -2535,6 +2539,12 @@ export function closeSidebar(): void {
 
 export function isSidebarVisible(): boolean {
   return visible;
+}
+
+/** Visible AND still in the document: a page that removed salamander's host
+ *  has no sidebar to act from (the add-note shortcut asks). */
+export function isSidebarOnPage(): boolean {
+  return visible && !!sidebarHost?.isConnected;
 }
 
 /** Disable/enable the export header button (§1.6). Assembling a

@@ -16,7 +16,8 @@
 // tooltip to the left, beside the nearest `[data-tip-edge]` ancestor if there
 // is one (the "more options" menu, which sits against the window's right edge;
 // add mode's pencil menu). Without room on the left it goes to the right of
-// that edge, and above if neither side fits.
+// that edge, and above if neither side fits. `data-tip-key` adds a keyboard
+// shortcut after the text, drawn as a key (add note's Option/Alt+N).
 //
 // Timing matches the native tooltips it replaces: about a second's hover
 // before the first appears, none on keyboard focus, hidden on any press, on
@@ -69,6 +70,19 @@ export const TOOLTIP_CSS = `
     opacity: 0;
     visibility: hidden;
     transition: opacity 90ms ${ACC.css}, visibility 0s linear 90ms;
+  }
+  /* A keyboard shortcut after the label (data-tip-key), drawn as a key. */
+  .sal-tip-key {
+    display: inline-block;
+    margin-left: 7px;
+    padding: 0 5px;
+    border: 1px solid var(--sal-line-strong);
+    border-radius: 4px;
+    font-family: var(--sal-font-body);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 16px;
+    color: var(--sal-text);
   }
   .sal-tip[data-open="true"] {
     opacity: 1;
@@ -158,6 +172,17 @@ function textFor(el: HTMLElement): string | undefined {
   return isReason(el) ? el.dataset.tipReason : el.dataset.tip;
 }
 
+/** A plain tooltip may name a keyboard shortcut (`data-tip-key`); a reason
+ *  never does. */
+function keyFor(el: HTMLElement): string | undefined {
+  return isReason(el) ? undefined : el.dataset.tipKey;
+}
+
+/** Everything the tooltip shows for this control, to tell when it changed. */
+function contentFor(el: HTMLElement): string {
+  return `${textFor(el) ?? ''}\u0000${keyFor(el) ?? ''}`;
+}
+
 function tipTarget(node: EventTarget | null): HTMLElement | null {
   if (!(node instanceof Element)) return null;
   return node.closest<HTMLElement>('[data-tip], [data-tip-reason]');
@@ -182,6 +207,7 @@ export function attachTooltips(root: ShadowRoot): TooltipHandle {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let hiddenAt = -Infinity;
   let pointerY: number | null = null;
+  let shown = '';
 
   const isOpen = (): boolean => tip.dataset.open === 'true';
 
@@ -197,7 +223,7 @@ export function attachTooltips(root: ShadowRoot): TooltipHandle {
     typeof MutationObserver === 'function'
       ? new MutationObserver(() => {
           if (!anchor || !isOpen()) return;
-          if (!anchor.isConnected || anchor.closest('[hidden], [inert]') || textFor(anchor) !== tip.textContent) {
+          if (!anchor.isConnected || anchor.closest('[hidden], [inert]') || contentFor(anchor) !== shown) {
             hide();
           }
         })
@@ -206,7 +232,7 @@ export function attachTooltips(root: ShadowRoot): TooltipHandle {
     subtree: true,
     childList: true,
     attributes: true,
-    attributeFilter: ['hidden', 'inert', 'data-tip', 'data-tip-reason', 'aria-disabled'],
+    attributeFilter: ['hidden', 'inert', 'data-tip', 'data-tip-reason', 'data-tip-key', 'aria-disabled'],
   };
   const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
@@ -235,6 +261,14 @@ export function attachTooltips(root: ShadowRoot): TooltipHandle {
     if (anchor && anchor !== el) anchor.removeAttribute('aria-describedby');
     anchor = el;
     tip.textContent = text;
+    const key = keyFor(el);
+    if (key) {
+      const cap = document.createElement('kbd');
+      cap.className = 'sal-tip-key';
+      cap.textContent = key;
+      tip.appendChild(cap);
+    }
+    shown = contentFor(el);
     // A reason says something the control's name does not, so it is also
     // announced; a plain tooltip repeats the name and is not.
     if (isReason(el)) el.setAttribute('aria-describedby', tip.id);
