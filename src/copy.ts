@@ -64,6 +64,38 @@ export const ENTER_A_NOTE_MESSAGE = 'enter a note to save';
 /** Placeholder of the note's text area, in add mode and the enlarged view. */
 export const NOTE_PLACEHOLDER = 'type a note\u2026';
 
+// ─── Labels: add mode and the note list ─────────────────────────────────────
+// Not failures, but user-facing all the same (visible text, tooltips and
+// accessible names), so they live here with the rest and are pinned too.
+
+/** A cancel button: add mode's, and the menu's question's. */
+export const CANCEL_LABEL = 'cancel';
+/** Add mode's save button, and what it says while the capture runs. */
+export const SAVE_LABEL = 'save';
+export const SAVING_LABEL = 'saving\u2026';
+/** The first-run hint beside the cursor while placing (design spec §G). */
+export const PLACING_HINT = 'click or drag to select';
+/** The comment box and its text area (their accessible names). */
+export const ADD_NOTE_LABEL = 'add feedback note';
+export const NOTE_FIELD_LABEL = 'feedback note';
+/** The pencil (design spec §AB): its button and menu, the menu's one item,
+ *  the colour swatches' group, and the surface strokes are drawn on. */
+export const DRAWING_OPTIONS_LABEL = 'drawing options';
+export const ERASE_ALL_LABEL = 'erase all';
+export const PENCIL_COLOUR_LABEL = 'pencil colour';
+export const DRAWING_SURFACE_LABEL = 'drawing on the selection';
+/** A note in the sidebar's list, and its hover delete (design spec v4 §L). */
+export function listItemLabel(number: number): string {
+  return `feedback item ${number}`;
+}
+export function deleteListItemLabel(number: number): string {
+  return `delete feedback item ${number}`;
+}
+export const DELETE_LIST_ITEM_TIP = 'delete';
+/** A listed note with no text (the list shows something rather than
+ *  nothing). */
+export const EMPTY_NOTE_PREVIEW = 'no note';
+
 // ─── The enlarged view (design spec §AH) ────────────────────────────────────
 
 /** The view's accessible name: it shows every note of the site. */
@@ -97,7 +129,7 @@ export const DOMAIN_COUNT_FAILED_MESSAGE = "couldn't check existing feedback. tr
 export const IMPORT_FAILED_MESSAGE = "couldn't import this bundle. try again.";
 
 /** The menu's confirmations (design spec §AF). */
-export const CONFIRM_CANCEL_LABEL = 'cancel';
+export const CONFIRM_CANCEL_LABEL = CANCEL_LABEL;
 export const DELETE_ALL_CONFIRM_LABEL = 'yes, delete';
 export const IMPORT_REPLACE_CONFIRM_LABEL = 'yes, import';
 /** Asked when import is chosen and the site already has notes (§5 #10,

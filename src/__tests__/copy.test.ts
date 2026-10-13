@@ -2,6 +2,7 @@
 // verbatim user-facing text (lowercase, §3.4); this file is what makes an
 // edit to any of them a failing test rather than a silent drift.
 
+import * as copy from '../copy';
 import {
   CAPTURE_FAILED_MESSAGE,
   DELETE_ERROR_MESSAGE,
@@ -111,5 +112,25 @@ describe('the rest of the copy is lowercase and stable', () => {
     expect(deleteNoteLabel(2, 'Pricing')).toBe('delete note #2 on Pricing');
     expect(noteFieldLabel(2, 'Pricing')).toBe('note #2 on Pricing');
     expect(editPageNameLabel('Pricing')).toBe('edit page name: Pricing');
+  });
+});
+
+describe('labels: add mode and the note list, byte-exact', () => {
+  test('as shown and announced', () => {
+    expect(copy.CANCEL_LABEL).toBe('cancel');
+    expect(copy.CONFIRM_CANCEL_LABEL).toBe(copy.CANCEL_LABEL);
+    expect(copy.SAVE_LABEL).toBe('save');
+    expect(copy.SAVING_LABEL).toBe('saving…');
+    expect(copy.PLACING_HINT).toBe('click or drag to select');
+    expect(copy.ADD_NOTE_LABEL).toBe('add feedback note');
+    expect(copy.NOTE_FIELD_LABEL).toBe('feedback note');
+    expect(copy.DRAWING_OPTIONS_LABEL).toBe('drawing options');
+    expect(copy.ERASE_ALL_LABEL).toBe('erase all');
+    expect(copy.PENCIL_COLOUR_LABEL).toBe('pencil colour');
+    expect(copy.DRAWING_SURFACE_LABEL).toBe('drawing on the selection');
+    expect(copy.listItemLabel(3)).toBe('feedback item 3');
+    expect(copy.deleteListItemLabel(3)).toBe('delete feedback item 3');
+    expect(copy.DELETE_LIST_ITEM_TIP).toBe('delete');
+    expect(copy.EMPTY_NOTE_PREVIEW).toBe('no note');
   });
 });

@@ -43,6 +43,7 @@ import { FeedbackItem } from './types';
 // delete draws the same one.
 import { ICON_TRASH } from './icons';
 import { buildDrawingSvg, hasStrokes } from './drawing';
+import { DELETE_LIST_ITEM_TIP, EMPTY_NOTE_PREVIEW, deleteListItemLabel, listItemLabel } from './copy';
 
 export interface ThumbnailCallbacks {
   /** Fired when a thumbnail is activated (click or Enter/Space). */
@@ -114,7 +115,7 @@ function buildThumbnailEl(item: FeedbackItem, number: number, callbacks: Thumbna
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'thumbnail';
-  btn.setAttribute('aria-label', `feedback item ${number}`);
+  btn.setAttribute('aria-label', listItemLabel(number));
   // Lets sidebar.focusThumbnail() find the item again after a repaint.
   btn.dataset.itemId = String(item.id);
 
@@ -155,7 +156,7 @@ function buildThumbnailEl(item: FeedbackItem, number: number, callbacks: Thumbna
   const note = document.createElement('p');
   const preview = truncateNotePreview(item.note);
   note.className = preview ? 'thumbnail-note' : 'thumbnail-note thumbnail-note-empty';
-  note.textContent = preview || 'no note';
+  note.textContent = preview || EMPTY_NOTE_PREVIEW;
 
   // The note's hover/focus "extension" background (design spec v2 §B) is its
   // own layer rather than a background on the <p>: the dock magnification
@@ -187,8 +188,8 @@ function buildThumbnailEl(item: FeedbackItem, number: number, callbacks: Thumbna
   const del = document.createElement('button');
   del.type = 'button';
   del.className = 'thumbnail-delete';
-  del.setAttribute('aria-label', `delete feedback item ${number}`);
-  del.dataset.tip = 'delete';
+  del.setAttribute('aria-label', deleteListItemLabel(number));
+  del.dataset.tip = DELETE_LIST_ITEM_TIP;
   // Same hook sidebar.focusThumbnail() uses on the item's own button, so a
   // caller can find this one again after a repaint.
   del.dataset.itemId = String(item.id);

@@ -60,7 +60,21 @@ import {
   PEN_COLORS,
   PenColor,
 } from './drawing';
-import { ENTER_A_NOTE_MESSAGE, NOTE_PLACEHOLDER, NOTHING_TO_ERASE_MESSAGE } from './copy';
+import {
+  ADD_NOTE_LABEL,
+  CANCEL_LABEL,
+  DRAWING_OPTIONS_LABEL,
+  DRAWING_SURFACE_LABEL,
+  ENTER_A_NOTE_MESSAGE,
+  ERASE_ALL_LABEL,
+  NOTE_FIELD_LABEL,
+  NOTE_PLACEHOLDER,
+  NOTHING_TO_ERASE_MESSAGE,
+  PENCIL_COLOUR_LABEL,
+  PLACING_HINT,
+  SAVE_LABEL,
+  SAVING_LABEL,
+} from './copy';
 import {
   COMMENT_PAD_PX,
   COMMENT_ROW_PX,
@@ -136,15 +150,12 @@ const COUNTER_DANGER_AT = 980;
  *  instead every edge gets an invisible strip EDGE_ZONE px thick straddling
  *  the outline, and every corner a CORNER_ZONE px square centred on it. */
 const EDGE_ZONE = 10;
-const SAVE_LABEL = 'save';
-const SAVING_LABEL = 'saving\u2026';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const CORNER_ZONE = 16;
 
-/** Preview tooltip (design spec \u00a7G): fixed lowercase copy (\u00a73.4), offset
- *  down-right of the cursor, flipped/clamped like computeCommentPosition()
- *  so it can never render off the selectable area. */
-const PREVIEW_TOOLTIP_TEXT = 'click or drag to select';
+/** Preview tooltip (design spec §G): fixed lowercase copy (§3.4, copy.ts's
+ *  PLACING_HINT), offset down-right of the cursor, flipped/clamped like
+ *  computeCommentPosition() so it can never render off the selectable area. */
 const TOOLTIP_OFFSET_X = 16;
 const TOOLTIP_OFFSET_Y = 20;
 /** How long the tooltip lives (design spec v4 §N): it is a first-run hint,
@@ -512,7 +523,7 @@ function buildDOM(): void {
   // static copy and follows the pointer.
   elPreviewTooltip = document.createElement('div');
   elPreviewTooltip.className = 'preview-tooltip';
-  elPreviewTooltip.textContent = PREVIEW_TOOLTIP_TEXT;
+  elPreviewTooltip.textContent = PLACING_HINT;
   elPreviewTooltip.setAttribute('aria-hidden', 'true');
   elVisuals.appendChild(elPreviewTooltip);
 
@@ -539,13 +550,13 @@ function buildCommentDOM(): void {
   elComment = document.createElement('div');
   elComment.className = 'comment-box';
   elComment.setAttribute('role', 'dialog');
-  elComment.setAttribute('aria-label', 'add feedback note');
+  elComment.setAttribute('aria-label', ADD_NOTE_LABEL);
 
   elTextarea = document.createElement('textarea');
   elTextarea.className = 'note-input';
   elTextarea.placeholder = NOTE_PLACEHOLDER;
   elTextarea.maxLength = MAX_NOTE_LENGTH;
-  elTextarea.setAttribute('aria-label', 'feedback note');
+  elTextarea.setAttribute('aria-label', NOTE_FIELD_LABEL);
   elTextarea.addEventListener('input', updateCounterAndSaveState);
 
   const footer = document.createElement('div');
@@ -558,7 +569,7 @@ function buildCommentDOM(): void {
   elCancelBtn = document.createElement('button');
   elCancelBtn.type = 'button';
   elCancelBtn.className = 'btn btn-cancel';
-  elCancelBtn.textContent = 'cancel';
+  elCancelBtn.textContent = CANCEL_LABEL;
   elCancelBtn.addEventListener('click', handleCancelClick);
 
   elSaveBtn = document.createElement('button');
@@ -612,8 +623,8 @@ function buildDrawTools(): HTMLDivElement {
   elPencilBtn = document.createElement('button');
   elPencilBtn.type = 'button';
   elPencilBtn.className = 'btn-pencil';
-  elPencilBtn.setAttribute('aria-label', 'drawing options');
-  elPencilBtn.dataset.tip = 'drawing options';
+  elPencilBtn.setAttribute('aria-label', DRAWING_OPTIONS_LABEL);
+  elPencilBtn.dataset.tip = DRAWING_OPTIONS_LABEL;
   elPencilBtn.setAttribute('aria-haspopup', 'menu');
   elPencilBtn.setAttribute('aria-expanded', 'false');
   const icon = document.createElement('span');
@@ -633,7 +644,7 @@ function buildDrawTools(): HTMLDivElement {
   const group = document.createElement('div');
   group.className = 'swatches';
   group.setAttribute('role', 'radiogroup');
-  group.setAttribute('aria-label', 'pencil colour');
+  group.setAttribute('aria-label', PENCIL_COLOUR_LABEL);
   elSwatches = PEN_COLORS.map((c) => {
     const sw = document.createElement('button');
     sw.type = 'button';
@@ -662,7 +673,7 @@ function buildDrawMenu(): HTMLDivElement {
   elDrawMenu = document.createElement('div');
   elDrawMenu.className = 'draw-menu';
   elDrawMenu.setAttribute('role', 'menu');
-  elDrawMenu.setAttribute('aria-label', 'drawing options');
+  elDrawMenu.setAttribute('aria-label', DRAWING_OPTIONS_LABEL);
   elDrawMenu.dataset.open = 'false';
   // "erase all"'s reason sits beside the menu, not over it (§AG).
   elDrawMenu.dataset.tipEdge = '';
@@ -680,7 +691,7 @@ function buildDrawMenu(): HTMLDivElement {
   icon.className = 'icon';
   icon.innerHTML = ICON_ERASER;
   const label = document.createElement('span');
-  label.textContent = 'erase all';
+  label.textContent = ERASE_ALL_LABEL;
   elEraseItem.appendChild(icon);
   elEraseItem.appendChild(label);
   elEraseItem.addEventListener('click', () => {
@@ -703,7 +714,7 @@ function buildDrawSurface(): void {
   // textarea, so Cmd/Ctrl+Z means "undo stroke" (design spec §AB).
   elDrawSurface.tabIndex = -1;
   elDrawSurface.setAttribute('role', 'img');
-  elDrawSurface.setAttribute('aria-label', 'drawing on the selection');
+  elDrawSurface.setAttribute('aria-label', DRAWING_SURFACE_LABEL);
   elDrawSurface.addEventListener('pointerdown', handleSurfacePointerDown);
 
   elStrokes = document.createElementNS(SVG_NS, 'svg');
