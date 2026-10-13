@@ -203,6 +203,9 @@ const NOTICE_RESERVE_PX = 300;
 /** ↑ / ↓ scroll step (the browser's own arrow-key step is ~40px; a row of
  *  notes is ~250px, so this moves a useful amount without skipping one). */
 const ARROW_SCROLL_PX = 64;
+/** A delete's re-pack animates only the parts within this much of the
+ *  scroller's viewport, before or after (MOTION_SPEC §8). */
+const MOVE_MARGIN_PX = 200;
 /** Room kept above/below a note brought into view by focus. */
 const FOCUS_SCROLL_MARGIN = 24;
 /** Full images are fetched (GET_IMAGE) as a note comes within this much of
@@ -1750,10 +1753,19 @@ class EnlargedView {
     if (anchor) this.restoreScrollAnchor(anchor);
 
     if (kind === 'move') {
-      const shift = this.scroller.scrollTop - s0;
+      const s1 = this.scroller.scrollTop;
+      const shift = s1 - s0;
+      const h = this.scrollerHeight();
+      // Only what is on or near screen, before or after, travels; the rest
+      // (most of a long site) just takes its new place — a part nobody sees
+      // move needs no compositor layer and no animation.
+      const near = (y: number, height: number, scroll: number) =>
+        y + height > scroll - MOVE_MARGIN_PX && y < scroll + h + MOVE_MARGIN_PX;
       for (const part of parts) {
         const was = live.get(part)!;
-        this.placePart(part, part.box, { dx: was.x - part.box.x, dy: was.y - part.box.y + shift }, T.move);
+        const box = part.box;
+        if (!near(was.y, was.h, s0) && !near(box.y, box.h, s1)) continue;
+        this.placePart(part, box, { dx: was.x - box.x, dy: was.y - box.y + shift }, T.move);
       }
     }
     // Clones in flight (a delete or a resize during the expand) are aimed

@@ -787,6 +787,21 @@ describe('delete', () => {
     expect(moves.some((m) => m.el === shotOf(5))).toBe(true);
   });
 
+  test('only the parts on or near screen travel; the rest of a long site just takes its place', async () => {
+    setupPage(30);
+    open(1);
+    settleOpen();
+    animCalls = [];
+    deleteOf(1).click();
+    jest.advanceTimersByTime(T.deleteStep);
+    await flush();
+    const moved = (id: number) => animCalls.some((c) => c.el === shotOf(id) && c.options.duration === T.move);
+    expect(moved(2)).toBe(true); // on screen
+    expect(moved(30)).toBe(false); // far below
+    const layout = expectedLayout(site.pages.map((p) => ({ ...p, items: p.items.filter((i) => i.id !== 1) })));
+    expect(shotOf(30).style.top).toBe(`${layout.notes.get(30)!.shot.y}px`);
+  });
+
   test('focus moves on to the next note\'s delete', async () => {
     setup();
     open(3);

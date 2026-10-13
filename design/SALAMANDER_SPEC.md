@@ -1311,8 +1311,8 @@ MOTION_SPEC's curves and durations are reused unchanged.
   (340ms std); everything else fades out (120ms acc); the panel shrinks back. A collapse mid-open
   reverses from the live state — the panel's width and every clone in flight.
 - **Delete:** the note shrinks to 0.95 and fades (180ms acc); then every remaining heading and
-  part of every note travels to its re-packed place (400ms std, FLIP from where it is on screen,
-  a clamped scroll position folded in). A page's last note fades its heading with it.
+  part of every note on or near the screen travels to its re-packed place (400ms std, FLIP from
+  where it is on screen, a clamped scroll position folded in); the rest jump there, unseen. A page's last note fades its heading with it.
 - **Reduced motion:** crossfades only, at roughly halved durations; no clone, no travel.
 
 ## Unchanged

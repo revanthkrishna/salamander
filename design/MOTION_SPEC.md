@@ -122,7 +122,8 @@ to show it whole.
   - **notes remain**: the later notes on its page renumber; the site is laid out again and every
     heading and every part of every note (header, screenshot, text area — separately, since a note
     can change rows and its row's band height can change) travels from where it is on screen to
-    its new place: **400ms `std`**, transform-only FLIP. If the content's height change made the
+    its new place: **400ms `std`**, transform-only FLIP — those on or within 200px of the screen,
+    before or after; the rest (most of a long site) take their new place at once, unseen. If the content's height change made the
     browser clamp the scroll position, the clamp is folded into the start offsets so nothing jumps.
     Focus moves to the next note's delete.
   - **that was the site's last note**: run §6 straight back to the (empty) list.
