@@ -2900,12 +2900,13 @@ function enlargedMount(): EnlargedViewMount | null {
  * Expand the sidebar into the enlarged view (design spec §AH) on item
  * `itemId` — one of the items the list is showing — with every page of the
  * site in `site`. With no site (it could not be read) the view shows this
- * page's notes alone. Replaces any view already open. Returns false if the
- * sidebar isn't showing that item, or the site does not hold it.
+ * page's notes alone. Returns false if the sidebar isn't showing that item,
+ * the site does not hold it, or a view is already open — that one is closed
+ * only through its own paths, which the empty-note lock guards, never
+ * forced shut by opening another.
  */
 export function openEnlargedView(itemId: number, site: EnlargedSite | null, callbacks: EnlargedViewCallbacks): boolean {
-  if (!visible) return false;
-  enlargedView?.forceClose();
+  if (!visible || enlargedView) return false;
   const mount = enlargedMount();
   const listed = currentItems.find((i) => i.id === itemId);
   if (!mount || !listed) return false;

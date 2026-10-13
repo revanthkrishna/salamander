@@ -1303,11 +1303,12 @@ A column of three bands: **header line**, **screenshot**, **text area**.
 
 MOTION_SPEC's curves and durations are reused unchanged.
 
-- **Open:** the panel grows leftward (450ms std) as before. **Every note whose thumbnail is visible
-  in the list** — wholly or in part — morphs from it into its place in the grid (450ms std, sampled
-  transform-only FLIP; one half under the list's edge leaves exactly as cut, its clip easing away) — a clone in the front layer, clipped where the scroller clips, swapped
-  for the real screenshot when it lands. Notes with no visible thumbnail (other pages, scrolled
-  entirely out of the list) fade in; headings, headers and text areas fade in a band at a time from 150ms,
+- **Open:** the panel grows leftward (450ms std) as before. **Every note whose thumbnail is
+  visible in the list** — wholly or in part — morphs from it into its place in the grid (450ms
+  std, sampled transform-only FLIP; one half under the list's edge leaves exactly as cut, its clip
+  easing away) — a clone in the front layer, clipped where the scroller clips, swapped for the
+  real screenshot when it lands. Notes with no visible thumbnail (other pages, scrolled entirely
+  out of the list) fade in; headings, headers and text areas fade in a band at a time from 150ms,
   50ms apart, capped at two steps; the exit button last (300ms). The scroller holds still until
   the morph settles.
 - **Close:** notes on screen in the panel that have a thumbnail in the list morph back into it

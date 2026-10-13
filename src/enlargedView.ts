@@ -108,7 +108,7 @@ import {
 } from './dom';
 import { FOCUS_RING_CSS, STATE_TRANSITION_CSS, RADII } from './theme';
 import { lockPageScroll, ScrollLockHandle } from './scrollLock';
-import { measureCharWidth, PageHeading, RenameResult } from './pageHeading';
+import { fitHeadings, measureCharWidth, PageHeading, RenameResult } from './pageHeading';
 import {
   Box,
   GridLayout,
@@ -1197,10 +1197,10 @@ class EnlargedView {
       void document.fonts?.ready?.then(() => {
         if (this.state === 'closed') return;
         this.charW = measureCharWidth(this.content);
-        for (const page of this.pages) page.heading.fitAddress(this.charW);
+        fitHeadings(this.pages.map((p) => p.heading), this.charW);
       });
     }
-    for (const page of this.pages) page.heading.fitAddress(this.charW);
+    fitHeadings(this.pages.map((p) => p.heading), this.charW);
   }
 
   /** The content box's top-left in viewport coordinates (scroll included).

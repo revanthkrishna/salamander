@@ -352,11 +352,6 @@ export function fadeTo(el: HTMLElement, to: number, opts: NumberAnimOptions): vo
   animateNumber(el, 'opacity', to, opts);
 }
 
-/** Current opacity of `el` (tracked tween, else its inline style, else 1). */
-export function currentOpacity(el: HTMLElement): number {
-  return trackedValue(el, 'opacity', parseOpacity(el));
-}
-
 /** Stop every tracked tween on `el` (its inline end values stay). */
 export function cancelTracks(el: Element): void {
   const m = tracks.get(el);

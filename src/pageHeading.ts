@@ -43,6 +43,22 @@ import {
  *  because the page has no notes any more (deleted elsewhere). */
 export type RenameResult = 'saved' | 'failed' | 'no-notes';
 
+/** What fitting a heading reads from the layout (PageHeading.measureFit). */
+export interface HeadingFit {
+  nameCut: boolean;
+  room: number;
+  overflows: boolean;
+}
+
+/** Fit every heading's address with a single layout: all the writes, then
+ *  all the reads, then all the writes again — not a forced layout per
+ *  heading. */
+export function fitHeadings(headings: PageHeading[], charW: number): void {
+  for (const h of headings) h.prepareFit();
+  const fits = headings.map((h) => h.measureFit());
+  headings.forEach((h, i) => h.applyFit(fits[i], charW));
+}
+
 /** Longest name the field takes — a page name, not a note. */
 export const PAGE_NAME_MAX_LENGTH = 200;
 
@@ -228,18 +244,39 @@ export class PageHeading {
    * middle. `charW` is the monospace face's advance (measureCharWidth); a
    * layout-less environment (0) leaves the full address. Called again by
    * the heading itself whenever the name beside it changes width. Also
-   * gives a name its own ellipsis cut short a tooltip with all of it.
+   * gives a name its ellipsis cut short a tooltip with all of it.
+   *
+   * In three phases — write the full address, read the room, write the fit
+   * — so the view can fit every heading with one layout between them
+   * (fitHeadings) instead of one per heading.
    */
   fitAddress(charW: number = this.charW): void {
+    this.prepareFit();
+    this.applyFit(this.measureFit(), charW);
+  }
+
+  /** Phase 1 (writes only): the full address, measured against. */
+  prepareFit(): void {
+    this.urlEl.textContent = displayUrl(this.url);
+  }
+
+  /** Phase 2 (reads only). */
+  measureFit(): HeadingFit {
+    return {
+      nameCut: this.nameEl.scrollWidth > this.nameEl.clientWidth + 1,
+      room: this.urlEl.clientWidth,
+      overflows: this.urlEl.scrollWidth > this.urlEl.clientWidth + 0.5,
+    };
+  }
+
+  /** Phase 3 (writes only). */
+  applyFit(fit: HeadingFit, charW: number = this.charW): void {
     this.charW = charW;
     // A name cut short by its 60% cap says the rest in its tooltip.
-    if (this.nameEl.scrollWidth > this.nameEl.clientWidth + 1) this.nameEl.dataset.tip = this.name;
+    if (fit.nameCut) this.nameEl.dataset.tip = this.name;
     else delete this.nameEl.dataset.tip;
-    const full = displayUrl(this.url);
-    this.urlEl.textContent = full;
-    const room = this.urlEl.clientWidth;
-    if (!(charW > 0) || !(room > 0) || this.urlEl.scrollWidth <= room + 0.5) return;
-    this.urlEl.textContent = ellipsizeMiddle(full, Math.max(1, Math.floor(room / charW)));
+    if (!(charW > 0) || !(fit.room > 0) || !fit.overflows) return;
+    this.urlEl.textContent = ellipsizeMiddle(displayUrl(this.url), Math.max(1, Math.floor(fit.room / charW)));
   }
 
   /** The heading's controls, in tab order. */

@@ -471,6 +471,16 @@ describe('opening on a note', () => {
     expect(cbs.fetchFullImage).toHaveBeenCalledTimes(8);
   });
 
+  test('a second open while one is up is refused — the open view keeps its empty-note lock', () => {
+    setup();
+    open(3);
+    settleOpen();
+    typeInto(textareaOf(3), '');
+    expect(sidebar.openEnlargedView(5, site, makeCallbacks())).toBe(false);
+    expect(wrapper()!.dataset.state).toBe('open');
+    expect(textareaOf(3).value).toBe('');
+  });
+
   test('a note not in the site opens nothing', () => {
     setup();
     expect(sidebar.openEnlargedView(99, site, makeCallbacks())).toBe(false);
