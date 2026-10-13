@@ -1364,3 +1364,44 @@ describe('add mode', () => {
     });
   });
 });
+
+describe('the comment box is measured once, not on every render', () => {
+  beforeEach(() => {
+    setViewport(1200, 800);
+  });
+  afterEach(() => {
+    addMode.exitAddMode();
+    addMode._resetHintForTests();
+  });
+
+  test('a resize drag reads its height no more; a bounds change re-measures it, and the new height places it', () => {
+    addMode.startAddMode(makeCallbacks());
+    place(blocker(), 300, 200);
+    const comment = commentBoxEl()!;
+    let reads = 0;
+    let height = 100;
+    Object.defineProperty(comment, 'offsetHeight', {
+      configurable: true,
+      get: () => {
+        reads++;
+        return height;
+      },
+    });
+    // Drag the south-east corner: a render per move, one measure at most
+    // (jsdom reports 0 for an element in a shadow root until this getter,
+    // so placement's own measure fell back; a browser measures there).
+    mousedown(zone('se'), 433, 250);
+    for (let i = 1; i <= 5; i++) mousemove(433 + i * 10, 250 + i * 10);
+    mouseup(483, 300);
+    expect(reads).toBe(1);
+
+    // Taller now, and the window changed: the next render measures it.
+    height = 700;
+    window.dispatchEvent(new Event('resize'));
+    expect(reads).toBe(2);
+    // A box this tall cannot sit below the selection: it flips (above or
+    // beside), and is clamped inside the bounds either way.
+    const top = parseFloat(comment.style.top);
+    expect(top + height).toBeLessThanOrEqual(800);
+  });
+});

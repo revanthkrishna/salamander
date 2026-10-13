@@ -212,6 +212,13 @@ let callbacksRef: AddModeCallbacks | null = null;
 
 let box: Rect = { x: 0, y: 0, ...DEFAULT_THUMBNAIL_BOX_SIZE };
 let commentHeight = COMMENT_FALLBACK_HEIGHT;
+/** Whether commentHeight is the comment box's real height. Its height is
+ *  fixed by its CSS (padding, the text area, the button row), so it is
+ *  measured once — the first render after the box is built — and again only
+ *  after something that can change it: the fonts arriving, or the bounds
+ *  changing. Reading offsetHeight on every render forced a synchronous
+ *  layout on every mousemove of a resize or a drag. */
+let commentHeightMeasured = false;
 
 let host: HTMLDivElement | null = null;
 let shadow: ShadowRoot | null = null;
@@ -546,6 +553,9 @@ function buildDOM(): void {
  *  (§1.2: the comment box must not exist before the first placement). */
 function buildCommentDOM(): void {
   if (!elVisuals || elComment) return;
+  commentHeightMeasured = false;
+  // Fonts that finish loading while the box is up can change its height.
+  document.fonts?.addEventListener?.('loadingdone', invalidateCommentHeight);
 
   elComment = document.createElement('div');
   elComment.className = 'comment-box';
@@ -862,8 +872,11 @@ function positionComment(bounds: Bounds): void {
   // offsetHeight is 0 before the element has ever been laid out (and always 0
   // in plain jsdom without the test-setup override) — fall back to a fixed
   // estimate rather than collapsing the comment box to zero height.
-  const measured = elComment.offsetHeight;
-  commentHeight = measured > 0 ? measured : COMMENT_FALLBACK_HEIGHT;
+  if (!commentHeightMeasured) {
+    const measured = elComment.offsetHeight;
+    commentHeight = measured > 0 ? measured : COMMENT_FALLBACK_HEIGHT;
+    commentHeightMeasured = measured > 0;
+  }
 
   const pos = computeCommentPosition(box, COMMENT_WIDTH, commentHeight, bounds);
   elComment.style.left = `${pos.left}px`;
@@ -1466,8 +1479,14 @@ function stopPlacingKeys(): void {
  *  being widened (sidebar.ts dispatches a synthetic `resize` on every width
  *  change while open). Without this, a box placed flush right stays where
  *  it was and ends up under the wider panel, capturing a slice of it. */
+/** The comment box's height may have changed: re-measure on the next render. */
+function invalidateCommentHeight(): void {
+  commentHeightMeasured = false;
+}
+
 function handleBoundsChange(): void {
   if (mode === 'idle') return;
+  invalidateCommentHeight();
   const bounds = getBounds();
   if (mode === 'editing') {
     box = clampBoxToBounds(box, bounds);
@@ -1541,6 +1560,8 @@ export function showOverlayUI(): void {
  *  successful capture completes. */
 export function exitAddMode(): void {
   if (mode === 'idle') return;
+  commentHeightMeasured = false;
+  document.fonts?.removeEventListener?.('loadingdone', invalidateCommentHeight);
 
   window.removeEventListener('resize', handleBoundsChange);
 
