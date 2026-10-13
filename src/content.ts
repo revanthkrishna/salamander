@@ -53,7 +53,6 @@ import {
   DELETE_ALL_CONFIRM_LABEL,
   IMPORT_REPLACE_CONFIRM_LABEL,
   IMPORT_REPLACE_CONFIRM_MESSAGE,
-  SITE_LOAD_FAILED_MESSAGE,
 } from './copy';
 import type { EnlargedSite } from './enlargedView';
 import { FeedbackItem, ImportError } from './types';
@@ -612,7 +611,7 @@ async function refreshThumbnails(): Promise<void> {
     if (response && !response.ok) sidebar.showError(response.message);
     return;
   }
-  sidebar.setThumbnails(response.items);
+  sidebar.setThumbnails(response.items, response.editedTitle);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -849,7 +848,8 @@ let openRequest = 0;
  * The read is one queued round trip (milliseconds); if the world moved on
  * meanwhile — another note clicked, add mode entered, the sidebar closed,
  * an SPA navigation — nothing opens. If it fails, the view opens on this
- * page's notes alone and the banner says the rest could not be read.
+ * page's notes alone and says, in its top bar, that the rest could not be
+ * read.
  */
 async function openItemEnlarged(item: FeedbackItem): Promise<void> {
   const token = ++openRequest;
@@ -861,9 +861,9 @@ async function openItemEnlarged(item: FeedbackItem): Promise<void> {
   if (!sidebar.isSidebarVisible() || addMode.isAddModeActive() || sidebar.isEnlargedViewOpen()) return;
 
   // The list shows this page's notes, so the clicked one names this page.
-  let site: EnlargedSite | null = null;
-  if (response?.ok) site = { currentUrl: item.normalisedUrl, pages: response.pages };
-  else sidebar.showError(response?.message ?? SITE_LOAD_FAILED_MESSAGE);
+  // Without the site, sidebar.ts opens on this page alone and the view says
+  // why, where it is being looked at.
+  const site: EnlargedSite | null = response?.ok ? { currentUrl: item.normalisedUrl, pages: response.pages } : null;
 
   const opened = sidebar.openEnlargedView(item.id, site, {
     fetchFullImage: async (target) => {

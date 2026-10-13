@@ -25,6 +25,7 @@ import {
   NOTE_REQUIRED_MESSAGE,
   PAGE_NAME_SAVE_ERROR_MESSAGE,
   SAVE_ERROR_MESSAGE,
+  SITE_LOAD_FAILED_MESSAGE,
   UNTITLED_PAGE_NAME,
   saveErrorFor,
 } from '../copy';
@@ -239,6 +240,7 @@ describe('the whole site, one page', () => {
     expect(shadow().querySelectorAll('style')).toHaveLength(1);
     expect(qa('.xp-page').map((h) => h.dataset.pageUrl)).toEqual([BLOG, PRICING, ABOUT]);
     expect(qa('.xp-note').map((n) => n.dataset.itemId)).toEqual(['1', '2', '4', '3', '5', '6', '7', '8']);
+    expect(q('.xp-notice')).toBeNull();
     // Numbers are per page, in capture order (design spec §AD).
     expect(nums()).toEqual(['#1', '#2', '#3', '#1', '#2', '#3', '#1', '#2']);
     // The sidebar's own list still shows only this page.
@@ -468,6 +470,7 @@ describe('opening on a note', () => {
     setup();
     expect(sidebar.openEnlargedView(5, null, makeCallbacks())).toBe(true);
     expect(qa('.xp-note').map((n) => n.dataset.itemId)).toEqual(['3', '5', '6']);
+    expect(q('.xp-notice')!.textContent).toBe(SITE_LOAD_FAILED_MESSAGE);
   });
 });
 

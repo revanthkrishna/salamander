@@ -28,6 +28,7 @@ jest.mock('../storage', () => ({
   getNextItemId: jest.fn().mockResolvedValue(1),
   addItem: jest.fn().mockResolvedValue(undefined),
   getPageItems: jest.fn().mockResolvedValue([]),
+  getPageTitle: jest.fn().mockResolvedValue(null),
   getSitePages: jest.fn().mockResolvedValue([]),
   setPageTitle: jest.fn().mockResolvedValue(true),
   updateItem: jest.fn().mockResolvedValue(true),
@@ -856,9 +857,10 @@ describe('enqueueCapture throttle', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleGetPageItems', () => {
-  it('returns storage.ts\'s items for the domain/url unchanged', async () => {
+  it('returns storage.ts\'s items for the domain/url unchanged, with the page\'s edited name', async () => {
     const items = [{ id: 1 } as any];
     mockedStorage.getPageItems.mockResolvedValue(items);
+    mockedStorage.getPageTitle.mockResolvedValue('pricing');
 
     const response = await background.handleGetPageItems({
       type: 'GET_PAGE_ITEMS',
@@ -867,7 +869,8 @@ describe('handleGetPageItems', () => {
     });
 
     expect(mockedStorage.getPageItems).toHaveBeenCalledWith('example.com', 'example.com/a');
-    expect(response).toEqual({ ok: true, items });
+    expect(mockedStorage.getPageTitle).toHaveBeenCalledWith('example.com', 'example.com/a');
+    expect(response).toEqual({ ok: true, items, editedTitle: 'pricing' });
   });
 
   it('maps a storage read failure to a lowercase error, not a throw', async () => {

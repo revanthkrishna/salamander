@@ -1139,8 +1139,12 @@ with one wide note, and the tops of the next row cut off by the bottom edge. Dec
   of the domain, thumbnails included, crosses in one message, and a capture in another tab waits
   behind the read — fine at the volumes this extension is for (tens of notes), and the first thing
   to page if a site ever holds hundreds. If it fails, the view
-  opens on this page's notes alone and the banner says "couldn't load the other pages' notes. try
-  again." **(impl)**
+  opens on this page's notes alone — under the page's stored name, which `GET_PAGE_ITEMS` now
+  carries for exactly this — and says "couldn't load the other pages' notes. try again." in its
+  **top bar**, right-aligned against the exit button, in `danger`, for as long as it is open.
+  There rather than in the sidebar's banner: the banner sits in the list the view covers, and its
+  8 seconds have run out by the time the view closes; the top bar is seen at the moment the view's
+  being incomplete needs explaining. **(impl)**
 
 ## The panel
 

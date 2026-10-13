@@ -13,6 +13,7 @@ import {
   getNextItemId,
   addItem,
   getPageItems,
+  getPageTitle,
   getSitePages,
   setPageTitle,
   updateItem,
@@ -374,8 +375,11 @@ export async function handleGetPageItems(
   try {
     // Queued behind pending writes too: the enlarged view flushes its edit
     // and then (on close) re-reads the list — read-after-write must hold.
-    const items = await enqueueSave(() => getPageItems(message.domain, message.normalisedUrl));
-    return { ok: true, items };
+    const { items, editedTitle } = await enqueueSave(async () => ({
+      items: await getPageItems(message.domain, message.normalisedUrl),
+      editedTitle: await getPageTitle(message.domain, message.normalisedUrl),
+    }));
+    return { ok: true, items, editedTitle };
   } catch (err) {
     console.warn('[Annotator] could not load page items:', err);
     return { ok: false, message: ITEM_LOAD_FAILED_MESSAGE };

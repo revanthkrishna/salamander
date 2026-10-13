@@ -305,6 +305,13 @@ export async function getPageItems(
   return keys.map((k) => stored[k] as FeedbackItem | undefined).filter((it): it is FeedbackItem => !!it);
 }
 
+/** A page's edited name (design spec §AH), or null when it shows its
+ *  default — from the index alone. */
+export async function getPageTitle(domain: string, normalisedUrl: string): Promise<string | null> {
+  const index = await readIndex(domain);
+  return index?.meta.pageTitles?.[normalisedUrl] ?? null;
+}
+
 /** The id the *next* captured item for this domain should use. Monotonic
  *  across every URL of the domain (§1.2) — does not itself reserve the id;
  *  addItem() is what advances the counter. */

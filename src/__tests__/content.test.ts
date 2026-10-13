@@ -92,6 +92,8 @@ function makeItem(overrides: Partial<FeedbackItem> = {}): FeedbackItem {
 
 /** Items GET_PAGE_ITEMS resolves with — set per-test before loadContent(). */
 let pageItems: FeedbackItem[] = [];
+/** This page's edited name, as GET_PAGE_ITEMS reports it. */
+let pageEditedTitle: string | null = null;
 /** Other pages of the site GET_SITE_PAGES lists before this one. */
 let sitePagesBefore: Array<{ normalisedUrl: string; editedTitle: string | null; items: FeedbackItem[] }> = [];
 
@@ -110,7 +112,7 @@ function installChromeMocks(): void {
     },
     sendMessage: jest.fn((message: any, callback?: (r?: unknown) => void) => {
       if (message?.type === 'GET_PAGE_ITEMS') {
-        callback?.({ ok: true, items: pageItems });
+        callback?.({ ok: true, items: pageItems, editedTitle: pageEditedTitle });
         return;
       }
       if (message?.type === 'GET_SITE_PAGES') {
@@ -195,6 +197,7 @@ function flushMicrotasks(): Promise<void> {
 
 afterEach(() => {
   sitePagesBefore = [];
+  pageEditedTitle = null;
   jest.useRealTimers();
   pageItems = [];
 });
@@ -697,9 +700,10 @@ describe('content.ts: enlarged view wiring (design spec §AH)', () => {
     expect(sent()).toContainEqual({ type: 'GET_IMAGE', screenshotKey: 'key-1' });
   });
 
-  test('if the site cannot be read, the view opens on this page alone and the banner says so', async () => {
+  test('if the site cannot be read, the view opens on this page alone, says so in its top bar, and keeps the page\'s stored name', async () => {
     const base = (chrome.runtime.sendMessage as jest.Mock).getMockImplementation()!;
     pageItems = [makeItem({ id: 7 })];
+    pageEditedTitle = 'the stored name';
     loadContent();
     (chrome.runtime.sendMessage as jest.Mock).mockImplementation((message: any, callback?: (r?: unknown) => void) => {
       if (message?.type === 'GET_SITE_PAGES') return callback?.({ ok: false, message: SITE_LOAD_FAILED_MESSAGE });
@@ -711,7 +715,17 @@ describe('content.ts: enlarged view wiring (design spec §AH)', () => {
     await flushMicrotasks();
     expect(sidebarApi.isEnlargedViewOpen()).toBe(true);
     expect(sidebarShadow().querySelectorAll('.xp-note')).toHaveLength(1);
-    expect(sidebarShadow().querySelector('.notif-text')!.textContent).toBe(SITE_LOAD_FAILED_MESSAGE);
+    // Said where it is looked at — not in the banner hidden behind the view.
+    const notice = sidebarShadow().querySelector('.xp-notice')!;
+    expect(notice.textContent).toBe(SITE_LOAD_FAILED_MESSAGE);
+    expect(notice.getAttribute('role')).toBe('status');
+    expect(sidebarShadow().querySelector('.notif')!.hasAttribute('hidden')).toBe(true);
+    // The heading has the stored name, and committing it unchanged writes nothing.
+    expect(sidebarShadow().querySelector('.xp-page-name')!.textContent).toBe('the stored name');
+    (sidebarShadow().querySelector('.xp-page-edit') as HTMLButtonElement).click();
+    (sidebarShadow().querySelector('.xp-page-save') as HTMLButtonElement).click();
+    const sent = (chrome.runtime.sendMessage as jest.Mock).mock.calls.map((c) => c[0]);
+    expect(sent.some((m) => m?.type === 'SET_PAGE_TITLE')).toBe(false);
   });
 
   test('entering add mode while the site is being read opens nothing', async () => {

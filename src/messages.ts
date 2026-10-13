@@ -219,6 +219,12 @@ export interface GetPageItemsSuccessResponse {
    *  way, so the sidebar can render newest-at-the-bottom (§1.5) with no
    *  re-sorting on this side. */
   items: FeedbackItem[];
+  /** The page's name as edited in the enlarged view, or null (design spec
+   *  §AH). The list does not show it; the sidebar keeps it for the one time
+   *  the enlarged view must open on this page alone (the site could not be
+   *  read), so that view still shows — and a rename there still starts
+   *  from — the stored name. */
+  editedTitle: string | null;
 }
 
 export interface GetPageItemsErrorResponse {

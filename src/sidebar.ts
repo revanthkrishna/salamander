@@ -31,7 +31,12 @@
 
 import { FeedbackItem } from './types';
 import { addNoteShortcutLabel } from './shortcut';
-import { CONFIRM_CANCEL_LABEL, NOTHING_TO_DELETE_MESSAGE, NOTHING_TO_EXPORT_MESSAGE } from './copy';
+import {
+  CONFIRM_CANCEL_LABEL,
+  NOTHING_TO_DELETE_MESSAGE,
+  NOTHING_TO_EXPORT_MESSAGE,
+  SITE_LOAD_FAILED_MESSAGE,
+} from './copy';
 import { attachTooltips, isSoftDisabled, setSoftDisabled, TooltipHandle, TOOLTIP_CSS } from './tooltip';
 import { renderThumbnailList, THUMBNAIL_IMAGE_HEIGHT_PX } from './thumbnails';
 import { attachDockMotion, DockMotionHandle } from './dockMotion';
@@ -1600,6 +1605,9 @@ let enlargedView: EnlargedViewHandle | null = null;
 /** Items the list is currently rendering — the enlarged view opens from one
  *  of these (and shows them alone if the rest of the site can't be read). */
 let currentItems: FeedbackItem[] = [];
+/** The listed page's name as edited in the enlarged view, or null — kept
+ *  for the view's fallback (openEnlargedView with no site). */
+let currentEditedTitle: string | null = null;
 let elNotif: HTMLDivElement | null = null;
 let elNotifIcon: HTMLSpanElement | null = null;
 let elNotifText: HTMLSpanElement | null = null;
@@ -2721,13 +2729,14 @@ function applyListHold(): void {
  * successful capture or an enlarged-view close (edit/delete). While the
  * enlarged view is open the repaint is deferred until it closes.
  */
-export function setThumbnails(items: FeedbackItem[]): void {
+export function setThumbnails(items: FeedbackItem[], editedTitle: string | null = null): void {
   // Dropped, not deferred, while the enlarged view is up: repainting under
   // a live morph would swap the very list thumbnails the clones are about
   // to land on, and a refresh that started before the view's own edits/
   // deletes would repaint over the (correct) list the view hands back on
   // close. onClosed re-reads storage anyway (content.ts).
   if (enlargedView) return;
+  currentEditedTitle = editedTitle;
   renderItems(items);
 }
 
@@ -2900,9 +2909,12 @@ export function openEnlargedView(itemId: number, site: EnlargedSite | null, call
   const mount = enlargedMount();
   const listed = currentItems.find((i) => i.id === itemId);
   if (!mount || !listed) return false;
+  // Without the site: this page alone, under its stored name, and the view
+  // says why the other pages are missing.
   const shown: EnlargedSite = site ?? {
     currentUrl: listed.normalisedUrl,
-    pages: [{ normalisedUrl: listed.normalisedUrl, editedTitle: null, items: currentItems }],
+    pages: [{ normalisedUrl: listed.normalisedUrl, editedTitle: currentEditedTitle, items: currentItems }],
+    notice: SITE_LOAD_FAILED_MESSAGE,
   };
   let handle: EnlargedViewHandle | null = null;
   handle = openEnlargedViewImpl(mount, shown, itemId, {
@@ -2951,6 +2963,7 @@ export function destroySidebar(): void {
   enlargedView?.destroy();
   enlargedView = null;
   currentItems = [];
+  currentEditedTitle = null;
   enlargedDockSuspended = false;
   dockMotion?.destroy();
   dockMotion = null;

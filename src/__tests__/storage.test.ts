@@ -16,6 +16,7 @@ import {
   deleteDomainData,
   getDomainCounts,
   getSitePages,
+  getPageTitle,
   setPageTitle,
   setSidebarOpen,
   isSidebarOpen,
@@ -442,6 +443,14 @@ describe('storage.ts — site pages and edited page names (design spec §AH)', (
     await seed();
     await deleteItem(DOMAIN, B, 1);
     expect((await getSitePages(DOMAIN)).map((p) => p.normalisedUrl)).toEqual([A, B, C]);
+  });
+
+  test('getPageTitle reads one page\'s name from the index, null when it has none', async () => {
+    expect(await getPageTitle(DOMAIN, A)).toBeNull();
+    await seed();
+    await setPageTitle(DOMAIN, A, 'pricing');
+    expect(await getPageTitle(DOMAIN, A)).toBe('pricing');
+    expect(await getPageTitle(DOMAIN, B)).toBeNull();
   });
 
   test('a name is stored trimmed, per page, and read back with the site', async () => {

@@ -197,6 +197,9 @@ const FRAME_RADIUS = RADII.md;
  *  share one left edge. */
 const BRAND_LEFT_DOCKED = 16;
 const EXIT_BTN = 36;
+/** What the top bar's notice leaves for the logo + wordmark on its left
+ *  and the exit button on its right. */
+const NOTICE_RESERVE_PX = 300;
 /** ↑ / ↓ scroll step (the browser's own arrow-key step is ~40px; a row of
  *  notes is ~250px, so this moves a useful amount without skipping one). */
 const ARROW_SCROLL_PX = 64;
@@ -217,6 +220,9 @@ const LAZY_ROOT_MARGIN = '800px 0px';
 export interface EnlargedSite {
   currentUrl: string;
   pages: SitePage[];
+  /** Said in the top bar for as long as the view is open — the reason it
+   *  shows less than the whole site (the other pages could not be read). */
+  notice?: string;
 }
 
 export interface EnlargedViewCallbacks {
@@ -366,6 +372,16 @@ export const ENLARGED_VIEW_CSS = `
     cursor: pointer;
     pointer-events: auto;
     ${STATE_TRANSITION_CSS}
+  }
+  /* The top bar's notice (the site could not be read in full), right-
+     aligned against the exit button. */
+  .xp-notice {
+    position: absolute; top: 0; right: ${PANEL_PAD_X + EXIT_BTN + 16}px;
+    margin: 0;
+    font-size: 12px; line-height: ${TOP_BAR_H}px;
+    color: var(--sal-danger);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    pointer-events: none;
   }
   .xp-exit:hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
   .xp-exit:active { background: var(--sal-press); border-color: var(--sal-line-strong); }
@@ -717,6 +733,8 @@ class EnlargedView {
   private brand!: HTMLDivElement;
   private brandWord!: HTMLSpanElement;
   private btnExit!: HTMLButtonElement;
+  private noticeEl: HTMLParagraphElement | null = null;
+  private readonly notice: string | null;
   private scroller!: HTMLDivElement;
   private content!: HTMLDivElement;
 
@@ -755,6 +773,7 @@ class EnlargedView {
     private callbacks: EnlargedViewCallbacks,
   ) {
     this.currentUrl = site.currentUrl;
+    this.notice = site.notice ?? null;
     this.openedId = itemId;
     this.anchorId = itemId;
     this.autosave = new AutosaveController<string>({
@@ -947,7 +966,8 @@ class EnlargedView {
     sb.setAttribute('inert', '');
 
     const from = this.mount.getSidebarWidth();
-    this.btnExit.style.opacity = '0';
+    const chrome = this.noticeEl ? [this.btnExit, this.noticeEl] : [this.btnExit];
+    for (const el of chrome) el.style.opacity = '0';
     this.scrim.style.opacity = '0';
     this.syncBrandWord(true);
 
@@ -959,7 +979,7 @@ class EnlargedView {
       fadeTo(sb, 0, { duration: T.rdListOut, curve: ACC });
       this.scroller.style.opacity = '0';
       fadeTo(this.scroller, 1, { duration: T.rdStageIn, curve: STD });
-      fadeTo(this.btnExit, 1, { duration: T.rdStageIn, curve: STD });
+      for (const el of chrome) fadeTo(el, 1, { duration: T.rdStageIn, curve: STD });
       this.mount.setDockSuspended(true);
       this.scheduleSettle(T.rdExpandSettle);
       return;
@@ -972,7 +992,7 @@ class EnlargedView {
     // time, and the exit button last.
     fadeTo(this.scrim, 1, { duration: T.scrimIn, curve: STD });
     fadeTo(sb, 0, { duration: T.listOut, curve: ACC });
-    fadeTo(this.btnExit, 1, { duration: T.fade, delay: T.exitDelay, curve: STD });
+    for (const el of chrome) fadeTo(el, 1, { duration: T.fade, delay: T.exitDelay, curve: STD });
     this.fadeInGrid(top);
 
     // Shared elements: every note whose thumbnail is visible in the list
@@ -1093,6 +1113,17 @@ class EnlargedView {
     this.scroller.addEventListener('touchmove', holdStill, { passive: false });
 
     this.stage.append(this.brand, this.btnExit, this.scroller);
+    if (this.notice) {
+      // In the top bar, beside the exit button: seen while the view is
+      // looked at, which is when its being incomplete needs explaining — a
+      // banner in the list behind it would be invisible, and gone by the
+      // time the view closes.
+      this.noticeEl = document.createElement('p');
+      this.noticeEl.className = 'xp-notice';
+      this.noticeEl.setAttribute('role', 'status');
+      this.noticeEl.textContent = this.notice;
+      this.stage.appendChild(this.noticeEl);
+    }
     w.append(this.scrim, this.bg, this.stage, this.front);
     w.addEventListener('focusin', this.onFocusIn);
     this.mount.shadow.appendChild(w);
@@ -1110,6 +1141,8 @@ class EnlargedView {
     this.panelW = panelWidthFor(vp.w, this.mount.getSidebarWidth());
     const scrollerW = Math.max(1, this.panelW - 1); // inside .xp-bg's border
     this.scroller.style.width = `${scrollerW}px`;
+    // The notice has the top bar between the wordmark and the exit button.
+    if (this.noticeEl) this.noticeEl.style.maxWidth = `${Math.max(0, this.panelW - NOTICE_RESERVE_PX)}px`;
     const contentW = contentWidthFor(this.scroller.clientWidth || scrollerW);
     this.layout = computeGridLayout(
       this.pages.map((p) => ({ key: p.url, notes: p.items.map((it) => ({ id: it.id, natural: naturalOf(it) })) })),
@@ -1448,6 +1481,7 @@ class EnlargedView {
 
     const rd = this.reduced;
     fadeTo(this.btnExit, 0, { duration: rd ? T.rdStageOut : T.stageOut, curve: ACC });
+    if (this.noticeEl) fadeTo(this.noticeEl, 0, { duration: rd ? T.rdStageOut : T.stageOut, curve: ACC });
     fadeTo(this.scroller, 0, { duration: rd ? T.rdStageOut : T.stageOut, curve: ACC });
     this.syncBrandWord(false);
 
@@ -1550,7 +1584,7 @@ class EnlargedView {
       page.part.move?.anim?.cancel();
       cancelTracks(page.heading.el);
     }
-    for (const el of [this.scrim, this.bg, this.stage, this.front, this.btnExit, this.scroller, this.brand, this.brandWord]) {
+    for (const el of [this.scrim, this.bg, this.stage, this.front, this.btnExit, this.noticeEl, this.scroller, this.brand, this.brandWord]) {
       if (el) cancelTracks(el);
     }
 
