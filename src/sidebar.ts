@@ -44,12 +44,10 @@ import { getContentViewportSize, reducedMotionQuery } from './dom';
 import {
   ICON_CLOSE,
   ICON_COMMENT,
-  ICON_ERROR,
   ICON_EXPORT,
   ICON_IMPORT,
   ICON_MORE,
   ICON_TRASH,
-  ICON_WARNING,
 } from './icons';
 import {
   openEnlargedView as openEnlargedViewImpl,
@@ -75,6 +73,7 @@ import {
   sidebarLayoutFor,
 } from './sidebarMetrics';
 import { SIDEBAR_CSS } from './styles/sidebar.css';
+import { Notifications } from './notifications';
 import {
   getSidebarWidth,
   loadPersistedWidth,
@@ -283,14 +282,11 @@ let currentItems: FeedbackItem[] = [];
 /** The listed page's name as edited in the enlarged view, or null — kept
  *  for the view's fallback (openEnlargedView with no site). */
 let currentEditedTitle: string | null = null;
-let elNotif: HTMLDivElement | null = null;
-let elNotifIcon: HTMLSpanElement | null = null;
-let elNotifText: HTMLSpanElement | null = null;
-let elCountdownBar: HTMLDivElement | null = null;
+/** The notification banner, while the panel is built. */
+let notifications: Notifications | null = null;
 
 let callbacksRef: SidebarCallbacks | null = null;
 let visible = false;
-let notifTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ---------------------------------------------------------------------------
 // DOM construction
@@ -455,29 +451,8 @@ function buildDOM(shadow: ShadowRoot): void {
   actionRow.appendChild(elExportGroup);
   actionRow.appendChild(elAddDesc);
 
-  // Notification bar — live region so a screen reader announces errors and
-  // warnings that appear without the user having focused anything.
-  elNotif = document.createElement('div');
-  elNotif.className = 'notif';
-  elNotif.setAttribute('role', 'alert');
-  elNotif.hidden = true;
-
-  elCountdownBar = document.createElement('div');
-  elCountdownBar.className = 'notif-progress';
-  elCountdownBar.hidden = true;
-
-  const notifRow = document.createElement('div');
-  notifRow.className = 'notif-row';
-  elNotifIcon = document.createElement('span');
-  elNotifIcon.className = 'icon';
-  elNotifIcon.innerHTML = ICON_ERROR;
-  elNotifText = document.createElement('span');
-  elNotifText.className = 'notif-text';
-  notifRow.appendChild(elNotifIcon);
-  notifRow.appendChild(elNotifText);
-
-  elNotif.appendChild(notifRow);
-  elNotif.appendChild(elCountdownBar);
+  // Notification bar (src/notifications.ts).
+  notifications = new Notifications();
 
   const body = document.createElement('div');
   body.className = 'body';
@@ -516,7 +491,7 @@ function buildDOM(shadow: ShadowRoot): void {
   elSidebar.appendChild(resizerLine);
   elSidebar.appendChild(header);
   elSidebar.appendChild(actionRow);
-  elSidebar.appendChild(elNotif);
+  elSidebar.appendChild(notifications.el);
   elSidebar.appendChild(body);
   elSidebar.appendChild(elFileInput);
 
@@ -1725,10 +1700,7 @@ export function destroySidebar(): void {
   elEmptyState = null;
   elThumbnailList = null;
   elBody = null;
-  elNotif = null;
-  elNotifIcon = null;
-  elNotifText = null;
-  elCountdownBar = null;
+  notifications = null;
   callbacksRef = null;
   visible = false;
   dockSuspended = false;
@@ -1744,75 +1716,22 @@ export function destroySidebar(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Notifications (showError / showWarning). All copy
-// passed in must already be lowercase (§3.4);
-// these render it verbatim so the §5 error-table strings stay byte-exact.
+// Notifications (src/notifications.ts)
 // ---------------------------------------------------------------------------
-
-const NOTIF_DURATION_MS = 8000;
 
 /** Show the error bar inside the sidebar. Auto-clears after 8s. */
 export function showError(message: string): void {
-  showNotif('error', message, ICON_ERROR);
+  notifications?.showError(message);
 }
 
 /** Show the warning bar inside the sidebar. Auto-clears after 8s. */
 export function showWarning(message: string): void {
-  showNotif('warning', message, ICON_WARNING);
-}
-
-function showNotif(kind: 'error' | 'warning', message: string, icon: string): void {
-  if (!elNotif || !elNotifText || !elNotifIcon) return;
-  if (notifTimer !== null) {
-    clearTimeout(notifTimer);
-    notifTimer = null;
-  }
-  elNotif.classList.toggle('warning', kind === 'warning');
-  elNotifIcon.innerHTML = icon;
-  elNotifText.textContent = message;
-  elNotif.hidden = false;
-  startCountdownAnim();
-  notifTimer = setTimeout(() => {
-    notifTimer = null;
-    clearMessage();
-  }, NOTIF_DURATION_MS);
+  notifications?.showWarning(message);
 }
 
 /** Hide whatever notification is showing and cancel its auto-clear timer. */
 export function clearMessage(): void {
-  if (notifTimer !== null) {
-    clearTimeout(notifTimer);
-    notifTimer = null;
-  }
-  if (!elNotif || !elNotifText) return;
-  elNotif.hidden = true;
-  elNotif.classList.remove('warning');
-  elNotifText.textContent = '';
-  stopCountdownAnim();
-}
-
-/** Animate the countdown bar from full width to zero over the notification
- *  duration, as a visual timer. Colour comes from the .warning modifier on the
- *  parent, so nothing to set here. */
-function startCountdownAnim(): void {
-  if (!elCountdownBar) return;
-  elCountdownBar.hidden = false;
-  // Snap to full width with no transition...
-  elCountdownBar.style.transition = 'none';
-  elCountdownBar.style.transform = 'scaleX(1)';
-  // ...then force a reflow so the reset actually takes effect before the next
-  // transition is applied. Without this the browser collapses both style
-  // changes into one frame and the animation never runs.
-  void elCountdownBar.offsetWidth;
-  elCountdownBar.style.transition = `transform ${NOTIF_DURATION_MS}ms linear`;
-  elCountdownBar.style.transform = 'scaleX(0)';
-}
-
-function stopCountdownAnim(): void {
-  if (!elCountdownBar) return;
-  elCountdownBar.hidden = true;
-  elCountdownBar.style.transition = 'none';
-  elCountdownBar.style.transform = 'scaleX(1)';
+  notifications?.clear();
 }
 
 /** Test-only: the page-resize machinery's state, with the panel's width. */
