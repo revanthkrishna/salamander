@@ -711,6 +711,67 @@ describe('storage.ts — a failed chrome.storage.local call rejects (chrome.runt
       replaceDomainData(DOMAIN_X, { meta: { nextItemNumber: 2, version: STORAGE_VERSION }, pages: {} }),
     ).rejects.toThrow('IO error');
   });
+
+  // The write order of the destructive paths: data nothing references is
+  // the only possible residue of a failure — never a note whose screenshot
+  // has already been deleted.
+
+  test('replaceDomainData: a failed write of the new record leaves the old notes and their screenshots', async () => {
+    const old = makeItem({ id: 1, screenshotKey: 'old-shot' });
+    await seedImage(old.screenshotKey);
+    await addItem(DOMAIN_X, old);
+    const fresh = makeItem({ id: 7, screenshotKey: 'new-shot' });
+    failNext('set');
+    await expect(
+      replaceDomainData(DOMAIN_X, { meta: { nextItemNumber: 8, version: STORAGE_VERSION }, pages: { [fresh.normalisedUrl]: [fresh] } }),
+    ).rejects.toThrow('IO error');
+    expect((await getPageItems(DOMAIN_X, old.normalisedUrl)).map((i) => i.id)).toEqual([1]);
+    expect(await imageStore.getImage(old.screenshotKey)).not.toBeNull();
+  });
+
+  test('replaceDomainData: an old screenshot that cannot be deleted once the new record landed is an orphan, not a failure', async () => {
+    const old = makeItem({ id: 1, screenshotKey: 'old-shot' });
+    await seedImage(old.screenshotKey);
+    await addItem(DOMAIN_X, old);
+    const fresh = makeItem({ id: 7, screenshotKey: 'new-shot' });
+    const del = jest.spyOn(imageStore, 'deleteImage').mockRejectedValueOnce(new Error('IDB closed'));
+    await expect(
+      replaceDomainData(DOMAIN_X, { meta: { nextItemNumber: 8, version: STORAGE_VERSION }, pages: { [fresh.normalisedUrl]: [fresh] } }),
+    ).resolves.toBeUndefined();
+    del.mockRestore();
+    expect((await getPageItems(DOMAIN_X, fresh.normalisedUrl)).map((i) => i.id)).toEqual([7]);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  test('replaceDomainData reads the old index once', async () => {
+    await addItem(DOMAIN_X, makeItem({ id: 1 }));
+    (chrome.storage.local.get as jest.Mock).mockClear();
+    await replaceDomainData(DOMAIN_X, { meta: { nextItemNumber: 2, version: STORAGE_VERSION }, pages: {} });
+    const indexReads = (chrome.storage.local.get as jest.Mock).mock.calls.filter((c) => c[0] === `domain:${DOMAIN_X}`);
+    expect(indexReads).toHaveLength(1);
+  });
+
+  test('deleteDomainData: a failed key removal leaves every note and every screenshot', async () => {
+    const a = makeItem({ id: 1 });
+    await seedImage(a.screenshotKey);
+    await addItem(DOMAIN_X, a);
+    failNext('remove');
+    await expect(deleteDomainData(DOMAIN_X)).rejects.toThrow('IO error');
+    expect((await getPageItems(DOMAIN_X, a.normalisedUrl)).map((i) => i.id)).toEqual([1]);
+    expect(await imageStore.getImage(a.screenshotKey)).not.toBeNull();
+  });
+
+  test('deleteDomainData: a screenshot that cannot be deleted once the keys are gone is an orphan, not a failure', async () => {
+    const a = makeItem({ id: 1 });
+    await seedImage(a.screenshotKey);
+    await addItem(DOMAIN_X, a);
+    const del = jest.spyOn(imageStore, 'deleteImage').mockRejectedValueOnce(new Error('IDB closed'));
+    await expect(deleteDomainData(DOMAIN_X)).resolves.toBeUndefined();
+    del.mockRestore();
+    expect(await getDomainData(DOMAIN_X)).toBeNull();
+    expect(warn).toHaveBeenCalled();
+  });
+
 });
 
 describe('the chrome.storage fake (setup.ts) behaves like the real one', () => {

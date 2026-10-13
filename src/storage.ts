@@ -269,20 +269,38 @@ function setTitles(meta: DomainMeta, titles: Record<string, string>): void {
   else delete meta.pageTitles;
 }
 
-/** Delete a domain's record entirely — index, every item, every blob. */
+/** Delete a domain's record entirely — index, every item, every blob. The
+ *  keys go first and the screenshots after: a failed removal leaves every
+ *  note with its screenshot, and a screenshot left behind once nothing
+ *  points at it is an orphan (removeOrphanImages). */
 export async function deleteDomainData(domain: string): Promise<void> {
   const index = await readIndex(domain);
   if (!index) return;
-  const data = await getDomainData(domain);
-  if (data) await deleteAllBlobsIn(data);
-  await storageRemove([domainKey(domain), ...itemKeysOf(domain, index)]);
+  const keys = itemKeysOf(domain, index);
+  const screenshots = screenshotKeysIn(keys.length > 0 ? await storageGet(keys) : {}, keys);
+  await storageRemove([domainKey(domain), ...keys]);
+  await removeOrphanImages(screenshots);
 }
 
-async function deleteAllBlobsIn(data: DomainData): Promise<void> {
-  const keys = Object.values(data.pages)
-    .flat()
-    .map((item) => item.screenshotKey);
-  await Promise.all(keys.map((k) => imageStore.deleteImage(k)));
+/** The screenshot keys of the items stored under `keys` in `stored`. */
+function screenshotKeysIn(stored: Record<string, unknown>, keys: string[]): string[] {
+  const out: string[] = [];
+  for (const k of keys) {
+    const item = stored[k] as FeedbackItem | undefined;
+    if (item) out.push(item.screenshotKey);
+  }
+  return out;
+}
+
+/** Delete screenshots nothing points at any more (their items are already
+ *  gone from the record): like removeOrphans, a failure leaves orphans,
+ *  which cost space and nothing else, so it is logged rather than failing
+ *  a write that has already landed. Each is tried, whatever happens to the
+ *  others. */
+async function removeOrphanImages(keys: string[]): Promise<void> {
+  const results = await Promise.allSettled(keys.map((k) => imageStore.deleteImage(k)));
+  const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (failed.length > 0) console.warn('[Annotator] could not delete unreferenced screenshots:', failed[0].reason);
 }
 
 // ---------------------------------------------------------------------------
@@ -404,25 +422,25 @@ export async function deleteItem(
 
 /** Import's replace-only semantics (§1.7): discard everything currently
  *  stored for `domain` — index, items and blobs alike — and install `data`
- *  in its place. The caller is responsible for having already written the
- *  incoming items' screenshots into imageStore before calling this (or
- *  immediately after — either order is safe since the two stores are keyed
- *  independently and screenshotKey values are unique to the import). The
- *  new record is written before the old item keys are removed, so a torn
- *  write leaves orphan item keys rather than an index with no items. */
+ *  in its place. The caller has already written the incoming items'
+ *  screenshots into imageStore (their keys are fresh, unique to the
+ *  import). Order is what keeps a failure safe: the new record is written
+ *  first, and only then are the old item keys and the old screenshots
+ *  removed, so a failed write leaves the previous notes exactly as they
+ *  were, screenshots included, and a failed clean-up leaves orphans (keys
+ *  and images nothing points at) rather than notes without images. */
 export async function replaceDomainData(domain: string, data: DomainData): Promise<void> {
   const existingIndex = await readIndex(domain);
-  const existing = existingIndex ? await getDomainData(domain) : null;
-  if (existing) {
-    await deleteAllBlobsIn(existing);
-  }
+  const oldKeys = existingIndex ? itemKeysOf(domain, existingIndex) : [];
+  const oldScreenshots = screenshotKeysIn(oldKeys.length > 0 ? await storageGet(oldKeys) : {}, oldKeys);
   const split = splitDomainData(domain, data);
   await storageSet(split);
-  if (existingIndex) {
-    const stale = itemKeysOf(domain, existingIndex).filter((k) => !(k in split));
-    // The new record has landed; the old keys are orphans already.
-    if (stale.length > 0) await removeOrphans(stale);
-  }
+  // The new record has landed; the old keys and screenshots are orphans
+  // already. A screenshot the new record still points at is kept.
+  const stale = oldKeys.filter((k) => !(k in split));
+  if (stale.length > 0) await removeOrphans(stale);
+  const kept = new Set(Object.values(data.pages).flat().map((item) => item.screenshotKey));
+  await removeOrphanImages(oldScreenshots.filter((k) => !kept.has(k)));
 }
 
 // ---------------------------------------------------------------------------
