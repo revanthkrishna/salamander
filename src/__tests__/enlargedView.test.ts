@@ -269,10 +269,10 @@ describe('the whole site, one page', () => {
     expect(group.getAttribute('role')).toBe('group');
     expect(group.getAttribute('aria-labelledby')).toBe(heading(ABOUT).querySelector('.xp-page-name')!.id);
     const css = q('style')!.textContent!;
-    const urlRule = css.slice(css.indexOf('.xp-page-url {'), css.indexOf('.xp-page-url {') + 300);
+    const urlRule = css.slice(css.indexOf('.xp-page-url {'), css.indexOf('}', css.indexOf('.xp-page-url {')));
     expect(urlRule).toContain('var(--sal-font-mono)');
     expect(urlRule).toContain('color: var(--sal-text)');
-    const nameRule = css.slice(css.indexOf('.xp-page-name {'), css.indexOf('.xp-page-name {') + 500);
+    const nameRule = css.slice(css.indexOf('.xp-page-name {'), css.indexOf('}', css.indexOf('.xp-page-name {')));
     expect(nameRule).toContain('var(--sal-font-display)');
     expect(nameRule).toContain('font-style: italic');
   });
