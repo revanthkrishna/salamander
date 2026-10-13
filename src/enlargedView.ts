@@ -83,6 +83,7 @@ import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIso
 import { KEY_PRIORITY } from './keyRouter';
 import { AutosaveController } from './autosave';
 import { FullImageLoader } from './fullImageLoader';
+import { Clone, CloneLayer } from './cloneLayer';
 // ICON_TRASH is the project's one trash glyph (design spec v5 §S) — the same
 // one the note list's hover delete draws.
 import { ICON_COLLAPSE, ICON_TRASH } from './icons';
@@ -127,21 +128,14 @@ import {
   ACC,
   STD,
   Slot,
-  Tween,
   animateEl,
   animateNumber,
   cancelTracks,
   EdgeCut,
   NO_CUT,
   clamp,
-  containFit,
-  cutClipPath,
-  lerpCut,
   fadeTo,
-  lerpSlot,
-  morphKeyframes,
   now,
-  tweenProgress,
 } from './flip';
 
 // ---------------------------------------------------------------------------
@@ -357,20 +351,6 @@ interface NoteView {
 }
 
 /** A screenshot travelling between the list and the grid, in .xp-front. */
-interface Clone {
-  id: number;
-  el: HTMLDivElement;
-  frame: HTMLElement;
-  media: HTMLElement;
-  img: HTMLImageElement;
-  badge: HTMLElement;
-  slot: Slot;
-  /** How much of it the list's scrollport hides at rest (a thumbnail cut
-   *  by the list's edge), on screen px. */
-  cut: EdgeCut;
-  morph: { tween: Tween<Slot>; clip: { from: EdgeCut; to: EdgeCut }; anims: Animation[] } | null;
-  aspect: number;
-}
 
 /** A list thumbnail's rect and how much of it the list's edges cut off. */
 interface ListSlot {
@@ -382,11 +362,6 @@ interface ListSlot {
  *  20px tall: it is out of sight once a cut reaches it. */
 function cutHidesBadge(cut: EdgeCut, h: number): boolean {
   return cut.top > 8 || cut.bottom > h - 28;
-}
-
-function aspectOf(item: FeedbackItem): number {
-  const r = item.selectionRect;
-  return r && r.width > 0 && r.height > 0 ? r.width / r.height : 16 / 9;
 }
 
 /** §M's "original size": the selection's own CSS pixels (the stored PNG is
@@ -444,7 +419,8 @@ class EnlargedView {
   private scroller!: HTMLDivElement;
   private content!: HTMLDivElement;
 
-  private clones = new Map<number, Clone>();
+  /** The shared-element clones (src/cloneLayer.ts). */
+  private clones: CloneLayer;
   private hiddenThumbs: HTMLElement[] = [];
   private autosave: AutosaveController<string>;
   private listDirty = false;
@@ -490,6 +466,10 @@ class EnlargedView {
       onSaveStarted: this.onSaveStarted,
       onSettled: this.onSaveSettled,
     });
+    this.clones = new CloneLayer(
+      () => this.front,
+      (item) => this.images.get(item.id) ?? item.thumbnailDataUrl,
+    );
     this.images = new FullImageLoader({
       fetch: (item) => this.callbacks.fetchFullImage(item),
       isClosed: () => this.state === 'closed',
@@ -722,7 +702,7 @@ class EnlargedView {
       const note = this.notes.get(id);
       if (!note) continue;
       const clone = this.createClone(note, from.slot, from.cut);
-      this.morphClone(clone, from.slot, this.shotViewportSlot(note, origin), T.expand, from.cut, NO_CUT);
+      this.clones.morph(clone, from.slot, this.shotViewportSlot(note, origin), T.expand, from.cut, NO_CUT);
       note.shot.el.style.visibility = 'hidden';
       this.hideThumb(id);
     }
@@ -754,7 +734,7 @@ class EnlargedView {
     this.wrapper.dataset.state = 'open';
     this.mount.setDockSuspended(true);
     // The clones have landed exactly on their notes: swap them back.
-    for (const clone of [...this.clones.values()]) this.removeClone(clone);
+    this.clones.removeAll();
     for (const note of this.notes.values()) note.shot.el.style.visibility = '';
     this.restoreThumbs();
   }
@@ -1019,122 +999,13 @@ class EnlargedView {
     this.hiddenThumbs = [];
   }
 
-  // ─── Clones ───────────────────────────────────────────────────────────────
-
+  /** A clone of `note`'s screenshot at `slot` (src/cloneLayer.ts), its list
+   *  badge fading out as it leaves the list while the view opens. */
   private createClone(note: NoteView, slot: Slot, cut: EdgeCut = NO_CUT): Clone {
     const item = note.item;
-    const el = document.createElement('div');
-    el.className = 'xp-card';
-    el.dataset.itemId = String(item.id);
-    const frame = document.createElement('span');
-    frame.className = 'xp-card-frame';
-    const media = document.createElement('span');
-    media.className = 'xp-card-media';
-    const img = document.createElement('img');
-    img.className = 'xp-card-img';
-    img.alt = '';
-    img.draggable = false;
-    img.src = this.images.get(item.id) ?? item.thumbnailDataUrl;
-    // The list's badge, carried on the clone: it fades out as the clone
-    // leaves the list and back in as one lands on it (MOTION_SPEC §4).
-    const badge = document.createElement('span');
-    badge.className = 'xp-card-badge';
-    badge.textContent = String(note.page.items.findIndex((it) => it.id === item.id) + 1);
-    media.appendChild(img);
-    if (hasStrokes(item.drawing)) media.appendChild(buildDrawingSvg(document, item.drawing, 'xp-card-drawing'));
-    frame.appendChild(media);
-    el.append(frame, badge);
-    const clone: Clone = { id: item.id, el, frame, media, img, badge, slot, cut, morph: null, aspect: aspectOf(item) };
-    this.placeClone(clone, slot, cut);
-    if (this.state === 'opening' && !cutHidesBadge(cut, slot.h)) {
-      fadeTo(badge, 0, { duration: T.fade, delay: T.gridDelay, curve: STD });
-    } else {
-      badge.style.opacity = '0';
-    }
-    this.clones.set(item.id, clone);
-    this.front.appendChild(el);
-    return clone;
-  }
-
-  /** Write the clone's layout boxes for `slot` (the FLIP "Last"), and the
-   *  clip of `cut` it rests with there. */
-  private placeClone(clone: Clone, slot: Slot, cut: EdgeCut = NO_CUT): void {
-    this.cancelCloneMorph(clone);
-    clone.slot = slot;
-    clone.cut = cut;
-    clone.frame.style.clipPath = cut.top > 0 || cut.bottom > 0 ? cutClipPath(cut) : '';
-    const s = clone.el.style;
-    s.right = `${viewportSize().w - (slot.x + slot.w)}px`;
-    s.top = `${slot.y}px`;
-    s.width = `${slot.w}px`;
-    s.height = `${slot.h}px`;
-    const ib = containFit(clone.aspect, { x: 0, y: 0, w: slot.w, h: slot.h });
-    const ms = clone.media.style;
-    ms.left = `${ib.x}px`;
-    ms.top = `${ib.y}px`;
-    ms.width = `${ib.w}px`;
-    ms.height = `${ib.h}px`;
-    ms.borderRadius = `${slot.imgR}px`;
-  }
-
-  /** Morph `from` → `to`, the clip easing `cutFrom` → `cutTo` with it: a
-   *  thumbnail the list's edge cuts leaves (or lands) exactly as cut. */
-  private morphClone(
-    clone: Clone,
-    from: Slot,
-    to: Slot,
-    duration: number,
-    cutFrom: EdgeCut = NO_CUT,
-    cutTo: EdgeCut = NO_CUT,
-  ): void {
-    this.placeClone(clone, to, cutTo);
-    if (duration <= 0 || from.w < 1 || from.h < 1) return;
-    const clip = { from: cutFrom, to: cutTo };
-    const clipped = cutFrom.top + cutFrom.bottom + cutTo.top + cutTo.bottom > 0;
-    const kf = morphKeyframes(
-      from,
-      to,
-      clone.aspect,
-      STD.fn,
-      Math.max(8, Math.round(duration / 16)),
-      FRAME_RADIUS,
-      clipped ? clip : undefined,
-    );
-    const opts: KeyframeAnimationOptions = { duration, easing: 'linear' };
-    const anims = [
-      animateEl(clone.frame, kf.frame, opts),
-      animateEl(clone.media, kf.media, opts),
-      animateEl(clone.badge, kf.badge, opts),
-    ].filter((a): a is Animation => a !== null);
-    clone.morph = { tween: { from, to, start: now(), delay: 0, duration, ease: STD.fn }, clip, anims };
-  }
-
-  private cancelCloneMorph(clone: Clone): void {
-    if (!clone.morph) return;
-    for (const a of clone.morph.anims) a.cancel();
-    clone.morph = null;
-  }
-
-  /** How much of the clone is clipped right now (analytic). */
-  private cloneCut(clone: Clone): EdgeCut {
-    const m = clone.morph;
-    if (!m) return clone.cut;
-    return lerpCut(m.clip.from, m.clip.to, tweenProgress(m.tween, now()));
-  }
-
-  /** Where the clone is on screen right now (analytic — no DOM read). */
-  private cloneSlot(clone: Clone): Slot {
-    const m = clone.morph;
-    if (!m) return clone.slot;
-    return lerpSlot(m.tween.from, m.tween.to, tweenProgress(m.tween, now()));
-  }
-
-  private removeClone(clone: Clone): void {
-    this.cancelCloneMorph(clone);
-    cancelTracks(clone.el);
-    cancelTracks(clone.badge);
-    clone.el.remove();
-    if (this.clones.get(clone.id) === clone) this.clones.delete(clone.id);
+    const badgeNumber = note.page.items.findIndex((it) => it.id === item.id) + 1;
+    const fade = this.state === 'opening' && !cutHidesBadge(cut, slot.h) ? { duration: T.fade, delay: T.gridDelay } : null;
+    return this.clones.create(item, badgeNumber, slot, cut, fade);
   }
 
   // ─── Collapse (MOTION_SPEC §6) ────────────────────────────────────────────
@@ -1236,7 +1107,7 @@ class EnlargedView {
       const to = targets.get(clone.id);
       if (to) {
         this.hideThumb(clone.id);
-        this.morphClone(clone, this.cloneSlot(clone), to.slot, T.collapse, this.cloneCut(clone), to.cut);
+        this.clones.morph(clone, this.clones.slotOf(clone), to.slot, T.collapse, this.clones.cutOf(clone), to.cut);
         if (!cutHidesBadge(to.cut, to.slot.h)) fadeTo(clone.badge, 1, { duration: T.badgeIn, curve: STD });
       } else {
         fadeTo(clone.el, 0, { duration: T.stageOut, curve: ACC });
@@ -1284,7 +1155,7 @@ class EnlargedView {
     if (this.resizeRaf !== null) cancelAnimationFrameSafe(this.resizeRaf);
     this.resizeRaf = null;
 
-    for (const clone of [...this.clones.values()]) this.removeClone(clone);
+    this.clones.removeAll();
     for (const note of this.notes.values()) {
       note.shrink?.cancel();
       for (const part of [note.head, note.shot, note.editor]) part.move?.anim?.cancel();
@@ -1415,7 +1286,7 @@ class EnlargedView {
     if (page.url === this.currentUrl) this.listDirty = true;
     if (this.anchorId === id) this.anchorId = this.openedId;
     const clone = this.clones.get(id);
-    if (clone) this.removeClone(clone);
+    if (clone) this.clones.remove(clone);
     note.shrink?.cancel();
     cancelTracks(note.wrap);
     note.wrap.remove();
@@ -1485,8 +1356,8 @@ class EnlargedView {
         const n = this.notes.get(clone.id);
         if (!n) continue;
         const to = this.shotViewportSlot(n, origin);
-        if (kind === 'move') this.morphClone(clone, this.cloneSlot(clone), to, T.move, this.cloneCut(clone), NO_CUT);
-        else this.placeClone(clone, to);
+        if (kind === 'move') this.clones.morph(clone, this.clones.slotOf(clone), to, T.move, this.clones.cutOf(clone), NO_CUT);
+        else this.clones.place(clone, to);
       }
       if (kind === 'move' && this.state === 'opening') this.scheduleSettle(T.move);
     }
