@@ -25,11 +25,21 @@ const DB_NAME = 'annotator-images';
 const DB_VERSION = 1;
 const STORE_NAME = 'screenshots';
 
+/** The open connection, shared by every call. Forgotten — so the next call
+ *  opens afresh — when the open fails, when the browser closes the
+ *  connection on its own (site data cleared, a disk error), and when
+ *  another context asks to upgrade the database (versionchange). Cached
+ *  forever instead, one bad moment would fail every screenshot read and
+ *  write until the service worker happened to restart. */
 let dbPromise: Promise<IDBDatabase> | null = null;
+
+function forget(connection: Promise<IDBDatabase>): void {
+  if (dbPromise === connection) dbPromise = null;
+}
 
 function openDb(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve, reject) => {
+  const connection: Promise<IDBDatabase> = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
@@ -37,10 +47,22 @@ function openDb(): Promise<IDBDatabase> {
         db.createObjectStore(STORE_NAME);
       }
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onclose = () => forget(connection);
+      db.onversionchange = () => {
+        db.close();
+        forget(connection);
+      };
+      resolve(db);
+    };
+    req.onerror = () => {
+      forget(connection);
+      reject(req.error);
+    };
   });
-  return dbPromise;
+  dbPromise = connection;
+  return connection;
 }
 
 /** Store (or overwrite) the full-resolution PNG data-URL for `key`. */
