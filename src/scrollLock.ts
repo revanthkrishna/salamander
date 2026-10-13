@@ -6,6 +6,7 @@
 // which takes the lock in open() and drops it on its single teardown path.
 
 import { keyTargetWithin, pointTargetWithin } from './dom';
+import { KEY_PRIORITY, registerKeyHandler } from './keyRouter';
 
 /** The direction each scrolling key travels, as a (dx, dy) sign pair. Space
  *  is in the list twice over — it pages down, and shift+space pages up. */
@@ -204,11 +205,13 @@ export function lockPageScroll(hostEl: Element, root: ShadowRoot | null = null):
   // never gets the chance to (the same guarantee keyboardIsolation.ts
   // relies on). `passive: false` is required: Chrome makes window-level
   // wheel/touchmove listeners passive by default, and a passive listener's
-  // preventDefault() is ignored.
+  // preventDefault() is ignored. The keys come through the key router at
+  // SCROLL_LOCK: before the enlarged view's isolation, which stops every
+  // key inside the view, so the lock still sees the ones typed there.
   const opts: AddEventListenerOptions = { capture: true, passive: false };
   window.addEventListener('wheel', onWheel, opts);
   window.addEventListener('touchmove', onTouchMove, opts);
-  window.addEventListener('keydown', onKeydown, opts);
+  const releaseKeys = registerKeyHandler({ priority: KEY_PRIORITY.SCROLL_LOCK, handle: onKeydown });
 
   let released = false;
   return {
@@ -217,7 +220,7 @@ export function lockPageScroll(hostEl: Element, root: ShadowRoot | null = null):
       released = true;
       window.removeEventListener('wheel', onWheel, opts);
       window.removeEventListener('touchmove', onTouchMove, opts);
-      window.removeEventListener('keydown', onKeydown, opts);
+      releaseKeys();
     },
   };
 }
