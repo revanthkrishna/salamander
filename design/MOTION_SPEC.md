@@ -20,8 +20,9 @@ into shipped code, it's a design-review aid only.
 **Status against the build (2026-10-12) — enlarged view 2.0.** `SALAMANDER_SPEC.md` §AH replaced
 the single-note sheet with one scrolling page of every note on the site, so the *choreography*
 below (§2–§9) is rewritten for it; the curves (§1), the durations, reduced motion (§12) and the
-implementation rules (§13) are unchanged and still what `src/enlargedView.ts` (`T`),
-`src/flip.ts` and `src/dockMotion.ts` implement. Geometry is no longer a fixed set of slots: it
+implementation rules (§13) are unchanged and still what `src/enlargedView.ts` (`T`, the
+choreography), `src/cloneLayer.ts` (the shared-element clones), `src/flip.ts` and
+`src/dockMotion.ts` implement. Geometry is no longer a fixed set of slots: it
 is computed by `src/enlargedLayout.ts` (§4). Gone with the old sheet: the main slot, the peeks
 and their arc, the x / ↑ / ↓ rail, the prev/next carousel and peek hover. Their earlier
 description is in git history (this file before 2026-10-12).

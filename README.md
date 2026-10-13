@@ -132,10 +132,11 @@ CSP: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; i
 ```bash
 npm run build          # esbuild, minified, sourcemaps → dist/
 npm run build:watch    # rebuild on change (still reload the extension in Chrome)
-npm test               # jest, jsdom — 802 tests in 26 suites
+npm test               # jest, jsdom (TESTING.md lists the suites)
 npx jest sidebar       # one suite
-npx tsc --noEmit       # type check (strict, noUnusedLocals)
+npx tsc --noEmit       # type check (strict, noUnused*, exactOptionalPropertyTypes)
 npx playwright test    # end-to-end against a real Chromium (see TESTING.md)
+npm run lint:exports   # report exports nothing else imports
 ```
 
 Unit tests mock `chrome.*` and use `fake-indexeddb`; no browser is launched. The Playwright suite loads the built extension into a persistent context and needs `npm run build` first. `TESTING.md` covers the suites, manual flows and debugging; `BROWSER_TEST_CASES.md` is the click-through checklist for a release.
@@ -147,37 +148,59 @@ Unit tests mock `chrome.*` and use `fake-indexeddb`; no browser is launched. The
 ```
 manifest.json            MV3 manifest (permissions, CSP, web-accessible fonts/logos)
 esbuild.config.js        two IIFE bundles: background (service worker), content
+build/                   stripCssComments.js (the stylesheets' comments out of the bundle) + its jest transform
+scripts/                 unused-exports.js (npm run lint:exports)
 src/
-  background.ts          service worker: injection, capture relay + crop, storage owner, export, import write
-  content.ts             content script entry: sidebar wiring, add-mode state machine, SPA detection
-  sidebar.ts             the docked panel, page shrink, action row, note list host, banners
+  background.ts          service worker: injection, capture relay + crop, storage owner, export, import staging and commit
+  content.ts             content script entry: the guard and teardown, message listener, list refresh, enlarged-view wiring
+  addModeControl.ts      the "add note" state machine (off / on / kept on, Esc, Option/Alt+N)
+  siteActions.ts         export, import, delete-all, the list's delete, the site's counts
+  navigation.ts          SPA navigation detection
+  sidebar.ts             the docked panel: building and wiring it, the add group, availability, note list host
+  pageResize.ts          the page shrink behind the panel
+  sidebarWidth.ts        the panel's width, persisted
+  sidebarMetrics.ts      the panel's layout and motion numbers
+  actionMenu.ts          the "more options" menu and its confirmation
+  notifications.ts       the panel's banner
   addMode.ts             selection box, resize zones, scrim, comment box, the pencil
+  addModeMetrics.ts      add mode's numbers shared with its stylesheet
+  styles/                the stylesheets (sidebar, add mode, enlarged view, tooltip) as TS template literals
   capture.ts             the capture pipeline's content-script half
   contextCapture.ts      DOM context (primary target, contained elements, area text, 2KB governor)
   selectorBuilder.ts     CSS selector + XPath generation (see FINGERPRINTING.md)
+  wordlist.ts            the dictionary for selectorBuilder's "human-authored id" check
   drawing.ts             stroke model, cropping, SVG and canvas renderers
   thumbnails.ts          the note list's items
   dockMotion.ts          dock-style magnification spring
   enlargedView.ts        the expanded review/edit view: the whole site on one page
+  cloneLayer.ts          its shared-element clones
+  fullImageLoader.ts     its lazy full-resolution images
   enlargedLayout.ts      its pure geometry: note sizes, row packing, the opening scroll
   pageHeading.ts         a page's heading in it, and its rename
   scrollLock.ts          the host page's scroll lock while it is open
   flip.ts                shared-element motion helpers
   autosave.ts            debounced per-item autosave controller
+  tooltip.ts             the one tooltip every surface uses
   export.ts              zip assembly, drawing composite, chrome.downloads
   import.ts              the validation ladder
   bundle/                feedback.md format 2 writer/reader (v2.ts), version stamp, dispatch
   storage.ts             chrome.storage.local layout, session state
   imageStore.ts          IndexedDB wrapper
   messages.ts, rpc.ts    typed message contract and the content script's send()
+  keyRouter.ts           the one owner of salamander's window key listeners, by priority
+  keyboardIsolation.ts   key isolation of a closed shadow host from the host page
+  shortcut.ts            the Option/Alt+N shortcut
   theme.ts               design tokens (dark only), bundled font loading
-  keyboardIsolation.ts   capture-phase key isolation from the host page
+  icons.ts               the stroke icon set
+  dom.ts                 viewport size, reduced motion, safe rAF, closed-root event targets
+  dataUrl.ts             data-URL ↔ bytes/Blob without fetch
+  urlNorm.ts             URL/domain normalisation, the export filename
   copy.ts                every user-facing string
   types.ts               the data model
-  __tests__/             jest suites + fixtures (feedback-v2.md is frozen)
+  __tests__/             jest suites, helpers, fixtures (feedback-v2.md is frozen) and the emitted-CSS golden files
 tests/                   Playwright specs, helper and fixture page
 design/                  SALAMANDER_SPEC.md, MOTION_SPEC.md, the design canvas exports
-docs/                    technical review, refactor notes, v1 archive (historical)
+docs/                    technical review, refactor notes, development plan, v1 archive (historical)
 fonts/, icons/           bundled assets (OFL fonts)
 ```
 

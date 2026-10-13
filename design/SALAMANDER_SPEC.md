@@ -1306,7 +1306,8 @@ One **group** (revised 2026-10-12): its **bar**, directly above its **screenshot
 - **Esc** collapses — unless a page is being renamed (Esc cancels that) or a note is empty
   (refused). **↑/↓** scroll 64px, PageUp/PageDown a screen less the 80px peek, Home/End to the
   ends, whenever focus is not in a text field. Keyboard isolation (NF-ISO-1) is unchanged: the
-  host page never sees a key.
+  host page never sees a key. (The docked sidebar now isolates its keys too, and add mode does
+  while a box is being placed — REQUIREMENTS NF-ISO-1.)
 - The view is a modal `dialog` labelled "all notes on this website"; each delete is "delete note
   #n on {page}", each text area "note #n on {page}", each pencil "edit page name: {page}"; a note's
   message is a polite live region and the text area's `aria-describedby` (with `aria-invalid` for

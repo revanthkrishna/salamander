@@ -44,6 +44,25 @@ the same page.
       YouTube's known layout quirks (see `REQUIREMENTS.md` §6 #13) may prevent the page from fully
       reflowing; check that regardless, the sidebar itself stays fully visible, usable, and on top
       (not clipped or hidden), and that closing it restores the page exactly as it was.
+- [ ] **R9. (keys pressed in the sidebar — Gmail, YouTube)** On mail.google.com and on a playing
+      youtube.com video, Tab to **more options** and press Enter → the menu opens; ↓ moves through
+      it, Esc closes it. Tab to **add note** and press Space → add mode starts; Space again ends it.
+      Shift+Enter on **add note** turns the switch on. None of these keys may reach the site: the
+      video does not pause on "k" or Space pressed in the sidebar, Gmail's shortcuts do not fire.
+      Option/Alt+N still adds a note with focus in the sidebar.
+- [ ] **R10. (keys while placing — YouTube, Gmail)** Click **add note** (or Option/Alt+N with the
+      page focused) and, before placing a box, press "f", "k", "j": YouTube neither goes fullscreen
+      nor pauses, Gmail's selection does not move. Space and the arrows still scroll the page. Esc
+      still leaves add mode, and after that the site hears keys again.
+- [ ] **R11. (extension reloaded under an open sidebar)** Load the unpacked build, open the sidebar
+      on a site (with a note or two), then reload the extension in `chrome://extensions` without
+      touching the tab. The old sidebar may still show. Click **add note** in it → the sidebar
+      disappears at once and the page is back to full width — no banner, no error, no add mode.
+      Repeat, but this time click the toolbar icon instead → exactly one sidebar opens (the new
+      build's), the page shrinks once, and it works: capture a note, reopen the enlarged view.
+- [ ] **R12. (large import)** Export a site with many large selections captured on a retina display
+      (or any bundle over ~48 MB of screenshots) and import it into a fresh profile: every note
+      comes back with its thumbnail, no "couldn't import" banner.
 
 ---
 

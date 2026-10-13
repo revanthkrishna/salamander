@@ -9,14 +9,14 @@ This was the phase-by-phase build plan for the pivot from pin-based annotation (
 | 0 | Remove the pin system, define v2 types, add `fflate` + `fake-indexeddb` | done |
 | 1 | Storage: `chrome.storage.local` metadata, IndexedDB blobs, `chrome.storage.session` sidebar state | done — later split into a per-domain index + per-item keys (schema 2) |
 | 2 | Service worker: injection, capture relay with throttle, IndexedDB ownership, typed messages | done — messages became a compile-checked `MessageMap` + handler table |
-| 3 | Right-docked sidebar that shrinks the page; SPA/reload persistence | done — plus a resizable width (188–300) and the youtube limitation documented |
+| 3 | Right-docked sidebar that shrinks the page; SPA/reload persistence | done — plus a resizable width (210–300) and the youtube limitation documented |
 | 4 | Add mode: click-to-place box, resize handles, scrim, comment box | done — the 200×150 box became 267×100 (thumbnail-sized), the 8 visible handles became invisible edge/corner zones, "ok" became "save", drag-to-draw and a cursor preview were added |
 | 5 | Capture pipeline with DPR-correct cropping | done — the scale is measured from the image, with two viewport widths sent to resolve the scrollbar ambiguity |
 | 6 | Context capture (selector reuse + rect-scoped DOM/text extraction, 2KB governor) | done |
 | 7 | Thumbnails and an enlarged **modal** | done, then replaced — the modal became the enlarged view (the sidebar itself expands; design spec §D, v4 §M, v5 §R) with autosave, dock magnification and a hover delete |
 | 8 | Export: zip + `feedback.md` with fenced **yaml** context | done, then replaced — format 2 (§AC): one json record per note inside `<details>`, `js-yaml` removed, `src/bundle.ts` became `src/bundle/` |
 | 9 | Import with the full error ladder; "newer schema: warn and proceed" | done — except that any other format is now **refused** (no backward compatibility; the extension was never published with another format) |
-| 10 | Playwright suite + docs | done (five specs; docs rewritten for 2.0.0) |
+| 10 | Playwright suite + docs | done (six specs then; docs rewritten for 2.0.0; eight specs since) |
 
 Added after the plan: the drawing tool (§AB), dark-only theming (§AA — the theme switcher was built and then removed), keyboard isolation from host pages, the enlarged view's scroll lock, the "keep add mode on" switch, the technical review and two refactor passes (`docs/`).
 
@@ -40,4 +40,4 @@ The cross-cutting gotchas the plan opened with are unchanged and are the things 
 
 ## Open items carried forward
 
-From `docs/REFACTOR_NOTES_2026-09-22.md` §1.3 and the technical review: remove the `UPDATE_NOTE` alias in the release after 2.0.0; a shared menu controller for the "more options" and pencil menus; the `sidebar.ts` / `enlargedView.ts` file splits and CSS-out-of-TypeScript, to be done with the Playwright suite as the checkpoint; surfacing `updateItem`'s `found` result; a spread of the optional `drawing` field in `handleImportReplace` if a future codec ever decodes one.
+From `docs/REFACTOR_NOTES_2026-09-22.md` §1.3 and the technical review, as of the architecture-review pass (2026-10-13): the `sidebar.ts` / `content.ts` / `enlargedView.ts` splits, CSS out of TypeScript (comments stripped at build), surfacing `updateItem`'s `found` result (NOT_FOUND) and building imported items with a spread are done. The `UPDATE_NOTE` alias is kept by the owner's decision. A shared menu controller for the "more options" and pencil menus is still not wanted: they differ in placement and in how keys reach them.
