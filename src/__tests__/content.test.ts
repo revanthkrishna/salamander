@@ -35,6 +35,9 @@ import {
   SITE_LOAD_FAILED_MESSAGE,
   PAGE_HAS_NO_NOTES_MESSAGE,
   SAVE_ERROR_MESSAGE,
+  EXPORT_FAILED_MESSAGE,
+  NOTHING_TO_EXPORT_MESSAGE,
+  importErrorMessage,
 } from '../copy';
 import { makeItem } from './helpers/items';
 
@@ -107,8 +110,37 @@ let addMode: typeof import('../addMode');
 let sidebarApi: typeof import('../sidebar');
 let captureAndSave: jest.Mock;
 
+// Each test loads a fresh content.ts, but the instance a test before it
+// loaded would otherwise stay alive on the shared jsdom window: its history
+// patch and its window/document listeners would still answer navigations
+// and keys. So every window/document listener registered since the last
+// load is removed, and history's methods put back, before the next one.
+const pristinePushState = history.pushState;
+const pristineReplaceState = history.replaceState;
+type Registration = [EventTarget, string, EventListenerOrEventListenerObject, boolean | AddEventListenerOptions | undefined];
+let registrations: Registration[] = [];
+for (const target of [window, document] as EventTarget[]) {
+  const add = target.addEventListener;
+  target.addEventListener = function (
+    this: EventTarget,
+    type: string,
+    listener: EventListenerOrEventListenerObject | null,
+    options?: boolean | AddEventListenerOptions,
+  ) {
+    if (listener) registrations.push([target, type, listener, options]);
+    return add.call(this, type, listener, options);
+  } as typeof target.addEventListener;
+}
+function forgetPreviousInstance(): void {
+  for (const [target, type, listener, options] of registrations) target.removeEventListener(type, listener, options);
+  registrations = [];
+  history.pushState = pristinePushState;
+  history.replaceState = pristineReplaceState;
+}
+
 /** Fresh content.ts (+ its real sidebar.ts/addMode.ts) for one test. */
 function loadContent(): void {
+  forgetPreviousInstance();
   jest.resetModules();
   delete (window as any).__annotatorActive;
   document.documentElement
@@ -1423,5 +1455,151 @@ describe('content.ts: delete all for this website (design spec §AE)', () => {
     await open();
     await clickDeleteAll();
     expect(notifText()).toBe(DELETE_ALL_FAILED_MESSAGE);
+  });
+});
+
+// Paths content.ts only covered end to end before the controller split
+// (architecture review T4): SPA navigation, export's replies, and import's
+// validation failures.
+describe('content.ts: SPA navigation, export and import failures', () => {
+  const sent = () => (chrome.runtime.sendMessage as jest.Mock).mock.calls.map((c) => c[0]);
+  function notifText(): string | null {
+    return sidebarShadow().querySelector('.notif-text')?.textContent ?? null;
+  }
+  const startUrl = location.href;
+
+  afterEach(() => {
+    history.replaceState(null, '', startUrl);
+  });
+
+  test('a navigation to another URL exits add mode, collapses the enlarged view and repaints the list for the new URL', async () => {
+    jest.useFakeTimers();
+    loadContent();
+    activate();
+    addButton().click();
+    expect(addMode.isAddModeActive()).toBe(true);
+    (chrome.runtime.sendMessage as jest.Mock).mockClear();
+
+    history.pushState({}, '', '/somewhere-else');
+    jest.advanceTimersByTime(50);
+
+    expect(addMode.isAddModeActive()).toBe(false);
+    expect(addGroup().classList.contains('is-on')).toBe(false);
+    expect(sent()).toContainEqual({
+      type: 'GET_PAGE_ITEMS',
+      domain: 'localhost',
+      normalisedUrl: 'https://localhost/somewhere-else',
+    });
+  });
+
+  test('changes that keep the normalised URL (a query, a hash, a burst within the debounce) repaint at most once and only on a real change', () => {
+    jest.useFakeTimers();
+    loadContent();
+    activate();
+    (chrome.runtime.sendMessage as jest.Mock).mockClear();
+
+    history.replaceState({}, '', `${location.pathname}?q=1`);
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    jest.advanceTimersByTime(50);
+    expect(sent().filter((m) => m?.type === 'GET_PAGE_ITEMS')).toHaveLength(0);
+
+    history.pushState({}, '', '/a');
+    history.pushState({}, '', '/b');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    jest.advanceTimersByTime(49);
+    expect(sent().filter((m) => m?.type === 'GET_PAGE_ITEMS')).toHaveLength(0);
+    jest.advanceTimersByTime(1);
+    const reads = sent().filter((m) => m?.type === 'GET_PAGE_ITEMS');
+    expect(reads).toHaveLength(1);
+    expect(reads[0].normalisedUrl).toBe('https://localhost/b');
+  });
+
+  test('a navigation while the sidebar is closed repaints nothing', () => {
+    jest.useFakeTimers();
+    loadContent();
+    activate();
+    onMessageListener({ type: 'ICON_CLICKED' }, {}, () => {});
+    expect(sidebarApi.isSidebarVisible()).toBe(false);
+    (chrome.runtime.sendMessage as jest.Mock).mockClear();
+    history.pushState({}, '', '/elsewhere');
+    jest.advanceTimersByTime(50);
+    expect(sent().filter((m) => m?.type === 'GET_PAGE_ITEMS')).toHaveLength(0);
+  });
+
+  function replyTo(type: string, reply: unknown): void {
+    const base = (chrome.runtime.sendMessage as jest.Mock).getMockImplementation()!;
+    (chrome.runtime.sendMessage as jest.Mock).mockImplementation((message: any, callback?: (r?: unknown) => void) => {
+      if (message?.type === type) return callback?.(reply);
+      return base(message, callback);
+    });
+  }
+
+  async function clickExport(): Promise<HTMLButtonElement> {
+    const btn = sidebarShadow().querySelector('.btn-export') as HTMLButtonElement;
+    sidebarApi.setSiteHasNotes(true);
+    btn.click();
+    await flushMicrotasks();
+    return btn;
+  }
+
+  test('export: success shows nothing and leaves the button live', async () => {
+    loadContent();
+    activate();
+    replyTo('EXPORT', { ok: true });
+    const btn = await clickExport();
+    expect(sent()).toContainEqual({ type: 'EXPORT', domain: 'localhost' });
+    expect(notifText()).toBe('');
+    expect(btn.disabled).toBe(false);
+  });
+
+  test('export: a site emptied elsewhere (EMPTY) says "nothing to export" and greys export out', async () => {
+    loadContent();
+    activate();
+    replyTo('EXPORT', { ok: false, code: 'EMPTY', message: 'x' });
+    const btn = await clickExport();
+    await flushMicrotasks();
+    expect(notifText()).toBe(NOTHING_TO_EXPORT_MESSAGE);
+    expect(sidebarShadow().querySelector('.notif')!.classList.contains('warning')).toBe(true);
+    expect(btn.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  test('export: a failure shows its copy; no answer at all shows the export copy', async () => {
+    loadContent();
+    activate();
+    replyTo('EXPORT', { ok: false, code: 'FAILED', message: 'the zip failed' });
+    await clickExport();
+    expect(notifText()).toBe('the zip failed');
+
+    replyTo('EXPORT', undefined);
+    const btn = await clickExport();
+    expect(notifText()).toBe(EXPORT_FAILED_MESSAGE);
+    expect(btn.disabled).toBe(false);
+  });
+
+  test('import: a bundle the ladder rejects shows its §5 copy, and nothing is written', async () => {
+    loadContent();
+    activate();
+    const { ImportError } = jest.requireActual('../types') as typeof import('../types');
+    (require('../import').parseImportBundle as jest.Mock).mockRejectedValue(
+      new ImportError('DOMAIN_MISMATCH', { fileDomain: 'other.com', currentDomain: 'localhost' }),
+    );
+    const input = sidebarShadow().querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [new File(['zip'], 'f.zip')], configurable: true });
+    input.dispatchEvent(new Event('change'));
+    await flushMicrotasks();
+    expect(notifText()).toBe(importErrorMessage('DOMAIN_MISMATCH', { fileDomain: 'other.com', currentDomain: 'localhost' }));
+    expect(sent().some((m) => typeof m?.type === 'string' && m.type.startsWith('IMPORT_'))).toBe(false);
+    expect((sidebarShadow().querySelector('.action-menu-item.is-import') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  test('import: an unexpected failure while reading shows the generic import copy', async () => {
+    loadContent();
+    activate();
+    (require('../import').parseImportBundle as jest.Mock).mockRejectedValue(new Error('boom'));
+    const input = sidebarShadow().querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [new File(['zip'], 'f.zip')], configurable: true });
+    input.dispatchEvent(new Event('change'));
+    await flushMicrotasks();
+    expect(notifText()).toBe(IMPORT_FAILED_MESSAGE);
   });
 });
