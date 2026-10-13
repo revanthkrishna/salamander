@@ -395,10 +395,11 @@ export const ENLARGED_VIEW_CSS = `
   }
   /* The serif's italic ink overhangs its box on the left: the padding gives
      it room, the negative margin keeps the text's origin on the column's
-     edge. Ellipsized only past 60% of the line, so the address gives way
-     first. */
+     edge. It never shrinks below its own width up to 60% of the line (and
+     is ellipsized past that), so the address gives way first — and the
+     address's room, which it is fitted to, does not change once fitted. */
   .xp-page-name {
-    flex: 0 1 auto; min-width: 0; max-width: 60%;
+    flex: 0 0 auto; min-width: 0; max-width: 60%;
     margin: 0 0 0 -8px; padding: 0 4px 0 8px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-family: var(--sal-font-display);
@@ -447,7 +448,9 @@ export const ENLARGED_VIEW_CSS = `
   .xp-page-url {
     flex: 0 1 auto; min-width: 0;
     margin-left: 4px;
-    overflow: hidden; white-space: nowrap;
+    /* Middle-ellipsized to fit in JS (pageHeading.ts); the end ellipsis is
+       only a net, should the face change size under it. */
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
     font: 400 12px/20px var(--sal-font-mono);
     color: var(--sal-text);
   }
@@ -1125,7 +1128,21 @@ class EnlargedView {
         this.placePart(note.editor, nl.text);
       }
     }
-    if (!this.charW) this.charW = measureCharWidth(this.content);
+    this.fitAddresses();
+  }
+
+  /** Fit every heading's address to its room. The monospace face may still
+   *  be loading the first time the view opens (theme.ts loads the fonts
+   *  lazily), so the advance is measured again once it has. */
+  private fitAddresses(): void {
+    if (!this.charW) {
+      this.charW = measureCharWidth(this.content);
+      void document.fonts?.ready?.then(() => {
+        if (this.state === 'closed') return;
+        this.charW = measureCharWidth(this.content);
+        for (const page of this.pages) page.heading.fitAddress(this.charW);
+      });
+    }
     for (const page of this.pages) page.heading.fitAddress(this.charW);
   }
 
