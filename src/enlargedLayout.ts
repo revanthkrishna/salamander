@@ -111,6 +111,10 @@ export const LANDING_FRACTION = 0.25;
 export const PANEL_MARGIN = 16;
 /** The exit button, a 36px secondary icon button (design spec §X). */
 export const EXIT_BTN_PX = 36;
+/** The docked sidebar's header: the logo sits 16px in (PANEL_MARGIN, the
+ *  same in the panel) and centred in a 56px row. In the panel's taller top
+ *  bar it is centred with the exit button instead. */
+export const DOCKED_HEADER_H = 56;
 /** The panel's top bar: the logo + wordmark and the exit button, the button
  *  PANEL_MARGIN from the top as from the right, so the bar is that margin
  *  either side of it. The scroller starts below it. */
