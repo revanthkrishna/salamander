@@ -3,7 +3,7 @@
 // here; the type half (the response type follows from the request) is
 // checked by the compiler in the last block.
 
-import { send } from '../rpc';
+import { onContextInvalidated, send } from '../rpc';
 import type { CaptureResponse, GetImageResponse } from '../messages';
 
 let sendMessageMock: jest.Mock;
@@ -46,5 +46,59 @@ describe('send', () => {
     // @ts-expect-error — a GET_IMAGE reply is not a CaptureResponse.
     const wrong: CaptureResponse | undefined = await send({ type: 'GET_IMAGE', screenshotKey: 'k' });
     expect(wrong).toBeDefined();
+  });
+});
+
+describe('onContextInvalidated', () => {
+  afterEach(() => {
+    onContextInvalidated(null);
+    (global.chrome as any).runtime.id = 'salamander-test-extension';
+  });
+
+  test('a call that throws "Extension context invalidated" runs the hook, before the caller hears undefined', async () => {
+    const order: string[] = [];
+    onContextInvalidated(() => order.push('hook'));
+    sendMessageMock.mockImplementation(() => {
+      throw new Error('Extension context invalidated.');
+    });
+    const reply = await send({ type: 'GET_IMAGE', screenshotKey: 'k' }).then((r) => {
+      order.push('caller');
+      return r;
+    });
+    expect(reply).toBeUndefined();
+    expect(order).toEqual(['hook', 'caller']);
+  });
+
+  test('so does any failure once chrome.runtime has lost its id (an orphaned script)', async () => {
+    const hook = jest.fn();
+    onContextInvalidated(hook);
+    delete (global.chrome as any).runtime.id;
+    sendMessageMock.mockImplementation(() => {
+      throw new TypeError("Cannot read properties of undefined (reading 'sendMessage')");
+    });
+    await send({ type: 'SIDEBAR_OPENED' });
+    expect(hook).toHaveBeenCalledTimes(1);
+  });
+
+  test('an ordinary failure (a busy or restarting worker) does not', async () => {
+    const hook = jest.fn();
+    onContextInvalidated(hook);
+    sendMessageMock.mockImplementation((_m: unknown, cb: (r?: unknown) => void) => {
+      (global.chrome as any).runtime.lastError = { message: 'The message port closed before a response was received.' };
+      cb(undefined);
+    });
+    await send({ type: 'GET_IMAGE', screenshotKey: 'k' });
+    expect(hook).not.toHaveBeenCalled();
+  });
+
+  test('a cleared hook is not called', async () => {
+    const hook = jest.fn();
+    onContextInvalidated(hook);
+    onContextInvalidated(null);
+    sendMessageMock.mockImplementation(() => {
+      throw new Error('Extension context invalidated.');
+    });
+    await send({ type: 'SIDEBAR_OPENED' });
+    expect(hook).not.toHaveBeenCalled();
   });
 });

@@ -140,6 +140,9 @@ function rewireStorageArea(area: { get: unknown; set: unknown; remove: unknown }
     query: jest.fn(),
   },
   runtime: {
+    // A live extension context has an id; an orphaned one (the extension
+    // was reloaded under the page) does not — see rpc.ts.
+    id: 'salamander-test-extension',
     lastError: null,
     getManifest: jest.fn(() => manifestJson),
   },

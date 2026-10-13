@@ -41,7 +41,7 @@ import { ensureFontsLoaded } from './theme';
 import { FINISH_NOTE_FIRST_MESSAGE } from './copy';
 import type { EnlargedSite } from './enlargedView';
 import { FeedbackItem } from './types';
-import { send } from './rpc';
+import { onContextInvalidated, send } from './rpc';
 import {
   BackgroundToContentMessage,
   PingResponse,
@@ -59,16 +59,32 @@ import {
 import type { PenColor } from './drawing';
 import { createAddModeControl } from './addModeControl';
 import { createSiteActions } from './siteActions';
-import { watchNavigation } from './navigation';
+import { NavigationWatch, watchNavigation } from './navigation';
+
+/** The running instance, as a later injection into the same JS world sees
+ *  it: whether its extension context is still alive, and how to shut it
+ *  down. */
+interface AnnotatorInstance {
+  alive: () => boolean;
+  teardown: () => void;
+}
 
 declare global {
   interface Window {
     /** Set by the first injection of this script into a document; a second
      *  injection (the icon clicked again before PING answered, a re-inject
-     *  on reload racing an already-alive script) sees it and exits. */
-    __annotatorActive?: true;
+     *  on reload racing an already-alive script) sees it and exits — unless
+     *  the instance it finds is an orphan, which it shuts down first. */
+    __annotatorActive?: AnnotatorInstance | true;
   }
 }
+
+/** Dispatched on `document` by every injection before its guard. DOM events
+ *  cross JS worlds where globals may not: after the extension is reloaded
+ *  or updated, the fresh injection runs in a new isolated world, and the
+ *  orphaned instance (whose extension context is gone) hears this and shuts
+ *  down, so the page never has two sidebars. A live instance ignores it. */
+const TAKEOVER_EVENT = 'salamander:takeover';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Idempotency guard + runtime init (wrapped in IIFE so we can `return` instead
@@ -76,10 +92,35 @@ declare global {
 // ─────────────────────────────────────────────────────────────────────────────
 void (function annotatorMain() {
 
-if (window.__annotatorActive) {
-  return; // Already running on this page — silent exit, no console error.
+document.dispatchEvent(new CustomEvent(TAKEOVER_EVENT));
+
+const previous = window.__annotatorActive;
+if (previous) {
+  // Already running on this page — silent exit, no console error. (`true`
+  // is how an older build marked itself; it cannot be asked, so it counts
+  // as alive.)
+  if (previous === true || previous.alive()) return;
+  previous.teardown();
 }
-window.__annotatorActive = true;
+
+/** This world's chrome.runtime, kept: an orphan's loses its id. */
+const runtime = chrome.runtime;
+
+/** Whether this instance's extension context is still alive. */
+function contextAlive(): boolean {
+  try {
+    return !!runtime?.id;
+  } catch {
+    return false;
+  }
+}
+
+const instance: AnnotatorInstance = { alive: contextAlive, teardown };
+window.__annotatorActive = instance;
+document.addEventListener(TAKEOVER_EVENT, onTakeover);
+// Any round trip that finds the context gone (src/rpc.ts) shuts this
+// instance down: the extension was reloaded or updated under the page.
+onContextInvalidated(teardown);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Module-level state
@@ -88,6 +129,9 @@ window.__annotatorActive = true;
 let myTabId: number = -1;
 let lastKnownUrl = location.href;
 let started = false;
+/** SPA navigation detection (src/navigation.ts), once started. */
+let navigation: NavigationWatch | null = null;
+let tornDown = false;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The pencil's colour (design spec §AB)
@@ -145,7 +189,11 @@ const siteActions = createSiteActions({
 // Message listener
 // ─────────────────────────────────────────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener((message: BackgroundToContentMessage, _sender, sendResponse) => {
+function onRuntimeMessage(
+  message: BackgroundToContentMessage,
+  _sender: chrome.runtime.MessageSender,
+  sendResponse: (response?: unknown) => void,
+): void {
   if (message.type === 'PING') {
     const reply: PingResponse = { alive: true, tabId: myTabId };
     sendResponse(reply);
@@ -159,7 +207,9 @@ chrome.runtime.onMessage.addListener((message: BackgroundToContentMessage, _send
     toggleSidebar();
     return;
   }
-});
+}
+
+chrome.runtime.onMessage.addListener(onRuntimeMessage);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // init — always means "the sidebar should be open" (§1.1): background only
@@ -242,7 +292,7 @@ function ensureStarted(): void {
       void siteActions.deleteItem(item);
     },
   });
-  watchNavigation(handleUrlChange);
+  navigation = watchNavigation(handleUrlChange);
   window.addEventListener('beforeunload', handleBeforeUnload);
   window.addEventListener('pagehide', handleBeforeUnload);
   // Esc-exits-add-mode (§A2) — see onGlobalKeyDown's doc comment
@@ -411,6 +461,48 @@ async function openItemEnlarged(item: FeedbackItem): Promise<void> {
   });
   // The note was deleted elsewhere since the list was painted: catch up.
   if (!opened) void refreshThumbnails();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Page-lifetime teardown (the extension context is gone)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A fresh injection announced itself (TAKEOVER_EVENT): shut down if this
+ *  instance is the orphan of an extension that was reloaded or updated. */
+function onTakeover(): void {
+  if (!contextAlive()) teardown();
+}
+
+/**
+ * Shut this instance down for good, leaving the page as it was before it
+ * ran: add mode exited, the sidebar and its host removed and the page's
+ * layout restored (sidebar.destroySidebar), history's methods put back, and
+ * every page-lifetime listener removed. Nothing new is shown. Run when the
+ * extension context dies under the page (an update or a reload: every round
+ * trip would fail from then on) — by the first failed round trip, or by the
+ * next injection's takeover. Idempotent.
+ */
+function teardown(): void {
+  if (tornDown) return;
+  tornDown = true;
+  onContextInvalidated(null);
+  document.removeEventListener(TAKEOVER_EVENT, onTakeover);
+  try {
+    chrome.runtime.onMessage.removeListener(onRuntimeMessage);
+  } catch {
+    // A dead context's chrome.runtime may refuse even this; the listener
+    // can never be called again then anyway.
+  }
+  if (started) {
+    if (addMode.isAddModeActive()) addControl.exitFully();
+    navigation?.restore();
+    navigation = null;
+    window.removeEventListener('beforeunload', handleBeforeUnload);
+    window.removeEventListener('pagehide', handleBeforeUnload);
+    window.removeEventListener('keydown', addControl.onGlobalKeyDown, true);
+  }
+  sidebar.destroySidebar();
+  if (window.__annotatorActive === instance) delete window.__annotatorActive;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

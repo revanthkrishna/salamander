@@ -80,6 +80,8 @@ function installChromeMocks(): void {
   const c = global.chrome as unknown as Record<string, any>;
   c.runtime = {
     ...(c.runtime ?? {}),
+    // Alive: a test that kills the context (deletes it) must not leak that.
+    id: 'salamander-test-extension',
     lastError: null,
     onMessage: {
       addListener: jest.fn((fn: MessageListener) => {
@@ -119,7 +121,26 @@ const pristinePushState = history.pushState;
 const pristineReplaceState = history.replaceState;
 type Registration = [EventTarget, string, EventListenerOrEventListenerObject, boolean | AddEventListenerOptions | undefined];
 let registrations: Registration[] = [];
+const captureOf = (options: boolean | AddEventListenerOptions | undefined): boolean =>
+  typeof options === 'boolean' ? options : !!options?.capture;
+/** The window/document listeners registered since the last load and not
+ *  removed since. */
+function liveRegistrations(): Registration[] {
+  return registrations;
+}
 for (const target of [window, document] as EventTarget[]) {
+  const remove = target.removeEventListener;
+  target.removeEventListener = function (
+    this: EventTarget,
+    type: string,
+    listener: EventListenerOrEventListenerObject | null,
+    options?: boolean | EventListenerOptions,
+  ) {
+    registrations = registrations.filter(
+      ([t, ty, l, o]) => !(t === target && ty === type && l === listener && captureOf(o) === captureOf(options as boolean | AddEventListenerOptions | undefined)),
+    );
+    return remove.call(this, type, listener, options);
+  } as typeof target.removeEventListener;
   const add = target.addEventListener;
   target.addEventListener = function (
     this: EventTarget,
@@ -132,7 +153,10 @@ for (const target of [window, document] as EventTarget[]) {
   } as typeof target.addEventListener;
 }
 function forgetPreviousInstance(): void {
-  for (const [target, type, listener, options] of registrations) target.removeEventListener(type, listener, options);
+  // Its own teardown first (its sidebar's observers and timers included).
+  const previous = (window as { __annotatorActive?: unknown }).__annotatorActive as { teardown?: () => void } | undefined;
+  previous?.teardown?.();
+  for (const [target, type, listener, options] of [...registrations]) target.removeEventListener(type, listener, options);
   registrations = [];
   history.pushState = pristinePushState;
   history.replaceState = pristineReplaceState;
@@ -1601,5 +1625,119 @@ describe('content.ts: SPA navigation, export and import failures', () => {
     input.dispatchEvent(new Event('change'));
     await flushMicrotasks();
     expect(notifText()).toBe(IMPORT_FAILED_MESSAGE);
+  });
+});
+
+// The extension reloaded or updated under an open sidebar (architecture
+// review B5, owner decision D3): the orphaned script shuts down cleanly and
+// shows nothing new, and the next injection never makes a second sidebar.
+describe('content.ts: shutting down when the extension context dies', () => {
+  const hosts = () => document.querySelectorAll('#annotator-sidebar-host').length;
+
+  function killContext(runtime: any = (global.chrome as any).runtime): void {
+    delete runtime.id;
+    runtime.sendMessage = jest.fn(() => {
+      throw new Error('Extension context invalidated.');
+    });
+  }
+
+  test('the first round trip that finds the context gone removes everything and restores the page', async () => {
+    const pushBefore = pristinePushState;
+    loadContent();
+    activate();
+    await flushMicrotasks();
+    addButton().click();
+    expect(addMode.isAddModeActive()).toBe(true);
+    expect(document.documentElement.style.getPropertyValue('margin-right')).toBe('300px');
+    const listenersBefore = liveRegistrations().length;
+    expect(listenersBefore).toBeGreaterThan(0);
+
+    killContext();
+    // Any round trip: here the list refresh an SPA navigation asks for.
+    jest.useFakeTimers();
+    history.pushState({}, '', '/after-the-update');
+    jest.advanceTimersByTime(50);
+    jest.useRealTimers();
+    await flushMicrotasks();
+
+    expect(hosts()).toBe(0);
+    expect(document.getElementById('annotator-addmode-host')).toBeNull();
+    expect(addMode.isAddModeActive()).toBe(false);
+    expect(document.documentElement.style.cssText).toBe('');
+    expect(document.getElementById('annotator-page-resize')).toBeNull();
+    expect(history.pushState).toBe(pushBefore);
+    expect(window.__annotatorActive).toBeUndefined();
+    // No salamander listener is left on window or document.
+    expect(liveRegistrations()).toEqual([]);
+    history.replaceState(null, '', '/');
+  });
+
+  test('a failure that is not a dead context (a busy worker) shuts nothing down', async () => {
+    loadContent();
+    activate();
+    await flushMicrotasks();
+    (chrome.runtime.sendMessage as jest.Mock).mockImplementation((_m: unknown, cb?: (r?: unknown) => void) => {
+      (chrome.runtime as any).lastError = { message: 'The message port closed before a response was received.' };
+      cb?.(undefined);
+      (chrome.runtime as any).lastError = null;
+    });
+    onMessageListener({ type: 'ICON_CLICKED' }, {}, () => {});
+    onMessageListener({ type: 'ICON_CLICKED' }, {}, () => {});
+    await flushMicrotasks();
+    expect(hosts()).toBe(1);
+    expect(sidebarApi.isSidebarVisible()).toBe(true);
+  });
+
+  test('the icon clicked after an update: the new injection takes over from the orphan, and there is one sidebar', async () => {
+    loadContent();
+    activate();
+    await flushMicrotasks();
+    const orphanRuntime = (global.chrome as any).runtime;
+    killContext(orphanRuntime);
+
+    // The new build's script runs in a fresh JS world: it cannot see the
+    // orphan's globals, only the DOM they share.
+    jest.resetModules();
+    delete (window as any).__annotatorActive;
+    installChromeMocks();
+    (global.chrome as any).runtime.id = 'salamander-test-extension';
+    require('../content');
+    sidebarApi = require('../sidebar');
+    expect(hosts()).toBe(0); // the orphan heard the takeover and shut down
+    activate();
+    await flushMicrotasks();
+    expect(hosts()).toBe(1);
+    expect(sidebarApi.isSidebarVisible()).toBe(true);
+    expect(document.documentElement.style.getPropertyValue('margin-right')).toBe('300px');
+  });
+
+  test('a second injection while the first is alive changes nothing (the guard, as before)', async () => {
+    loadContent();
+    activate();
+    await flushMicrotasks();
+    const first = window.__annotatorActive;
+    jest.resetModules();
+    require('../content');
+    expect(window.__annotatorActive).toBe(first);
+    expect(hosts()).toBe(1);
+    expect(sidebarApi.isSidebarVisible()).toBe(true);
+  });
+
+  test('an orphan in the same world is shut down by the next injection\'s guard', async () => {
+    loadContent();
+    activate();
+    await flushMicrotasks();
+    const orphan = window.__annotatorActive as { alive: () => boolean; teardown: () => void };
+    const teardown = jest.spyOn(orphan, 'teardown');
+    killContext();
+    // Without its takeover listener (as if it had none), only the guard is left.
+    document.dispatchEvent(new CustomEvent('salamander:takeover'));
+    expect(hosts()).toBe(0);
+    teardown.mockClear();
+    jest.resetModules();
+    window.__annotatorActive = orphan;
+    require('../content');
+    expect(teardown).toHaveBeenCalled();
+    expect(window.__annotatorActive).not.toBe(orphan);
   });
 });
