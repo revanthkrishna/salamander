@@ -300,8 +300,22 @@ describe('handleTabUpdated', () => {
     expect(executeScriptMock).not.toHaveBeenCalled();
   });
 
+  /** The fresh document has no content script yet: PING finds no one. */
+  function noScriptAnswers(): void {
+    sendMessageMock.mockImplementation((_tabId: number, message: { type: string }, callback?: Cb<unknown>) => {
+      if (message.type === 'PING') {
+        (global.chrome as any).runtime.lastError = { message: 'Could not establish connection. Receiving end does not exist.' };
+        callback?.(undefined);
+        (global.chrome as any).runtime.lastError = null;
+        return;
+      }
+      callback?.(undefined);
+    });
+  }
+
   it('re-injects and re-activates when the sidebar was open (§1.1)', async () => {
     mockedStorage.isSidebarOpen.mockResolvedValue(true);
+    noScriptAnswers();
     await background.handleTabUpdated(5, { status: 'complete' } as chrome.tabs.TabChangeInfo);
     expect(executeScriptMock).toHaveBeenCalledWith({
       target: { tabId: 5 },
@@ -310,8 +324,17 @@ describe('handleTabUpdated', () => {
     expect(sendMessageMock).toHaveBeenCalledWith(5, { type: 'ACTIVATE', tabId: 5 }, expect.any(Function));
   });
 
+  it('a script still alive in the document is re-activated, not injected (and parsed) again', async () => {
+    mockedStorage.isSidebarOpen.mockResolvedValue(true);
+    await background.handleTabUpdated(5, { status: 'complete' } as chrome.tabs.TabChangeInfo);
+    expect(sendMessageMock).toHaveBeenCalledWith(5, { type: 'PING' }, expect.any(Function));
+    expect(executeScriptMock).not.toHaveBeenCalled();
+    expect(sendMessageMock).toHaveBeenCalledWith(5, { type: 'ACTIVATE', tabId: 5 }, expect.any(Function));
+  });
+
   it('clears sidebar state when re-injection fails on a now-restricted page', async () => {
     mockedStorage.isSidebarOpen.mockResolvedValue(true);
+    noScriptAnswers();
     executeScriptMock.mockRejectedValueOnce(new Error('cannot access'));
     await background.handleTabUpdated(5, { status: 'complete' } as chrome.tabs.TabChangeInfo);
     expect(mockedStorage.clearSidebarState).toHaveBeenCalledWith(5);

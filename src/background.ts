@@ -143,10 +143,16 @@ export async function handleTabUpdated(
   if (!wasOpen) return;
 
   try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: [CONTENT_SCRIPT],
-    });
+    // 'complete' is not always a fresh document: when this one's script is
+    // already running it is re-activated as before, but not injected again
+    // — injecting would only have it parse the whole bundle to exit at its
+    // guard (the same PING handleActionClicked asks first).
+    if (!(await pingContentScript(tabId))) {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: [CONTENT_SCRIPT],
+      });
+    }
     const activate: ActivateMessage = { type: 'ACTIVATE', tabId };
     chrome.tabs.sendMessage(tabId, activate, () => {
       if (chrome.runtime.lastError) {} // ignore
