@@ -1,0 +1,578 @@
+:host {
+  --sal-radius-sm: 6px;
+  --sal-radius-md: 10px;
+  --sal-radius-lg: 14px;
+  --sal-font-display: 'Salamander Serif', 'Times New Roman', Georgia, serif;
+  --sal-font-body: 'Salamander Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --sal-font-mono: 'Salamander Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sal-bg: #14120D;
+  --sal-surface: #1D1A13;
+  --sal-raised: #2A261C;
+  --sal-line: #3A3427;
+  --sal-line-strong: #56503F;
+  --sal-text: #FBF6EA;
+  --sal-muted: #B3AA96;
+  --sal-accent: #FEC800;
+  --sal-accent-hover: #FFD740;
+  --sal-accent-press: #E8B600;
+  --sal-on-accent: #1A1712;
+  --sal-accent-ink: #FEC800;
+  --sal-accent-icon: #FEC800;
+  --sal-hover: #2A261C;
+  --sal-press: #353024;
+  --sal-focus: #FBF6EA;
+  --sal-danger: #FF7A6B;
+  --sal-danger-soft: rgba(255,122,107,0.14);
+  --sal-danger-hover: rgba(255,122,107,0.24);
+  --sal-danger-press: rgba(255,122,107,0.34);
+  --sal-warn: #F5C35B;
+  --sal-warn-soft: rgba(245,195,91,0.12);
+  --sal-scrim: rgba(0,0,0,0.5);
+  --sal-backdrop: rgba(0,0,0,0.65);
+  --sal-shadow-pop: 0 18px 40px rgba(0,0,0,0.28);
+  --sal-shadow-note: 0 10px 28px rgba(0,0,0,0.18), 0 0 0 1px #3A3427;
+}
+
+  :host {
+    font-family: var(--sal-font-body);
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+
+  .blocker {
+    position: absolute;
+    top: 0;
+    left: 0;
+    background: transparent;
+  }
+  .blocker.placing { cursor: crosshair; }
+
+  .visuals[data-hidden="true"] { visibility: hidden; }
+  /* A descendant that sets visibility: visible itself would override the
+     inherited hidden above and show up in the screenshot. These two are the
+     only ones that do; this out-specifies both. */
+  .visuals[data-hidden="true"] .counter,
+  .visuals[data-hidden="true"] .draw-menu { visibility: hidden; }
+  /* Nothing selection-related renders until the first placement/drag gives
+     the box a real rect (renderBox() sets data-has-box). Without this the
+     scrim's spread shadow would dim the whole page during 'placing'. */
+  .visuals:not([data-has-box="true"]) .scrim-layer,
+  .visuals:not([data-has-box="true"]) .box,
+  .visuals:not([data-has-box="true"]) .resize-zone { display: none; }
+
+  /* Scrim: a single transparent element exactly over the box, with the same
+     corner radius, casting a huge spread shadow in the scrim colour. That
+     leaves a hole whose corners match the rounded outline (the v1 four-strip
+     scrim only worked for a square box). The layer is sized to the page
+     content area and clips, so the spread never dims the sidebar. */
+  .scrim-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .scrim {
+    position: absolute;
+    border-radius: var(--sal-radius-md);
+    box-shadow: 0 0 0 200vmax var(--sal-scrim);
+    pointer-events: none;
+  }
+
+  /* Selection outline (see OUTLINE_W): the alternating line is entirely the
+     .box-dash SVG below, drawn OUTSIDE the box — its rect IS the selection,
+     so nothing may cover it, which is why the SVG overhangs. No hover/press
+     styling — only the cursor over the hit zones below changes. */
+  .box {
+    position: absolute;
+    border-radius: var(--sal-radius-md);
+    background: transparent;
+    pointer-events: none;
+  }
+
+  .resize-zone {
+    position: absolute;
+    background: transparent;
+    /* .visuals inherits pointer-events: none from the host; the hit zones
+       must opt back in or no mousedown ever reaches them. */
+    pointer-events: auto;
+  }
+
+  /* Add-mode preview (design spec §G): while 'placing' and before any box
+     has been placed, hovering shows the same box+scrim visuals as a live
+     preview of the box a click would produce right now. These two rules are
+     an equal-specificity override of the ".visuals:not([data-has-box]) ..."
+     display:none rule above (three class/attribute selectors on each side),
+     so they only need to win by appearing later in the stylesheet — no
+     !important, no touching that rule (a regression test pins its exact
+     text). Faded in via opacity rather than the display flip itself, since
+     display can't transition; onPlacementHoverMove() forces a style flush
+     between setting data-preview and data-preview-visible so the fade-in
+     actually runs (see showPreview()). Hiding is instant (spec only
+     describes an appear fade), which also covers reduced motion without a
+     media-query duplicate of the whole rule. */
+  .visuals[data-preview="true"] .scrim-layer,
+  .visuals[data-preview="true"] .box {
+    display: block;
+    opacity: 0;
+    transition: opacity 120ms ease-out;
+  }
+  .visuals[data-preview="true"][data-preview-visible="true"] .scrim-layer,
+  .visuals[data-preview="true"][data-preview-visible="true"] .box {
+    opacity: 1;
+  }
+
+  /* Tooltip that follows the cursor alongside the preview (design spec §G):
+     "click or drag to select". Uses the real box/comment surface treatment
+     (surface fill, line border, radius md, shadowNote) so it reads as part
+     of the same UI. Position is set 1:1 with the pointer in JS (no
+     transition on left/top — only opacity fades, per the motion-design
+     skill's rule for pointer-following UI: the tracked position itself
+     never eases or lags, only the appearance/disappearance may). It is a
+     first-run hint, so it also fades back OUT after ~5s and never returns
+     for the rest of the page session (v4 §N) — same 120ms opacity
+     transition in both directions. */
+  .preview-tooltip {
+    position: absolute;
+    z-index: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--sal-line);
+    border-radius: var(--sal-radius-md);
+    background: var(--sal-surface);
+    box-shadow: var(--sal-shadow-note);
+    color: var(--sal-text);
+    font-family: var(--sal-font-body);
+    font-size: 12px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 120ms ease-out;
+  }
+  .preview-tooltip[data-visible="true"] { opacity: 1; }
+
+  /* The alternating outline. Two rects on the same path at the same stroke
+     width: ink underneath, accent dashed on top, so the "gaps" are ink
+     rather than holes and the line never gets thicker than OUTLINE_W. Sized
+     in JS (paintBoxOutline) because the dash length has to stay 4px whatever
+     the box's size — a viewBox that scaled would stretch it. */
+  .box-dash {
+    position: absolute;
+    left: -2px;
+    top: -2px;
+    overflow: visible;
+    pointer-events: none;
+  }
+  .box-dash rect { fill: none; stroke-width: 2; }
+  .box-dash .dash-ink { stroke: var(--sal-on-accent); }
+  .box-dash .dash-accent { stroke: var(--sal-accent); stroke-dasharray: 4 4; }
+
+  /* The drawing surface (design spec §AB): exactly the selection's rect,
+     clipping a layer of strokes that lives in viewport coordinates — so the
+     strokes are pinned to the page and a resize only moves the clip. It is
+     the rect's interior only: the resize zones are later siblings and win
+     the hit test along the edges, keeping their resize cursors. A plain
+     rectangular clip, like the crop itself, so what shows is exactly what
+     the saved drawing will hold. Inside .visuals, so hideOverlayUI() takes
+     it out of the screenshot with everything else. Built with the comment
+     box, i.e. never during 'placing'. */
+  .draw-surface {
+    position: absolute;
+    overflow: hidden;
+    pointer-events: auto;
+    cursor: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cg%20stroke%3D%22%23FBF6EA%22%20stroke-width%3D%223.8%22%3E%3Cpath%20d%3D%22M3.5%2020.5l1.2-4.6L15.6%205a2.1%202.1%200%200%201%203%200l.4.4a2.1%202.1%200%200%201%200%203L8.1%2019.3z%22%2F%3E%3Cpath%20d%3D%22M13.8%206.8l3.4%203.4%22%2F%3E%3C%2Fg%3E%3Cg%20stroke%3D%22%231A1712%22%20stroke-width%3D%221.8%22%3E%3Cpath%20d%3D%22M3.5%2020.5l1.2-4.6L15.6%205a2.1%202.1%200%200%201%203%200l.4.4a2.1%202.1%200%200%201%200%203L8.1%2019.3z%22%2F%3E%3Cpath%20d%3D%22M13.8%206.8l3.4%203.4%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E") 3 20, crosshair;
+    outline: none;
+    touch-action: none;
+    user-select: none;
+  }
+  .visuals:not([data-has-box="true"]) .draw-surface { display: none; }
+  .draw-strokes {
+    position: absolute;
+    overflow: visible;
+    pointer-events: none;
+  }
+  /* Mid-stroke the pointer may cross a hit zone or the comment box; the
+     pencil stays the pencil until the stroke ends. (The zones' own cursor
+     is an inline style, hence !important.) */
+  .visuals[data-drawing="true"] .resize-zone,
+  .visuals[data-drawing="true"] .comment-box,
+  .visuals[data-drawing="true"] .comment-box * { cursor: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cg%20stroke%3D%22%23FBF6EA%22%20stroke-width%3D%223.8%22%3E%3Cpath%20d%3D%22M3.5%2020.5l1.2-4.6L15.6%205a2.1%202.1%200%200%201%203%200l.4.4a2.1%202.1%200%200%201%200%203L8.1%2019.3z%22%2F%3E%3Cpath%20d%3D%22M13.8%206.8l3.4%203.4%22%2F%3E%3C%2Fg%3E%3Cg%20stroke%3D%22%231A1712%22%20stroke-width%3D%221.8%22%3E%3Cpath%20d%3D%22M3.5%2020.5l1.2-4.6L15.6%205a2.1%202.1%200%200%201%203%200l.4.4a2.1%202.1%200%200%201%200%203L8.1%2019.3z%22%2F%3E%3Cpath%20d%3D%22M13.8%206.8l3.4%203.4%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E") 3 20, crosshair !important; }
+
+  /* One rounded surface holding the text area and, below it, the button
+     row, both inset by COMMENT_PAD_PX so their edges line up. */
+  .comment-box {
+    position: absolute;
+    width: 296px;
+    color: var(--sal-text);
+    font-family: var(--sal-font-body);
+    /* The box is the surface (design spec, 2026-09-30): the sidebar's own
+       background, like its button bar, with the text area and the button
+       row inset by the same padding all round. Its 1px line is an inset
+       shadow, so the padding is measured from its outer edge. */
+    box-sizing: border-box;
+    padding: 6px;
+    background: var(--sal-bg);
+    box-shadow: var(--sal-shadow-pop), inset 0 0 0 1px var(--sal-line);
+    border-radius: var(--sal-radius-lg);
+    /* .visuals inherits pointer-events: none from the host (the host is
+       pointer-events: none so the blocker underneath can own page-click
+       suppression while non-interactive visuals like the box outline and
+       scrim stay click-through). .resize-zone opts itself back into auto
+       above; the comment box and everything in it (textarea, cancel/save
+       buttons) need the same opt-in, or their clicks fall through to nothing
+       and only keyboard/Tab focus keeps working. */
+    pointer-events: auto;
+  }
+
+  /* The text area: a bordered surface inset in the box, its corners
+     concentric with the box's (COMMENT_INNER_RADIUS_CSS), like the buttons
+     below it. A real 1px border (box-sizing: border-box keeps it from
+     growing the box), surface fill. Hover/focus only ever change the border
+     colour — no extra ring, no shape change. */
+  .note-input {
+    display: block;
+    width: 100%;
+    height: 88px;
+    box-sizing: border-box;
+    margin: 0;
+    resize: none;
+    border: 1px solid var(--sal-line);
+    border-radius: calc(var(--sal-radius-lg) - 6px);
+    outline: none;
+    background: var(--sal-surface);
+    /* The box's own padding, so text, edges and buttons share one inset. */
+    padding: 6px;
+    font-family: var(--sal-font-body);
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--sal-text);
+    transition: border-color 140ms ease-out;
+  }
+  .note-input::placeholder { color: var(--sal-muted); }
+  .note-input:hover { border-color: var(--sal-line-strong); }
+  /* After :hover so focus wins while both apply. */
+  .note-input:focus { border-color: var(--sal-accent); }
+
+  /* The button row: the pencil tools on the left, the counter, cancel and
+     save on the right, COMMENT_PAD_PX below the text area. */
+  .footer {
+    padding-top: 6px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+
+  /* Right side (design spec §AB): the counter sits just left of cancel. It
+     only takes up room once it shows — hidden, it would push the bar past
+     its 296px with the pencil tools on the left. */
+  .counter {
+    padding: 0 4px;
+    font-family: var(--sal-font-mono);
+    font-size: 11px;
+    color: var(--sal-muted);
+    visibility: hidden;
+  }
+  .counter[data-warn="true"] { visibility: visible; }
+  .counter[data-danger="true"] { color: var(--sal-danger); font-weight: 600; }
+  .counter:not([data-warn="true"]) { display: none; }
+
+  /* Left side (design spec §AB): the pencil, then its three swatches. The
+     group pushes everything after it to the right. */
+  .draw-tools {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-right: auto;
+  }
+
+  /* The pencil: a 28px icon button (§X) and a menu button (§C2), drawn like
+     the sidebar's button bar (§AE): surface fill, 1px line border, text-
+     coloured glyph; hover and press change the fill and light the border.
+     border-box, so the border does not change its 28px size. */
+  .btn-pencil {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    margin: 0;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--sal-line);
+    border-radius: calc(var(--sal-radius-lg) - 6px);
+    background: var(--sal-surface);
+    color: var(--sal-text);
+    cursor: pointer;
+    outline: none;
+    transition: background-color 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out, transform 80ms ease-out;
+  }
+  .btn-pencil .icon { width: 16px; height: 16px; display: inline-flex; }
+  .btn-pencil .icon svg { width: 100%; height: 100%; display: block; }
+  /* Open takes the hover fill, like the sidebar's "more options" button
+     (§AE). Before :hover and :active so the press fill still reads while
+     it is open. */
+  .btn-pencil[aria-expanded="true"] { background: var(--sal-hover); border-color: var(--sal-line-strong); }
+  .btn-pencil:not(:disabled):hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
+  .btn-pencil:not(:disabled):active { background: var(--sal-press); border-color: var(--sal-line-strong); }
+  .btn-pencil:focus-visible { box-shadow: 0 0 0 2px var(--sal-bg), 0 0 0 4px var(--sal-focus); }
+  .btn-pencil:disabled { opacity: 0.4; cursor: default; }
+
+  /* The swatches: a radio group of 18px-wide targets, each holding a 12px
+     circle in its colour. Every dot carries a 1px lineStrong edge, which is
+     what keeps the black one visible on the dark bar; the checked one adds
+     a gap and a text-coloured ring. Keyboard focus is the standard ring on
+     the target, so "checked" and "focused" never look alike. */
+  .swatches { display: flex; align-items: center; }
+  .swatch {
+    width: 18px;
+    height: 28px;
+    flex-shrink: 0;
+    margin: 0;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: var(--sal-radius-sm);
+    background: transparent;
+    cursor: pointer;
+    outline: none;
+  }
+  .swatch-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px var(--sal-line-strong);
+    transition: box-shadow 140ms ease-out;
+  }
+  .swatch:not(:disabled):hover .swatch-dot { box-shadow: 0 0 0 1px var(--sal-muted); }
+  .swatch[aria-checked="true"] .swatch-dot,
+  .swatch[aria-checked="true"]:not(:disabled):hover .swatch-dot {
+    /* The gap is the bar's own fill, so the ring floats clear of the dot. */
+    box-shadow: 0 0 0 2px var(--sal-bg), 0 0 0 3.5px var(--sal-text);
+  }
+  .swatch:focus-visible { box-shadow: 0 0 0 2px var(--sal-bg), 0 0 0 4px var(--sal-focus); }
+  .swatch:disabled { opacity: 0.4; cursor: default; }
+
+  /* The pencil's menu — the sidebar's "more options" menu (§C2, §AE), same
+     surface, item and motion: closed is the base state and carries the exit
+     (90ms, accelerating), [data-open] the entrance (120ms, standard).
+     visibility rather than [hidden] so both directions animate and nothing
+     inside is focusable while it is closed. A child of the comment box, so
+     it is placed against the box and lines up with the pencil
+     (COMMENT_PAD_PX in): it opens below the box, or above the pencil when
+     there is no room below. */
+  .draw-menu {
+    position: absolute;
+    left: 6px;
+    top: calc(100% + 6px);
+    z-index: 2;
+    min-width: 132px;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    border: 1px solid var(--sal-line);
+    border-radius: var(--sal-radius-md);
+    background: var(--sal-surface);
+    box-shadow: var(--sal-shadow-pop);
+    transform-origin: top left;
+    opacity: 0;
+    visibility: hidden;
+    transform: scale(0.96);
+    transition:
+      opacity 90ms cubic-bezier(.3, 0, 1, 1),
+      transform 90ms cubic-bezier(.3, 0, 1, 1),
+      visibility 0s linear 90ms;
+  }
+  .draw-menu[data-placement="above"] {
+    top: auto;
+    bottom: 46px;
+    transform-origin: bottom left;
+  }
+  .draw-menu[data-open="true"] {
+    opacity: 1;
+    visibility: visible;
+    transform: scale(1);
+    transition:
+      opacity 120ms cubic-bezier(.2, 0, 0, 1),
+      transform 120ms cubic-bezier(.2, 0, 0, 1),
+      visibility 0s;
+  }
+  .draw-menu-item {
+    height: 32px;
+    margin: 0;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-radius: var(--sal-radius-sm);
+    color: var(--sal-text);
+    font-family: var(--sal-font-body);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    cursor: pointer;
+    outline: none;
+    transition: background-color 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out, transform 80ms ease-out;
+  }
+  .draw-menu-item:hover { background: var(--sal-hover); }
+  .draw-menu-item:focus-visible { background: var(--sal-hover); }
+  .draw-menu-item:active { background: var(--sal-press); }
+  /* Greyed out (soft-disabled) while nothing is drawn; these outrank the
+     hover and press above on specificity. */
+  .draw-menu-item[aria-disabled="true"] { opacity: 0.4; cursor: default; }
+  .draw-menu-item[aria-disabled="true"]:hover,
+  .draw-menu-item[aria-disabled="true"]:active { background: transparent; }
+  .draw-menu-item .icon { width: 16px; height: 16px; flex-shrink: 0; display: inline-flex; }
+  .draw-menu-item .icon svg { width: 100%; height: 100%; display: block; }
+
+  /* Cancel and save (design spec §2 rows, restyled per v2 §C), drawn like
+     the sidebar's button bar (§AE): surface fill and a 1px line border that
+     hover and press light up. COMMENT_ROW_PX tall, free-floating inside the
+     box, with corners concentric with the box's (COMMENT_INNER_RADIUS_CSS).
+     The border is inside the box (border-box), and the side padding gives
+     back its 1px, so the buttons keep their size. */
+  .btn {
+    height: 30px;
+    margin: 0;
+    padding: 0 11px;
+    border: 1px solid var(--sal-line);
+    border-radius: calc(var(--sal-radius-lg) - 6px);
+    background: var(--sal-surface);
+    font-family: var(--sal-font-body);
+    font-size: 13px;
+    cursor: pointer;
+    outline: none;
+    transition: background-color 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out, transform 80ms ease-out;
+  }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+
+  .btn:not(:disabled):hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
+  .btn:not(:disabled):active { background: var(--sal-press); border-color: var(--sal-line-strong); }
+  .btn:focus-visible { box-shadow: 0 0 0 2px var(--sal-bg), 0 0 0 4px var(--sal-focus); }
+
+  .btn-cancel {
+    color: var(--sal-text);
+    font-weight: 500;
+  }
+
+  /* Save is yellow text on the plain button, like "add note"'s glyph: it
+     never fills yellow; hover and press are the plain button's. */
+  .btn-save {
+    color: var(--sal-accent-icon);
+    font-weight: 700;
+  }
+  /* Empty note: muted text at half opacity (design spec §2 "save disabled"). */
+  .btn-save:disabled,
+  .btn-save[aria-disabled="true"] { color: var(--sal-muted); opacity: 0.5; }
+  /* Greyed out but still hoverable (so its reason can show): no hover or
+     press change, no pointer. */
+  .btn-save[aria-disabled="true"] { cursor: default; }
+  .btn-save[aria-disabled="true"]:hover,
+  .btn-save[aria-disabled="true"]:active { background: var(--sal-surface); border-color: var(--sal-line); }
+  /* While capturing (after save), keep the yellow text so "saving…" reads as
+     in-progress rather than as the empty-note disabled state. */
+  .comment-box[aria-busy="true"] .btn-save:disabled { color: var(--sal-accent-icon); opacity: 1; }
+
+  /* Motion-design skill: reduced motion keeps the opacity change (still
+     communicates state) but drops the transition itself, so the preview and
+     tooltip appear instantly instead of fading in. Nothing here needs a
+     "remove spatial movement" rule — the preview/tooltip never had any: both
+     already track the pointer 1:1 with plain style writes, never eased. */
+  @media (prefers-reduced-motion: reduce) {
+    .visuals[data-preview="true"] .scrim-layer,
+    .visuals[data-preview="true"] .box,
+    .preview-tooltip,
+    .draw-menu,
+    .draw-menu[data-open="true"],
+    .swatch-dot {
+      transition: none;
+    }
+    .draw-menu,
+    .draw-menu[data-open="true"] { transform: none; }
+  }
+
+
+  .sal-tip {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 2147483647;
+    max-width: 260px;
+    padding: 6px 9px;
+    background: var(--sal-raised);
+    border: 1px solid var(--sal-line-strong);
+    border-radius: var(--sal-radius-sm);
+    box-shadow: var(--sal-shadow-pop);
+    color: var(--sal-text);
+    font-family: var(--sal-font-body);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.3;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 90ms cubic-bezier(0.3, 0, 1, 1), visibility 0s linear 90ms;
+  }
+  /* A keyboard shortcut after the label (data-tip-key), drawn as a key. */
+  .sal-tip-key {
+    display: inline-block;
+    margin-left: 7px;
+    padding: 0 5px;
+    border: 1px solid var(--sal-line-strong);
+    border-radius: 4px;
+    font-family: var(--sal-font-body);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 16px;
+    color: var(--sal-text);
+  }
+  .sal-tip[data-open="true"] {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 120ms cubic-bezier(0.2, 0, 0, 1), visibility 0s;
+  }
+  /* The pointer: a small square turned 45deg, bordered on the two sides
+     that face outwards so it reads as part of the tooltip's outline. */
+  .sal-tip::after {
+    content: '';
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    background: var(--sal-raised);
+    border: 1px solid var(--sal-line-strong);
+    transform: rotate(45deg);
+  }
+  .sal-tip[data-side="below"]::after {
+    top: -5px;
+    left: calc(var(--tip-arrow, 50%) - 4.5px);
+    border-right: none;
+    border-bottom: none;
+  }
+  .sal-tip[data-side="above"]::after {
+    bottom: -5px;
+    left: calc(var(--tip-arrow, 50%) - 4.5px);
+    border-left: none;
+    border-top: none;
+  }
+  .sal-tip[data-side="right"]::after {
+    left: -5px;
+    top: calc(var(--tip-arrow, 50%) - 4.5px);
+    border-right: none;
+    border-top: none;
+  }
+  .sal-tip[data-side="left"]::after {
+    right: -5px;
+    top: calc(var(--tip-arrow, 50%) - 4.5px);
+    border-left: none;
+    border-bottom: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sal-tip,
+    .sal-tip[data-open="true"] { transition: none; }
+  }
