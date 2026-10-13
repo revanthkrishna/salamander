@@ -83,19 +83,28 @@ const SELECTORS = {
   btnCancel: '#annotator-addmode-host .btn-cancel',
   btnSave: '#annotator-addmode-host .btn-save',
 
-  // Enlarged view (src/enlargedView.ts) — the sidebar itself expands; it
+  // Enlarged view (src/enlargedView.ts, design spec §AH) — the sidebar
+  // itself expands into one scrolling page of every note on the site; it
   // renders inside the sidebar's shadow root, so every selector is scoped to
   // the sidebar host. `.enlarged` is detached when the view is closed.
   enlarged: '#annotator-sidebar-host .enlarged',
   enlargedOpen: '#annotator-sidebar-host .enlarged[data-state="open"]',
-  enlargedTitle: '#annotator-sidebar-host .xp-title',
   enlargedExit: '#annotator-sidebar-host .xp-exit',
-  enlargedPrev: '#annotator-sidebar-host .xp-prev',
-  enlargedNext: '#annotator-sidebar-host .xp-next',
-  enlargedImage: '#annotator-sidebar-host .xp-card.is-main .xp-card-img',
+  enlargedScroll: '#annotator-sidebar-host .xp-scroll',
+  // One per note, in reading order; `.xp-note[data-item-id]` wraps each.
+  enlargedNote: '#annotator-sidebar-host .xp-note',
+  enlargedNoteNumber: '#annotator-sidebar-host .xp-note-num',
+  enlargedImage: '#annotator-sidebar-host .xp-shot-img',
   enlargedNoteInput: '#annotator-sidebar-host .xp-note-input',
-  enlargedDelete: '#annotator-sidebar-host .xp-delete',
-  enlargedStatus: '#annotator-sidebar-host .xp-status',
+  enlargedDelete: '#annotator-sidebar-host .xp-note-delete',
+  enlargedStatus: '#annotator-sidebar-host .xp-note-status',
+  // A page's heading: its name, the rename controls, its address.
+  pageHeading: '#annotator-sidebar-host .xp-page',
+  pageName: '#annotator-sidebar-host .xp-page-name',
+  pageEdit: '#annotator-sidebar-host .xp-page-edit',
+  pageInput: '#annotator-sidebar-host .xp-page-input',
+  pageUrl: '#annotator-sidebar-host .xp-page-url',
+  pageHere: '#annotator-sidebar-host .xp-page-here',
 };
 
 // ---------------------------------------------------------------------------
@@ -465,28 +474,29 @@ async function openThumbnail(page, index) {
   await page.locator(SELECTORS.enlargedOpen).waitFor({ state: 'attached', timeout: 5000 });
 }
 
-/** Edit the open note and exit via the rail's x button — exercises the
- *  "autosave flushed on collapse" path. */
-async function editNoteAndClose(page, newText) {
-  await page.locator(SELECTORS.enlargedNoteInput).fill(newText);
+/** Edit a note (the `index`th in the view, the opened one by default when
+ *  it is the first) and exit via the exit button — exercises the "autosave
+ *  flushed on collapse" path. */
+async function editNoteAndClose(page, newText, index = 0) {
+  await page.locator(SELECTORS.enlargedNoteInput).nth(index).fill(newText);
   await page.locator(SELECTORS.enlargedExit).click();
   await page.locator(SELECTORS.enlarged).waitFor({ state: 'detached', timeout: 5000 });
 }
 
-/** Edit the open note and blur the text area — exercises autosave without
- *  closing the view. Blurs directly rather than clicking another element:
- *  the view's layers are composited/animated, so a click target can take a
+/** Edit a note and blur its text area — exercises autosave without closing
+ *  the view. Blurs directly rather than clicking another element: the
+ *  view's layers are composited/animated, so a click target can take a
  *  while to count as "stable" for Playwright. */
-async function editNoteAndBlur(page, newText) {
-  const input = page.locator(SELECTORS.enlargedNoteInput);
+async function editNoteAndBlur(page, newText, index = 0) {
+  const input = page.locator(SELECTORS.enlargedNoteInput).nth(index);
   await input.fill(newText);
   await input.blur();
 }
 
-/** Delete the open note. With a single note the view collapses back to the
- *  list; otherwise it moves on to a neighbouring note. */
-async function deleteCurrentNote(page, { expectCollapse = true } = {}) {
-  await page.locator(SELECTORS.enlargedDelete).click();
+/** Delete the `index`th note in the view. With the site's only note the
+ *  view collapses back to the list; otherwise the rest re-pack. */
+async function deleteCurrentNote(page, { expectCollapse = true, index = 0 } = {}) {
+  await page.locator(SELECTORS.enlargedDelete).nth(index).click();
   if (expectCollapse) {
     await page.locator(SELECTORS.enlarged).waitFor({ state: 'detached', timeout: 5000 });
   }
