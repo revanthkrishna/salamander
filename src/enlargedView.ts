@@ -272,7 +272,7 @@ export interface EnlargedViewHandle {
    *  close). Returns false — and moves focus to it — while a note is empty.
    *  True means the view will close: at once, after its collapse, or once
    *  the deletes still in flight have landed. */
-  requestCollapse(opts?: { immediate?: boolean }): boolean;
+  requestCollapse(opts?: { immediate?: boolean | undefined }): boolean;
   /** Collapse instantly, bypassing the empty-note lock (add mode, SPA
    *  navigation, sidebar teardown). Flushes non-empty unsaved edits; an
    *  emptied note keeps its last saved text. Fires onClosed. */
@@ -1019,7 +1019,7 @@ class EnlargedView {
 
   // ─── Collapse (MOTION_SPEC §6) ────────────────────────────────────────────
 
-  requestCollapse(opts: { immediate?: boolean } = {}): boolean {
+  requestCollapse(opts: { immediate?: boolean | undefined } = {}): boolean {
     if (this.state === 'closed' || this.state === 'closing') return true;
     this.commitRenames();
     if (this.blockIfEmpty()) return false;

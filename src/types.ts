@@ -248,7 +248,7 @@ export interface ImportErrorDetails {
 
 export class ImportError extends Error {
   code: ImportErrorCode;
-  details?: ImportErrorDetails;
+  details: ImportErrorDetails | undefined;
   constructor(code: ImportErrorCode, details?: ImportErrorDetails) {
     super(code);
     this.code = code;

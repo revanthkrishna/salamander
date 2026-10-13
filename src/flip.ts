@@ -309,8 +309,9 @@ export interface NumberAnimOptions {
   duration: number;
   delay?: number;
   curve: Curve;
-  /** Start value; defaults to the tracked current value (interruption-safe). */
-  from?: number;
+  /** Start value; defaults (absent or undefined) to the tracked current
+   *  value (interruption-safe). */
+  from?: number | undefined;
 }
 
 /**
