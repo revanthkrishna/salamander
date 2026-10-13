@@ -32,6 +32,8 @@
 // Pure DOM, no chrome.* — any surface may use it. Its stylesheet is
 // src/styles/tooltip.css.ts.
 
+import { KEY_PRIORITY, registerKeyHandler } from './keyRouter';
+
 export { TOOLTIP_CSS } from './styles/tooltip.css';
 
 /** Hover time before a tooltip appears — the native `title` tooltip's delay
@@ -281,21 +283,13 @@ export function attachTooltips(root: ShadowRoot): TooltipHandle {
     const el = tipTarget(e.target);
     if (el && el === anchor) hide();
   };
-  // Esc, pressed anywhere in this root. Listened for on `window` in the
-  // capture phase, not on the root: the enlarged view (enlargedView.ts) and
-  // add mode's comment box (addMode.ts) install keyboard isolation
-  // (keyboardIsolation.ts), which stops every key inside the host with
-  // stopImmediatePropagation() at window capture — so a listener on the
-  // root, or one on window registered AFTER the isolation, never hears it.
-  // Window capture listeners run in registration order, so this relies on
-  // attachTooltips() running before any isolation on the same host is
-  // installed. It does for every caller: sidebar.ts attaches in
-  // initSidebar(), and the enlarged view only ever opens inside an
-  // initialised sidebar (and is destroyed before it); addMode.ts attaches in
-  // buildDOM(), and installs its isolation later, in buildCommentDOM(). A
-  // new caller must keep that order. The path check keeps an Esc meant for
-  // the page from touching our tooltip, as the root listener did; the
-  // closed root's host is on the path even though its inside is not.
+  // Esc, pressed anywhere in this root. Heard through the key router
+  // (keyRouter.ts) at TOOLTIP_ESC, not on the root: the keyboard isolation
+  // of the enlarged view, add mode and the sidebar stops every key inside
+  // the host before it reaches the root, and the router runs this before
+  // any of them. The path check keeps an Esc meant for the page from
+  // touching our tooltip, as a root listener would; the closed root's host
+  // is on the path even though its inside is not.
   const onKey = (e: Event): void => {
     if ((e as KeyboardEvent).key !== 'Escape') return;
     if (!e.composedPath().includes(root.host)) return;
@@ -323,7 +317,7 @@ export function attachTooltips(root: ShadowRoot): TooltipHandle {
   root.addEventListener('pointerdown', onDown, true);
   root.addEventListener('focusin', onFocusIn);
   root.addEventListener('focusout', onFocusOut);
-  window.addEventListener('keydown', onKey, true);
+  const releaseKey = registerKeyHandler({ priority: KEY_PRIORITY.TOOLTIP_ESC, handle: onKey });
   window.addEventListener('scroll', onScroll, true);
   root.addEventListener('scroll', onScroll, true);
   root.addEventListener('transitionend', onTransitionEnd);
@@ -339,7 +333,7 @@ export function attachTooltips(root: ShadowRoot): TooltipHandle {
       root.removeEventListener('pointerdown', onDown, true);
       root.removeEventListener('focusin', onFocusIn);
       root.removeEventListener('focusout', onFocusOut);
-      window.removeEventListener('keydown', onKey, true);
+      releaseKey();
       window.removeEventListener('scroll', onScroll, true);
       root.removeEventListener('scroll', onScroll, true);
       root.removeEventListener('transitionend', onTransitionEnd);
