@@ -11,9 +11,14 @@
 // cross the chrome.runtime boundary as base64 (gotcha #2). The fallback if a
 // bundle's data: URL ever proves too large is an offscreen document — not
 // needed at this extension's expected volumes, so not built.
+//
+// Scaling limit: the zip is turned into one base64 data URL for
+// chrome.downloads, so an export holds about 2.4 times the zip in memory at
+// its peak, and how large a data: URL chrome.downloads accepts is not
+// verified. A site with hundreds of large screenshots is where to look
+// first.
 
 import { zipSync, strToU8 } from 'fflate';
-import * as storage from './storage';
 import * as imageStore from './imageStore';
 import { buildFeedbackMarkdown, ExportHeader } from './bundle';
 import { exportFilename } from './urlNorm';
@@ -45,8 +50,9 @@ export async function exportDomain(
   domain: string,
   // The read goes through whatever serialisation the caller holds
   // (background.ts's save queue), so the export sees every write queued
-  // before it rather than a record mid-mutation.
-  loadDomain: (domain: string) => Promise<DomainData | null> = storage.getDomainData,
+  // before it rather than a record mid-mutation. Required: a default
+  // reading storage directly would bypass that queue.
+  loadDomain: (domain: string) => Promise<DomainData | null>,
   env: ExportEnvironment = LIVE_ENVIRONMENT,
 ): Promise<ExportResponse> {
   try {
