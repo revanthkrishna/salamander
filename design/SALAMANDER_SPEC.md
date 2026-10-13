@@ -1198,7 +1198,10 @@ with one wide note, and the tops of the next row cut off by the bottom edge. Dec
   or **delete all for this website** runs (which removes the index it lives in); an import starts
   with none. Either way the page is back on its default.
 - The new name shows at once; if it cannot be stored it goes back, with "couldn't save the page
-  name. try again." under the heading.
+  name. try again." under the heading — or, when the page's notes were deleted elsewhere (another
+  tab) since the view opened, "this page's notes were deleted elsewhere. reopen to see the site as
+  it is.", since a retry cannot help: a page exists only through its notes. The view does not try
+  to reconcile itself with the other tab; reopening does. **(impl)**
 - **Export:** the one place `feedback.md` writes a page's title is each note's `page_title`
   (§AC); a renamed page's notes carry the name there. Re-imported, it comes back as those notes'
   captured title — the page's default from then on. The stored items are never rewritten.

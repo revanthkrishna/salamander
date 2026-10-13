@@ -895,7 +895,8 @@ async function openItemEnlarged(item: FeedbackItem): Promise<void> {
     onSavePageTitle: async (normalisedUrl, title) => {
       const rename: SetPageTitleMessage = { type: 'SET_PAGE_TITLE', domain, normalisedUrl, title };
       const reply = await send(rename);
-      return reply?.ok === true;
+      if (reply?.ok) return 'saved';
+      return reply?.code === 'NO_NOTES' ? 'no-notes' : 'failed';
     },
     onClosed: (focusId) => {
       // Edits and deletes are already reflected in the list the view handed

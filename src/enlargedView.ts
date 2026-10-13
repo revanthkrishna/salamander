@@ -108,7 +108,7 @@ import {
 } from './dom';
 import { FOCUS_RING_CSS, STATE_TRANSITION_CSS, RADII } from './theme';
 import { lockPageScroll, ScrollLockHandle } from './scrollLock';
-import { measureCharWidth, PageHeading } from './pageHeading';
+import { measureCharWidth, PageHeading, RenameResult } from './pageHeading';
 import {
   Box,
   GridLayout,
@@ -235,8 +235,9 @@ export interface EnlargedViewCallbacks {
   onSaveNote: (item: FeedbackItem, note: string) => Promise<boolean>;
   /** Delete `item` (and its blob); resolves false on failure. */
   onDelete: (item: FeedbackItem) => Promise<boolean>;
-  /** Persist a page's edited name (null = its default); false on failure. */
-  onSavePageTitle: (normalisedUrl: string, title: string | null) => Promise<boolean>;
+  /** Persist a page's edited name (null = its default); resolves how it
+   *  went (pageHeading.ts, RenameResult). */
+  onSavePageTitle: (normalisedUrl: string, title: string | null) => Promise<RenameResult>;
   /** Fired once the view is fully gone (however it closed, except
    *  destroy()) with the note of this page focus returns to, or null. */
   onClosed: (focusItemId: number | null) => void;

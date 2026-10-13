@@ -17,9 +17,10 @@
 // default.
 //
 // The heading owns its DOM and its edit state; what a rename means for
-// storage is the caller's (`onRename`), which answers whether it stuck. The
-// new name shows at once and goes back if it did not, with an error under
-// the heading.
+// storage is the caller's (`onRename`), which answers how it went. The new
+// name shows at once and goes back if it did not stick, with an error under
+// the heading — "try again" for a failed write, or, when the page's notes
+// were deleted elsewhere meanwhile, that reopening shows the site as it is.
 //
 // The address is middle-ellipsized to the room it has (ellipsizeMiddle):
 // its face is monospace, so the room is a character count, measured once per
@@ -31,11 +32,16 @@ import {
   CONFIRM_CANCEL_LABEL,
   EDIT_PAGE_NAME_TIP,
   PAGE_NAME_FIELD_LABEL,
+  PAGE_HAS_NO_NOTES_MESSAGE,
   PAGE_NAME_SAVE_ERROR_MESSAGE,
   SAVE_PAGE_NAME_LABEL,
   THIS_PAGE_LABEL,
   editPageNameLabel,
 } from './copy';
+
+/** How a rename went: stored; not stored (a retry may work); or refused
+ *  because the page has no notes any more (deleted elsewhere). */
+export type RenameResult = 'saved' | 'failed' | 'no-notes';
 
 /** Longest name the field takes — a page name, not a note. */
 export const PAGE_NAME_MAX_LENGTH = 200;
@@ -50,9 +56,8 @@ export interface PageHeadingOptions {
   editedName: string | null;
   /** Unique within the view; the heading's ids derive from it. */
   idPrefix: string;
-  /** Persist `name` (null = back to the default); resolves whether it
-   *  stuck. */
-  onRename: (name: string | null) => Promise<boolean>;
+  /** Persist `name` (null = back to the default); resolves how it went. */
+  onRename: (name: string | null) => Promise<RenameResult>;
   /** The shown name changed (a rename, or one reverted): the notes under
    *  it name their page in their labels. */
   onNameChanged: () => void;
@@ -202,13 +207,13 @@ export class PageHeading {
     this.opts.onNameChanged();
     void this.opts
       .onRename(next)
-      .catch(() => false)
-      .then((ok) => {
-        if (ok || seq !== this.renameSeq) return;
+      .catch((): RenameResult => 'failed')
+      .then((result) => {
+        if (result === 'saved' || seq !== this.renameSeq) return;
         this.edited = prev;
         this.renderName();
         this.opts.onNameChanged();
-        this.setStatus(PAGE_NAME_SAVE_ERROR_MESSAGE);
+        this.setStatus(result === 'no-notes' ? PAGE_HAS_NO_NOTES_MESSAGE : PAGE_NAME_SAVE_ERROR_MESSAGE);
       });
   }
 

@@ -23,6 +23,7 @@ import {
 import {
   DELETE_ERROR_MESSAGE,
   NOTE_REQUIRED_MESSAGE,
+  PAGE_HAS_NO_NOTES_MESSAGE,
   PAGE_NAME_SAVE_ERROR_MESSAGE,
   SAVE_ERROR_MESSAGE,
   SITE_LOAD_FAILED_MESSAGE,
@@ -114,7 +115,7 @@ function makeCallbacks(overrides: Partial<EnlargedViewCallbacks> = {}) {
     fetchFullImage: jest.fn().mockResolvedValue(null),
     onSaveNote: jest.fn().mockResolvedValue(true),
     onDelete: jest.fn().mockResolvedValue(true),
-    onSavePageTitle: jest.fn().mockResolvedValue(true),
+    onSavePageTitle: jest.fn().mockResolvedValue('saved'),
     onClosed: jest.fn(),
     ...overrides,
   };
@@ -965,7 +966,7 @@ describe('renaming a page', () => {
 
   test('a rename that does not stick goes back, with an error under the heading', async () => {
     setup();
-    open(3, makeCallbacks({ onSavePageTitle: jest.fn().mockResolvedValue(false) }));
+    open(3, makeCallbacks({ onSavePageTitle: jest.fn().mockResolvedValue('failed') }));
     settleOpen();
     editBtn(PRICING).click();
     typeInto(input(PRICING), 'plans');
@@ -974,6 +975,18 @@ describe('renaming a page', () => {
     await flush();
     expect(nameOf(PRICING)).toBe('Pricing');
     expect(heading(PRICING).querySelector('.xp-page-status')!.textContent).toBe(PAGE_NAME_SAVE_ERROR_MESSAGE);
+  });
+
+  test('a page whose notes were deleted elsewhere says so — not "try again" — and keeps its name', async () => {
+    setup();
+    open(3, makeCallbacks({ onSavePageTitle: jest.fn().mockResolvedValue('no-notes') }));
+    settleOpen();
+    editBtn(PRICING).click();
+    typeInto(input(PRICING), 'plans');
+    keydown(input(PRICING), 'Enter');
+    await flush();
+    expect(nameOf(PRICING)).toBe('Pricing');
+    expect(heading(PRICING).querySelector('.xp-page-status')!.textContent).toBe(PAGE_HAS_NO_NOTES_MESSAGE);
   });
 
   test('clicking away saves, as does closing the view mid-rename', () => {

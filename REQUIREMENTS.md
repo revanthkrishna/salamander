@@ -222,6 +222,7 @@ Captured once, at save time, so a reader of `feedback.md` can locate the selecte
 | E-15 | Full image cannot be loaded in the enlarged view | fallback | The on-screen thumbnail is shown instead. |
 | E-20 | The site's other pages cannot be read when a note is clicked | error | "couldn't load the other pages' notes. try again." in the view's top bar — the view opens on this page's notes, under its stored name. |
 | E-21 | A page's new name cannot be stored | error | "couldn't save the page name. try again." under the heading; the name goes back. |
+| E-21b | A page is renamed after its notes were deleted elsewhere | error | "this page's notes were deleted elsewhere. reopen to see the site as it is." under the heading; the name goes back. |
 | E-22 | A note is emptied in the enlarged view | inline | "note required" under it; closing is refused until it has text (FR-EV-8). |
 | E-16 | A note is clicked while add mode holds text or strokes | warning | "finish or cancel your note first." |
 

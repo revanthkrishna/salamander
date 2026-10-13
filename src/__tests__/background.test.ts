@@ -18,7 +18,7 @@
 import * as imageStore from '../imageStore';
 import * as storage from '../storage';
 import type { CaptureMessage, NewFeedbackItem } from '../messages';
-import { DELETE_ALL_FAILED_MESSAGE, PAGE_NAME_SAVE_ERROR_MESSAGE, SITE_LOAD_FAILED_MESSAGE } from '../copy';
+import { DELETE_ALL_FAILED_MESSAGE, PAGE_HAS_NO_NOTES_MESSAGE, PAGE_NAME_SAVE_ERROR_MESSAGE, SITE_LOAD_FAILED_MESSAGE } from '../copy';
 
 jest.mock('../imageStore');
 jest.mock('../storage', () => ({
@@ -934,12 +934,12 @@ describe('handleSetPageTitle (design spec §AH)', () => {
     expect(mockedStorage.setPageTitle).toHaveBeenCalledWith('example.com', 'example.com/a', null);
   });
 
-  it('a page with no notes left, or a write that fails, is the page-name copy', async () => {
+  it('a page with no notes left is NO_NOTES, saying why; a write that fails is FAILED, "try again"', async () => {
     mockedStorage.setPageTitle.mockResolvedValue(false);
-    expect(await background.handleSetPageTitle(msg('x'))).toEqual({ ok: false, message: PAGE_NAME_SAVE_ERROR_MESSAGE });
+    expect(await background.handleSetPageTitle(msg('x'))).toEqual({ ok: false, code: 'NO_NOTES', message: PAGE_HAS_NO_NOTES_MESSAGE });
     mockedStorage.setPageTitle.mockRejectedValue(new Error('quota'));
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    expect(await background.handleSetPageTitle(msg('x'))).toEqual({ ok: false, message: PAGE_NAME_SAVE_ERROR_MESSAGE });
+    expect(await background.handleSetPageTitle(msg('x'))).toEqual({ ok: false, code: 'FAILED', message: PAGE_NAME_SAVE_ERROR_MESSAGE });
     warn.mockRestore();
   });
 

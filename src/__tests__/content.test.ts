@@ -33,6 +33,7 @@ import {
   DELETE_ALL_CONFIRM_LABEL,
   IMPORT_REPLACE_CONFIRM_LABEL,
   SITE_LOAD_FAILED_MESSAGE,
+  PAGE_HAS_NO_NOTES_MESSAGE,
 } from '../copy';
 
 jest.mock('../capture', () => ({
@@ -768,6 +769,21 @@ describe('content.ts: enlarged view wiring (design spec §AH)', () => {
       normalisedUrl: pageItems[0].normalisedUrl,
       title: 'renamed',
     });
+  });
+
+  test('renaming a page whose notes were deleted elsewhere: the NO_NOTES reply says so under the heading', async () => {
+    await openFirstNote();
+    const base = (chrome.runtime.sendMessage as jest.Mock).getMockImplementation()!;
+    (chrome.runtime.sendMessage as jest.Mock).mockImplementation((message: any, callback?: (r?: unknown) => void) => {
+      if (message?.type === 'SET_PAGE_TITLE') return callback?.({ ok: false, code: 'NO_NOTES', message: 'x' });
+      return base(message, callback);
+    });
+    (sidebarShadow().querySelector('.xp-page-edit') as HTMLButtonElement).click();
+    (sidebarShadow().querySelector('.xp-page-input') as HTMLInputElement).value = 'renamed';
+    (sidebarShadow().querySelector('.xp-page-save') as HTMLButtonElement).click();
+    await flushMicrotasks();
+    expect(sidebarShadow().querySelector('.xp-page-status')!.textContent).toBe(PAGE_HAS_NO_NOTES_MESSAGE);
+    expect(sidebarShadow().querySelector('.xp-page-name')!.textContent).toBe('example');
   });
 
   test('the extension icon cannot close the sidebar while a note is empty', async () => {

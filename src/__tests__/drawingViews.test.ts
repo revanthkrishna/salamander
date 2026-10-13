@@ -155,7 +155,7 @@ describe('the enlarged view', () => {
       fetchFullImage: jest.fn().mockResolvedValue(null),
       onSaveNote: jest.fn().mockResolvedValue(true),
       onDelete: jest.fn().mockResolvedValue(true),
-      onSavePageTitle: jest.fn().mockResolvedValue(true),
+      onSavePageTitle: jest.fn().mockResolvedValue('saved'),
       onClosed: jest.fn(),
     } as unknown as EnlargedViewCallbacks;
   }

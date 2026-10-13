@@ -23,6 +23,7 @@ import {
   NOTE_PLACEHOLDER,
   NOTE_REQUIRED_MESSAGE,
   PAGE_NAME_SAVE_ERROR_MESSAGE,
+  PAGE_HAS_NO_NOTES_MESSAGE,
   SITE_LOAD_FAILED_MESSAGE,
   ENLARGED_VIEW_LABEL,
   THIS_PAGE_LABEL,
@@ -102,6 +103,7 @@ describe('the rest of the copy is lowercase and stable', () => {
   test('the enlarged view (design spec §AH)', () => {
     expect(NOTE_REQUIRED_MESSAGE).toBe('note required');
     expect(PAGE_NAME_SAVE_ERROR_MESSAGE).toBe("couldn't save the page name. try again.");
+    expect(PAGE_HAS_NO_NOTES_MESSAGE).toBe("this page's notes were deleted elsewhere. reopen to see the site as it is.");
     expect(SITE_LOAD_FAILED_MESSAGE).toBe("couldn't load the other pages' notes. try again.");
     expect(ENLARGED_VIEW_LABEL).toBe('all notes on this website');
     expect(THIS_PAGE_LABEL).toBe('this page');

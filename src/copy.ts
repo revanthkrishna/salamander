@@ -23,6 +23,10 @@ export const ITEM_LOAD_FAILED_MESSAGE = "couldn't load feedback for this page. t
 export const SITE_LOAD_FAILED_MESSAGE = "couldn't load the other pages' notes. try again.";
 /** A page's new name could not be stored (design spec §AH). */
 export const PAGE_NAME_SAVE_ERROR_MESSAGE = "couldn't save the page name. try again.";
+/** A page was renamed after its notes were deleted elsewhere (another tab):
+ *  a page exists only through its notes, so there is nothing to name, and
+ *  trying again cannot help — reopening shows the site as it now is. */
+export const PAGE_HAS_NO_NOTES_MESSAGE = "this page's notes were deleted elsewhere. reopen to see the site as it is.";
 export const IMAGE_LOAD_FAILED_MESSAGE = "couldn't load screenshot. try again.";
 
 /** A save failure, under the note's own text area. */

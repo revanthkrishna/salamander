@@ -274,8 +274,11 @@ export interface SetPageTitleSuccessResponse {
 
 export interface SetPageTitleErrorResponse {
   ok: false;
-  /** Lowercase, user-facing. Also the reply when the page no longer has any
-   *  notes (another tab deleted them): there is nothing left to name. */
+  /** NO_NOTES: the page has no notes any more (another tab deleted them),
+   *  so there is nothing to name and a retry cannot help; FAILED: the write
+   *  itself failed. */
+  code: 'NO_NOTES' | 'FAILED';
+  /** Lowercase, user-facing. */
   message: string;
 }
 

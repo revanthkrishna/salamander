@@ -42,6 +42,7 @@ import {
   DELETE_ALL_FAILED_MESSAGE,
   SITE_LOAD_FAILED_MESSAGE,
   PAGE_NAME_SAVE_ERROR_MESSAGE,
+  PAGE_HAS_NO_NOTES_MESSAGE,
 } from './copy';
 import { FeedbackItem, Rect, ViewportSize, DomainData } from './types';
 import {
@@ -402,14 +403,15 @@ export async function handleGetSitePages(message: GetSitePagesMessage): Promise<
 /** A page's edited name (design spec §AH): a read-modify-write of the domain
  *  index, so it shares the queue with every other index write — a rename
  *  racing a capture or a delete on the same site can't drop either. A page
- *  with no notes left has nothing to name, and says so as a failure. */
+ *  with no notes left has nothing to name: NO_NOTES, with copy that says
+ *  why rather than "try again". */
 export async function handleSetPageTitle(message: SetPageTitleMessage): Promise<SetPageTitleResponse> {
   try {
     const found = await enqueueSave(() => setPageTitle(message.domain, message.normalisedUrl, message.title));
-    return found ? { ok: true } : { ok: false, message: PAGE_NAME_SAVE_ERROR_MESSAGE };
+    return found ? { ok: true } : { ok: false, code: 'NO_NOTES', message: PAGE_HAS_NO_NOTES_MESSAGE };
   } catch (err) {
     console.warn('[Annotator] could not save the page name:', err);
-    return { ok: false, message: PAGE_NAME_SAVE_ERROR_MESSAGE };
+    return { ok: false, code: 'FAILED', message: PAGE_NAME_SAVE_ERROR_MESSAGE };
   }
 }
 
