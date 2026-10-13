@@ -82,3 +82,37 @@ test('keys pressed on the page itself still reach it while the sidebar is open',
   await page.keyboard.press('j');
   expect(await pageSaw(page)).toEqual(['keydown:j', 'keypress:j', 'keyup:j']);
 });
+
+test('while add mode is placing a box the page hears no key; Space still scrolls; Esc still exits', async () => {
+  const page = await hostilePage();
+  await page.mouse.click(200, 300); // focus on the page, not the sidebar
+  await page.keyboard.press('Alt+KeyN');
+  await page.locator(S.addModeHost).waitFor({ state: 'attached', timeout: 5000 });
+  // The Alt keydown itself came before add mode began: the page heard that.
+  await page.evaluate(() => {
+    window.__pageSaw = [];
+  });
+  await page.keyboard.press('j');
+  await page.keyboard.press('k');
+  const before = await page.evaluate(() => window.scrollY);
+  await page.keyboard.press(' ');
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(before);
+  expect(await pageSaw(page)).toEqual([]);
+
+  await page.keyboard.press('Escape');
+  await page.locator(S.addModeHost).waitFor({ state: 'detached', timeout: 5000 });
+  await expect(page.locator(S.addGroup)).not.toHaveClass(/is-on/);
+  // Add mode is over: the page hears keys again.
+  await page.keyboard.press('j');
+  expect(await pageSaw(page)).toContain('keydown:j');
+});
+
+test('typing a note still never reaches the page (the comment box, as before)', async () => {
+  const page = await hostilePage();
+  await helper.enterAddMode(page);
+  await helper.placeSelectionBox(page, 150, 200);
+  await page.locator(S.noteInput).focus();
+  await page.keyboard.type('a note ok');
+  await expect(page.locator(S.noteInput)).toHaveValue('a note ok');
+  expect((await pageSaw(page)).filter((k) => !k.endsWith(':Escape'))).toEqual([]);
+});

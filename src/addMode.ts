@@ -50,7 +50,7 @@ import { getSidebarWidth } from './sidebarWidth';
 import { getContentViewportSize } from './dom';
 import { clamp } from './flip';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
-import { KEY_PRIORITY } from './keyRouter';
+import { KEY_PRIORITY, registerKeyHandler } from './keyRouter';
 import { getThemeCSS, RADII } from './theme';
 import {
   cropDrawing,
@@ -268,6 +268,8 @@ let tooltipTimer: ReturnType<typeof setTimeout> | null = null;
 
 let activeZone: ZoneKey | null = null;
 let keyboardIsolation: KeyboardIsolationHandle | null = null;
+/** While a box is being placed, the page hears no key (placingKeys). */
+let releasePlacingKeys: (() => void) | null = null;
 /** The shared tooltip for this root (tooltip.ts, design spec §AG). */
 let addModeTooltips: TooltipHandle | null = null;
 
@@ -1034,6 +1036,7 @@ function onPlacementUp(e: MouseEvent): void {
  *  to 'editing', builds/opens the comment box, and focuses its textarea. */
 function finalizePlacement(): void {
   mode = 'editing';
+  stopPlacingKeys();
   elBlocker?.classList.remove('placing');
   // The preview only ever exists during 'placing' (design spec §G: "gone
   // for good once a rect is placed") — drop its listeners and any lingering
@@ -1424,6 +1427,27 @@ export function startAddMode(callbacks: AddModeCallbacks): void {
   document.addEventListener('mouseout', onPlacementMouseOut);
   layoutHost(getBounds());
   window.addEventListener('resize', handleBoundsChange);
+  // FR-AM-8: keyboard shortcuts are suppressed for the whole of add mode.
+  // Until a box is placed focus is still on the page (or on the sidebar's
+  // add button), so the page's shortcuts would fire under the scrim —
+  // YouTube's "f" and "k", Gmail's "j" and "k". Every key is stopped before
+  // the page hears it, at the key router's PLACING_ISOLATION: after
+  // salamander's own handlers (Esc and Option/Alt+N, the sidebar's keys),
+  // which run first. Stopped, never cancelled: Space and the arrows still
+  // scroll the page natively, as they always did. Placing a box hands over
+  // to the comment box's isolation (buildCommentDOM).
+  releasePlacingKeys = registerKeyHandler({
+    priority: KEY_PRIORITY.PLACING_ISOLATION,
+    types: ['keydown', 'keyup', 'keypress'],
+    handle: () => 'stop',
+  });
+}
+
+/** The placing phase's key handler off (a box was placed, or add mode
+ *  ended). */
+function stopPlacingKeys(): void {
+  releasePlacingKeys?.();
+  releasePlacingKeys = null;
 }
 
 /** Keep the selectable area — and a placed selection — inside the bounds
@@ -1527,6 +1551,7 @@ export function exitAddMode(): void {
 
   keyboardIsolation?.release();
   keyboardIsolation = null;
+  stopPlacingKeys();
   addModeTooltips?.destroy();
   addModeTooltips = null;
 

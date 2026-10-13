@@ -1239,18 +1239,23 @@ describe('add mode', () => {
     document.removeEventListener('keydown', hostileHandler);
   });
 
-  test('keyboard isolation is not installed before the comment box exists, and is released on exitAddMode', () => {
+  test('while placing the page hears no key; then the comment box is isolated; all of it released on exitAddMode', () => {
     let hostileFired = false;
     const hostileHandler = () => { hostileFired = true; };
     document.addEventListener('keydown', hostileHandler);
 
     addMode.startAddMode(makeCallbacks());
-    // Before placement, there is no textarea; a keydown on the blocker itself
-    // (not inside a text surface) should not be isolated away from the page.
-    blocker().dispatchEvent(new KeyboardEvent('keydown', { key: 'n', bubbles: true, cancelable: true, composed: true }));
-    expect(hostileFired).toBe(true);
+    // Before placement (FR-AM-8, owner decision D1): no key reaches the
+    // page, wherever focus is — the page's shortcuts must not fire under
+    // the scrim. Stopped, not cancelled, so Space still scrolls natively.
+    const onBlocker = new KeyboardEvent('keydown', { key: 'n', bubbles: true, cancelable: true, composed: true });
+    blocker().dispatchEvent(onBlocker);
+    const onPage = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(onPage);
+    expect(hostileFired).toBe(false);
+    expect(onBlocker.defaultPrevented).toBe(false);
+    expect(onPage.defaultPrevented).toBe(false);
 
-    hostileFired = false;
     place(blocker(), 300, 200);
     textarea().dispatchEvent(new KeyboardEvent('keydown', { key: 'n', bubbles: true, cancelable: true, composed: true }));
     expect(hostileFired).toBe(false); // isolated while the comment box is open
