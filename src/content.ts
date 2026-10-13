@@ -21,9 +21,9 @@
 // has to touch chrome.runtime itself.
 //
 // Also here: the double-injection idempotency guard, the chrome.runtime
-// message listener (PING / ACTIVATE / ICON_CLICKED), SPA navigation
-// detection (history.pushState/replaceState patching + popstate/hashchange
-// + debounce), and teardown on beforeunload.
+// message listener (PING / ACTIVATE / ICON_CLICKED), what an SPA
+// navigation does (src/navigation.ts detects it), and the flush on
+// beforeunload.
 //
 // The "sidebar open" state is deliberately not written from here: it lives
 // in chrome.storage.session, keyed by tab id (§1.1), which is only reachable
@@ -59,6 +59,7 @@ import {
 import type { PenColor } from './drawing';
 import { createAddModeControl } from './addModeControl';
 import { createSiteActions } from './siteActions';
+import { watchNavigation } from './navigation';
 
 declare global {
   interface Window {
@@ -241,7 +242,7 @@ function ensureStarted(): void {
       void siteActions.deleteItem(item);
     },
   });
-  setupNavigationDetection();
+  watchNavigation(handleUrlChange);
   window.addEventListener('beforeunload', handleBeforeUnload);
   window.addEventListener('pagehide', handleBeforeUnload);
   // Esc-exits-add-mode (§A2) — see onGlobalKeyDown's doc comment
@@ -284,27 +285,8 @@ function notifyBackground(message: SidebarOpenedMessage | SidebarClosedMessage):
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SPA navigation detection
+// SPA navigation (detected by src/navigation.ts)
 // ─────────────────────────────────────────────────────────────────────────────
-
-function setupNavigationDetection(): void {
-  const debouncedHandleUrlChange = debounce(handleUrlChange, 50);
-
-  const origPush = history.pushState.bind(history);
-  history.pushState = function (...args: Parameters<typeof history.pushState>) {
-    origPush(...args);
-    debouncedHandleUrlChange();
-  };
-
-  const origReplace = history.replaceState.bind(history);
-  history.replaceState = function (...args: Parameters<typeof history.replaceState>) {
-    origReplace(...args);
-    debouncedHandleUrlChange();
-  };
-
-  window.addEventListener('popstate', debouncedHandleUrlChange);
-  window.addEventListener('hashchange', debouncedHandleUrlChange);
-}
 
 function handleUrlChange(): void {
   const newUrl = normaliseUrl(location.href);
@@ -448,21 +430,6 @@ function handleBeforeUnload(): void {
   // pagehide (the only one fired on some navigations, e.g. bfcache); the
   // second call finds nothing dirty (in-flight saves count as clean).
   sidebar.flushEnlargedView();
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Utility: debounce
-// ─────────────────────────────────────────────────────────────────────────────
-
-function debounce<T extends (...args: unknown[]) => void>(fn: T, delay: number): T {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  return function (...args: Parameters<T>) {
-    if (timer !== null) clearTimeout(timer);
-    timer = setTimeout(() => {
-      fn(...args);
-      timer = null;
-    }, delay);
-  } as T;
 }
 
 })(); // end annotatorMain IIFE
