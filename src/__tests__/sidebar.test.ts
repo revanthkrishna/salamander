@@ -2496,3 +2496,88 @@ describe('scroll isolation', () => {
     expect(zoom.defaultPrevented).toBe(false);
   });
 });
+
+// Pins for the module split (architecture review A2): exact page-visible
+// state across open, drag and close, and a teardown that leaves nothing for
+// the next init to inherit.
+describe('sidebar split pins', () => {
+  afterEach(() => {
+    sidebar.destroySidebar();
+    html().style.cssText = '';
+    jest.restoreAllMocks();
+  });
+
+  function resizerEl(): HTMLElement {
+    return shadowRoot().querySelector('.resizer') as HTMLElement;
+  }
+  function resizeSheet(): string | null {
+    return document.getElementById('annotator-page-resize')?.textContent ?? null;
+  }
+
+  test('<html> inline style and the backstop sheet, exactly, after open, a drag and close', () => {
+    html().style.cssText = 'color: teal; margin-right: 3px;';
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+    expect(html().style.cssText).toBe(
+      'color: teal; margin-right: 300px !important; width: auto !important; min-width: 0px !important; overflow-x: hidden !important; --annotator-sidebar-width: 300px;',
+    );
+    expect(resizeSheet()).toBe(
+      'html:root {margin-right: 300px !important;width: auto !important;min-width: 0 !important;overflow-x: hidden !important;--annotator-sidebar-width: 300px;}',
+    );
+
+    const startX = window.innerWidth - sidebar.getSidebarWidth();
+    resizerEl().dispatchEvent(new MouseEvent('mousedown', { button: 0, clientX: startX, bubbles: true }));
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: window.innerWidth - 240, bubbles: true }));
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    expect(html().style.cssText).toBe(
+      'color: teal; margin-right: 240px !important; width: auto !important; min-width: 0px !important; overflow-x: hidden !important; --annotator-sidebar-width: 240px;',
+    );
+    expect(resizeSheet()).toBe(
+      'html:root {margin-right: 240px !important;width: auto !important;min-width: 0 !important;overflow-x: hidden !important;--annotator-sidebar-width: 240px;}',
+    );
+
+    sidebar.closeSidebar();
+    expect(html().style.cssText).toBe('color: teal; margin-right: 3px;');
+    expect(resizeSheet()).toBeNull();
+  });
+
+  test('destroySidebar then initSidebar starts fresh: menu, width, hold and the site-has-notes state', async () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+    sidebar.setSiteHasNotes(true);
+    sidebar.setSidebarWidth(250);
+    (shadowRoot().querySelector('.btn-menu') as HTMLButtonElement).click();
+    expect(sidebar.isMoreOptionsMenuOpen()).toBe(true);
+    sidebar.setAddModeHold(true);
+    sidebar.setAddButtonState('kept-on');
+    sidebar.showError('something went wrong');
+
+    sidebar.destroySidebar();
+    expect(getHost()).toBeNull();
+    expect(sidebar._pageResizeStateForTests()).toEqual({
+      applied: false,
+      observing: false,
+      reasserts: 0,
+      styleSheetAttached: false,
+      width: sidebar.SIDEBAR_DEFAULT_WIDTH,
+    });
+
+    sidebar.initSidebar(makeCallbacks());
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(sidebar.isSidebarVisible()).toBe(false);
+    expect(sidebar.isMoreOptionsMenuOpen()).toBe(false);
+    expect(sidebar.getSidebarWidth()).toBe(sidebar.SIDEBAR_DEFAULT_WIDTH);
+    const root = shadowRoot();
+    // Not on hold: the export group is live and the list is not dimmed.
+    expect(root.querySelector('.export-group')!.classList.contains('is-disabled')).toBe(false);
+    expect((root.querySelector('.btn-menu') as HTMLButtonElement).disabled).toBe(false);
+    expect(root.querySelector('.body')!.classList.contains('is-on-hold')).toBe(false);
+    // Nothing known about the site yet: export and delete-all greyed out.
+    expect(root.querySelector('.btn-export')!.getAttribute('aria-disabled')).toBe('true');
+    expect(root.querySelector('.action-menu-item.is-delete-all')!.getAttribute('aria-disabled')).toBe('true');
+    // The add control is off, and no banner is up.
+    expect(root.querySelector('.add-group')!.classList.contains('is-on')).toBe(false);
+    expect((root.querySelector('.notif') as HTMLElement).hidden).toBe(true);
+    expect(root.querySelector('.action-menu')!.getAttribute('data-open')).toBe('false');
+  });
+});
