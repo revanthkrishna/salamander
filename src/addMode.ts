@@ -45,7 +45,8 @@
 // right space for cropping a viewport screenshot.
 
 import { Drawing, DrawingStroke, Rect, ViewportSize } from './types';
-import { getSidebarWidth, DEFAULT_THUMBNAIL_BOX_SIZE } from './sidebar';
+import { DEFAULT_THUMBNAIL_BOX_SIZE } from './sidebarMetrics';
+import { getSidebarWidth } from './sidebarWidth';
 import { getContentViewportSize } from './dom';
 import { clamp } from './flip';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';

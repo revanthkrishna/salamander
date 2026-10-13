@@ -70,12 +70,18 @@ import {
   MENU_BORDER_PX,
   MENU_PAD_PX,
   PANEL_BORDER_PX,
-  SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
   sidebarLayoutFor,
 } from './sidebarMetrics';
 import { SIDEBAR_CSS } from './styles/sidebar.css';
+import {
+  getSidebarWidth,
+  loadPersistedWidth,
+  resetSidebarWidth,
+  setSidebarWidth,
+  subscribeSidebarWidth,
+} from './sidebarWidth';
 import {
   applyPageResize,
   isPageResized,
@@ -97,80 +103,32 @@ export {
   SIDEBAR_MIN_WIDTH,
   sidebarLayoutFor,
 } from './sidebarMetrics';
+// The width store, which content.ts and the tests reach through here.
+export { clampSidebarWidth, getSidebarWidth, setSidebarWidth } from './sidebarWidth';
 
 // ---------------------------------------------------------------------------
-// Sidebar width — user-resizable (drag handle on the panel's left edge) and
-// persisted, so every consumer must read it *live* via getSidebarWidth()
-// rather than importing a constant.
-//
-// The old fixed `SIDEBAR_WIDTH = 320` export is gone on purpose: the old modal
-// (backdrop inset), addMode.ts (selectable bounds) and the page-resize logic
-// below all sized themselves off it, and a stale copy of the width in any of
-// those places shows up as the sidebar overlapping page UI or a selection
-// that can capture a sliver of our own chrome (§6 #2).
-//
-// Default is the maximum (300px) rather than the old 320px: the drag range is
-// capped at 300, and starting at the widest end of the range preserves as much
-// of the pre-resize experience as the new clamp allows.
+// Sidebar width: the store is src/sidebarWidth.ts; the panel follows it
+// (followWidth, subscribed in initSidebar).
 // ---------------------------------------------------------------------------
-
-// The width range (SIDEBAR_MIN_WIDTH … SIDEBAR_MAX_WIDTH, and the default)
-// and every other layout metric live in src/sidebarMetrics.ts.
-
-/** chrome.storage.local key (NOT .session): the width is a durable UI
- *  preference, unlike the per-tab "sidebar is open" flag which is
- *  deliberately session-scoped (§1.1). Content scripts can read and write
- *  chrome.storage.local directly, so this needs no service-worker round trip. */
-const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebarWidth';
 
 /** Keyboard resize step for the handle's arrow keys. */
 const RESIZE_KEY_STEP = 10;
 
-let sidebarWidth = SIDEBAR_DEFAULT_WIDTH;
+/** The panel's subscription to the width store, while it is built. */
+let unsubscribeWidth: (() => void) | null = null;
 
-/** True once the user has dragged (or arrow-keyed) the handle in this
- *  document. Guards against a slow chrome.storage read landing *after* the
- *  user has already picked a width and snapping the panel back. */
-let widthChosenByUser = false;
-
-/** The sidebar's current width in CSS pixels. This is the single source of
- *  truth — enlargedView.ts, addMode.ts and the page-resize logic all call it. */
-export function getSidebarWidth(): number {
-  return sidebarWidth;
-}
-
-/** Clamp to the resizable range, tolerating NaN/Infinity from storage. */
-export function clampSidebarWidth(px: number): number {
-  if (!Number.isFinite(px)) return SIDEBAR_DEFAULT_WIDTH;
-  return Math.round(Math.min(Math.max(px, SIDEBAR_MIN_WIDTH), SIDEBAR_MAX_WIDTH));
-}
-
-/**
- * Resize the panel. Updates the panel's own width, the page shrink (if the
- * sidebar is open) and the `--annotator-sidebar-width` custom property that
- * any shadow tree can read, all in one place.
- *
- * `persist` is false for the live frames of a drag and true once the gesture
- * commits — writing chrome.storage on every mousemove would be pointless I/O.
- */
-export function setSidebarWidth(px: number, options: { persist?: boolean } = {}): void {
-  const next = clampSidebarWidth(px);
-  const changed = next !== sidebarWidth;
-  sidebarWidth = next;
+/** The panel's side of every width change: its own box always, and the page
+ *  shrink when the width really changed while the page is shrunk. */
+function followWidth(width: number, changed: boolean): void {
   applyWidthToPanel();
-
   if (changed && isPageResized()) {
     // Sidebar is open, so the page is currently shrunk — re-shrink to match.
-    rewritePageResize(next);
-  }
-
-  if (options.persist) {
-    widthChosenByUser = true;
-    persistSidebarWidth(next);
+    rewritePageResize(width);
   }
 }
 
 function applyWidthToPanel(): void {
+  const sidebarWidth = getSidebarWidth();
   if (elSidebar) {
     elSidebar.style.width = `${sidebarWidth}px`;
     // Responsive layout (design spec §3.1) — driven from here rather than a
@@ -182,32 +140,6 @@ function applyWidthToPanel(): void {
     elSidebar.classList.toggle('is-narrow', layout.narrow);
   }
   if (elResizer) elResizer.setAttribute('aria-valuenow', String(sidebarWidth));
-}
-
-function persistSidebarWidth(px: number): void {
-  try {
-    chrome?.storage?.local?.set({ [SIDEBAR_WIDTH_STORAGE_KEY]: px }, () => {
-      // Read lastError so Chrome doesn't log an unchecked-error warning; a
-      // failed write only costs the user their width next session.
-      void chrome.runtime?.lastError;
-    });
-  } catch {
-    // chrome.storage unavailable (restricted page, torn-down context).
-  }
-}
-
-function loadPersistedWidth(): void {
-  try {
-    chrome?.storage?.local?.get(SIDEBAR_WIDTH_STORAGE_KEY, (result) => {
-      if (chrome.runtime?.lastError) return;
-      if (widthChosenByUser) return; // user already picked one — don't snap back
-      const stored = result?.[SIDEBAR_WIDTH_STORAGE_KEY];
-      if (typeof stored !== 'number') return;
-      setSidebarWidth(stored, { persist: false });
-    });
-  } catch {
-    // chrome.storage unavailable — stay on the default width.
-  }
 }
 
 export interface SidebarCallbacks {
@@ -389,7 +321,7 @@ function buildDOM(shadow: ShadowRoot): void {
   elResizer.tabIndex = 0;
   elResizer.setAttribute('aria-valuemin', String(SIDEBAR_MIN_WIDTH));
   elResizer.setAttribute('aria-valuemax', String(SIDEBAR_MAX_WIDTH));
-  elResizer.setAttribute('aria-valuenow', String(sidebarWidth));
+  elResizer.setAttribute('aria-valuenow', String(getSidebarWidth()));
 
   // Purely visual hairline — a sibling (not ::after) so it can sit below
   // magnified items while the hit target sits above them (see .resizer).
@@ -800,6 +732,7 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
   // persist: it resets to off per page session, like the old lock.
   setAddButtonState('off');
 
+  unsubscribeWidth = subscribeSidebarWidth(followWidth);
   applyWidthToPanel();
   loadPersistedWidth();
 }
@@ -1072,7 +1005,7 @@ function showMenuList(): void {
 
 /** The panel's content width: the box a confirmation fills. */
 function confirmWidthPx(): number {
-  return Math.max(0, sidebarWidth - PANEL_BORDER_PX - ACTION_ROW_PAD_X * 2);
+  return Math.max(0, getSidebarWidth() - PANEL_BORDER_PX - ACTION_ROW_PAD_X * 2);
 }
 
 /** Side by side when both buttons fit on one line at their natural
@@ -1247,7 +1180,7 @@ function onResizerMouseDown(e: MouseEvent): void {
   e.stopPropagation();
   if (resizeDragging) return;
   resizeDragging = true;
-  resizeGrabOffset = viewportRightEdge() - e.clientX - sidebarWidth;
+  resizeGrabOffset = viewportRightEdge() - e.clientX - getSidebarWidth();
   elResizer?.classList.add('dragging');
   window.addEventListener('mousemove', onResizeDragMove, true);
   window.addEventListener('mouseup', onResizeDragEnd, true);
@@ -1262,7 +1195,7 @@ function onResizeDragEnd(): void {
   if (!resizeDragging) return;
   endResizeDrag();
   // Commit: one storage write per gesture, not one per frame.
-  setSidebarWidth(sidebarWidth, { persist: true });
+  setSidebarWidth(getSidebarWidth(), { persist: true });
 }
 
 function endResizeDrag(): void {
@@ -1276,8 +1209,8 @@ function endResizeDrag(): void {
  *  into the page), right shrinks it. Home/End jump to the extremes. */
 function onResizerKeyDown(e: KeyboardEvent): void {
   let next: number | null = null;
-  if (e.key === 'ArrowLeft') next = sidebarWidth + RESIZE_KEY_STEP;
-  else if (e.key === 'ArrowRight') next = sidebarWidth - RESIZE_KEY_STEP;
+  if (e.key === 'ArrowLeft') next = getSidebarWidth() + RESIZE_KEY_STEP;
+  else if (e.key === 'ArrowRight') next = getSidebarWidth() - RESIZE_KEY_STEP;
   else if (e.key === 'Home') next = SIDEBAR_MAX_WIDTH;
   else if (e.key === 'End') next = SIDEBAR_MIN_WIDTH;
   if (next === null) return;
@@ -1299,7 +1232,7 @@ export function openSidebar(): void {
   if (!elSidebar) return;
   elSidebar.hidden = false;
   visible = true;
-  applyPageResize(sidebarWidth);
+  applyPageResize(getSidebarWidth());
   syncDockMotion();
 }
 
@@ -1649,8 +1582,8 @@ function enlargedMount(): EnlargedViewMount | null {
     host: sidebarHost,
     shadow: sidebarShadow,
     sidebarEl: elSidebar,
-    getSidebarWidth: () => sidebarWidth,
-    getListLayout: () => sidebarLayoutFor(sidebarWidth),
+    getSidebarWidth: () => getSidebarWidth(),
+    getListLayout: () => sidebarLayoutFor(getSidebarWidth()),
     getLogoSrc: () => elLogoImg?.src ?? '',
     getListThumb: (id) =>
       elThumbnailList?.querySelector<HTMLElement>(`button.thumbnail[data-item-id="${id}"] .thumbnail-image-wrap`) ?? null,
@@ -1805,8 +1738,9 @@ export function destroySidebar(): void {
   // Hard reset, not a soft close: the next initSidebar() re-reads the
   // persisted width from scratch, so in-memory width state must not leak
   // across a teardown.
-  sidebarWidth = SIDEBAR_DEFAULT_WIDTH;
-  widthChosenByUser = false;
+  unsubscribeWidth?.();
+  unsubscribeWidth = null;
+  resetSidebarWidth();
 }
 
 // ---------------------------------------------------------------------------
@@ -1889,5 +1823,5 @@ export function _pageResizeStateForTests(): {
   styleSheetAttached: boolean;
   width: number;
 } {
-  return { ...pageResizeStateForTests(), width: sidebarWidth };
+  return { ...pageResizeStateForTests(), width: getSidebarWidth() };
 }
