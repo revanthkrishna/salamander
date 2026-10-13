@@ -2,10 +2,12 @@
 // stylesheet salamander puts on a page is compared with a golden file in
 // __golden__/: the sidebar's shadow root (theme tokens, the panel, the
 // enlarged view and the tooltip), add mode's shadow root (theme tokens, add
-// mode and the tooltip) and the page-resize sheet on <html>. A refactor that
-// moves CSS between modules must leave these unchanged; a deliberate visual
-// change regenerates them with `UPDATE_GOLDEN=1 npx jest emittedCss` and the
-// diff is reviewed as CSS.
+// mode and the tooltip) and the page-resize sheet on <html>, as shipped:
+// with the stylesheets' comments stripped, as the bundle strips them
+// (build/stripCssComments.js, wired into jest by
+// build/jestStripCssTransform.js). A refactor that moves CSS between modules
+// must leave these unchanged; a deliberate visual change regenerates them
+// with `UPDATE_GOLDEN=1 npx jest emittedCss` and the diff is reviewed as CSS.
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -13,6 +15,9 @@ import * as path from 'path';
 const GOLDEN_DIR = path.join(__dirname, '__golden__');
 
 function matchesGolden(name: string, actual: string): void {
+  // The stylesheets' comments are stripped at build time
+  // (build/stripCssComments.js): none may ship.
+  expect(actual).not.toMatch(/\/\*|\*\//);
   const file = path.join(GOLDEN_DIR, name);
   if (process.env.UPDATE_GOLDEN === '1') fs.writeFileSync(file, actual);
   expect(fs.existsSync(file)).toBe(true);
