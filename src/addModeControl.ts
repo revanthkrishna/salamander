@@ -92,6 +92,11 @@ export function createAddModeControl(deps: AddModeControlDeps): AddModeControl {
    *  if a dblclick or another exit path pre-empts it. */
   let pendingAddOffTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Bumped by every entry into add mode: a capture that resolves after a
+   *  new session has started (the button clicked off and on, or Esc then
+   *  Option/Alt+N, while it was in flight) leaves that session alone. */
+  let session = 0;
+
   function clearPendingAddOff(): void {
     if (pendingAddOffTimer !== null) {
       clearTimeout(pendingAddOffTimer);
@@ -105,6 +110,7 @@ export function createAddModeControl(deps: AddModeControlDeps): AddModeControl {
    *  off, and re-entry while the switch is on after a successful capture or a
    *  per-note cancel. */
   function enter(): void {
+    session++;
     // The enlarged view and add mode can never coexist (design spec v2 §D) —
     // nothing of it may be on screen for add mode's capture. Cancel-then-run
     // (MOTION_SPEC §13): kill it instantly to its resting closed state, no
@@ -181,8 +187,13 @@ export function createAddModeControl(deps: AddModeControlDeps): AddModeControl {
    * in the sidebar's error bar — lowercase, verbatim from §5. The switch and
    * the control's paint are untouched either way, since add mode itself
    * hasn't exited.
+   *
+   * A success that lands after a new session has started (`session` moved
+   * on) only refreshes the list: the new session is the user's, and is left
+   * exactly as it is.
    */
   async function handleCaptureOk(result: AddModeModule.AddModeResult): Promise<void> {
+    const started = session;
     const outcome = await deps.captureAndSave(result, {
       hide: () => {
         sidebar.hideTooltipNow();
@@ -196,11 +207,13 @@ export function createAddModeControl(deps: AddModeControlDeps): AddModeControl {
       return;
     }
 
-    addMode.exitAddMode();
-    if (addKeptOn) {
-      enter();
-    } else {
-      finish();
+    if (started === session) {
+      addMode.exitAddMode();
+      if (addKeptOn) {
+        enter();
+      } else {
+        finish();
+      }
     }
     // Re-read the list for the current URL so the new item shows up.
     deps.onSaved();

@@ -309,3 +309,40 @@ describe('Option/Alt+N', () => {
     }
   });
 });
+
+describe('a capture still in flight when a new session starts (the capture session token)', () => {
+  test('its late success leaves the new session alone, and still refreshes the list', async () => {
+    const h = harness();
+    let resolveCapture!: (o: CaptureOutcome) => void;
+    h.captureAndSave.mockImplementation(() => new Promise((resolve) => (resolveCapture = resolve)));
+    h.control.onButtonClick();
+    h.callbacks().onOk(RESULT);
+    // While it is in flight: add note clicked off, then on again.
+    h.setNow(5000);
+    h.control.onButtonClick();
+    h.setNow(9000);
+    h.control.onButtonClick();
+    expect(h.active()).toBe(true);
+    const paints = h.paints.length;
+
+    resolveCapture({ ok: true, item: {} as never });
+    await flush();
+    expect(h.active()).toBe(true);
+    expect(h.paints.length).toBe(paints);
+    expect(h.saved).toHaveBeenCalledTimes(1);
+  });
+
+  test('Esc during the capture (no new session) ends add mode as before', async () => {
+    const h = harness();
+    let resolveCapture!: (o: CaptureOutcome) => void;
+    h.captureAndSave.mockImplementation(() => new Promise((resolve) => (resolveCapture = resolve)));
+    h.control.onButtonClick();
+    h.callbacks().onOk(RESULT);
+    h.control.onGlobalKeyDown(key({ key: 'Escape' }));
+    resolveCapture({ ok: true, item: {} as never });
+    await flush();
+    expect(h.active()).toBe(false);
+    expect(last(h.paints)).toBe('off');
+    expect(h.saved).toHaveBeenCalledTimes(1);
+  });
+});
