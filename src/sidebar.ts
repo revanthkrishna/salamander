@@ -31,24 +31,12 @@
 
 import { FeedbackItem } from './types';
 import { addNoteShortcutLabel } from './shortcut';
-import {
-  CONFIRM_CANCEL_LABEL,
-  NOTHING_TO_DELETE_MESSAGE,
-  NOTHING_TO_EXPORT_MESSAGE,
-  SITE_LOAD_FAILED_MESSAGE,
-} from './copy';
+import { NOTHING_TO_EXPORT_MESSAGE, SITE_LOAD_FAILED_MESSAGE } from './copy';
 import { attachTooltips, isSoftDisabled, setSoftDisabled, TooltipHandle, TOOLTIP_CSS } from './tooltip';
 import { renderThumbnailList } from './thumbnails';
 import { attachDockMotion, DockMotionHandle } from './dockMotion';
 import { getContentViewportSize, reducedMotionQuery } from './dom';
-import {
-  ICON_CLOSE,
-  ICON_COMMENT,
-  ICON_EXPORT,
-  ICON_IMPORT,
-  ICON_MORE,
-  ICON_TRASH,
-} from './icons';
+import { ICON_CLOSE, ICON_COMMENT, ICON_EXPORT, ICON_MORE } from './icons';
 import {
   openEnlargedView as openEnlargedViewImpl,
   ENLARGED_VIEW_CSS,
@@ -59,21 +47,16 @@ import {
 } from './enlargedView';
 import { getThemeCSS } from './theme';
 import {
-  ACTION_ROW_PAD_X,
   ADD_SWITCH_GRACE_MS,
   ADD_SWITCH_REVEAL_MS,
-  CONFIRM_ACTIONS_GAP_PX,
-  EASE_STD,
   ITEM_REMOVE_TOTAL_MS,
-  MENU_BORDER_PX,
-  MENU_PAD_PX,
-  PANEL_BORDER_PX,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
   sidebarLayoutFor,
 } from './sidebarMetrics';
 import { SIDEBAR_CSS } from './styles/sidebar.css';
 import { Notifications } from './notifications';
+import { ActionMenu, ConfirmTone } from './actionMenu';
 import {
   getSidebarWidth,
   loadPersistedWidth,
@@ -88,6 +71,8 @@ import {
   rewritePageResize,
   _stateForTests as pageResizeStateForTests,
 } from './pageResize';
+
+export type { ConfirmTone } from './actionMenu';
 
 // The metrics content.ts, add mode and the tests read through this module.
 export {
@@ -237,19 +222,8 @@ let elExportGroup: HTMLDivElement | null = null;
 let elBtnExport: HTMLButtonElement | null = null;
 /** "more options" (⋯), the button that opens elActionMenu. */
 let elBtnMenu: HTMLButtonElement | null = null;
-let elActionMenu: HTMLDivElement | null = null;
-/** "import" — the menu's first item. */
-let elBtnImport: HTMLButtonElement | null = null;
-/** "delete all for this website" (design spec §AE). */
-let elBtnDeleteAll: HTMLButtonElement | null = null;
-/** The menu's two faces (design spec §AF): the item list, and the
- *  confirmation the menu turns into in place. */
-let elMenuList: HTMLDivElement | null = null;
-let elMenuConfirm: HTMLDivElement | null = null;
-let elMenuConfirmText: HTMLParagraphElement | null = null;
-let elMenuConfirmCancel: HTMLButtonElement | null = null;
-let elMenuConfirmOk: HTMLButtonElement | null = null;
-let elMenuConfirmActions: HTMLDivElement | null = null;
+/** The "more options" menu and its confirmation (src/actionMenu.ts). */
+let actionMenu: ActionMenu | null = null;
 /** The panel's tooltips (design spec §AG), the enlarged view's included. */
 let sidebarTooltips: TooltipHandle | null = null;
 let elBtnClose: HTMLButtonElement | null = null;
@@ -399,53 +373,17 @@ function buildDOM(shadow: ShadowRoot): void {
   elBtnMenu.setAttribute('aria-haspopup', 'menu');
   elBtnMenu.setAttribute('aria-expanded', 'false');
 
-  elActionMenu = document.createElement('div');
-  elActionMenu.className = 'action-menu';
-  elActionMenu.setAttribute('role', 'menu');
-  elActionMenu.setAttribute('aria-label', 'more options');
-  elActionMenu.dataset.open = 'false';
-  // What a delete-all reason sits beside.
-  elActionMenu.dataset.tipEdge = '';
-
-  elBtnImport = makeMenuItem(ICON_IMPORT, 'import', 'is-import');
-  const divider = document.createElement('div');
-  divider.className = 'action-menu-divider';
-  divider.setAttribute('role', 'separator');
-  elBtnDeleteAll = makeMenuItem(ICON_TRASH, 'delete all for this website', 'is-danger is-delete-all');
-  // Its reason sits beside the menu, to the left: the menu is against the
-  // window's right edge (§AF).
-  elBtnDeleteAll.dataset.tipReason = NOTHING_TO_DELETE_MESSAGE;
-  elBtnDeleteAll.dataset.tipSide = 'left';
-  elMenuList = document.createElement('div');
-  elMenuList.className = 'action-menu-list';
-  elMenuList.append(elBtnImport, divider, elBtnDeleteAll);
-
-  // The confirmation the menu morphs into (design spec §AF). Hidden until a
-  // question is asked; its text and confirming label are set per question.
-  elMenuConfirm = document.createElement('div');
-  elMenuConfirm.className = 'action-menu-confirm';
-  elMenuConfirm.hidden = true;
-  elMenuConfirmText = document.createElement('p');
-  elMenuConfirmText.className = 'action-menu-confirm-text';
-  elMenuConfirmText.id = MENU_CONFIRM_TEXT_ID;
-  const confirmActions = document.createElement('div');
-  confirmActions.className = 'action-menu-confirm-actions';
-  elMenuConfirmActions = confirmActions;
-  elMenuConfirmCancel = document.createElement('button');
-  elMenuConfirmCancel.type = 'button';
-  elMenuConfirmCancel.className = 'confirm-btn is-cancel';
-  elMenuConfirmCancel.textContent = CONFIRM_CANCEL_LABEL;
-  elMenuConfirmOk = document.createElement('button');
-  elMenuConfirmOk.type = 'button';
-  elMenuConfirmOk.className = 'confirm-btn is-danger is-confirm';
-  confirmActions.append(elMenuConfirmCancel, elMenuConfirmOk);
-  elMenuConfirm.append(elMenuConfirmText, confirmActions);
-
-  elActionMenu.append(elMenuList, elMenuConfirm);
+  actionMenu = new ActionMenu({
+    button: elBtnMenu,
+    group: elExportGroup,
+    shadow,
+    host: sidebarHost!,
+    hideTooltip: () => sidebarTooltips?.hide(),
+  });
 
   elExportGroup.appendChild(elBtnExport);
   elExportGroup.appendChild(elBtnMenu);
-  elExportGroup.appendChild(elActionMenu);
+  elExportGroup.appendChild(actionMenu.el);
 
   actionRow.appendChild(elAddGroup);
   actionRow.appendChild(elExportGroup);
@@ -532,26 +470,6 @@ function makeIconButton(svgMarkup: string, ariaLabel: string, className: string)
   span.className = 'icon';
   span.innerHTML = svgMarkup;
   btn.appendChild(span);
-  return btn;
-}
-
-/** One row of the "more options" menu (§C2, §AE): a 16px leading icon plus a
- *  visible, lowercase label. `role="menuitem"` and the roving Tab/arrow
- *  behaviour are wired in initSidebar. `extraClass` names the item (and
- *  marks the destructive one). */
-function makeMenuItem(svgMarkup: string, label: string, extraClass = ''): HTMLButtonElement {
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = extraClass ? `action-menu-item ${extraClass}` : 'action-menu-item';
-  btn.setAttribute('role', 'menuitem');
-  const icon = document.createElement('span');
-  icon.className = 'icon';
-  icon.innerHTML = svgMarkup;
-  const text = document.createElement('span');
-  text.className = 'menu-item-label';
-  text.textContent = label;
-  btn.appendChild(icon);
-  btn.appendChild(text);
   return btn;
 }
 
@@ -772,57 +690,20 @@ function wireExportGroup(): void {
     callbacksRef?.onExport();
   });
 
-  elBtnMenu!.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (menuOpen) {
-      closeActionMenu();
-      return;
-    }
-    // A keyboard activation (Enter/Space) reports detail 0, a real pointer
-    // click reports ≥1 — the spec only wants focus pulled into the menu for
-    // the former ("open via keyboard focuses the first item").
-    openActionMenu({ focusFirstItem: e.detail === 0 });
-  });
-  elBtnMenu!.addEventListener('keydown', (e) => {
-    // Esc closes a menu opened by pointer, where focus is still on "more
-    // options" rather than inside the menu (§C2's "Esc" applies either way).
-    if (e.key === 'Escape' && menuOpen) {
-      e.preventDefault();
-      e.stopPropagation();
-      closeActionMenu();
-      return;
-    }
-    // ArrowDown/Up open the menu straight into its first item, the usual
-    // menu-button convention.
-    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-    e.preventDefault();
-    e.stopPropagation();
-    openActionMenu({ focusFirstItem: true });
-  });
+  // "more options", the menu's keys and its question's buttons.
+  actionMenu!.wire();
 
-  elActionMenu!.addEventListener('keydown', onActionMenuKeyDown);
-
-  elBtnImport!.addEventListener('click', (e) => {
+  actionMenu!.importItem.addEventListener('click', (e) => {
     e.stopPropagation();
     // The menu stays open: content.ts asks first if it must, then calls
     // openImportPicker() (§AF).
     callbacksRef?.onImport();
   });
 
-  elBtnDeleteAll!.addEventListener('click', (e) => {
+  actionMenu!.deleteAllItem.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (isSoftDisabled(elBtnDeleteAll)) return;
+    if (isSoftDisabled(actionMenu?.deleteAllItem ?? null)) return;
     callbacksRef?.onDeleteAll();
-  });
-
-  elMenuConfirmCancel!.addEventListener('click', (e) => {
-    e.stopPropagation();
-    closeActionMenu({ returnFocus: true });
-  });
-  elMenuConfirmOk!.addEventListener('click', (e) => {
-    e.stopPropagation();
-    settleMenuConfirm(true);
-    closeActionMenu({ returnFocus: true });
   });
 
   elFileInput!.addEventListener('change', () => {
@@ -844,238 +725,43 @@ function wireChrome(shadow: ShadowRoot): void {
   elResizer!.addEventListener('mousedown', onResizerMouseDown);
   elResizer!.addEventListener('keydown', onResizerKeyDown);
 
-  // "Outside pointerdown closes the menu" (§C2) needs two listeners, because
-  // this shadow root is *closed*: an event raised inside it retargets to the
-  // host by the time it reaches the document, and composedPath() is
-  // truncated for listeners outside the tree. So the shadow root itself sees
-  // everything inside the sidebar, and the document listener handles the
-  // host page (where every one of our events looks like `sidebarHost`).
-  shadow.addEventListener('pointerdown', onShadowPointerDown, true);
-  document.addEventListener('pointerdown', onDocumentPointerDown, true);
+  // A press outside closes the menu (src/actionMenu.ts says why it takes
+  // two listeners).
+  actionMenu!.listenForOutsidePresses();
 }
 
 // ---------------------------------------------------------------------------
-// The "more options" menu (design spec v3 §C2, §AE)
-//
-// Lives inside the sidebar's own closed shadow root — there is nowhere else
-// it could go — and is shown/hidden via a `data-open` attribute so the CSS
-// owns both the entrance and the (shorter) exit. Nothing inside it is
-// focusable while it is closed: the closed rule is `visibility: hidden`.
+// The "more options" menu (design spec v3 §C2, §AE, §AF): src/actionMenu.ts
 // ---------------------------------------------------------------------------
-
-let menuOpen = false;
-
-function openActionMenu(options: { focusFirstItem?: boolean } = {}): void {
-  if (!elActionMenu || !elBtnMenu || menuOpen || elBtnMenu.disabled) return;
-  menuOpen = true;
-  // Always opens as the item list, whatever it closed as.
-  showMenuList();
-  elActionMenu.dataset.open = 'true';
-  elExportGroup?.classList.add('is-menu-open');
-  elBtnMenu.setAttribute('aria-expanded', 'true');
-  if (options.focusFirstItem) menuItems()[0]?.focus();
-}
-
-/**
- * Close the menu. `returnFocus` hands focus back to "more options", which is
- * right for Esc (§C2) and wrong for an outside click — the user has already
- * aimed somewhere else, and stealing focus back would fight them.
- */
-function closeActionMenu(options: { returnFocus?: boolean } = {}): void {
-  if (!elActionMenu || !elBtnMenu || !menuOpen) return;
-  menuOpen = false;
-  // A question still open is answered no: closing is cancelling (§AF).
-  settleMenuConfirm(false);
-  sidebarTooltips?.hide();
-  elActionMenu.dataset.open = 'false';
-  elExportGroup?.classList.remove('is-menu-open');
-  elBtnMenu.setAttribute('aria-expanded', 'false');
-  if (options.returnFocus) elBtnMenu.focus();
-}
-
-function menuItems(): HTMLButtonElement[] {
-  return Array.from(elActionMenu?.querySelectorAll<HTMLButtonElement>('.action-menu-item:not([disabled])') ?? []);
-}
-
-/** Up/Down move between items (wrapping), Esc closes and returns focus to
- *  the button, Tab closes and lets focus move on normally (§C2). As a
- *  confirmation (§AF), Esc cancels and Tab moves between its two buttons
- *  rather than dismissing the question. */
-function onActionMenuKeyDown(e: KeyboardEvent): void {
-  if (e.key === 'Escape') {
-    e.preventDefault();
-    e.stopPropagation();
-    closeActionMenu({ returnFocus: true });
-    return;
-  }
-  if (menuView === 'confirm') {
-    if (e.key !== 'Tab') return;
-    e.preventDefault();
-    const onCancel = sidebarShadow?.activeElement === elMenuConfirmCancel;
-    (onCancel ? elMenuConfirmOk : elMenuConfirmCancel)?.focus();
-    return;
-  }
-  if (e.key === 'Tab') {
-    closeActionMenu();
-    return;
-  }
-  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-  const items = menuItems();
-  if (items.length === 0) return;
-  e.preventDefault();
-  e.stopPropagation();
-  // ShadowRoot.activeElement, not document.activeElement — the latter only
-  // ever reports the host for anything focused inside a closed root.
-  const current = items.indexOf(sidebarShadow?.activeElement as HTMLButtonElement);
-  const from = current >= 0 ? current : 0;
-  const delta = e.key === 'ArrowDown' ? 1 : -1;
-  items[(from + delta + items.length) % items.length].focus();
-}
-
-// ---------------------------------------------------------------------------
-// The menu as a confirmation (design spec §AF)
-//
-// Delete-all, and import when the site already has notes, ask in place: the
-// menu itself turns into the question. Its box morphs from the menu's size
-// to the full width of the panel (16px from each side, like the action row)
-// and the question's height; only the size animates, the contents swap at
-// once. The contents are laid out at their final width and pinned to the
-// box's top-right corner, so the growing box uncovers them rather than
-// reflowing them frame by frame. Anything that closes the menu — cancel,
-// Esc, a press outside, the sidebar closing, add mode — answers no.
-// ---------------------------------------------------------------------------
-
-const MENU_CONFIRM_TEXT_ID = 'menu-confirm-text';
-/** The morph's duration: a size change in an element already on screen, a
- *  touch longer than the menu's 120ms entrance (motion spec: standard
- *  easing for anything that stays on screen). */
-export const MENU_MORPH_MS = 200;
-
-type MenuView = 'list' | 'confirm';
-let menuView: MenuView = 'list';
-let menuConfirmResolve: ((answer: boolean) => void) | null = null;
-let menuMorph: Animation | null = null;
-
-function settleMenuConfirm(answer: boolean): void {
-  const resolve = menuConfirmResolve;
-  menuConfirmResolve = null;
-  resolve?.(answer);
-}
-
-/** Back to the item list (on every open), with the box's own sizing. */
-function showMenuList(): void {
-  menuMorph?.cancel();
-  menuMorph = null;
-  menuView = 'list';
-  if (!elActionMenu) return;
-  elActionMenu.classList.remove('is-confirm');
-  elActionMenu.style.width = '';
-  elActionMenu.setAttribute('role', 'menu');
-  elActionMenu.setAttribute('aria-label', 'more options');
-  elActionMenu.removeAttribute('aria-labelledby');
-  elActionMenu.removeAttribute('aria-describedby');
-  if (elMenuList) elMenuList.hidden = false;
-  if (elMenuConfirm) elMenuConfirm.hidden = true;
-}
-
-/** The panel's content width: the box a confirmation fills. */
-function confirmWidthPx(): number {
-  return Math.max(0, getSidebarWidth() - PANEL_BORDER_PX - ACTION_ROW_PAD_X * 2);
-}
-
-/** Side by side when both buttons fit on one line at their natural
- *  (unwrapped) widths; otherwise stacked full width, cancel at the bottom.
- *  Measured per question, since the confirming label differs. */
-function layoutConfirmActions(): void {
-  const actions = elMenuConfirmActions;
-  if (!actions || !elMenuConfirmCancel || !elMenuConfirmOk) return;
-  actions.classList.remove('is-stacked');
-  const needed = elMenuConfirmCancel.offsetWidth + CONFIRM_ACTIONS_GAP_PX + elMenuConfirmOk.offsetWidth;
-  actions.classList.toggle('is-stacked', needed > actions.clientWidth);
-}
-
-/** How confirmInMenu styles its confirming button. */
-export type ConfirmTone = 'danger' | 'accent';
 
 /**
  * Turn the open menu into a yes/no question (design spec §AF) and resolve
  * with the answer: true only for the confirming button. Resolves false at
- * once if the menu is not open (the user dismissed it while the question
- * was being prepared), and false when anything closes the menu. Focus goes
- * to "cancel", so a stray Enter is the safe answer.
- *
- * `tone` styles the confirming button: 'danger' (soft red) for a delete,
- * 'accent' (yellow text, like "add note"'s glyph) for everything else.
+ * once if the menu is not open, and false when anything closes the menu
+ * (ActionMenu.confirm).
  */
 export function confirmInMenu(message: string, confirmLabel: string, tone: ConfirmTone = 'danger'): Promise<boolean> {
-  if (!menuOpen || !elActionMenu || !elMenuList || !elMenuConfirm || !elMenuConfirmText || !elMenuConfirmOk) {
-    return Promise.resolve(false);
-  }
-  settleMenuConfirm(false);
-  sidebarTooltips?.hide();
-
-  return new Promise<boolean>((resolve) => {
-    menuConfirmResolve = resolve;
-    const menu = elActionMenu!;
-    const from = menu.getBoundingClientRect();
-
-    elMenuConfirmText!.textContent = message;
-    elMenuConfirmOk!.textContent = confirmLabel;
-    elMenuConfirmOk!.classList.toggle('is-danger', tone === 'danger');
-    elMenuConfirmOk!.classList.toggle('is-accent', tone === 'accent');
-    const width = confirmWidthPx();
-    menuView = 'confirm';
-    menu.classList.add('is-confirm');
-    menu.setAttribute('role', 'alertdialog');
-    // Named by the question itself (an alertdialog needs a name), and
-    // described by it too, as before.
-    menu.removeAttribute('aria-label');
-    menu.setAttribute('aria-labelledby', MENU_CONFIRM_TEXT_ID);
-    menu.setAttribute('aria-describedby', MENU_CONFIRM_TEXT_ID);
-    elMenuList!.hidden = true;
-    elMenuConfirm!.hidden = false;
-    menu.style.width = `${width}px`;
-    elMenuConfirm!.style.width = `${Math.max(0, width - (MENU_BORDER_PX + MENU_PAD_PX) * 2)}px`;
-    layoutConfirmActions();
-    const to = menu.getBoundingClientRect();
-
-    const reduced = reducedMotionQuery()?.matches ?? false;
-    if (!reduced && typeof menu.animate === 'function' && from.width > 0 && to.width > 0) {
-      menuMorph?.cancel();
-      menuMorph = menu.animate(
-        [
-          { width: `${from.width}px`, height: `${from.height}px` },
-          { width: `${to.width}px`, height: `${to.height}px` },
-        ],
-        { duration: MENU_MORPH_MS, easing: EASE_STD },
-      );
-      const morph = menuMorph;
-      morph.onfinish = () => {
-        if (menuMorph === morph) menuMorph = null;
-      };
-    }
-    elMenuConfirmCancel?.focus();
-  });
+  return actionMenu ? actionMenu.confirm(message, confirmLabel, tone) : Promise.resolve(false);
 }
 
 /** Close the menu and open the native file picker (§1.7). Called from the
  *  import item's own click — or from the confirmation's "yes", still inside
  *  that click's user activation, which a file picker requires. */
 export function openImportPicker(): void {
-  closeActionMenu();
+  actionMenu?.close();
   elFileInput?.click();
 }
 
 /** Close the "more options" menu from outside (content.ts, when a question
  *  cannot be asked because its count could not be read). */
 export function closeMoreOptionsMenu(): void {
-  closeActionMenu();
+  actionMenu?.close();
 }
 
 /** Whether the "more options" menu is open — content.ts checks it after a
  *  round trip, since the user may have dismissed the menu meanwhile. */
 export function isMoreOptionsMenuOpen(): boolean {
-  return menuOpen;
+  return actionMenu?.isOpen() ?? false;
 }
 
 /** Take down the sidebar's tooltip at once, without its fade — content.ts
@@ -1096,25 +782,6 @@ export function hideTooltipNow(): void {
 // attribute is written by tooltip.ts's setSoftDisabled(); see
 // syncActionAvailability().
 // ---------------------------------------------------------------------------
-
-/** Pointerdown anywhere inside the sidebar's shadow tree: close unless it
- *  landed on the menu itself or on "more options" (whose own click handler
- *  toggles). */
-function onShadowPointerDown(e: Event): void {
-  if (!menuOpen || !elActionMenu || !elBtnMenu) return;
-  const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
-  if (path.includes(elActionMenu) || path.includes(elBtnMenu)) return;
-  closeActionMenu();
-}
-
-/** Pointerdown on the host page (or in another extension surface). Anything
- *  raised inside our closed root arrives here retargeted to the host, and is
- *  already handled by onShadowPointerDown. */
-function onDocumentPointerDown(e: Event): void {
-  if (!menuOpen) return;
-  if (e.target === sidebarHost) return;
-  closeActionMenu();
-}
 
 // ---------------------------------------------------------------------------
 // Resize gesture (§ enhancement: user-resizable sidebar)
@@ -1221,7 +888,7 @@ export function closeSidebar(): void {
   // §C2: the menu closes when the sidebar closes — a panel that reopened
   // with a menu already down would be a surprise, and nothing in a hidden
   // panel should stay in the accessibility tree.
-  closeActionMenu();
+  actionMenu?.close();
   if (elSidebar) {
     elSidebar.hidden = true;
   }
@@ -1302,8 +969,8 @@ function syncActionAvailability(): void {
   // now, not on the tooltip's MutationObserver (a microtask later).
   if (setSoftDisabled(elBtnExport, !exportBlocked && !siteHasNotes)) sidebarTooltips?.hide();
   if (elBtnMenu) elBtnMenu.disabled = addModeHold;
-  if (elBtnImport) elBtnImport.disabled = !importEnabled;
-  if (setSoftDisabled(elBtnDeleteAll, !siteHasNotes)) sidebarTooltips?.hide();
+  if (actionMenu) actionMenu.importItem.disabled = !importEnabled;
+  if (setSoftDisabled(actionMenu?.deleteAllItem ?? null, !siteHasNotes)) sidebarTooltips?.hide();
   elExportGroup?.classList.toggle('is-disabled', addModeHold);
 }
 
@@ -1321,7 +988,7 @@ function syncActionAvailability(): void {
  */
 export function setAddModeHold(hold: boolean): void {
   addModeHold = hold;
-  if (hold) closeActionMenu();
+  if (hold) actionMenu?.close();
   elBody?.classList.toggle('is-on-hold', hold);
   syncActionAvailability();
   applyListHold();
@@ -1647,7 +1314,7 @@ export function flushEnlargedView(): void {
  *  content script stays loaded") — this exists for tests and for a hard reset
  *  if the content script is ever torn down without a page navigation. */
 export function destroySidebar(): void {
-  settleMenuConfirm(false);
+  actionMenu?.cancelQuestion();
   enlargedView?.destroy();
   enlargedView = null;
   currentItems = [];
@@ -1655,13 +1322,12 @@ export function destroySidebar(): void {
   enlargedDockSuspended = false;
   dockMotion?.destroy();
   dockMotion = null;
-  closeActionMenu();
+  actionMenu?.close();
   clearMessage();
   endResizeDrag();
   restorePageResize();
-  document.removeEventListener('pointerdown', onDocumentPointerDown, true);
+  actionMenu?.destroy();
   elSidebar?.removeEventListener('wheel', onSidebarChromeWheel);
-  sidebarShadow?.removeEventListener('pointerdown', onShadowPointerDown, true);
   if (sidebarHost && sidebarHost.parentNode) {
     sidebarHost.parentNode.removeChild(sidebarHost);
   }
@@ -1680,20 +1346,10 @@ export function destroySidebar(): void {
   elExportGroup = null;
   elBtnExport = null;
   elBtnMenu = null;
-  elActionMenu = null;
-  elBtnImport = null;
-  elBtnDeleteAll = null;
-  elMenuList = null;
-  elMenuConfirm = null;
-  elMenuConfirmText = null;
-  elMenuConfirmCancel = null;
-  elMenuConfirmOk = null;
-  elMenuConfirmActions = null;
+  actionMenu = null;
   sidebarTooltips?.destroy();
   sidebarTooltips = null;
   siteHasNotes = false;
-  menuView = 'list';
-  menuMorph = null;
   elBtnClose = null;
   elFileInput = null;
   elHeading = null;
