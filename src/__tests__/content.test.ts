@@ -224,6 +224,30 @@ function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/** A question the "more options" menu asked (design spec §AF), as shown. */
+interface Asked {
+  text: string | null;
+  label: string | null;
+  tone: 'accent' | 'danger';
+}
+
+/** If the menu has turned into a question, read it off the real UI, record
+ *  it, and answer it with its own buttons. */
+async function answerIfAsked(asked: Asked[], yes: boolean): Promise<void> {
+  const root = sidebarShadow();
+  const menu = root.querySelector('.action-menu') as HTMLElement;
+  if (!menu.classList.contains('is-confirm') || menu.dataset.open !== 'true') return;
+  const ok = root.querySelector('.confirm-btn.is-confirm') as HTMLButtonElement;
+  asked.push({
+    text: root.querySelector('.action-menu-confirm-text')!.textContent,
+    label: ok.textContent,
+    tone: ok.classList.contains('is-accent') ? 'accent' : 'danger',
+  });
+  (yes ? ok : (root.querySelector('.confirm-btn.is-cancel') as HTMLButtonElement)).click();
+  await flushMicrotasks();
+  await flushMicrotasks();
+}
+
 afterEach(() => {
   sitePagesBefore = [];
   pageEditedTitle = null;
@@ -1107,9 +1131,12 @@ describe('content.ts: import (§1.7) — asked in the menu before the file is pi
   let replaceReply: unknown;
   /** IMPORT_STAGE_IMAGE's answer for each staged screenshot, by data URL. */
   let stageReply: (dataUrl: string) => unknown;
-  let confirmSpy: jest.SpyInstance;
   let confirmAnswer: boolean;
-  let pickerSpy: jest.SpyInstance;
+  /** The questions asked, read off the real menu. */
+  let asked: Asked[];
+  /** Clicks on the hidden file input: the native picker opening. */
+  let fileInputClick: jest.SpyInstance;
+  const pickerOpens = () => fileInputClick.mock.instances.filter((el) => (el as HTMLInputElement).type === 'file').length;
 
   function installImportMocks(): void {
     const base = (chrome.runtime.sendMessage as jest.Mock).getMockImplementation()!;
@@ -1149,8 +1176,8 @@ describe('content.ts: import (§1.7) — asked in the menu before the file is pi
   async function open(): Promise<void> {
     pageItems = [];
     loadContent();
-    confirmSpy = jest.spyOn(sidebarApi, 'confirmInMenu').mockImplementation(async () => confirmAnswer);
-    pickerSpy = jest.spyOn(sidebarApi, 'openImportPicker');
+    asked = [];
+    fileInputClick = jest.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
     installImportMocks();
     activate();
     await flushMicrotasks();
@@ -1161,6 +1188,7 @@ describe('content.ts: import (§1.7) — asked in the menu before the file is pi
     importItem().click();
     await flushMicrotasks();
     await flushMicrotasks();
+    await answerIfAsked(asked, confirmAnswer);
   }
   async function pickFile(): Promise<void> {
     const input = sidebarShadow().querySelector('input[type="file"]') as HTMLInputElement;
@@ -1179,20 +1207,18 @@ describe('content.ts: import (§1.7) — asked in the menu before the file is pi
   });
 
   afterEach(() => {
-    confirmSpy?.mockRestore();
-    pickerSpy?.mockRestore();
+    fileInputClick?.mockRestore();
   });
 
   test('a site with no notes: the picker opens straight away, nothing is asked', async () => {
     await open();
     await chooseImport();
-    expect(confirmSpy).not.toHaveBeenCalled();
-    expect(pickerSpy).toHaveBeenCalledTimes(1);
+    expect(asked).toEqual([]);
+    expect(pickerOpens()).toBe(1);
   });
 
   test('the menu dismissed during the count round trip (count 0): no picker opens', async () => {
     await open();
-    const fileClick = jest.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
     const base = (chrome.runtime.sendMessage as jest.Mock).getMockImplementation()!;
     let reply: ((r?: unknown) => void) | undefined;
     (chrome.runtime.sendMessage as jest.Mock).mockImplementation((message: any, callback?: (r?: unknown) => void) => {
@@ -1202,23 +1228,18 @@ describe('content.ts: import (§1.7) — asked in the menu before the file is pi
       }
       base(message, callback);
     });
-    try {
-      (sidebarShadow().querySelector('.btn-menu') as HTMLButtonElement).click();
-      importItem().click();
-      await flushMicrotasks();
-      expect(reply).toBeDefined();
-      // The user presses somewhere on the page before the count arrives.
-      document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, composed: true }));
-      expect(menuOpen()).toBe(false);
+    (sidebarShadow().querySelector('.btn-menu') as HTMLButtonElement).click();
+    importItem().click();
+    await flushMicrotasks();
+    expect(reply).toBeDefined();
+    // The user presses somewhere on the page before the count arrives.
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, composed: true }));
+    expect(menuOpen()).toBe(false);
 
-      reply!({ ok: true, count: 0, pageCount: 0 });
-      await flushMicrotasks();
-      await flushMicrotasks();
-      expect(pickerSpy).not.toHaveBeenCalled();
-      expect(fileClick).not.toHaveBeenCalled();
-    } finally {
-      fileClick.mockRestore();
-    }
+    reply!({ ok: true, count: 0, pageCount: 0 });
+    await flushMicrotasks();
+    await flushMicrotasks();
+    expect(pickerOpens()).toBe(0);
   });
 
   test('the fresh count also catches the sidebar up: a site emptied elsewhere greys out export and delete-all', async () => {
@@ -1234,8 +1255,8 @@ describe('content.ts: import (§1.7) — asked in the menu before the file is pi
     await chooseImport();
     expect(exportBtn.getAttribute('aria-disabled')).toBe('true');
     expect(deleteAll.getAttribute('aria-disabled')).toBe('true');
-    expect(confirmSpy).not.toHaveBeenCalled();
-    expect(pickerSpy).toHaveBeenCalledTimes(1);
+    expect(asked).toEqual([]);
+    expect(pickerOpens()).toBe(1);
   });
 
   test('a site with notes: the menu asks first, and "yes" opens the picker', async () => {
@@ -1243,8 +1264,8 @@ describe('content.ts: import (§1.7) — asked in the menu before the file is pi
     await open();
     await chooseImport();
     // Yellow, not red: importing is not a delete (§AF).
-    expect(confirmSpy).toHaveBeenCalledWith(IMPORT_REPLACE_CONFIRM_MESSAGE, IMPORT_REPLACE_CONFIRM_LABEL, 'accent');
-    expect(pickerSpy).toHaveBeenCalledTimes(1);
+    expect(asked).toEqual([{ text: IMPORT_REPLACE_CONFIRM_MESSAGE, label: IMPORT_REPLACE_CONFIRM_LABEL, tone: 'accent' }]);
+    expect(pickerOpens()).toBe(1);
   });
 
   test('"cancel" opens no picker', async () => {
@@ -1252,15 +1273,16 @@ describe('content.ts: import (§1.7) — asked in the menu before the file is pi
     confirmAnswer = false;
     await open();
     await chooseImport();
-    expect(pickerSpy).not.toHaveBeenCalled();
+    expect(asked).toHaveLength(1);
+    expect(pickerOpens()).toBe(0);
   });
 
   test('a count that cannot be read stops before anything is asked or picked', async () => {
     countReply = { ok: false, message: DOMAIN_COUNT_FAILED_MESSAGE };
     await open();
     await chooseImport();
-    expect(confirmSpy).not.toHaveBeenCalled();
-    expect(pickerSpy).not.toHaveBeenCalled();
+    expect(asked).toEqual([]);
+    expect(pickerOpens()).toBe(0);
     expect(notifText()).toBe(DOMAIN_COUNT_FAILED_MESSAGE);
     expect(menuOpen()).toBe(false);
   });
@@ -1269,7 +1291,7 @@ describe('content.ts: import (§1.7) — asked in the menu before the file is pi
     countReply = undefined;
     await open();
     await chooseImport();
-    expect(pickerSpy).not.toHaveBeenCalled();
+    expect(pickerOpens()).toBe(0);
     expect(notifText()).toBe(IMPORT_FAILED_MESSAGE);
   });
 
@@ -1277,9 +1299,10 @@ describe('content.ts: import (§1.7) — asked in the menu before the file is pi
     countReply = { ok: true, count: 3, pageCount: 2 };
     await open();
     await chooseImport();
-    confirmSpy.mockClear();
+    expect(asked).toHaveLength(1);
     await pickFile();
-    expect(confirmSpy).not.toHaveBeenCalled();
+    // Nothing is asked again: the menu stays closed.
+    expect(menuOpen()).toBe(false);
     // jsdom's page is http://localhost/ — the domain is the page's, not the
     // bundle's (the ladder has already checked they match).
     // One screenshot per message, in bundle order, then one commit of the
@@ -1342,13 +1365,10 @@ describe('content.ts: import (§1.7) — asked in the menu before the file is pi
 describe('content.ts: delete all for this website (design spec §AE)', () => {
   let countReply: unknown;
   let deleteReply: unknown;
-  let confirmSpy: jest.SpyInstance;
   let confirmAnswer: boolean;
-  /** Answers the menu's question (design spec §AF) — its UI is covered in
-   *  sidebar.test.ts; here only the question asked and the flow matter. */
-  function spyOnConfirm(): void {
-    confirmSpy = jest.spyOn(sidebarApi, 'confirmInMenu').mockImplementation(async () => confirmAnswer);
-  }
+  /** The questions asked, read off the real menu and answered with its own
+   *  buttons (its look is sidebar.test.ts's). */
+  let asked: Asked[];
 
   function installDeleteMocks(): void {
     const base = (chrome.runtime.sendMessage as jest.Mock).getMockImplementation()!;
@@ -1382,7 +1402,7 @@ describe('content.ts: delete all for this website (design spec §AE)', () => {
 
   async function open(): Promise<void> {
     loadContent();
-    spyOnConfirm();
+    asked = [];
     installDeleteMocks();
     activate();
     await flushMicrotasks();
@@ -1395,6 +1415,7 @@ describe('content.ts: delete all for this website (design spec §AE)', () => {
     await flushMicrotasks();
     await flushMicrotasks();
     await flushMicrotasks();
+    await answerIfAsked(asked, confirmAnswer);
   }
 
   beforeEach(() => {
@@ -1402,10 +1423,6 @@ describe('content.ts: delete all for this website (design spec §AE)', () => {
     countReply = { ok: true, count: 5, pageCount: 3 };
     deleteReply = { ok: true };
     confirmAnswer = true;
-  });
-
-  afterEach(() => {
-    confirmSpy?.mockRestore();
   });
 
   test('the item is enabled once the site is known to have feedback', async () => {
@@ -1429,9 +1446,8 @@ describe('content.ts: delete all for this website (design spec §AE)', () => {
   test('confirms with both counts, then deletes the whole domain and empties the list', async () => {
     await open();
     await clickDeleteAll();
-    expect(confirmSpy).toHaveBeenCalledWith(deleteAllConfirmMessage(5, 3), DELETE_ALL_CONFIRM_LABEL);
     // Delete keeps the default, danger tone.
-    expect(confirmSpy.mock.calls[0][2]).toBeUndefined();
+    expect(asked).toEqual([{ text: deleteAllConfirmMessage(5, 3), label: DELETE_ALL_CONFIRM_LABEL, tone: 'danger' }]);
     expect(sent()).toContainEqual({ type: 'DELETE_DOMAIN_DATA', domain: 'localhost' });
     expect(sidebarShadow().querySelectorAll('button.thumbnail')).toHaveLength(0);
     // Nothing left: the item disables itself again.
@@ -1451,7 +1467,7 @@ describe('content.ts: delete all for this website (design spec §AE)', () => {
     await open();
     countReply = { ok: false, message: DOMAIN_COUNT_FAILED_MESSAGE };
     await clickDeleteAll();
-    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(asked).toEqual([]);
     expect(sent()).not.toContainEqual(expect.objectContaining({ type: 'DELETE_DOMAIN_DATA' }));
     expect(notifText()).toBe(DOMAIN_COUNT_FAILED_MESSAGE);
   });
@@ -1460,7 +1476,7 @@ describe('content.ts: delete all for this website (design spec §AE)', () => {
     await open();
     countReply = { ok: true, count: 0, pageCount: 0 };
     await clickDeleteAll();
-    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(asked).toEqual([]);
     expect(sent()).not.toContainEqual(expect.objectContaining({ type: 'DELETE_DOMAIN_DATA' }));
     expect(deleteAllItem().getAttribute('aria-disabled')).toBe('true');
   });
