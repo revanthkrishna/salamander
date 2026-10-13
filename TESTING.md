@@ -75,7 +75,7 @@ npm run build:watch    # rebuild on change
 npm run build && npx playwright test
 ```
 
-Five specs in `tests/` (32 tests: sidebar, capture, thumbnails/enlarged view, export/import, persistence) run headed against a real Chromium with the built extension loaded (`tests/helpers/extension.js`: persistent context, service-worker handle, a local file server for `tests/fixtures/test-page.html` with SPA-style routes, and a patch that forces the extension's closed shadow roots open so plain CSS selectors reach inside). One worker, one retry. Not run in the unit loop.
+Six specs in `tests/` (36 tests: sidebar, capture, thumbnails/enlarged view, export/import, persistence, the Alt+N shortcut) run headed against a real Chromium with the built extension loaded (`tests/helpers/extension.js`: persistent context, service-worker handle, a local file server for `tests/fixtures/test-page.html` with SPA-style routes, and a patch that forces the extension's closed shadow roots open so plain CSS selectors reach inside). One worker, one retry. Not run in the unit loop.
 
 Last recorded run, 2026-10-12: 31 passed. (Export is read back by wrapping `chrome.downloads.download` in the service worker — `exportAndGetDownload` — since a service-worker download raises no page download event.)
 
