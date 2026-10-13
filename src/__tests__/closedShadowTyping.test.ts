@@ -9,7 +9,7 @@
 // tests use a real closed root and first prove the environment reproduces
 // that retargeting, so they cannot pass vacuously.
 
-import { lockPageScroll, ScrollLockHandle } from '../enlargedView';
+import { lockPageScroll, ScrollLockHandle } from '../scrollLock';
 
 /** Every lock a test takes, released in afterEach — so a failing assertion
  *  can never leave a listener on window for the next test to trip over. */
