@@ -62,34 +62,55 @@ if (typeof (global as any).CSS === 'undefined') {
 const storageData: Record<string, unknown> = {};
 const sessionStorageData: Record<string, unknown> = {};
 
-function makeStorageAreaMock(data: Record<string, unknown>) {
+/** Like the real chrome.storage: every value is copied on the way in and on
+ *  the way out, so a caller mutating what it read (or what it wrote) never
+ *  changes what is stored without a set() — a storage function that forgets
+ *  its write fails its tests instead of passing on an aliased object. */
+function copyOf<T>(value: T): T {
+  return value === undefined ? value : structuredClone(value);
+}
+
+/** The keys a get() asks for: one, several, an object of defaults, or all. */
+function pick(data: Record<string, unknown>, keys: string | string[] | Record<string, unknown> | null | undefined): Record<string, unknown> {
+  if (keys === null || keys === undefined) return copyOf({ ...data });
+  const keyArr = typeof keys === 'string' ? [keys] : Array.isArray(keys) ? keys : Object.keys(keys);
+  const result: Record<string, unknown> = {};
+  for (const k of keyArr) {
+    if (k in data) result[k] = copyOf(data[k]);
+  }
+  return result;
+}
+
+/** The three calls of a chrome.storage area over `data`, each answering
+ *  asynchronously (a microtask later), as the real API does — so the service
+ *  worker's save queue really does interleave under test. */
+function storageAreaImpl(data: Record<string, unknown>) {
   return {
-    get: jest.fn((keys: string | string[] | null, callback?: (result: Record<string, unknown>) => void) => {
-      if (callback) {
-        if (keys === null) {
-          callback({ ...data });
-          return;
-        }
-        const result: Record<string, unknown> = {};
-        const keyArr = typeof keys === 'string' ? [keys] : Array.isArray(keys) ? keys : Object.keys(keys as object);
-        for (const k of keyArr) {
-          if (k in data) result[k] = data[k];
-        }
-        callback(result);
-      }
-      return Promise.resolve(data);
-    }),
-    set: jest.fn((items: Record<string, unknown>, callback?: () => void) => {
-      Object.assign(data, items);
-      if (callback) callback();
+    get: (keys: string | string[] | null, callback?: (result: Record<string, unknown>) => void) => {
+      const result = pick(data, keys);
+      if (callback) queueMicrotask(() => callback(result));
+      return Promise.resolve(result);
+    },
+    set: (items: Record<string, unknown>, callback?: () => void) => {
+      Object.assign(data, copyOf(items));
+      if (callback) queueMicrotask(() => callback());
       return Promise.resolve();
-    }),
-    remove: jest.fn((keys: string | string[], callback?: () => void) => {
+    },
+    remove: (keys: string | string[], callback?: () => void) => {
       const keyArr = typeof keys === 'string' ? [keys] : keys;
       for (const k of keyArr) delete data[k];
-      if (callback) callback();
+      if (callback) queueMicrotask(() => callback());
       return Promise.resolve();
-    }),
+    },
+  };
+}
+
+function makeStorageAreaMock(data: Record<string, unknown>) {
+  const impl = storageAreaImpl(data);
+  return {
+    get: jest.fn(impl.get),
+    set: jest.fn(impl.set),
+    remove: jest.fn(impl.remove),
     onChanged: {
       addListener: jest.fn(),
       removeListener: jest.fn(),
@@ -97,41 +118,19 @@ function makeStorageAreaMock(data: Record<string, unknown>) {
   };
 }
 
+/** Put the default implementations back on an area's mocks — after a test
+ *  replaced one with mockImplementation(), say. */
+function rewireStorageArea(area: { get: unknown; set: unknown; remove: unknown }, data: Record<string, unknown>): void {
+  const impl = storageAreaImpl(data);
+  (area.get as jest.Mock).mockImplementation(impl.get);
+  (area.set as jest.Mock).mockImplementation(impl.set);
+  (area.remove as jest.Mock).mockImplementation(impl.remove);
+}
+
 (global as any).chrome = {
   storage: {
     session: makeStorageAreaMock(sessionStorageData),
-    local: {
-      get: jest.fn((keys: string | string[] | null, callback?: (result: Record<string, unknown>) => void) => {
-        if (callback) {
-          if (keys === null) {
-            callback({ ...storageData });
-            return;
-          }
-          const result: Record<string, unknown> = {};
-          const keyArr = typeof keys === 'string' ? [keys] : Array.isArray(keys) ? keys : Object.keys(keys as object);
-          for (const k of keyArr) {
-            if (k in storageData) result[k] = storageData[k];
-          }
-          callback(result);
-        }
-        return Promise.resolve(storageData);
-      }),
-      set: jest.fn((data: Record<string, unknown>, callback?: () => void) => {
-        Object.assign(storageData, data);
-        if (callback) callback();
-        return Promise.resolve();
-      }),
-      remove: jest.fn((keys: string | string[], callback?: () => void) => {
-        const keyArr = typeof keys === 'string' ? [keys] : keys;
-        for (const k of keyArr) delete storageData[k];
-        if (callback) callback();
-        return Promise.resolve();
-      }),
-      onChanged: {
-        addListener: jest.fn(),
-        removeListener: jest.fn(),
-      },
-    },
+    local: makeStorageAreaMock(storageData),
     onChanged: {
       addListener: jest.fn(),
       removeListener: jest.fn(),
@@ -156,39 +155,8 @@ beforeEach(() => {
   Object.keys(sessionStorageData).forEach(k => delete sessionStorageData[k]);
   jest.clearAllMocks();
 
-  // Re-wire mock implementations after clearAllMocks (which resets them)
-  (chrome.storage.local.get as jest.Mock).mockImplementation(
-    (keys: string | string[] | null, callback?: (result: Record<string, unknown>) => void) => {
-      if (callback) {
-        if (keys === null) {
-          callback({ ...storageData });
-          return;
-        }
-        const result: Record<string, unknown> = {};
-        const keyArr = typeof keys === 'string' ? [keys] : Array.isArray(keys) ? keys : Object.keys(keys as object);
-        for (const k of keyArr) {
-          if (k in storageData) result[k] = storageData[k];
-        }
-        callback(result);
-      }
-      return Promise.resolve(storageData);
-    }
-  );
-
-  (chrome.storage.local.set as jest.Mock).mockImplementation(
-    (data: Record<string, unknown>, callback?: () => void) => {
-      Object.assign(storageData, data);
-      if (callback) callback();
-      return Promise.resolve();
-    }
-  );
-
-  (chrome.storage.local.remove as jest.Mock).mockImplementation(
-    (keys: string | string[], callback?: () => void) => {
-      const keyArr = typeof keys === 'string' ? [keys] : keys;
-      for (const k of keyArr) delete storageData[k];
-      if (callback) callback();
-      return Promise.resolve();
-    }
-  );
+  // A test may have swapped an implementation (mockImplementation persists
+  // across clearAllMocks): put the defaults back on both areas.
+  rewireStorageArea(chrome.storage.local, storageData);
+  rewireStorageArea(chrome.storage.session, sessionStorageData);
 });

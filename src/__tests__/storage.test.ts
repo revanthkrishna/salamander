@@ -712,3 +712,30 @@ describe('storage.ts — a failed chrome.storage.local call rejects (chrome.runt
     ).rejects.toThrow('IO error');
   });
 });
+
+describe('the chrome.storage fake (setup.ts) behaves like the real one', () => {
+  test('a value read back is a copy: mutating it changes nothing stored without a set()', async () => {
+    const item = makeItem({ id: 1 });
+    await seedImage(item.screenshotKey);
+    await addItem(DOMAIN, item);
+    const read = await new Promise<Record<string, any>>((resolve) => chrome.storage.local.get(`domain:${DOMAIN}`, resolve));
+    read[`domain:${DOMAIN}`].pages[item.normalisedUrl].push(999);
+    expect(await getDomainCounts(DOMAIN)).toEqual({ items: 1, pages: 1 });
+  });
+
+  test('a value written is a copy: mutating the object afterwards changes nothing stored', async () => {
+    const value = { n: 1 };
+    await new Promise<void>((resolve) => chrome.storage.local.set({ probe: value }, resolve));
+    value.n = 2;
+    const read = await new Promise<Record<string, any>>((resolve) => chrome.storage.local.get('probe', resolve));
+    expect(read.probe).toEqual({ n: 1 });
+  });
+
+  test('callbacks answer asynchronously, as the real API does', () => {
+    let answered = false;
+    chrome.storage.local.get(null, () => {
+      answered = true;
+    });
+    expect(answered).toBe(false);
+  });
+});

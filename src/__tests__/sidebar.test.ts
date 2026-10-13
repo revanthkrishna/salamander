@@ -537,7 +537,7 @@ describe('sidebar shell', () => {
     );
   });
 
-  test('a persisted width is restored on the next init', () => {
+  test('a persisted width is restored on the next init', async () => {
     sidebar.initSidebar(makeCallbacks());
     dragResizerTo(window.innerWidth - 250);
     window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
@@ -545,6 +545,8 @@ describe('sidebar shell', () => {
     expect(sidebar.getSidebarWidth()).toBe(sidebar.SIDEBAR_DEFAULT_WIDTH);
 
     sidebar.initSidebar(makeCallbacks());
+    // chrome.storage answers asynchronously, as the real one does.
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
     expect(sidebar.getSidebarWidth()).toBe(250);
     const panel = shadowRoot().querySelector('.sidebar') as HTMLElement;
     expect(panel.style.width).toBe('250px');
