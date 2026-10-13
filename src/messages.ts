@@ -644,3 +644,13 @@ export type MessageHandlers = { [K in MessageType]: MessageHandler<K> };
 type MapKeysCoverUnion = [ContentToBackgroundMessage['type']] extends [MessageType] ? true : never;
 type UnionCoversMapKeys = [MessageType] extends [ContentToBackgroundMessage['type']] ? true : never;
 export const MESSAGE_MAP_IS_COMPLETE: MapKeysCoverUnion & UnionCoversMapKeys = true;
+
+// Compile-time guard: every entry's request is the message of its own key —
+// an entry pairing key CAPTURE with SaveItemMessage would let a handler be
+// handed the wrong shape. MismatchedEntries is the keys whose request's
+// `type` is not the key itself; with any, the constant below does not
+// compile (its type is that key, not `true`).
+type MismatchedEntries = {
+  [K in MessageType]: [RequestOf<K>['type']] extends [K] ? ([K] extends [RequestOf<K>['type']] ? never : K) : K;
+}[MessageType];
+export const MESSAGE_MAP_IS_SELF_CONSISTENT: [MismatchedEntries] extends [never] ? true : MismatchedEntries = true;
