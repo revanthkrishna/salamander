@@ -50,7 +50,7 @@ function scrollableOverflow(value: string | undefined): boolean {
  * `dx`/`dy` are signs (or a wheel's raw deltas); 0/0 means "either axis,
  * either direction", which is all a touchmove can tell us.
  */
-export function elementCanScroll(el: Element, dx: number, dy: number): boolean {
+function elementCanScroll(el: Element, dx: number, dy: number): boolean {
   const anyDir = dx === 0 && dy === 0;
   // The cheap rejection first — most elements in the path have no overflow
   // at all, and this runs on every wheel event.

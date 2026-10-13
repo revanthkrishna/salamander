@@ -33,7 +33,7 @@ export function getContentViewportSize(): ViewportSize {
   };
 }
 
-export const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
 /** `matchMedia('(prefers-reduced-motion: reduce)')`, or null where matchMedia
  *  is missing (jsdom) or throws. Callers read `.matches` live and subscribe

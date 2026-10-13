@@ -67,7 +67,7 @@ const FIELD_MIN_PX = 160;
 const FIELD_BUTTONS_PX = 28 * 2 + 6 * 2;
 
 /** Longest name the field takes — a page name, not a note. */
-export const PAGE_NAME_MAX_LENGTH = 200;
+const PAGE_NAME_MAX_LENGTH = 200;
 
 export interface PageHeadingOptions {
   url: string;

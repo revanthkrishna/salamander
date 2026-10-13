@@ -109,7 +109,7 @@ export const ADD_SWITCH_ADVANCE_PX = ADD_SWITCH_WIDTH_PX - ADD_SWITCH_TUCK_PX;
 export const ADD_GROUP_PX = ACTION_BUTTON_PX + GROUP_BORDER_PX * 2;
 /** export + "more options" (design spec §AE) — two separate buttons, each
  *  the same box as "add note", with a small gap between them. */
-export const EXPORT_GROUP_PX = ADD_GROUP_PX * 2 + EXPORT_GROUP_GAP_PX;
+const EXPORT_GROUP_PX = ADD_GROUP_PX * 2 + EXPORT_GROUP_GAP_PX;
 
 /**
  * Narrowest the user can drag the panel (design spec v5 §V): exactly the

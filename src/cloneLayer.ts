@@ -47,7 +47,7 @@ export interface Clone {
 }
 
 /** A selection's aspect ratio, 16:9 when it has no usable size. */
-export function aspectOf(item: FeedbackItem): number {
+function aspectOf(item: FeedbackItem): number {
   const r = item.selectionRect;
   return r && r.width > 0 && r.height > 0 ? r.width / r.height : 16 / 9;
 }

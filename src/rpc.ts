@@ -35,7 +35,7 @@ export function onContextInvalidated(hook: (() => void) | null): void {
 /** Whether a failed call failed because this script's extension context is
  *  gone: Chrome says so in the error, and an orphaned script's
  *  chrome.runtime has no id any more. */
-export function isContextInvalidatedError(err: unknown): boolean {
+function isContextInvalidatedError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
   if (/extension context invalidated/i.test(message)) return true;
   try {

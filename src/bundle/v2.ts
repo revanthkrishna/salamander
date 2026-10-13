@@ -495,7 +495,7 @@ function noteLines(lines: string[], start: number, end: number): string {
  * duplicates plus `page_title`. `where` names the note in an error the way
  * the file shows it (its heading number).
  */
-export function fromJsonFeedbackItem(
+function fromJsonFeedbackItem(
   json: Record<string, unknown>,
   id: number,
   where = `feedback ${id}`,

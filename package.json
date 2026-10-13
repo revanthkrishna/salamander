@@ -5,7 +5,8 @@
   "scripts": {
     "build": "node esbuild.config.js",
     "build:watch": "node esbuild.config.js --watch",
-    "test": "jest"
+    "test": "jest",
+    "lint:exports": "node scripts/unused-exports.js"
   },
   "devDependencies": {
     "@fontsource/instrument-sans": "^5.3.0",
