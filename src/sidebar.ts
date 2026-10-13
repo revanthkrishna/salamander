@@ -399,38 +399,45 @@ const EASE_STD = 'cubic-bezier(.2, 0, 0, 1)';
 /** Accelerating curve — exits/fade-outs, which run shorter than entrances. */
 const EASE_ACC = 'cubic-bezier(.3, 0, 1, 1)';
 
-/** The "keep on" switch's two reveal states (design spec v3 §A2). Kept as
- *  snippets rather than repeated blocks because several selectors reveal it
- *  (hover, keyboard focus, on, and hover-less pointers).
+/** The "keep on" switch's two reveal states (design spec v3 §A2, made
+ *  interruptible 2026-10-12). Kept as snippets because several selectors
+ *  reveal it (pointer, keyboard focus, on, and hover-less pointers).
  *
- *  `transition-delay: 0s` in the shown state is the grace period (§A2 micro
- *  states): the base rule below delays every collapse-ward transition by
- *  ADD_SWITCH_GRACE_MS, so the switch holds open that long after the pointer
- *  leaves and a diagonal path back onto it never loses the target. Revealing
- *  zeroes the delay, so opening is still immediate.
- *
- *  The collapsed box zeroes its BORDER as well as its width: under the global
- *  `box-sizing: border-box` a `width: 0` box still cannot shrink below its own
- *  borders, so leaving the segment's 1px right border in would park a stray
- *  hairline at the button's edge and make the resting group 39px instead of
- *  the 38px the button (36px plus its own two borders) actually occupies. The
- *  negative margin that cancels the tuck only applies while revealed, for the
- *  same reason: collapsed, there is nothing to pull back. */
+ *  The switch is a finished segment at all times — its width, padding and
+ *  border never change — absolutely positioned with its left edge tucked a
+ *  corner radius under the add button. Hidden, it is slid left by its own
+ *  width (behind the button) and clipped at that tucked edge; revealing
+ *  slides it right while the clip's left inset shrinks by the same amount,
+ *  so the clip stays put in the group and the segment emerges from behind
+ *  the button. Only `transform` and `clip-path` move, on one curve and one
+ *  duration, so:
+ *    - a frame mid-way is always the left part of the real switch, never a
+ *      squeezed box with the track cut off and its padding half-grown (what
+ *      animating width, padding, margin and border together produced — the
+ *      "half switch, wrong padding" on a quick hover, and the faint half
+ *      circle of the track's end);
+ *    - an interruption reverses both from where they are, together;
+ *    - nothing in the row re-lays out: the group stays the button's width
+ *      and the switch overlays the room SIDEBAR_MIN_WIDTH keeps for it.
+ *  The clip's other three sides sit 6px out, so the focus ring is never cut.
+ *  visibility goes hidden only once the slide back has finished, so Tab can
+ *  never land on a hidden switch. */
+const ADD_SWITCH_RING_ROOM_PX = 6;
 const ADD_SWITCH_HIDDEN_CSS =
-  'width: 0; padding: 0; margin-left: 0; border-width: 0; opacity: 0; visibility: hidden; overflow: hidden;';
-/* No overflow here: the segment clips its contents in both states. The width
-   grows over ADD_SWITCH_REVEAL_MS, but an overflow change applies at once — so
-   with overflow: visible on reveal, the 28px track was drawn at full size
-   past a box still only a few px wide, and its rounded end showed as a faint
-   half circle beside the button for the first frames. At full width the track
-   fits exactly, and the focus ring is the switch's own box-shadow, which its
-   overflow never clips. */
+  `transform: translateX(-${ADD_SWITCH_WIDTH_PX}px); ` +
+  `clip-path: inset(-${ADD_SWITCH_RING_ROOM_PX}px -${ADD_SWITCH_RING_ROOM_PX}px -${ADD_SWITCH_RING_ROOM_PX}px ${ADD_SWITCH_WIDTH_PX}px); ` +
+  'visibility: hidden;';
 const ADD_SWITCH_SHOWN_CSS =
-  `width: ${ADD_SWITCH_WIDTH_PX}px; padding: 0 ${ADD_SWITCH_PAD_X}px 0 ${ADD_SWITCH_PAD_LEFT}px; margin-left: -${ADD_SWITCH_TUCK_PX}px; border-width: ${GROUP_BORDER_PX}px; border-left-width: 0; opacity: 1; visibility: visible; transition-delay: 0s;`;
-/** How long the revealed switch holds open after the pointer leaves (§A2). */
-const ADD_SWITCH_GRACE_MS = 250;
+  'transform: translateX(0px); ' +
+  `clip-path: inset(-${ADD_SWITCH_RING_ROOM_PX}px -${ADD_SWITCH_RING_ROOM_PX}px -${ADD_SWITCH_RING_ROOM_PX}px 0px); ` +
+  'visibility: visible; transition-delay: 0s;';
+/** How long a FULLY revealed switch holds open after the pointer leaves
+ *  (§A2), so a diagonal path back onto it never loses the target. A reveal
+ *  the pointer leaves part-way (a quick brush past) reverses at once instead
+ *  of freezing half-out for the grace period (updateSwitchReveal). */
+export const ADD_SWITCH_GRACE_MS = 250;
 /** The reveal/collapse itself. */
-const ADD_SWITCH_REVEAL_MS = 160;
+export const ADD_SWITCH_REVEAL_MS = 160;
 /** The "more options" menu (§C2, §AE) floats over the note list, whose
  *  dock-magnified items carry z-index 0–100 (dockMotion.ts); one above the
  *  resize handle so an open menu is never struck through by it either. */
@@ -713,16 +720,20 @@ const SIDEBAR_CSS = `
      control, and an explicit collapsed/expanded width because width: auto is not
      animatable. */
   .add-switch {
+    /* Out of the row's flow (see ADD_SWITCH_SHOWN_CSS): tucked a radius
+       under the button, at its full, fixed size in every state. */
+    position: absolute;
+    top: 0;
+    left: ${ADD_GROUP_PX - ADD_SWITCH_TUCK_PX}px;
+    width: ${ADD_SWITCH_WIDTH_PX}px;
     height: 100%;
-    flex-shrink: 0;
     margin: 0;
+    padding: 0 ${ADD_SWITCH_PAD_X}px 0 ${ADD_SWITCH_PAD_LEFT}px;
     display: flex;
     align-items: center;
     /* Bordered on its top, right and bottom only — never on the left, where
-       the button's own right border is the single line at the junction. The
-       widths live in the hidden/shown snippets so the collapsed box can zero
-       them (see ADD_SWITCH_HIDDEN_CSS). */
-    border: 0 solid var(--sal-line);
+       the button's own right border is the single line at the junction. */
+    border: ${GROUP_BORDER_PX}px solid var(--sal-line);
     border-left-width: 0;
     /* Square on the left: that edge is tucked a radius back under the button,
        so the fill reaches around its rounded corners and fills the crescents
@@ -734,20 +745,17 @@ const SIDEBAR_CSS = `
     color: var(--sal-text);
     cursor: pointer;
     ${ADD_SWITCH_HIDDEN_CSS}
-    /* Every collapse-ward transition carries the grace delay; the reveal
-       selectors below zero it (see ADD_SWITCH_SHOWN_CSS). visibility is in
-       the list so it flips only once the collapse has finished — without it
-       the switch would blink out of existence the moment the pointer left,
-       taking both the grace period and the animation with it. */
+    /* The slide and its clip share one curve and duration, so they stay in
+       step through any interruption; visibility flips only once the slide
+       back has finished. The grace period is the JS's (updateSwitchReveal),
+       not a transition delay, so it can be skipped for a part-way reveal. */
     transition:
-      width ${ADD_SWITCH_REVEAL_MS}ms ${EASE_STD} ${ADD_SWITCH_GRACE_MS}ms,
-      padding ${ADD_SWITCH_REVEAL_MS}ms ${EASE_STD} ${ADD_SWITCH_GRACE_MS}ms,
-      margin ${ADD_SWITCH_REVEAL_MS}ms ${EASE_STD} ${ADD_SWITCH_GRACE_MS}ms,
-      border-width ${ADD_SWITCH_REVEAL_MS}ms ${EASE_STD} ${ADD_SWITCH_GRACE_MS}ms,
-      opacity ${ADD_SWITCH_REVEAL_MS}ms ${EASE_STD} ${ADD_SWITCH_GRACE_MS}ms,
-      visibility 0s linear ${ADD_SWITCH_GRACE_MS + ADD_SWITCH_REVEAL_MS}ms,
+      transform ${ADD_SWITCH_REVEAL_MS}ms ${EASE_STD},
+      clip-path ${ADD_SWITCH_REVEAL_MS}ms ${EASE_STD},
+      visibility 0s linear ${ADD_SWITCH_REVEAL_MS}ms,
       background-color 150ms ${EASE_STD} 0s,
       border-color 150ms ${EASE_STD} 0s;
+    will-change: transform, clip-path;
   }
   .add-switch:hover { background: var(--sal-hover); }
   .add-switch:active { background: var(--sal-press); }
@@ -775,8 +783,9 @@ const SIDEBAR_CSS = `
   .add-group.is-switch-on .btn-add:focus-visible { box-shadow: none; }
   .add-group.is-switch-on:has(.btn-add:focus-visible) { ${FOCUS_RING_CSS} }
 
-  /* Reveal (§A2, tightened by v5 §Q): hidden at rest, shown on hover or
-     KEYBOARD focus anywhere in the group, and always shown once the switch is
+  /* Reveal (§A2, tightened by v5 §Q): hidden at rest, shown on hover
+     (.is-revealed, which updateSwitchReveal sets and clears with the grace
+     period) or KEYBOARD focus anywhere in the group, and always shown once the switch is
      on — nothing else. :has(:focus-visible) rather than :focus-within,
      because Chrome focuses a button on mouse-down: with :focus-within the
      switch stayed out from the click that started add mode and lingered right
@@ -787,7 +796,7 @@ const SIDEBAR_CSS = `
      suppresses the reveal — §V made the panel's minimum width the width this
      row needs with the switch out, so there is no width at which it does not
      fit. */
-  .add-group:hover .add-switch,
+  .add-group.is-revealed .add-switch,
   .add-group:has(:focus-visible) .add-switch,
   .add-group.is-switch-on .add-switch { ${ADD_SWITCH_SHOWN_CSS} }
 
@@ -1526,14 +1535,10 @@ const SIDEBAR_CSS = `
     .body {
       transition: none;
     }
-    /* The switch appears and collapses instantly, but the grace period is a
-       usability affordance rather than motion — without it the switch would
-       vanish the instant the pointer clipped the group's edge on the way to
-       it, which is exactly the problem the grace exists to solve. So the
-       delay stays and only the animation goes. */
-    .add-switch {
-      transition: visibility 0s linear ${ADD_SWITCH_GRACE_MS}ms, width 0s linear ${ADD_SWITCH_GRACE_MS}ms, padding 0s linear ${ADD_SWITCH_GRACE_MS}ms, opacity 0s linear ${ADD_SWITCH_GRACE_MS}ms;
-    }
+    /* The switch appears and collapses instantly. The grace period is a
+       usability affordance rather than motion and is kept — it lives in
+       updateSwitchReveal, not in a transition delay. */
+    .add-switch { transition: none; }
     .action-menu { transform: none; }
     .action-menu[data-open="true"] { transform: none; }
   }
@@ -1553,6 +1558,10 @@ let elBtnAdd: HTMLButtonElement | null = null;
 /** The rounded box holding the "add note" button and its switch — it is the
  *  element that carries the on/off fill, the border and the states (§A2). */
 let elAddGroup: HTMLDivElement | null = null;
+/** The switch's pointer reveal (updateSwitchReveal): when the current one
+ *  started, and the grace timer holding a finished one open. */
+let switchRevealStartedAt = -Infinity;
+let switchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 /** The "keep add mode on" switch (role="switch") attached to elBtnAdd. */
 let elAddSwitch: HTMLButtonElement | null = null;
 /** Visually-hidden aria-describedby text for elBtnAdd (lock state/hint). */
@@ -1707,6 +1716,8 @@ function buildDOM(shadow: ShadowRoot): void {
 
   elAddGroup.appendChild(elBtnAdd);
   elAddGroup.appendChild(elAddSwitch);
+  elAddGroup.addEventListener('pointerenter', () => updateSwitchReveal(true));
+  elAddGroup.addEventListener('pointerleave', () => updateSwitchReveal(false));
 
   elAddDesc = document.createElement('span');
   elAddDesc.id = ADD_BUTTON_DESC_ID;
@@ -1935,6 +1946,40 @@ const ADD_BUTTON_DESC_ID = 'add-note-desc';
 
 /** The switch's accessible name (§A2) — fixed, since role="switch" carries
  *  its state in aria-checked. */
+/**
+ * The pointer's side of the switch's reveal (design spec v3 §A2). Entering
+ * the group reveals it at once (cancelling any pending collapse — a reveal
+ * mid-collapse turns round from where the slide is). Leaving collapses it:
+ * after ADD_SWITCH_GRACE_MS if the reveal had finished, so a pointer that
+ * strays off and straight back never loses it; at once if it had not, so a
+ * quick brush past reverses from the live state rather than freezing a
+ * half-out switch for the grace period. Keyboard focus and "on" reveal it
+ * through CSS on their own.
+ */
+function updateSwitchReveal(inside: boolean): void {
+  if (!elAddGroup) return;
+  if (switchGraceTimer !== null) clearTimeout(switchGraceTimer);
+  switchGraceTimer = null;
+  const group = elAddGroup;
+  if (inside) {
+    if (!group.classList.contains('is-revealed')) {
+      group.classList.add('is-revealed');
+      switchRevealStartedAt = performance.now();
+    }
+    return;
+  }
+  if (!group.classList.contains('is-revealed')) return;
+  const finished = performance.now() - switchRevealStartedAt >= ADD_SWITCH_REVEAL_MS;
+  if (!finished) {
+    group.classList.remove('is-revealed');
+    return;
+  }
+  switchGraceTimer = setTimeout(() => {
+    switchGraceTimer = null;
+    group.classList.remove('is-revealed');
+  }, ADD_SWITCH_GRACE_MS);
+}
+
 const ADD_SWITCH_NAME = 'keep add mode on';
 
 /** Its visible tooltip, which says what flicking it does. On, the halves
@@ -2985,6 +3030,9 @@ export function destroySidebar(): void {
   elLogoImg = null;
   elBtnAdd = null;
   elAddGroup = null;
+  if (switchGraceTimer !== null) clearTimeout(switchGraceTimer);
+  switchGraceTimer = null;
+  switchRevealStartedAt = -Infinity;
   elAddSwitch = null;
   elAddDesc = null;
   elExportGroup = null;

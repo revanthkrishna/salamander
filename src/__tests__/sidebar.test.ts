@@ -1376,7 +1376,7 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     // The segment borders its top, right and bottom only — never its left,
     // where the button's own right border is the single line at the junction.
     const seg = cssRule('.add-switch');
-    expect(seg).toMatch(/border:\s*0 solid var\(--sal-line\)/);
+    expect(seg).toMatch(/border:\s*1px solid var\(--sal-line\)/);
     expect(seg).toMatch(/border-left-width:\s*0/);
     expect(seg).not.toMatch(/box-shadow:/);
     // The group itself paints nothing at all now.
@@ -1393,11 +1393,16 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     // away. Reaching exactly one radius back under the button fills both
     // crescents, and the button (z-index: 1, opaque) hides the rest.
     const reveal = css().match(
-      /\.add-group:hover \.add-switch,\s*\.add-group:has\(:focus-visible\) \.add-switch,\s*\.add-group\.is-switch-on \.add-switch \{[^}]*\}/,
+      /\.add-group\.is-revealed \.add-switch,\s*\.add-group:has\(:focus-visible\) \.add-switch,\s*\.add-group\.is-switch-on \.add-switch \{[^}]*\}/,
     )?.[0];
-    expect(reveal).toMatch(/margin-left:\s*-10px/);
-    expect(reveal).toMatch(/padding:\s*0 10px 0 20px/);
-    expect(reveal).toMatch(/border-left-width:\s*0/);
+    // The segment sits one radius back under the button at its full size,
+    // in every state: left = the button's 38px less the 10px tuck.
+    const seg = cssRule('.add-switch');
+    expect(seg).toMatch(/position:\s*absolute/);
+    expect(seg).toMatch(/left:\s*28px/);
+    expect(seg).toMatch(/padding:\s*0 10px 0 20px/);
+    expect(seg).toMatch(/border-left-width:\s*0/);
+    expect(reveal).toBeDefined();
     expect(cssRule('.btn-add')).toMatch(/z-index:\s*1/);
     expect(cssRule('.btn-add')).toMatch(/background:\s*var\(--sal-surface\)/);
 
@@ -1483,48 +1488,40 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     expect(cssRule('.add-switch-knob')).toMatch(/background-color 150ms/);
   });
 
-  test('the collapsed switch takes up no width at all, so the resting group is 38px', () => {
+  test('the switch is out of the row\'s flow: the resting group is the button\'s 38px, and the reveal never re-lays the row out', () => {
     sidebar.initSidebar(makeCallbacks());
-    const hidden = cssRule('.add-switch');
-    // `box-sizing: border-box` is global here, so a `width: 0` box still
-    // cannot be narrower than its own border — a collapsed switch that kept
-    // its 1px would measure 1px, pushing the group to 39px, knocking the
-    // button half off-centre and drawing a stray `line` hairline at the
-    // button's right edge at rest. The border has to leave the box entirely,
-    // and so does the negative margin that cancels the tuck.
-    expect(cssRule('*, *::before, *::after')).toMatch(/box-sizing:\s*border-box/);
-    expect(hidden).toMatch(/width:\s*0/);
-    expect(hidden).toMatch(/padding:\s*0/);
-    expect(hidden).toMatch(/border-width:\s*0/);
-    expect(hidden).toMatch(/margin-left:\s*0/);
-
-    // Resting group width, from the stylesheet: the button half alone, its
-    // own two borders inside its box, and nothing from the switch.
+    const seg = cssRule('.add-switch');
+    // A finished segment at all times — the reveal changes nothing about its
+    // box, only where it is and how much of it the clip shows.
+    expect(seg).toMatch(/position:\s*absolute/);
+    expect(seg).toMatch(new RegExp(`width:\\s*${sidebar.ADD_SWITCH_WIDTH_PX}px`));
+    expect(sidebar.ADD_SWITCH_WIDTH_PX).toBe(59);
     const px = (rule: string, prop: string): number =>
       Number(new RegExp(`${prop}:\\s*(\\d+)px`).exec(cssRule(rule))?.[1] ?? NaN);
     expect(px('.btn-add', 'width')).toBe(38);
-
-    // Revealing restores the border and the tuck together.
     const reveal = css().match(
-      /\.add-group:hover \.add-switch,\s*\.add-group:has\(:focus-visible\) \.add-switch,\s*\.add-group\.is-switch-on \.add-switch \{[^}]*\}/,
-    )?.[0];
-    expect(reveal).toMatch(/border-width:\s*1px/);
-    expect(reveal).toMatch(/margin-left:\s*-10px/);
-    expect(sidebar.ADD_SWITCH_WIDTH_PX).toBe(59);
+      /\.add-group\.is-revealed \.add-switch,\s*\.add-group:has\(:focus-visible\) \.add-switch,\s*\.add-group\.is-switch-on \.add-switch \{[^}]*\}/,
+    )?.[0] ?? '';
+    for (const layout of ['width', 'padding', 'margin', 'border-width']) {
+      expect(reveal).not.toMatch(new RegExp(`(^|[;{\\s])${layout}:`));
+    }
   });
 
   test('the switch is hidden (and untabbable) at rest, revealed on hover/focus, and always visible once on', () => {
     sidebar.initSidebar(makeCallbacks());
     // visibility, not just opacity — Tab must not land on an invisible control.
     expect(cssRule('.add-switch')).toMatch(/visibility:\s*hidden/);
-    expect(cssRule('.add-switch')).toMatch(/width:\s*0/);
+    // Hidden = slid its own width left, behind the button, and clipped there.
+    expect(cssRule('.add-switch')).toMatch(/transform:\s*translateX\(-59px\)/);
+    expect(cssRule('.add-switch')).toMatch(/clip-path:\s*inset\(-6px -6px -6px 59px\)/);
 
     const reveal = css().match(
-      /\.add-group:hover \.add-switch,\s*\.add-group:has\(:focus-visible\) \.add-switch,\s*\.add-group\.is-switch-on \.add-switch \{[^}]*\}/,
+      /\.add-group\.is-revealed \.add-switch,\s*\.add-group:has\(:focus-visible\) \.add-switch,\s*\.add-group\.is-switch-on \.add-switch \{[^}]*\}/,
     )?.[0];
     expect(reveal).toBeDefined();
     expect(reveal).toMatch(/visibility:\s*visible/);
-    expect(reveal).toMatch(new RegExp(`width:\\s*${sidebar.ADD_SWITCH_WIDTH_PX}px`));
+    expect(reveal).toMatch(/transform:\s*translateX\(0px\)/);
+    expect(reveal).toMatch(/clip-path:\s*inset\(-6px -6px -6px 0px\)/);
 
     // No breakpoint suppresses the reveal any more (§A2 micro states): the
     // action row wraps at a width where the revealed switch will not fit.
@@ -1536,33 +1533,65 @@ describe('"add note" + "keep on" switch (design spec v3 §A2)', () => {
     expect(hoverNone).toMatch(/visibility:\s*visible/);
   });
 
-  test('the revealed switch holds open briefly after the pointer leaves', () => {
+  test('the slide and its clip share one curve and duration; visibility waits for the slide back', () => {
     sidebar.initSidebar(makeCallbacks());
     const base = cssRule('.add-switch');
-    // The grace period is a delay on every collapse-ward transition...
-    expect(base).toMatch(/width 160ms cubic-bezier\(\.2, 0, 0, 1\) 250ms/);
-    // ...including visibility, which otherwise flips instantly and takes both
-    // the grace period and the collapse animation with it.
-    expect(base).toMatch(/visibility 0s linear 410ms/);
-
-    // Revealing zeroes the delay, so opening stays immediate.
+    expect(base).toMatch(/transform 160ms cubic-bezier\(\.2, 0, 0, 1\),/);
+    expect(base).toMatch(/clip-path 160ms cubic-bezier\(\.2, 0, 0, 1\),/);
+    expect(base).toMatch(/visibility 0s linear 160ms/);
     const reveal = css().match(
-      /\.add-group:hover \.add-switch,\s*\.add-group:has\(:focus-visible\) \.add-switch,\s*\.add-group\.is-switch-on \.add-switch \{[^}]*\}/,
+      /\.add-group\.is-revealed \.add-switch,\s*\.add-group:has\(:focus-visible\) \.add-switch,\s*\.add-group\.is-switch-on \.add-switch \{[^}]*\}/,
     )?.[0];
     expect(reveal).toMatch(/transition-delay:\s*0s/);
   });
 
-  test('the switch clips its track while it grows — never a ghost of the track beside the button', () => {
-    sidebar.initSidebar(makeCallbacks());
-    const css = shadowRoot().querySelector('style')!.textContent ?? '';
-    // overflow applies at once while the width animates; visible on reveal
-    // drew the full-size track past a box only a few px wide.
-    expect(css).not.toMatch(/overflow:\s*visible;\s*transition-delay:\s*0s/);
-    const shown = css.match(/:has\(:focus-visible\) \.add-switch,\s*\.add-group\.is-switch-on \.add-switch \{([^}]*)\}/)?.[1] ?? '';
-    expect(shown).toMatch(/width:/);
-    expect(shown).not.toMatch(/overflow/);
-    const base = css.match(/\n\s*\.add-switch \{([^}]*)\}/)?.[1] ?? '';
-    expect(base).toMatch(/overflow:\s*hidden/);
+  describe('the pointer reveal and its grace period', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+    const group = () => shadowRoot().querySelector('.add-group') as HTMLElement;
+    const enter = () => group().dispatchEvent(new Event('pointerenter'));
+    const leave = () => group().dispatchEvent(new Event('pointerleave'));
+
+    test('entering reveals at once; leaving a finished reveal holds it open for the grace period', () => {
+      sidebar.initSidebar(makeCallbacks());
+      enter();
+      expect(group().classList.contains('is-revealed')).toBe(true);
+      jest.advanceTimersByTime(sidebar.ADD_SWITCH_REVEAL_MS);
+      leave();
+      expect(group().classList.contains('is-revealed')).toBe(true);
+      jest.advanceTimersByTime(sidebar.ADD_SWITCH_GRACE_MS - 1);
+      expect(group().classList.contains('is-revealed')).toBe(true);
+      jest.advanceTimersByTime(1);
+      expect(group().classList.contains('is-revealed')).toBe(false);
+    });
+
+    test('a quick brush past reverses at once, from where the slide is — never frozen half-out', () => {
+      sidebar.initSidebar(makeCallbacks());
+      enter();
+      jest.advanceTimersByTime(40);
+      leave();
+      expect(group().classList.contains('is-revealed')).toBe(false);
+    });
+
+    test('coming back during the grace period keeps it out, with no collapse queued', () => {
+      sidebar.initSidebar(makeCallbacks());
+      enter();
+      jest.advanceTimersByTime(sidebar.ADD_SWITCH_REVEAL_MS);
+      leave();
+      jest.advanceTimersByTime(100);
+      enter();
+      jest.advanceTimersByTime(sidebar.ADD_SWITCH_GRACE_MS * 2);
+      expect(group().classList.contains('is-revealed')).toBe(true);
+    });
+
+    test('destroying the sidebar mid-grace leaves no timer behind', () => {
+      sidebar.initSidebar(makeCallbacks());
+      enter();
+      jest.advanceTimersByTime(sidebar.ADD_SWITCH_REVEAL_MS);
+      leave();
+      sidebar.destroySidebar();
+      expect(jest.getTimerCount()).toBe(0);
+    });
   });
 
   test('reduced motion makes the reveal and the knob instant', () => {

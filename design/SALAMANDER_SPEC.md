@@ -1325,3 +1325,27 @@ Add mode cannot coexist with the view (and Option/Alt+N does nothing while it is
 the ~¾ width and its right anchoring stay; the theme and tokens stay; the page never re-lays out;
 the host page cannot scroll while it is open (§T), though the view's own scroller and text areas
 do — a text area at its end hands the wheel on to the scroller, not to the page. Space on a focused button (or link, or any control Space activates) is its click and is never cancelled as a scroll — on a site too short to scroll, cancelling it left delete, exit and the pencil unreachable by Space.
+
+## The "keep on" switch slides out, and turns round where it is (2026-10-12)
+
+Revises §A2's reveal mechanics (not its states, colours or labels). The switch used to reveal by
+animating its width, padding, negative margin, border and opacity together, with the grace
+period as a 250ms delay on every collapse-ward transition. Two faults the owner saw, present on
+`main` as well (frame captures compared before the fix): mid-way the box was a squeezed segment
+with its padding half-grown and the track cut off — "only shows half, with wrong padding" — and
+a pointer that brushed past froze that half state for the full grace period before collapsing.
+
+- The switch is now a **finished segment at all times** (fixed width, padding, border), absolutely
+  positioned with its left edge tucked a corner radius under the add button. Hidden, it is slid
+  left by its own width, behind the button, and clipped at the tucked edge; revealing slides it
+  right while the clip's left inset shrinks by the same amount. Only `transform` and `clip-path`
+  move — one curve (standard), one duration (160ms) — so any frame is the left part of the real
+  switch emerging from behind the button, and an interruption reverses both from where they are.
+  The group stays the button's 38px and the row never re-lays out; the clip sits 6px out on the
+  other three sides so the focus ring is never cut. `visibility` goes hidden only once the slide
+  back has finished.
+- **The grace period moved to the pointer handling:** entering reveals at once (and turns a
+  collapse round mid-slide); leaving a *finished* reveal waits 250ms before collapsing, so a
+  pointer that strays off and straight back never loses it; leaving a reveal that had not
+  finished collapses at once, from wherever it is. Keyboard focus and "on" still reveal it
+  through CSS, unchanged. Reduced motion: instant, grace kept.
