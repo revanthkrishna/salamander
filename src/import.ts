@@ -4,10 +4,10 @@
 // `<input type="file">`), and unzipping + validating it needs none of
 // chrome.storage/IndexedDB (gotcha #1) — only the final "write the
 // replacement domain data" step needs the service worker, and that happens
-// over `ImportReplaceMessage` (src/messages.ts) once this module hands back
-// a validated bundle. content.ts is the orchestrator: it calls
-// `parseImportBundle`, shows §5 #10's confirmation using the count the
-// service worker reports, then sends `IMPORT_REPLACE`.
+// over IMPORT_STAGE_IMAGE / IMPORT_COMMIT (src/messages.ts) once this module
+// hands back a validated bundle. content.ts is the orchestrator: it asks §5
+// #10's question using the count the service worker reports, calls
+// `parseImportBundle`, then stages each screenshot and commits the notes.
 //
 // Validation ladder (§5, in this exact order): not-a-zip (#1) -> corrupt archive (#2) -> missing
 // feedback.md (#3) -> not this build's format (#6) -> malformed/missing
@@ -44,7 +44,7 @@ export interface ParsedImportBundle {
 const ZIP_EXTENSION_RE = /\.zip$/i;
 
 /**
- * Validate + parse a picked file into a bundle ready for `IMPORT_REPLACE`.
+ * Validate + parse a picked file into a bundle ready to import.
  * Throws `ImportError` for every 🔴 row in §5 relevant to import (#1, #2,
  * #3, #6, #4b, #4, #11, #5).
  */

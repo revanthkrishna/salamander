@@ -1040,9 +1040,17 @@ describe('content.ts: the pencil colour and the pencil menu (design spec §AB)',
 });
 
 describe('content.ts: import (§1.7) — asked in the menu before the file is picked (design spec §AF)', () => {
-  const BUNDLE = { domain: 'localhost', items: [{ id: 4 }] };
+  const BUNDLE = {
+    domain: 'localhost',
+    items: [
+      { id: 4, normalisedUrl: 'localhost/a', screenshotDataUrl: 'data:image/png;base64,NA==' },
+      { id: 6, normalisedUrl: 'localhost/a', screenshotDataUrl: 'data:image/png;base64,Ng==' },
+    ],
+  };
   let countReply: unknown;
   let replaceReply: unknown;
+  /** IMPORT_STAGE_IMAGE's answer for each staged screenshot, by data URL. */
+  let stageReply: (dataUrl: string) => unknown;
   let confirmSpy: jest.SpyInstance;
   let confirmAnswer: boolean;
   let pickerSpy: jest.SpyInstance;
@@ -1054,7 +1062,11 @@ describe('content.ts: import (§1.7) — asked in the menu before the file is pi
         callback?.(countReply);
         return;
       }
-      if (message?.type === 'IMPORT_REPLACE') {
+      if (message?.type === 'IMPORT_STAGE_IMAGE') {
+        callback?.(stageReply(message.dataUrl));
+        return;
+      }
+      if (message?.type === 'IMPORT_COMMIT') {
         callback?.(replaceReply);
         return;
       }
@@ -1106,6 +1118,7 @@ describe('content.ts: import (§1.7) — asked in the menu before the file is pi
   beforeEach(() => {
     countReply = { ok: true, count: 0, pageCount: 0 };
     replaceReply = { ok: true };
+    stageReply = (dataUrl) => ({ ok: true, screenshotKey: `key-of-${dataUrl}`, thumbnailDataUrl: `thumb-of-${dataUrl}` });
     confirmAnswer = true;
   });
 
@@ -1213,17 +1226,60 @@ describe('content.ts: import (§1.7) — asked in the menu before the file is pi
     expect(confirmSpy).not.toHaveBeenCalled();
     // jsdom's page is http://localhost/ — the domain is the page's, not the
     // bundle's (the ladder has already checked they match).
-    expect(sent()).toContainEqual(
-      expect.objectContaining({ type: 'IMPORT_REPLACE', domain: 'localhost', items: BUNDLE.items }),
-    );
+    // One screenshot per message, in bundle order, then one commit of the
+    // notes carrying what staging minted (Chrome refuses a message over
+    // 64 MiB, so the screenshots never travel together).
+    const writes = sent().filter((m) => m?.type?.startsWith('IMPORT_'));
+    expect(writes.map((m) => m.type)).toEqual(['IMPORT_STAGE_IMAGE', 'IMPORT_STAGE_IMAGE', 'IMPORT_COMMIT']);
+    expect(writes[0]).toEqual({ type: 'IMPORT_STAGE_IMAGE', dataUrl: BUNDLE.items[0].screenshotDataUrl });
+    expect(writes[1]).toEqual({ type: 'IMPORT_STAGE_IMAGE', dataUrl: BUNDLE.items[1].screenshotDataUrl });
+    expect(writes[2]).toEqual({
+      type: 'IMPORT_COMMIT',
+      domain: 'localhost',
+      items: BUNDLE.items.map(({ screenshotDataUrl, ...fields }) => ({
+        ...fields,
+        screenshotKey: `key-of-${screenshotDataUrl}`,
+        thumbnailDataUrl: `thumb-of-${screenshotDataUrl}`,
+      })),
+    });
     expect(importItem().disabled).toBe(false);
   });
 
-  test('a failed replace shows the import error', async () => {
+  test('a failed commit shows the import error, and leaves the clean-up to the service worker', async () => {
     replaceReply = { ok: false, message: IMPORT_FAILED_MESSAGE };
     await open();
     await pickFile();
     expect(notifText()).toBe(IMPORT_FAILED_MESSAGE);
+    expect(sent().some((m) => m?.type === 'IMPORT_ABORT')).toBe(false);
+  });
+
+  test('a commit whose answer never came deletes nothing (it may have landed)', async () => {
+    replaceReply = undefined;
+    await open();
+    await pickFile();
+    expect(notifText()).toBe(IMPORT_FAILED_MESSAGE);
+    expect(sent().some((m) => m?.type === 'IMPORT_ABORT')).toBe(false);
+  });
+
+  test('a screenshot that fails to stage stops the import: nothing is committed, and what was staged is let go', async () => {
+    stageReply = (dataUrl) =>
+      dataUrl === BUNDLE.items[1].screenshotDataUrl
+        ? { ok: false, message: IMPORT_FAILED_MESSAGE }
+        : { ok: true, screenshotKey: 'staged-1', thumbnailDataUrl: 'thumb-1' };
+    await open();
+    await pickFile();
+    expect(notifText()).toBe(IMPORT_FAILED_MESSAGE);
+    expect(sent().some((m) => m?.type === 'IMPORT_COMMIT')).toBe(false);
+    expect(sent()).toContainEqual({ type: 'IMPORT_ABORT', screenshotKeys: ['staged-1'] });
+    expect(importItem().disabled).toBe(false);
+  });
+
+  test('a dead service worker at the first screenshot fails with the import copy, and has nothing to let go', async () => {
+    stageReply = () => undefined;
+    await open();
+    await pickFile();
+    expect(notifText()).toBe(IMPORT_FAILED_MESSAGE);
+    expect(sent().some((m) => m?.type === 'IMPORT_ABORT' || m?.type === 'IMPORT_COMMIT')).toBe(false);
   });
 });
 

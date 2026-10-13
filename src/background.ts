@@ -69,8 +69,11 @@ import {
   DeleteItemResponse,
   ExportMessage,
   ExportResponse,
-  ImportReplaceMessage,
-  ImportReplaceResponse,
+  ImportStageImageMessage,
+  ImportStageImageResponse,
+  ImportCommitMessage,
+  ImportCommitResponse,
+  ImportAbortMessage,
   GetDomainItemCountMessage,
   GetDomainItemCountResponse,
   DeleteDomainDataMessage,
@@ -199,7 +202,9 @@ const handlers: MessageHandlers = {
   EXPORT: (message) => handleExport(message),
   GET_DOMAIN_ITEM_COUNT: (message) => handleGetDomainItemCount(message),
   DELETE_DOMAIN_DATA: (message) => handleDeleteDomainData(message),
-  IMPORT_REPLACE: (message) => handleImportReplace(message),
+  IMPORT_STAGE_IMAGE: (message) => handleImportStageImage(message),
+  IMPORT_COMMIT: (message) => handleImportCommit(message),
+  IMPORT_ABORT: (message) => handleImportAbort(message),
   GET_PEN_COLOR: () => handleGetPenColor(),
   SET_PEN_COLOR: (message) => handleSetPenColor(message),
 };
@@ -315,7 +320,7 @@ export function mapCaptureError(err: unknown): CaptureErrorResponse {
 // the domain index is not atomic, so two captures resolving at once could
 // otherwise read the same nextItemNumber and collide (or drop one item's
 // append entirely). Every other domain mutation (UPDATE_ITEM/UPDATE_NOTE,
-// DELETE_ITEM, IMPORT_REPLACE) goes through the same chain — deletes and
+// DELETE_ITEM, IMPORT_COMMIT) goes through the same chain — deletes and
 // imports rewrite the index too, and an item update read-modify-writes its
 // own key, so any two overlapping writes to the same key would otherwise
 // clobber each other (last write wins).
@@ -501,11 +506,12 @@ export async function handleExport(message: ExportMessage): Promise<ExportRespon
 // ─────────────────────────────────────────────────────────────────────────────
 // Import (§1.7): the content script (src/import.ts) unzips and
 // validates the whole §5 ladder before anything reaches here — this side's
-// job is the two things only the service worker can do: read how many items
-// a domain currently has (so content.ts can show §5 #10's confirmation
-// *before* asking to replace anything) and the replace-and-persist write
-// itself, including minting a fresh screenshotKey/thumbnailDataUrl per item
-// (gotcha #4 — only this context has OffscreenCanvas).
+// job is the things only the service worker can do: read how many items a
+// domain currently has (so content.ts can ask §5 #10's question *before*
+// replacing anything), store each screenshot and mint its key and thumbnail
+// (gotcha #4 — only this context has OffscreenCanvas), and the replace
+// write itself. The screenshots come one message each (messages.ts's
+// import banner: Chrome refuses a message over 64 MiB).
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function handleGetDomainItemCount(
@@ -546,6 +552,27 @@ export async function handleDeleteDomainData(
 }
 
 /**
+ * One imported screenshot: a freshly minted key and a freshly rendered
+ * thumbnail, the same two things a live capture produces (the bundle never
+ * carries keys — they are an internal storage handle, not information a
+ * human or agent reading feedback.md needs, §1.6). Nothing references the
+ * stored image until IMPORT_COMMIT lands; a screenshot that cannot be
+ * decoded (one the zip's own presence check couldn't catch) is refused
+ * before anything is stored.
+ */
+export async function handleImportStageImage(message: ImportStageImageMessage): Promise<ImportStageImageResponse> {
+  try {
+    const screenshotKey = generateScreenshotKey();
+    const thumbnailDataUrl = await buildThumbnailFromDataUrl(message.dataUrl);
+    await imageStore.putImage(screenshotKey, message.dataUrl);
+    return { ok: true, screenshotKey, thumbnailDataUrl };
+  } catch (err) {
+    console.warn('[Annotator] could not import a screenshot:', err);
+    return { ok: false, message: IMPORT_FAILED_MESSAGE };
+  }
+}
+
+/**
  * §1.7's replace-only semantics: discard whatever `message.domain` currently
  * has and install `message.items` in its place. Ids are preserved verbatim
  * from the bundle (not re-allocated): the id names the screenshot file and
@@ -553,49 +580,20 @@ export async function handleDeleteDomainData(
  * export reproduce the same bundle. The numbers the user sees are not in
  * the payload at all — each note takes its place in its page's list, in
  * document order, and is numbered from there (types.ts, FeedbackItem.id).
- * Screenshot keys are *not* preserved (the
- * bundle never carries them — they're an internal storage handle, not
- * information a human/agent reading feedback.md needs, §1.6): each item gets
- * a freshly minted key and a freshly rendered thumbnail here, the same two
- * things a live capture produces.
  *
- * If any item fails partway through (a corrupt image the zip's own
- * screenshot-presence check couldn't catch), the blobs already written for
- * *this* import are cleaned up before returning — existing domain data is
- * only touched by the final replaceDomainData call, so a failure here always
- * leaves the previous data intact rather than half-replaced.
+ * Existing domain data is only touched by the queued replaceDomainData,
+ * which writes the new record before it removes anything old: a failure
+ * leaves the previous notes intact, screenshots included, and nothing then
+ * references the staged screenshots, so they are deleted here.
  */
-export async function handleImportReplace(
-  message: ImportReplaceMessage,
-): Promise<ImportReplaceResponse> {
-  const writtenKeys: string[] = [];
+export async function handleImportCommit(message: ImportCommitMessage): Promise<ImportCommitResponse> {
   try {
     const pages: Record<string, FeedbackItem[]> = {};
     let maxId = 0;
-
-    for (const payload of message.items) {
-      const screenshotKey = generateScreenshotKey();
-      const thumbnailDataUrl = await buildThumbnailFromDataUrl(payload.screenshotDataUrl);
-      await imageStore.putImage(screenshotKey, payload.screenshotDataUrl);
-      writtenKeys.push(screenshotKey);
-
-      const item: FeedbackItem = {
-        id: payload.id,
-        pageUrl: payload.pageUrl,
-        normalisedUrl: payload.normalisedUrl,
-        note: payload.note,
-        createdAt: payload.createdAt,
-        selectionRect: payload.selectionRect,
-        viewport: payload.viewport,
-        dpr: payload.dpr,
-        screenshotKey,
-        thumbnailDataUrl,
-        context: payload.context,
-      };
+    for (const item of message.items) {
       pages[item.normalisedUrl] = [...(pages[item.normalisedUrl] ?? []), item];
       maxId = Math.max(maxId, item.id);
     }
-
     const domainData: DomainData = {
       meta: { nextItemNumber: maxId + 1, version: STORAGE_VERSION },
       pages,
@@ -604,9 +602,21 @@ export async function handleImportReplace(
     return { ok: true };
   } catch (err) {
     console.warn('[Annotator] could not import bundle:', err);
-    await Promise.all(writtenKeys.map((key) => imageStore.deleteImage(key).catch(() => undefined)));
+    await deleteImagesQuietly(message.items.map((item) => item.screenshotKey));
     return { ok: false, message: IMPORT_FAILED_MESSAGE };
   }
+}
+
+/** Staging failed part-way (content.ts): the screenshots already staged
+ *  are referenced by nothing, so they go. */
+export function handleImportAbort(message: ImportAbortMessage): void {
+  void deleteImagesQuietly(message.screenshotKeys);
+}
+
+/** Best effort: a screenshot left behind is an orphan, which costs space and
+ *  nothing else. */
+async function deleteImagesQuietly(keys: string[]): Promise<void> {
+  await Promise.all(keys.map((key) => imageStore.deleteImage(key).catch(() => undefined)));
 }
 
 /** Decode an imported screenshot and render the same inline-thumbnail shape

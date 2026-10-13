@@ -69,7 +69,9 @@ import {
   UpdateItemMessage,
   DeleteItemMessage,
   ExportMessage,
-  ImportReplaceMessage,
+  ImportStageImageMessage,
+  ImportCommitMessage,
+  ImportAbortMessage,
   GetDomainItemCountMessage,
   GetDomainItemCountResponse,
   DeleteDomainDataMessage,
@@ -790,8 +792,9 @@ async function handleExport(): Promise<void> {
 /**
  * §1.7 — import a `.zip` bundle, once it has been picked. src/import.ts owns
  * the whole §5 validation ladder (unzip, parse, screenshot/duplicate/domain
- * checks); this side reports a validation failure verbatim and sends a valid
- * bundle to the service worker to write. Nothing is asked here: any replace
+ * checks); this side reports a validation failure verbatim and hands a valid
+ * bundle to the service worker to write, one screenshot at a time and then
+ * the notes. Nothing is asked here: any replace
  * of existing notes was confirmed before the picker opened
  * (handleImportRequest, §AF). The import item is disabled for the duration
  * so a second pick can't overlap the first.
@@ -811,14 +814,31 @@ async function handleImportFile(file: File): Promise<void> {
       return;
     }
 
-    const replaceMessage: ImportReplaceMessage = {
-      type: 'IMPORT_REPLACE',
-      domain: currentDomain,
-      items: bundle.items,
-    };
-    const replaceResponse = await send(replaceMessage);
-    if (!replaceResponse || !replaceResponse.ok) {
-      sidebar.showError(replaceResponse?.message ?? IMPORT_FAILED_MESSAGE);
+    // The write crosses to the service worker in pieces (messages.ts's
+    // import banner): each screenshot staged on its own, then one small
+    // commit of the notes, carrying the keys and thumbnails staging minted.
+    const items: FeedbackItem[] = [];
+    for (const { screenshotDataUrl, ...fields } of bundle.items) {
+      const stage: ImportStageImageMessage = { type: 'IMPORT_STAGE_IMAGE', dataUrl: screenshotDataUrl };
+      const staged = await send(stage);
+      if (!staged || !staged.ok) {
+        // Nothing references what was staged so far; let it go.
+        if (items.length > 0) {
+          const abort: ImportAbortMessage = { type: 'IMPORT_ABORT', screenshotKeys: items.map((i) => i.screenshotKey) };
+          void send(abort);
+        }
+        sidebar.showError(staged?.message ?? IMPORT_FAILED_MESSAGE);
+        return;
+      }
+      items.push({ ...fields, screenshotKey: staged.screenshotKey, thumbnailDataUrl: staged.thumbnailDataUrl });
+    }
+
+    // A commit that fails cleans up its own screenshots; one whose answer
+    // never came may have landed, so nothing is deleted from here.
+    const commit: ImportCommitMessage = { type: 'IMPORT_COMMIT', domain: currentDomain, items };
+    const committed = await send(commit);
+    if (!committed || !committed.ok) {
+      sidebar.showError(committed?.message ?? IMPORT_FAILED_MESSAGE);
       return;
     }
 

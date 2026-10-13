@@ -19,7 +19,7 @@ import * as imageStore from '../imageStore';
 import * as storage from '../storage';
 import * as exportModule from '../export';
 import type { CaptureMessage, ImportItemPayload, NewFeedbackItem } from '../messages';
-import type { DomainData } from '../types';
+import type { DomainData, FeedbackItem } from '../types';
 import { DELETE_ALL_FAILED_MESSAGE, IMPORT_FAILED_MESSAGE, PAGE_HAS_NO_NOTES_MESSAGE, PAGE_NAME_SAVE_ERROR_MESSAGE, SITE_LOAD_FAILED_MESSAGE } from '../copy';
 
 jest.mock('../imageStore');
@@ -1375,10 +1375,22 @@ function writtenDomainData(): DomainData {
   return calls[calls.length - 1][1];
 }
 
-describe('handleImportReplace', () => {
+/** What content.ts does with a validated bundle: stage every screenshot,
+ *  then commit the notes with the keys and thumbnails staging minted. */
+async function importViaStageAndCommit(domain: string, payloads: ImportItemPayload[]) {
+  const items: FeedbackItem[] = [];
+  for (const { screenshotDataUrl, ...fields } of payloads) {
+    const staged = await background.handleImportStageImage({ type: 'IMPORT_STAGE_IMAGE', dataUrl: screenshotDataUrl });
+    if (!staged.ok) return staged;
+    items.push({ ...fields, screenshotKey: staged.screenshotKey, thumbnailDataUrl: staged.thumbnailDataUrl });
+  }
+  return background.handleImportCommit({ type: 'IMPORT_COMMIT', domain, items });
+}
+
+describe('import: stage each screenshot, then commit the notes', () => {
   it('keeps every id, groups the notes by page in bundle order, and sets nextItemNumber past the highest id', async () => {
     const items = [makeImportPayload(4, 'example.com/a'), makeImportPayload(9, 'example.com/b'), makeImportPayload(2, 'example.com/a')];
-    const response = await background.handleImportReplace({ type: 'IMPORT_REPLACE', domain: 'example.com', items });
+    const response = await importViaStageAndCommit('example.com', items);
     expect(response).toEqual({ ok: true });
     expect(mockedStorage.replaceDomainData).toHaveBeenCalledTimes(1);
     expect(mockedStorage.replaceDomainData.mock.calls[0][0]).toBe('example.com');
@@ -1391,7 +1403,7 @@ describe('handleImportReplace', () => {
 
   it('stores each note as sent, with a fresh screenshot key and a thumbnail rendered from its screenshot', async () => {
     const payload = makeImportPayload(3, 'example.com/a');
-    await background.handleImportReplace({ type: 'IMPORT_REPLACE', domain: 'example.com', items: [payload] });
+    await importViaStageAndCommit('example.com', [payload]);
     const [stored] = writtenDomainData().pages['example.com/a'];
     const { screenshotDataUrl, ...fields } = payload;
     expect(stored).toEqual({ ...fields, screenshotKey: expect.any(String), thumbnailDataUrl: expect.stringMatching(/^data:/) });
@@ -1401,12 +1413,19 @@ describe('handleImportReplace', () => {
 
   it('gives every note its own key', async () => {
     const items = [makeImportPayload(1, 'example.com/a'), makeImportPayload(2, 'example.com/a')];
-    await background.handleImportReplace({ type: 'IMPORT_REPLACE', domain: 'example.com', items });
+    await importViaStageAndCommit('example.com', items);
     const keys = writtenDomainData().pages['example.com/a'].map((i) => i.screenshotKey);
     expect(new Set(keys).size).toBe(2);
   });
 
-  it('writes through the save queue: an in-flight save lands before the replace', async () => {
+  it('staging writes the screenshot and nothing else: the record is untouched until the commit', async () => {
+    const staged = await background.handleImportStageImage({ type: 'IMPORT_STAGE_IMAGE', dataUrl: 'data:image/png;base64,c2hvdA==' });
+    expect(staged).toEqual({ ok: true, screenshotKey: expect.any(String), thumbnailDataUrl: expect.stringMatching(/^data:/) });
+    expect(mockedImageStore.putImage).toHaveBeenCalledTimes(1);
+    expect(mockedStorage.replaceDomainData).not.toHaveBeenCalled();
+  });
+
+  it('the commit writes through the save queue: an in-flight save lands before the replace', async () => {
     const order: string[] = [];
     let releaseAdd!: () => void;
     mockedStorage.addItem.mockImplementation(
@@ -1423,11 +1442,7 @@ describe('handleImportReplace', () => {
       order.push('replace');
     });
     const save = background.handleSaveItem({ type: 'SAVE_ITEM', domain: 'example.com', item: makeNewItem() });
-    const replace = background.handleImportReplace({
-      type: 'IMPORT_REPLACE',
-      domain: 'example.com',
-      items: [makeImportPayload(1, 'example.com/a')],
-    });
+    const replace = importViaStageAndCommit('example.com', [makeImportPayload(1, 'example.com/a')]);
     for (let i = 0; i < 20; i++) await Promise.resolve();
     expect(order).toEqual(['add:start']);
     releaseAdd();
@@ -1435,11 +1450,11 @@ describe('handleImportReplace', () => {
     expect(order).toEqual(['add:start', 'add:end', 'replace']);
   });
 
-  it('a failed write deletes the screenshots it stored, and reports the import copy', async () => {
+  it('a failed commit deletes the screenshots it was given, and reports the import copy', async () => {
     mockedStorage.replaceDomainData.mockRejectedValue(new Error('QUOTA_BYTES quota exceeded'));
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const items = [makeImportPayload(1, 'example.com/a'), makeImportPayload(2, 'example.com/a')];
-    const response = await background.handleImportReplace({ type: 'IMPORT_REPLACE', domain: 'example.com', items });
+    const response = await importViaStageAndCommit('example.com', items);
     expect(response).toEqual({ ok: false, message: IMPORT_FAILED_MESSAGE });
     const stored = mockedImageStore.putImage.mock.calls.map((c) => c[0]);
     expect(stored).toHaveLength(2);
@@ -1447,21 +1462,39 @@ describe('handleImportReplace', () => {
     warn.mockRestore();
   });
 
-  it('a screenshot that cannot be decoded stops the import before anything is replaced, and cleans up', async () => {
-    (global as any).createImageBitmap
-      .mockImplementationOnce(async () => fakeBitmap)
-      .mockImplementationOnce(async () => {
-        throw new Error('corrupt PNG');
-      });
+  it('a screenshot that cannot be decoded is refused before it is stored', async () => {
+    (global as any).createImageBitmap.mockImplementationOnce(async () => {
+      throw new Error('corrupt PNG');
+    });
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    const items = [makeImportPayload(1, 'example.com/a'), makeImportPayload(2, 'example.com/a')];
-    const response = await background.handleImportReplace({ type: 'IMPORT_REPLACE', domain: 'example.com', items });
+    const response = await background.handleImportStageImage({ type: 'IMPORT_STAGE_IMAGE', dataUrl: 'data:image/png;base64,eA==' });
     expect(response).toEqual({ ok: false, message: IMPORT_FAILED_MESSAGE });
+    expect(mockedImageStore.putImage).not.toHaveBeenCalled();
     expect(mockedStorage.replaceDomainData).not.toHaveBeenCalled();
-    const stored = mockedImageStore.putImage.mock.calls.map((c) => c[0]);
-    expect(stored).toHaveLength(1);
-    expect(mockedImageStore.deleteImage).toHaveBeenCalledWith(stored[0]);
     warn.mockRestore();
+  });
+
+  it('a screenshot that cannot be stored is reported the same way', async () => {
+    mockedImageStore.putImage.mockRejectedValueOnce(new Error('IDB closed'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const response = await background.handleImportStageImage({ type: 'IMPORT_STAGE_IMAGE', dataUrl: 'data:image/png;base64,eA==' });
+    expect(response).toEqual({ ok: false, message: IMPORT_FAILED_MESSAGE });
+    warn.mockRestore();
+  });
+
+  it('IMPORT_ABORT deletes the staged screenshots it names, each whatever happens to the others', async () => {
+    mockedImageStore.deleteImage.mockRejectedValueOnce(new Error('IDB closed'));
+    background.handleImportAbort({ type: 'IMPORT_ABORT', screenshotKeys: ['a', 'b'] });
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(mockedImageStore.deleteImage.mock.calls.map((c) => c[0])).toEqual(['a', 'b']);
+  });
+
+  it('the three are routed by handleRuntimeMessage; IMPORT_ABORT is a notification with no answer', () => {
+    const sendResponse = jest.fn();
+    expect(background.handleRuntimeMessage({ type: 'IMPORT_STAGE_IMAGE', dataUrl: 'data:,' }, makeSender(1), sendResponse)).toBe(true);
+    expect(background.handleRuntimeMessage({ type: 'IMPORT_COMMIT', domain: 'example.com', items: [] }, makeSender(1), sendResponse)).toBe(true);
+    expect(background.handleRuntimeMessage({ type: 'IMPORT_ABORT', screenshotKeys: [] }, makeSender(1), sendResponse)).toBe(false);
+    expect(background.handleRuntimeMessage({ type: 'IMPORT_REPLACE', domain: 'example.com', items: [] }, makeSender(1), sendResponse)).toBe(false);
   });
 });
 

@@ -417,47 +417,83 @@ export type ExportResponse = ExportSuccessResponse | ExportEmptyResponse | Expor
 // Unzipping the picked file and validating it against §5's ladder happens in
 // the content script (src/import.ts): the File object from the native
 // picker lives in the page's JS world, and none of that validation needs
-// chrome.storage/IndexedDB. Only the last step — actually writing the
-// replacement domain data — needs the service worker (gotcha #1), so this
-// boundary carries the whole validated bundle across in one message rather
-// than one round trip per item. `screenshotDataUrl` is the raw
-// `screenshots/{id}.png` bytes from the zip, re-encoded as a data URL so
-// they survive the JSON-serialised hop (gotcha #2) — the service worker
-// mints a fresh `screenshotKey` and derives `thumbnailDataUrl` from it
-// (gotcha #4: only it has OffscreenCanvas), exactly like a live capture.
+// chrome.storage/IndexedDB. Only the write needs the service worker
+// (gotcha #1), and it crosses the boundary in pieces, because Chrome refuses
+// any one message over 64 MiB and a site's screenshots can be far more than
+// that once base64-encoded:
+//   1. IMPORT_STAGE_IMAGE, once per note: one screenshot in, its freshly
+//      minted `screenshotKey` and rendered `thumbnailDataUrl` back
+//      (gotcha #4: only the service worker has OffscreenCanvas), exactly as
+//      a live capture produces them. Nothing references it yet.
+//   2. IMPORT_COMMIT, once: the notes, carrying those keys and thumbnails,
+//      replace the domain's record in one queued write. A failed commit
+//      deletes the screenshots it was given.
+//   3. IMPORT_ABORT, only when staging fails part-way: the screenshots
+//      already staged are deleted (best effort; a lost one is an orphan,
+//      which costs space and nothing else).
 
-/** One imported item, everything a `FeedbackItem` needs except the two
- *  storage handles the service worker mints at write time. */
+/** One imported item as src/import.ts decodes it from the bundle: everything
+ *  a `FeedbackItem` needs except the two storage handles the service worker
+ *  mints when its screenshot is staged. `screenshotDataUrl` is the raw
+ *  `screenshots/{id}.png` bytes from the zip, re-encoded as a data URL so
+ *  they survive the JSON-serialised hop (gotcha #2). */
 export type ImportItemPayload = Omit<FeedbackItem, 'screenshotKey' | 'thumbnailDataUrl'> & {
   screenshotDataUrl: string;
 };
 
-/** §1.7's replace-only import: discard whatever is currently stored for
- *  `domain` and install `items` in its place. The content script has
- *  already run the full §5 validation ladder and (if needed) shown the §5
- *  #10 confirmation dialog by the time this is sent. */
-export interface ImportReplaceMessage {
-  type: 'IMPORT_REPLACE';
-  domain: string;
-  items: ImportItemPayload[];
+/** Store one imported screenshot and render its thumbnail. */
+export interface ImportStageImageMessage {
+  type: 'IMPORT_STAGE_IMAGE';
+  dataUrl: string;
 }
 
-export interface ImportReplaceSuccessResponse {
+export interface ImportStageImageSuccessResponse {
   ok: true;
+  screenshotKey: string;
+  thumbnailDataUrl: string;
 }
 
-export interface ImportReplaceErrorResponse {
+export interface ImportStageImageErrorResponse {
   ok: false;
   /** Lowercase, user-facing. */
   message: string;
 }
 
-export type ImportReplaceResponse = ImportReplaceSuccessResponse | ImportReplaceErrorResponse;
+export type ImportStageImageResponse = ImportStageImageSuccessResponse | ImportStageImageErrorResponse;
+
+/** §1.7's replace-only import: discard whatever is currently stored for
+ *  `domain` and install `items` (their screenshots already staged) in its
+ *  place. The content script has already run the full §5 validation ladder
+ *  and (if needed) asked §5 #10's question by the time this is sent. */
+export interface ImportCommitMessage {
+  type: 'IMPORT_COMMIT';
+  domain: string;
+  items: FeedbackItem[];
+}
+
+export interface ImportCommitSuccessResponse {
+  ok: true;
+}
+
+export interface ImportCommitErrorResponse {
+  ok: false;
+  /** Lowercase, user-facing. */
+  message: string;
+}
+
+export type ImportCommitResponse = ImportCommitSuccessResponse | ImportCommitErrorResponse;
+
+/** Staging failed part-way: delete the screenshots already staged.
+ *  Fire-and-forget. */
+export interface ImportAbortMessage {
+  type: 'IMPORT_ABORT';
+  screenshotKeys: string[];
+}
 
 /** §5 #10's confirmation needs to know how many items importing would
  *  discard *before* the content script can show it — that count lives
  *  behind the service worker (gotcha #1), hence this small read ahead of
- *  IMPORT_REPLACE. */
+ *  the import's write. */
 export interface GetDomainItemCountMessage {
   type: 'GET_DOMAIN_ITEM_COUNT';
   domain: string;
@@ -541,7 +577,9 @@ export type ContentToBackgroundMessage =
   | UpdateNoteMessage
   | DeleteItemMessage
   | ExportMessage
-  | ImportReplaceMessage
+  | ImportStageImageMessage
+  | ImportCommitMessage
+  | ImportAbortMessage
   | GetDomainItemCountMessage
   | DeleteDomainDataMessage
   | GetPenColorMessage
@@ -573,7 +611,9 @@ export interface MessageMap {
   UPDATE_NOTE: [UpdateNoteMessage, UpdateNoteResponse];
   DELETE_ITEM: [DeleteItemMessage, DeleteItemResponse];
   EXPORT: [ExportMessage, ExportResponse];
-  IMPORT_REPLACE: [ImportReplaceMessage, ImportReplaceResponse];
+  IMPORT_STAGE_IMAGE: [ImportStageImageMessage, ImportStageImageResponse];
+  IMPORT_COMMIT: [ImportCommitMessage, ImportCommitResponse];
+  IMPORT_ABORT: [ImportAbortMessage, void];
   GET_DOMAIN_ITEM_COUNT: [GetDomainItemCountMessage, GetDomainItemCountResponse];
   DELETE_DOMAIN_DATA: [DeleteDomainDataMessage, DeleteDomainDataResponse];
   GET_PEN_COLOR: [GetPenColorMessage, GetPenColorResponse];
