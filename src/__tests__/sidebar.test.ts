@@ -2581,3 +2581,88 @@ describe('sidebar split pins', () => {
     expect(root.querySelector('.action-menu')!.getAttribute('data-open')).toBe('false');
   });
 });
+
+// Keys pressed in the panel never reach the page (architecture review B3,
+// owner decision D2), while the panel's own key handling still works.
+describe('keyboard isolation of the panel', () => {
+  let pageSaw: string[];
+  const pageListener = (e: KeyboardEvent) => {
+    pageSaw.push(e.key);
+    // A shortcut library: cancels Enter and Space wherever they come from.
+    if (e.key === 'Enter' || e.key === ' ') e.preventDefault();
+  };
+
+  beforeEach(() => {
+    pageSaw = [];
+    document.addEventListener('keydown', pageListener);
+  });
+  afterEach(() => {
+    document.removeEventListener('keydown', pageListener);
+    sidebar.destroySidebar();
+    html().style.cssText = '';
+  });
+
+  /** A real key press: composed, so it travels out of the shadow root to
+   *  window and back, as a key does in Chrome. */
+  function press(el: Element, key: string, init: KeyboardEventInit = {}): KeyboardEvent {
+    (el as HTMLElement).focus?.();
+    const e = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, composed: true, ...init });
+    el.dispatchEvent(e);
+    return e;
+  }
+  const q = <T extends Element>(sel: string) => shadowRoot().querySelector(sel) as T;
+
+  test('the page sees no key pressed in the sidebar, and cannot cancel its buttons', () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+    const e = press(q('.btn-menu'), 'Enter');
+    press(q('.btn-add'), ' ');
+    press(q('.btn-close'), 'k');
+    expect(pageSaw).toEqual([]);
+    // Not cancelled: the button's native activation still runs.
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  test("the panel's own keys still work: the menu's arrows, the add button's shift+Enter, the handle's arrows", () => {
+    const cbs = makeCallbacks();
+    sidebar.initSidebar(cbs);
+    sidebar.openSidebar();
+    press(q('.btn-menu'), 'ArrowDown');
+    expect(sidebar.isMoreOptionsMenuOpen()).toBe(true);
+    expect(shadowRoot().activeElement).toBe(q('.action-menu-item.is-import'));
+    press(q('.action-menu-item.is-import'), 'Escape');
+    expect(sidebar.isMoreOptionsMenuOpen()).toBe(false);
+
+    const shiftEnter = press(q('.btn-add'), 'Enter', { shiftKey: true });
+    expect(cbs.calls.addDoubleClick).toBe(1);
+    // Its listener cancels the copy, which cancels the real key: no plain
+    // click follows to toggle it straight back off.
+    expect(shiftEnter.defaultPrevented).toBe(true);
+
+    sidebar.setSidebarWidth(250);
+    press(q('.resizer'), 'ArrowLeft');
+    expect(sidebar.getSidebarWidth()).toBe(260);
+    expect(pageSaw).toEqual([]);
+  });
+
+  test('a list item opens on Enter, as before', () => {
+    const cbs = makeCallbacks();
+    sidebar.initSidebar(cbs);
+    sidebar.openSidebar();
+    sidebar.setThumbnails([makeItem({ id: 4 })]);
+    const enter = press(q('button.thumbnail'), 'Enter');
+    expect(cbs.calls.openItem.map((i) => i.id)).toEqual([4]);
+    expect(enter.defaultPrevented).toBe(true);
+    expect(pageSaw).toEqual([]);
+  });
+
+  test('keys on the page are left alone; a closed sidebar isolates nothing', () => {
+    sidebar.initSidebar(makeCallbacks());
+    sidebar.openSidebar();
+    press(document.body, 'j');
+    expect(pageSaw).toEqual(['j']);
+    sidebar.closeSidebar();
+    press(q('.btn-menu'), 'k');
+    expect(pageSaw).toEqual(['j', 'k']);
+  });
+});

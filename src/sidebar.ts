@@ -44,7 +44,9 @@ import { NOTHING_TO_EXPORT_MESSAGE, SITE_LOAD_FAILED_MESSAGE } from './copy';
 import { attachTooltips, isSoftDisabled, setSoftDisabled, TooltipHandle, TOOLTIP_CSS } from './tooltip';
 import { renderThumbnailList } from './thumbnails';
 import { attachDockMotion, DockMotionHandle } from './dockMotion';
-import { getContentViewportSize, reducedMotionQuery } from './dom';
+import { getContentViewportSize, keyTargetWithin, reducedMotionQuery } from './dom';
+import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
+import { KEY_PRIORITY } from './keyRouter';
 import { ICON_CLOSE, ICON_COMMENT, ICON_EXPORT, ICON_MORE } from './icons';
 import {
   openEnlargedView as openEnlargedViewImpl,
@@ -905,6 +907,65 @@ export function openSidebar(): void {
   visible = true;
   applyPageResize(getSidebarWidth());
   syncDockMotion();
+  isolateKeys();
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard isolation (REQUIREMENTS NF-ISO-1, NF-A11Y-2)
+//
+// Keys pressed in the panel never reach the page. A page's shortcut library
+// listens on `document` and cannot see that focus is inside our closed
+// shadow root, so without this it took every key pressed in the sidebar for
+// its own: "k" paused a video, and a handler calling preventDefault() on
+// Enter or Space cancelled the native activation of every button here.
+// keyboardIsolation.ts stops the key at window capture, before the page
+// sees it (but never cancels it, so the native activation still runs); that
+// also stops it before the panel's own keydown listeners (the add button's
+// shift+Enter, the menu's arrows and Esc, the resize handle's arrows, a
+// list item's Enter and Space), so the hook hands each of those a copy of
+// the key first: the same key, dispatched at the element it was pressed on,
+// not composed, so it bubbles inside the root and never leaves it. A copy a
+// listener cancels cancels the real key, which is what stops a native
+// activation those listeners replace. While the enlarged view is open, its
+// own isolation takes every key in this host first (the key router's
+// ENLARGED_ISOLATION runs before SIDEBAR_ISOLATION).
+// ---------------------------------------------------------------------------
+
+/** The panel's isolation, while it is shown. */
+let keyIsolation: KeyboardIsolationHandle | null = null;
+
+function isolateKeys(): void {
+  if (keyIsolation || !dom) return;
+  keyIsolation = installKeyboardIsolation(dom.host, handOnInside, KEY_PRIORITY.SIDEBAR_ISOLATION);
+}
+
+function releaseKeys(): void {
+  keyIsolation?.release();
+  keyIsolation = null;
+}
+
+/** Give the panel's own keydown listeners the key the isolation is about to
+ *  stop (see the banner). */
+function handOnInside(e: KeyboardEvent): void {
+  if (!dom) return;
+  const target = keyTargetWithin(e, dom.host, dom.shadow);
+  if (!(target instanceof Element) || target === dom.host) return;
+  const copy = new KeyboardEvent(e.type, {
+    key: e.key,
+    code: e.code,
+    location: e.location,
+    repeat: e.repeat,
+    isComposing: e.isComposing,
+    ctrlKey: e.ctrlKey,
+    shiftKey: e.shiftKey,
+    altKey: e.altKey,
+    metaKey: e.metaKey,
+    bubbles: true,
+    cancelable: true,
+    composed: false,
+  });
+  target.dispatchEvent(copy);
+  if (copy.defaultPrevented) e.preventDefault();
 }
 
 /** Hide the sidebar and restore the page's original layout exactly as it was
@@ -925,6 +986,7 @@ export function closeSidebar(): void {
   // the panel does not hide it.
   dom?.tooltips.hide();
   visible = false;
+  releaseKeys();
   syncDockMotion();
   clearMessage();
   restorePageResize();
@@ -1369,6 +1431,7 @@ export function destroySidebar(): void {
   clearMessage();
   endResizeDrag();
   restorePageResize();
+  releaseKeys();
   if (dom) {
     dom.actionMenu.destroy();
     dom.panel.removeEventListener('wheel', onSidebarChromeWheel);

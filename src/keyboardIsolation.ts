@@ -32,11 +32,11 @@
 // at its surface's priority, so the tooltip's Esc, add mode's Esc and the
 // scroll lock still see the keys they need first.
 //
-// Shared by addMode.ts (the add-mode comment box) and enlargedView.ts (the
-// note-editing textarea) — both have the identical closed-shadow-root
-// architecture and are identically vulnerable. Install only while the
-// respective surface is actually open/focused; never leave this listening
-// globally when neither UI is active.
+// Shared by addMode.ts (the add-mode comment box), enlargedView.ts (the
+// note-editing textareas) and sidebar.ts (the panel's buttons) — all have
+// the identical closed-shadow-root architecture and are identically
+// vulnerable. Install only while the respective surface is actually open;
+// never leave this listening globally when no UI is active.
 
 import { KEY_PRIORITY, KeyVerdict, registerKeyHandler } from './keyRouter';
 
