@@ -273,7 +273,7 @@ notes, one very wide), then page C (one tall note, one default).
 - [ ] **3.1a. (the page)** The view is one scrolling page of all three pages, A first: each under a
       heading — the page's name in the italic serif, a pencil, its address in monospace (not
       grey), and on B only a small "this page" label. The list behind still shows only B's notes.
-      Logo top left; one exit button (→) top right; no ↑/↓ rail, no peek cards.
+      Logo top left; one exit button top right (the collapse-panel glyph); no ↑/↓ rail, no peek cards.
 - [ ] **3.1b. (opening position)** The clicked note's text area has the cursor (yellow edge, caret
       at the end of its text). Above B's heading, the bottom ~80px of A's last row shows, cut off
       by the top bar. Opening A's first note instead starts at the very top with nothing peeking.

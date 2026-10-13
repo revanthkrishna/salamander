@@ -83,7 +83,7 @@ import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIso
 import { AutosaveController } from './autosave';
 // ICON_TRASH is the project's one trash glyph (design spec v5 §S) — the same
 // one the note list's hover delete draws.
-import { ICON_ARROW_RIGHT, ICON_TRASH } from './icons';
+import { ICON_COLLAPSE, ICON_TRASH } from './icons';
 import { buildDrawingSvg, hasStrokes } from './drawing';
 import {
   DELETE_ERROR_MESSAGE,
@@ -367,8 +367,8 @@ export const ENLARGED_VIEW_CSS = `
     color: var(--sal-text);
   }
 
-  /* Exit: one secondary icon button, top right — an arrow pointing the way
-     the panel goes. */
+  /* Exit: one secondary icon button, top right — v5 §U's collapse-panel
+     glyph. */
   .xp-exit {
     position: absolute; top: ${(TOP_BAR_H - EXIT_BTN) / 2}px; right: ${PANEL_PAD_X}px;
     width: ${EXIT_BTN}px; height: ${EXIT_BTN}px; margin: 0; padding: 0;
@@ -1118,7 +1118,7 @@ class EnlargedView {
     this.btnExit = document.createElement('button');
     this.btnExit.type = 'button';
     this.btnExit.className = 'xp-exit';
-    this.btnExit.innerHTML = ICON_ARROW_RIGHT;
+    this.btnExit.innerHTML = ICON_COLLAPSE;
     this.btnExit.setAttribute('aria-label', EXIT_ENLARGED_VIEW_LABEL);
     this.btnExit.dataset.tip = EXIT_ENLARGED_VIEW_TIP;
     this.btnExit.addEventListener('click', () => void this.requestCollapse());

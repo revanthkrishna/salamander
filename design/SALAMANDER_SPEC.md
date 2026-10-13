@@ -1152,10 +1152,9 @@ with one wide note, and the tops of the next row cut off by the bottom edge. Dec
   never narrower than the docked width), over the scrim, right-anchored; the page is never
   re-laid out.
 - **Top bar, 56px** — the docked header's height, so the logo never moves vertically: the logo
-  and wordmark top left, and **one exit button** top right — a 36px secondary icon button, an
-  arrow pointing right (`M5 12h14M13 6l6 6-6 6`, the way the panel goes), "exit enlarged view
-  (esc)". The x / ↑ / ↓ rail and the peek carousel are gone, and so is v5 §U's collapse-panel
-  glyph, which read as a layout toggle once the panel became a page of its own. **(impl)**
+  and wordmark top left, and **one exit button** top right — a 36px secondary icon button with
+  v5 §U's collapse-panel glyph (the owner asked to keep it, 2026-10-12, after a first build drew
+  an arrow), "exit enlarged view (esc)". The x / ↑ / ↓ rail and the peek carousel are gone.
 - **The scroller** fills the panel below the top bar. Its content column is inset **32px** each
   side (`PANEL_PAD_X`); the logo moves from the docked 16px to the same 32px as the panel grows,
   so the logo, the headings and the first notes share one left edge, and the exit button's right

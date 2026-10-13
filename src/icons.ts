@@ -52,12 +52,14 @@ export const ICON_TRASH = strokeIcon(
     '<path d="M6.5 7l.8 12a1.5 1.5 0 0 0 1.5 1.4h6.4a1.5 1.5 0 0 0 1.5-1.4l.8-12"/>',
 );
 
-/** The enlarged view's exit (design spec §AH): an arrow pointing right —
- *  the panel collapses back to the right edge it grew from. It replaces v5
- *  §U's collapse-panel glyph, which read as a layout toggle once the panel
- *  became a page of its own; the aria-label still says "exit enlarged
- *  view", which is what carries the meaning to AT. */
-export const ICON_ARROW_RIGHT = strokeIcon('<path d="M5 12h14M13 6l6 6-6 6"/>');
+/** "collapse the panel to the right" (design spec v5 §U): a rounded panel
+ *  outline, a divider three-quarters across, and a chevron pointing right in
+ *  the larger left area — the enlarged view's exit, top right (§AH). The
+ *  aria-label and tooltip say "exit enlarged view", which is what carries
+ *  the meaning to AT. */
+export const ICON_COLLAPSE = strokeIcon(
+  '<rect x="3" y="4" width="18" height="16" rx="2.5"/>' + '<path d="M15.5 4v16M8 9.5l3 2.5-3 2.5"/>',
+);
 
 /** Confirms the enlarged view's page-name field (design spec §AH). Its
  *  cancel is ICON_CLOSE. */
