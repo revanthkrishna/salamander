@@ -5,7 +5,7 @@
 //
 // Why a JS cubic-bezier at all when WAAPI takes the CSS string directly:
 // interruptibility (MOTION_SPEC §13). A gesture that pre-empts another in
-// flight (collapse during expand, a second ↓ mid-carousel, delete mid-morph)
+// flight (collapse during expand, a delete during a delete's re-pack)
 // must start from where things *are*, not where they were headed. Rather than
 // reading that back from the DOM (getComputedStyle mid-animation = forced
 // style recalc, and a transform readback is a matrix, not a rect), every
@@ -135,7 +135,7 @@ export interface Box {
   h: number;
 }
 
-/** A card's resting geometry in one of its slots (list / main / peek), in
+/** A card's resting geometry in one of its slots (the list's or the grid's), in
  *  viewport px: the frame box, the inner padding the screenshot is inset by,
  *  and the screenshot's own corner radius. */
 export interface Slot extends Box {
@@ -270,7 +270,7 @@ interface NumberTrack {
   anim: Animation | null;
 }
 
-/** Live numeric tweens per element + property key (opacity, width). */
+/** Live numeric tweens per element + property key (opacity, width, left). */
 const tracks = new WeakMap<Element, Map<string, NumberTrack>>();
 
 /** Current (possibly mid-flight) value of `el`'s tracked `key`, or
@@ -298,11 +298,11 @@ export interface NumberAnimOptions {
  */
 export function animateNumber(
   el: HTMLElement,
-  prop: 'opacity' | 'width',
+  prop: 'opacity' | 'width' | 'left',
   to: number,
   opts: NumberAnimOptions,
 ): void {
-  const unit = prop === 'width' ? 'px' : '';
+  const unit = prop === 'opacity' ? '' : 'px';
   const fallback = prop === 'opacity' ? parseOpacity(el) : to;
   const from = opts.from ?? trackedValue(el, prop, fallback);
   cancelTrack(el, prop);

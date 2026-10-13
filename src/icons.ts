@@ -16,10 +16,6 @@ function strokeIcon(body: string): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" ${STROKE_ICON_ATTRS}>${body}</svg>`;
 }
 
-/** The up/down arrow paths of the enlarged view's rail arrows. */
-const PATH_ARROW_DOWN = '<path d="M6 9l6 6 6-6"/>';
-const PATH_ARROW_UP = '<path d="M6 15l6-6 6 6"/>';
-
 // ─── Sidebar action row / header ────────────────────────────────────────────
 
 /** "add note" (design spec v3 §A2): a comment bubble rather than the v2 plus,
@@ -56,16 +52,16 @@ export const ICON_TRASH = strokeIcon(
     '<path d="M6.5 7l.8 12a1.5 1.5 0 0 0 1.5 1.4h6.4a1.5 1.5 0 0 0 1.5-1.4l.8-12"/>',
 );
 
-/** "collapse the panel to the right" (design spec v5 §U): a rounded panel
- *  outline, a divider three-quarters across, and a chevron pointing right in
- *  the larger left area. It replaces the × — the aria-label and title still
- *  say "exit enlarged view", which is what carries the meaning to AT. */
-export const ICON_COLLAPSE = strokeIcon(
-  '<rect x="3" y="4" width="18" height="16" rx="2.5"/>' + '<path d="M15.5 4v16M8 9.5l3 2.5-3 2.5"/>',
-);
-/** The enlarged view's rail arrows (previous / next note). */
-export const ICON_ARROW_UP = strokeIcon(PATH_ARROW_UP);
-export const ICON_ARROW_DOWN = strokeIcon(PATH_ARROW_DOWN);
+/** The enlarged view's exit (design spec §AH): an arrow pointing right —
+ *  the panel collapses back to the right edge it grew from. It replaces v5
+ *  §U's collapse-panel glyph, which read as a layout toggle once the panel
+ *  became a page of its own; the aria-label still says "exit enlarged
+ *  view", which is what carries the meaning to AT. */
+export const ICON_ARROW_RIGHT = strokeIcon('<path d="M5 12h14M13 6l6 6-6 6"/>');
+
+/** Confirms the enlarged view's page-name field (design spec §AH). Its
+ *  cancel is ICON_CLOSE. */
+export const ICON_CHECK = strokeIcon('<path d="M5 12.5l4.5 4.5L19 7.5"/>');
 
 // ─── Add mode: the pencil (design spec §AB) ─────────────────────────────────
 
@@ -75,7 +71,8 @@ const PATH_PENCIL = 'M3.5 20.5l1.2-4.6L15.6 5a2.1 2.1 0 0 1 3 0l.4.4a2.1 2.1 0 0
 const PATH_PENCIL_BAND = 'M13.8 6.8l3.4 3.4';
 
 /** The comment box's pencil button (§AB): the menu button the swatches
- *  belong to. */
+ *  belong to. Also the enlarged view's "edit page name" (design spec §AH) —
+ *  the one pencil, for the one idea of "change this". */
 export const ICON_PENCIL = strokeIcon(`<path d="${PATH_PENCIL}"/><path d="${PATH_PENCIL_BAND}"/>`);
 
 /** "erase all", the pencil menu's one item: an eraser on its baseline. */

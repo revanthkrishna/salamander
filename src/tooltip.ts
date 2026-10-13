@@ -212,8 +212,8 @@ export function attachTooltips(root: ShadowRoot): TooltipHandle {
   const isOpen = (): boolean => tip.dataset.open === 'true';
 
   // While a tooltip is up, watch for its control going away under it — the
-  // list repainting under a hovered delete, a peek card retiring (its
-  // data-tip is deleted, then the card is removed), the panel closing or
+  // list repainting under a hovered delete, a deleted note in the enlarged
+  // view fading out and being removed, the panel closing or
   // going inert behind the enlarged view — none of which moves the pointer,
   // so nothing else would hide it. Observed only while open; `style` is not
   // in the filter, so the per-frame style writes of the motion code never

@@ -1,15 +1,17 @@
 // Where a saved drawing is shown (design spec §AB): over the note list's
-// thumbnail and over the enlarged view's main image and peeks, view-only.
+// thumbnail and over every screenshot in the enlarged view (§AH), view-only.
 // Both are an SVG with viewBox = the selection's CSS size and
 // preserveAspectRatio "xMidYMid meet", filling the same box as the
-// object-fit: contain screenshot — which is what makes the two line up at
-// any size. In the enlarged view it lives inside .xp-card-media, the element
-// the FLIP morph's media track transforms, so it rides the morph and the
-// carousel with the image rather than needing a track of its own.
+// screenshot — which is what makes the two line up at any size. In the
+// enlarged view it is the image's sibling in the note's .xp-shot (which has
+// the selection's aspect exactly), and inside a morphing clone's
+// .xp-card-media, the element the FLIP morph's media track transforms — so
+// it rides the morph with the image rather than needing a track of its own.
 
 import * as sidebar from '../sidebar';
 import { renderThumbnailList } from '../thumbnails';
 import { T, EnlargedViewCallbacks } from '../enlargedView';
+import type { EnlargedSite } from '../enlargedView';
 import { containFit, insetBox } from '../flip';
 import type { Drawing, FeedbackItem } from '../types';
 
@@ -145,24 +147,30 @@ describe('the enlarged view', () => {
   function shadow(): ShadowRoot {
     return document.getElementById('annotator-sidebar-host')!.shadowRoot!;
   }
-  const mainCard = () => shadow().querySelector<HTMLElement>('.xp-card.is-main');
-  const peek = (which: 'prev' | 'next') => shadow().querySelector<HTMLElement>(`.xp-card.is-${which}`);
-  const downBtn = () => shadow().querySelector<HTMLButtonElement>('.xp-next')!;
+  const shotOf = (id: number) => shadow().querySelector<HTMLElement>(`.xp-note[data-item-id="${id}"] .xp-shot`);
+  const cloneOf = (id: number) => shadow().querySelector<HTMLElement>(`.xp-card[data-item-id="${id}"]`);
 
   function callbacks(): EnlargedViewCallbacks {
     return {
       fetchFullImage: jest.fn().mockResolvedValue(null),
       onSaveNote: jest.fn().mockResolvedValue(true),
       onDelete: jest.fn().mockResolvedValue(true),
+      onSavePageTitle: jest.fn().mockResolvedValue(true),
       onClosed: jest.fn(),
     } as unknown as EnlargedViewCallbacks;
   }
 
+  let listed: FeedbackItem[] = [];
   function setup(items: FeedbackItem[]): void {
+    listed = items;
     sidebar.initSidebar({ onAdd() {}, onExport() {}, onImport() {}, onImportFile() {}, onDeleteAll() {}, onClose() {}, onOpenItem() {} });
     sidebar.openSidebar();
     sidebar.setThumbnails(items);
   }
+  const site = (): EnlargedSite => ({
+    currentUrl: listed[0].normalisedUrl,
+    pages: [{ normalisedUrl: listed[0].normalisedUrl, editedTitle: null, items: listed }],
+  });
 
   beforeEach(() => {
     jest.useFakeTimers();
@@ -188,42 +196,41 @@ describe('the enlarged view', () => {
     delete (window as any).matchMedia;
   });
 
-  test('over the main image and the peeks, inside .xp-card-media beside the <img>', () => {
+  test('over every screenshot that has one, beside the <img> in its .xp-shot', () => {
     setup([makeItem(1, DRAWING), makeItem(2, DRAWING), makeItem(3)]);
-    expect(sidebar.openEnlargedView(2, callbacks())).toBe(true);
+    expect(sidebar.openEnlargedView(2, site(), callbacks())).toBe(true);
 
-    for (const card of [mainCard()!, peek('prev')!]) {
-      const media = card.querySelector('.xp-card-media')!;
-      const kids = Array.from(media.children).map((c) => c.getAttribute('class'));
-      expect(kids).toEqual(['xp-card-img', 'xp-card-drawing']);
-      const svg = media.querySelector('svg.xp-card-drawing')!;
+    for (const id of [1, 2]) {
+      const kids = Array.from(shotOf(id)!.children).map((c) => c.getAttribute('class'));
+      expect(kids).toEqual(['xp-shot-img', 'xp-shot-drawing']);
+      const svg = shotOf(id)!.querySelector('svg.xp-shot-drawing')!;
       expect(svg.getAttribute('viewBox')).toBe('0 0 200 100');
       expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
     }
     // the note without a drawing shows none
-    expect(peek('next')!.querySelector('.xp-card-drawing')).toBeNull();
+    expect(shotOf(3)!.querySelector('.xp-shot-drawing')).toBeNull();
   });
 
   test('view-only: no pointer on it, nothing focusable, no pencil anywhere in the view', () => {
     setup([makeItem(1, DRAWING)]);
-    sidebar.openEnlargedView(1, callbacks());
+    sidebar.openEnlargedView(1, site(), callbacks());
     const css = shadow().querySelector('style')!.textContent ?? '';
-    const rule = css.match(/\n\s*\.xp-card-drawing \{[^}]*\}/)?.[0] ?? '';
+    const rule = css.match(/\n\s*\.xp-shot-drawing, \.xp-card-drawing \{[^}]*\}/)?.[0] ?? '';
     expect(rule).toMatch(/pointer-events: none/);
     expect(rule).toMatch(/width: 100%; height: 100%/);
-    const svg = mainCard()!.querySelector('.xp-card-drawing')!;
+    const svg = shotOf(1)!.querySelector('.xp-shot-drawing')!;
     expect(svg.getAttribute('focusable')).toBe('false');
     expect(shadow().querySelector('.draw-surface, .btn-pencil, .swatch')).toBeNull();
   });
 
-  test('it rides the FLIP morph: the media box it sits in is what the morph transforms', () => {
+  test('it rides the FLIP morph: the clone\'s media box it sits in is what the morph transforms', () => {
     setup([makeItem(1, DRAWING)]);
     const wrap = shadow().querySelector<HTMLElement>('button.thumbnail[data-item-id="1"] .thumbnail-image-wrap')!;
     wrap.getBoundingClientRect = () =>
       ({ left: 740, top: 332, right: 1007, bottom: 432, width: 267, height: 100, x: 740, y: 332, toJSON() {} }) as DOMRect;
-    sidebar.openEnlargedView(1, callbacks());
+    sidebar.openEnlargedView(1, site(), callbacks());
 
-    const media = mainCard()!.querySelector<HTMLElement>('.xp-card-media')!;
+    const media = cloneOf(1)!.querySelector<HTMLElement>('.xp-card-media')!;
     const svg = media.querySelector('.xp-card-drawing')!;
     const mediaTrack = animCalls.find((c) => c.el === media);
     expect(mediaTrack).toBeDefined();
@@ -233,41 +240,41 @@ describe('the enlarged view', () => {
     // The drawing has no track of its own — it cannot drift from the image.
     expect(animCalls.find((c) => c.el === svg)).toBeUndefined();
     expect(svg.parentElement).toBe(media);
+    // Landed, the clone gives way to the note's own screenshot, drawing and all.
+    jest.advanceTimersByTime(T.expandSettle);
+    expect(cloneOf(1)).toBeNull();
+    expect(shotOf(1)!.querySelector('.xp-shot-drawing')).not.toBeNull();
   });
 
-  test('geometry: the media box has the drawing\'s aspect, so "meet" fills it exactly, like the image', () => {
+  test('geometry: the screenshot box has the drawing\'s aspect, so "meet" fills it exactly, like the image', () => {
     setup([makeItem(1, DRAWING)]);
-    sidebar.openEnlargedView(1, callbacks());
+    sidebar.openEnlargedView(1, site(), callbacks());
     jest.advanceTimersByTime(T.expandSettle);
-    const media = mainCard()!.querySelector<HTMLElement>('.xp-card-media')!;
-    const w = parseFloat(media.style.width);
-    const h = parseFloat(media.style.height);
+    const shot = shotOf(1)!;
+    const w = parseFloat(shot.style.width);
+    const h = parseFloat(shot.style.height);
     expect(w / h).toBeCloseTo(DRAWING.width / DRAWING.height, 5);
-    // A contain-fit of the drawing's viewBox into that box is the whole box —
-    // the same rect the object-fit: contain image occupies.
     const fitted = containFit(DRAWING.width / DRAWING.height, insetBox({ x: 0, y: 0, w, h }, 0));
     expect(fitted.w).toBeCloseTo(w, 5);
     expect(fitted.h).toBeCloseTo(h, 5);
   });
 
-  test('it moves with its card through the carousel', () => {
-    setup([makeItem(1, DRAWING), makeItem(2)]);
-    sidebar.openEnlargedView(1, callbacks());
+  test('it moves with its screenshot when a delete re-packs the rows', async () => {
+    setup([makeItem(1), makeItem(2, DRAWING)]);
+    sidebar.openEnlargedView(2, site(), callbacks());
     jest.advanceTimersByTime(T.expandSettle);
-    const card1 = mainCard()!;
-    const svg = card1.querySelector('.xp-card-drawing')!;
+    const shot = shotOf(2)!;
+    const svg = shot.querySelector('.xp-shot-drawing')!;
+    const before = shot.style.left;
 
     animCalls = [];
-    downBtn().click();
-    expect(mainCard()!.dataset.itemId).toBe('2');
-    expect(mainCard()!.querySelector('.xp-card-drawing')).toBeNull();
-    // Note 1 is now the previous peek, drawing and all, and its media box
-    // is carried by the carousel's own media track.
-    const prev = peek('prev')!;
-    expect(prev).toBe(card1);
-    expect(prev.querySelector('.xp-card-drawing')).toBe(svg);
-    expect(animCalls.some((c) => c.el === prev.querySelector('.xp-card-media'))).toBe(true);
-    jest.advanceTimersByTime(T.carousel);
-    expect(peek('prev')!.querySelector('.xp-card-drawing')).toBe(svg);
+    shadow().querySelector<HTMLButtonElement>('.xp-note[data-item-id="1"] .xp-note-delete')!.click();
+    jest.advanceTimersByTime(T.deleteStep);
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    expect(shotOf(2)).toBe(shot);
+    expect(shot.style.left).not.toBe(before);
+    expect(svg.parentElement).toBe(shot);
+    expect(animCalls.some((c) => c.el === shot)).toBe(true);
+    expect(animCalls.find((c) => c.el === svg)).toBeUndefined();
   });
 });

@@ -53,7 +53,9 @@ import {
   DELETE_ALL_CONFIRM_LABEL,
   IMPORT_REPLACE_CONFIRM_LABEL,
   IMPORT_REPLACE_CONFIRM_MESSAGE,
+  SITE_LOAD_FAILED_MESSAGE,
 } from './copy';
+import type { EnlargedSite } from './enlargedView';
 import { FeedbackItem, ImportError } from './types';
 import { send } from './rpc';
 import {
@@ -63,6 +65,8 @@ import {
   SidebarClosedMessage,
   GetPageItemsMessage,
   GetImageMessage,
+  GetSitePagesMessage,
+  SetPageTitleMessage,
   UpdateItemMessage,
   DeleteItemMessage,
   ExportMessage,
@@ -457,7 +461,7 @@ function ensureStarted(): void {
         return;
       }
       if (addMode.isAddModeActive()) exitAddModeFully();
-      openItemEnlarged(item);
+      void openItemEnlarged(item);
     },
     onDeleteItem: (item) => {
       void handleDeleteItem(item);
@@ -830,19 +834,42 @@ async function handleImportFile(file: File): Promise<void> {
   }
 }
 
-/** Expand the sidebar into the enlarged view on one note (design spec v2
- *  §D), wiring its callbacks onto the GET_IMAGE / UPDATE_ITEM / DELETE_ITEM
- *  round trips (enlargedView.ts itself never touches chrome.runtime — gotcha
- *  #1/#3). The view navigates between notes itself, so every callback takes
- *  the note it's acting on. */
-function openItemEnlarged(item: FeedbackItem): void {
-  const domain = normaliseDomain(location.host);
+/** Bumped by every request to open the enlarged view, so only the latest
+ *  one opens once the site's pages arrive. */
+let openRequest = 0;
 
-  sidebar.openEnlargedView(item.id, {
+/**
+ * Expand the sidebar into the enlarged view on one note (design spec §AH):
+ * read every page of the site first (GET_SITE_PAGES — the view shows the
+ * whole site, where the list shows this page), then open, wiring the view's
+ * callbacks onto the GET_IMAGE / UPDATE_ITEM / DELETE_ITEM / SET_PAGE_TITLE
+ * round trips (enlargedView.ts itself never touches chrome.runtime — gotcha
+ * #1/#3). Every callback takes the note or page it acts on.
+ *
+ * The read is one queued round trip (milliseconds); if the world moved on
+ * meanwhile — another note clicked, add mode entered, the sidebar closed,
+ * an SPA navigation — nothing opens. If it fails, the view opens on this
+ * page's notes alone and the banner says the rest could not be read.
+ */
+async function openItemEnlarged(item: FeedbackItem): Promise<void> {
+  const token = ++openRequest;
+  const domain = normaliseDomain(location.host);
+  const href = location.href;
+  const request: GetSitePagesMessage = { type: 'GET_SITE_PAGES', domain };
+  const response = await send(request);
+  if (token !== openRequest || location.href !== href) return;
+  if (!sidebar.isSidebarVisible() || addMode.isAddModeActive() || sidebar.isEnlargedViewOpen()) return;
+
+  // The list shows this page's notes, so the clicked one names this page.
+  let site: EnlargedSite | null = null;
+  if (response?.ok) site = { currentUrl: item.normalisedUrl, pages: response.pages };
+  else sidebar.showError(response?.message ?? SITE_LOAD_FAILED_MESSAGE);
+
+  const opened = sidebar.openEnlargedView(item.id, site, {
     fetchFullImage: async (target) => {
       const getImage: GetImageMessage = { type: 'GET_IMAGE', screenshotKey: target.screenshotKey };
-      const response = await send(getImage);
-      return response && response.ok ? response.dataUrl : null;
+      const reply = await send(getImage);
+      return reply && reply.ok ? reply.dataUrl : null;
     },
     onSaveNote: async (target, note) => {
       const updateItem: UpdateItemMessage = {
@@ -852,8 +879,8 @@ function openItemEnlarged(item: FeedbackItem): void {
         itemId: target.id,
         patch: { note },
       };
-      const response = await send(updateItem);
-      return response?.ok === true;
+      const reply = await send(updateItem);
+      return reply?.ok === true;
     },
     onDelete: async (target) => {
       const deleteItemMsg: DeleteItemMessage = {
@@ -862,18 +889,25 @@ function openItemEnlarged(item: FeedbackItem): void {
         normalisedUrl: target.normalisedUrl,
         itemId: target.id,
       };
-      const response = await send(deleteItemMsg);
-      return response?.ok === true;
+      const reply = await send(deleteItemMsg);
+      return reply?.ok === true;
     },
-    onClosed: (currentId) => {
+    onSavePageTitle: async (normalisedUrl, title) => {
+      const rename: SetPageTitleMessage = { type: 'SET_PAGE_TITLE', domain, normalisedUrl, title };
+      const reply = await send(rename);
+      return reply?.ok === true;
+    },
+    onClosed: (focusId) => {
       // Edits and deletes are already reflected in the list the view handed
       // back; re-reading storage makes it authoritative. Then hand focus back
-      // to the note that was current (a no-op if every note was deleted).
+      // to the note it returned to (a no-op if there is none).
       void refreshThumbnails().then(() => {
-        if (currentId !== null) sidebar.focusThumbnail(currentId);
+        if (focusId !== null) sidebar.focusThumbnail(focusId);
       });
     },
   });
+  // The note was deleted elsewhere since the list was painted: catch up.
+  if (!opened) void refreshThumbnails();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

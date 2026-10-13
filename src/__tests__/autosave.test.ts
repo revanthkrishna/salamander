@@ -49,7 +49,7 @@ describe('AutosaveController', () => {
     expect(ctl.isPending()).toBe(false);
   });
 
-  test('re-scheduling restarts the debounce; scheduling another id replaces the pending one', () => {
+  test('re-scheduling restarts the debounce; every id keeps a debounce of its own', () => {
     const { ctl, save } = make();
     ctl.seed(1, 'a');
     ctl.seed(2, 'b');
@@ -60,13 +60,35 @@ describe('AutosaveController', () => {
     jest.advanceTimersByTime(500);
     expect(save).not.toHaveBeenCalled();
 
+    // Design spec §AH: every note is editable at once, so typing in a
+    // second note neither restarts nor swallows the first one's save.
     ctl.setDraft(2, 'b1');
     ctl.schedule(2);
-    expect(ctl.isPending(1)).toBe(false);
+    expect(ctl.isPending(1)).toBe(true);
     expect(ctl.isPending(2)).toBe(true);
-    jest.advanceTimersByTime(700);
+    jest.advanceTimersByTime(200);
     expect(save).toHaveBeenCalledTimes(1);
-    expect(save).toHaveBeenCalledWith(2, 'b1');
+    expect(save).toHaveBeenCalledWith(1, 'a1');
+    expect(ctl.isPending(1)).toBe(false);
+    jest.advanceTimersByTime(500);
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(save).toHaveBeenLastCalledWith(2, 'b1');
+    expect(ctl.isPending()).toBe(false);
+  });
+
+  test('flush() saves every dirty id at once, in first-seen order, and cancels every debounce', () => {
+    const { ctl, save } = make();
+    for (const id of [1, 2, 3]) ctl.seed(id, `v${id}`);
+    ctl.setDraft(3, 'three');
+    ctl.schedule(3);
+    ctl.setDraft(1, 'one');
+    ctl.schedule(1);
+    ctl.setDraft(2, '  '); // unsavable: never sent
+    ctl.flush();
+    expect(save.mock.calls).toEqual([[1, 'one'], [3, 'three']]);
+    expect(ctl.isPending()).toBe(false);
+    jest.advanceTimersByTime(700);
+    expect(save).toHaveBeenCalledTimes(2);
   });
 
   test('an unsavable draft is kept but never dirty and never sent', () => {
@@ -89,7 +111,7 @@ describe('AutosaveController', () => {
     ctl.saveNow(1);
     await flush();
     expect(ctl.isDirty(1)).toBe(false);
-    ctl.flush(1);
+    ctl.flush();
     expect(save).toHaveBeenCalledTimes(1);
 
     pending[0](true);
@@ -136,8 +158,8 @@ describe('AutosaveController', () => {
     expect(ctl.hasUnresolvedFailure()).toBe(true);
     expect(ctl.firstUnresolvedFailure()).toBe(1);
 
-    // Flushing while another note is shown retries the failed one.
-    ctl.flush(2);
+    // A flush retries the failed one (and nothing else: 2 is clean).
+    ctl.flush();
     expect(save).toHaveBeenCalledTimes(2);
     expect(save).toHaveBeenLastCalledWith(1, 'edited');
     // While the retry is in flight the failure is no longer "unresolved".
@@ -163,7 +185,11 @@ describe('AutosaveController', () => {
     ctl.seed(1, 'a');
     ctl.setDraft(1, 'a1');
     ctl.schedule(1);
+    ctl.seed(2, 'b');
+    ctl.setDraft(2, 'b1');
+    ctl.schedule(2);
     ctl.cancelPending(2);
+    expect(ctl.isPending(2)).toBe(false);
     expect(ctl.isPending(1)).toBe(true);
     ctl.cancelPending(1);
     expect(ctl.isPending()).toBe(false);

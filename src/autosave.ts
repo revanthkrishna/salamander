@@ -9,9 +9,10 @@
 //   - "dirty" = a savable draft that differs from BOTH the stored value and
 //     the value of a save still in flight — so blur-then-navigate does not
 //     send the same value twice;
-//   - one pending debounce timer (at most one id is pending at a time — a
-//     new draft for any id replaces it, exactly as the view's single
-//     saveTimer did);
+//   - a debounce timer per id. Enlarged view 2.0 (design spec §AH) shows
+//     every note of the site in edit mode at once, so each note autosaves
+//     on its own clock: typing in one never restarts, or swallows, another's
+//     pending save;
 //   - a sequence number per id so a reply to a superseded save is ignored;
 //   - the set of ids whose latest save failed, which flush() retries.
 //
@@ -49,8 +50,7 @@ export class AutosaveController<T> {
   /** Ids whose latest save failed. They stay dirty and are retried by the
    *  next flush(). */
   private failed = new Set<number>();
-  private timer: ReturnType<typeof setTimeout> | null = null;
-  private pendingId: number | null = null;
+  private timers = new Map<number, ReturnType<typeof setTimeout>>();
 
   constructor(private readonly opts: AutosaveOptions<T>) {}
 
@@ -80,29 +80,34 @@ export class AutosaveController<T> {
     this.drafts.set(id, value);
   }
 
-  /** (Re)start the debounce for `id`, replacing any pending timer. */
+  /** (Re)start `id`'s debounce. Other ids' pending saves are untouched. */
   schedule(id: number): void {
-    this.cancelPending();
-    this.pendingId = id;
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      this.pendingId = null;
-      this.saveNow(id);
-    }, this.opts.debounceMs);
+    this.cancelPending(id);
+    this.timers.set(
+      id,
+      setTimeout(() => {
+        this.timers.delete(id);
+        this.saveNow(id);
+      }, this.opts.debounceMs),
+    );
   }
 
-  /** Cancel the pending debounce — any pending one, or only `id`'s. */
+  /** Cancel `id`'s pending debounce, or every pending one when no id is
+   *  given. */
   cancelPending(id?: number): void {
-    if (this.timer === null) return;
-    if (id !== undefined && this.pendingId !== id) return;
-    clearTimeout(this.timer);
-    this.timer = null;
-    this.pendingId = null;
+    const ids = id === undefined ? [...this.timers.keys()] : [id];
+    for (const each of ids) {
+      const timer = this.timers.get(each);
+      if (timer === undefined) continue;
+      clearTimeout(timer);
+      this.timers.delete(each);
+    }
   }
 
-  /** True while a debounce is pending (for `id`, if given). */
+  /** True while a debounce is pending (for `id`, if given; for any id
+   *  otherwise). */
   isPending(id?: number): boolean {
-    return this.timer !== null && (id === undefined || this.pendingId === id);
+    return id === undefined ? this.timers.size > 0 : this.timers.has(id);
   }
 
   isDirty(id: number): boolean {
@@ -129,13 +134,13 @@ export class AutosaveController<T> {
     return undefined;
   }
 
-  /** Immediate save of `shownId`'s pending change (if dirty), plus a retry
-   *  of every other id whose last save failed. Cancels the debounce. */
-  flush(shownId: number | null): void {
+  /** Immediate save of every dirty id — a change still inside its
+   *  debounce, and every id whose last save failed (a retry) — in the order
+   *  the ids were first seen. Cancels every debounce. */
+  flush(): void {
     this.cancelPending();
-    if (shownId !== null && this.isDirty(shownId)) this.saveNow(shownId);
-    for (const f of [...this.failed]) {
-      if (f !== shownId && this.isDirty(f)) this.saveNow(f);
+    for (const id of this.drafts.keys()) {
+      if (this.isDirty(id)) this.saveNow(id);
     }
   }
 

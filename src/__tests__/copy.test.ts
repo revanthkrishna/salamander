@@ -6,7 +6,6 @@ import {
   CAPTURE_FAILED_MESSAGE,
   DELETE_ERROR_MESSAGE,
   DOMAIN_COUNT_FAILED_MESSAGE,
-  EMPTY_NOTE_MESSAGE,
   EXPORT_FAILED_MESSAGE,
   FINISH_NOTE_FIRST_MESSAGE,
   IMAGE_LOAD_FAILED_MESSAGE,
@@ -21,10 +20,17 @@ import {
   NOTHING_TO_DELETE_MESSAGE,
   NOTHING_TO_ERASE_MESSAGE,
   ENTER_A_NOTE_MESSAGE,
-  FIRST_NOTE_MESSAGE,
-  LAST_NOTE_MESSAGE,
   NOTE_PLACEHOLDER,
+  NOTE_REQUIRED_MESSAGE,
+  PAGE_NAME_SAVE_ERROR_MESSAGE,
+  SITE_LOAD_FAILED_MESSAGE,
+  ENLARGED_VIEW_LABEL,
+  THIS_PAGE_LABEL,
+  UNTITLED_PAGE_NAME,
   deleteAllConfirmMessage,
+  deleteNoteLabel,
+  editPageNameLabel,
+  noteFieldLabel,
   saveErrorFor,
 } from '../copy';
 
@@ -61,8 +67,6 @@ describe('§5 import copy (verbatim)', () => {
     expect(NOTHING_TO_ERASE_MESSAGE).toBe('nothing to erase');
     expect(ENTER_A_NOTE_MESSAGE).toBe('enter a note to save');
     expect(NOTE_PLACEHOLDER).toBe('type a note\u2026');
-    expect(FIRST_NOTE_MESSAGE).toBe('this is the first note');
-    expect(LAST_NOTE_MESSAGE).toBe('this is the last note');
   });
 
   test('#7 and #8', () => {
@@ -76,9 +80,10 @@ describe('the rest of the copy is lowercase and stable', () => {
     ITEM_LOAD_FAILED_MESSAGE,
     IMAGE_LOAD_FAILED_MESSAGE,
     SAVE_ERROR_MESSAGE,
-    saveErrorFor(12),
+    saveErrorFor(12, 'pricing'),
     DELETE_ERROR_MESSAGE,
-    EMPTY_NOTE_MESSAGE,
+    PAGE_NAME_SAVE_ERROR_MESSAGE,
+    SITE_LOAD_FAILED_MESSAGE,
     FINISH_NOTE_FIRST_MESSAGE,
     EXPORT_FAILED_MESSAGE,
     DOMAIN_COUNT_FAILED_MESSAGE,
@@ -88,10 +93,21 @@ describe('the rest of the copy is lowercase and stable', () => {
     expect(message.endsWith('.') || message.endsWith('?')).toBe(true);
   });
 
-  test('a save failure for another note names it', () => {
-    expect(saveErrorFor(7)).toBe("couldn't save note #7. try again.");
+  test('a save failure reported after the view closes names the note and its page', () => {
+    expect(saveErrorFor(7, 'pricing')).toBe("couldn't save note #7 on pricing. try again.");
     expect(SAVE_ERROR_MESSAGE).toBe("couldn't save note. try again.");
     expect(DELETE_ERROR_MESSAGE).toBe("couldn't delete item. try again.");
-    expect(EMPTY_NOTE_MESSAGE).toBe("a note can't be empty. add some text to continue.");
+  });
+
+  test('the enlarged view (design spec §AH)', () => {
+    expect(NOTE_REQUIRED_MESSAGE).toBe('note required');
+    expect(PAGE_NAME_SAVE_ERROR_MESSAGE).toBe("couldn't save the page name. try again.");
+    expect(SITE_LOAD_FAILED_MESSAGE).toBe("couldn't load the other pages' notes. try again.");
+    expect(ENLARGED_VIEW_LABEL).toBe('all notes on this website');
+    expect(THIS_PAGE_LABEL).toBe('this page');
+    expect(UNTITLED_PAGE_NAME).toBe('untitled page');
+    expect(deleteNoteLabel(2, 'Pricing')).toBe('delete note #2 on Pricing');
+    expect(noteFieldLabel(2, 'Pricing')).toBe('note #2 on Pricing');
+    expect(editPageNameLabel('Pricing')).toBe('edit page name: Pricing');
   });
 });

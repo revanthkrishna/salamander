@@ -32,6 +32,7 @@ import {
   IMPORT_REPLACE_CONFIRM_MESSAGE,
   DELETE_ALL_CONFIRM_LABEL,
   IMPORT_REPLACE_CONFIRM_LABEL,
+  SITE_LOAD_FAILED_MESSAGE,
 } from '../copy';
 
 jest.mock('../capture', () => ({
@@ -91,6 +92,8 @@ function makeItem(overrides: Partial<FeedbackItem> = {}): FeedbackItem {
 
 /** Items GET_PAGE_ITEMS resolves with — set per-test before loadContent(). */
 let pageItems: FeedbackItem[] = [];
+/** Other pages of the site GET_SITE_PAGES lists before this one. */
+let sitePagesBefore: Array<{ normalisedUrl: string; editedTitle: string | null; items: FeedbackItem[] }> = [];
 
 type MessageListener = (message: any, sender: unknown, sendResponse: (r?: unknown) => void) => void;
 let onMessageListener: MessageListener = () => {};
@@ -108,6 +111,12 @@ function installChromeMocks(): void {
     sendMessage: jest.fn((message: any, callback?: (r?: unknown) => void) => {
       if (message?.type === 'GET_PAGE_ITEMS') {
         callback?.({ ok: true, items: pageItems });
+        return;
+      }
+      if (message?.type === 'GET_SITE_PAGES') {
+        // The site is this page's notes plus whatever a test adds.
+        const here = pageItems.length > 0 ? [{ normalisedUrl: pageItems[0].normalisedUrl, editedTitle: null, items: pageItems }] : [];
+        callback?.({ ok: true, pages: [...sitePagesBefore, ...here] });
         return;
       }
       // Every other message type (SIDEBAR_OPENED/CLOSED, GET_IMAGE, ...) is
@@ -185,6 +194,7 @@ function flushMicrotasks(): Promise<void> {
 }
 
 afterEach(() => {
+  sitePagesBefore = [];
   jest.useRealTimers();
   pageItems = [];
 });
@@ -560,6 +570,7 @@ describe('content.ts: Option/Alt+N adds one note (src/shortcut.ts)', () => {
     activate();
     await flushMicrotasks();
     (sidebarShadow().querySelector('button.thumbnail') as HTMLButtonElement).click();
+    await flushMicrotasks();
     expect(sidebarApi.isEnlargedViewOpen()).toBe(true);
     pressShortcut();
     expect(sidebarApi.isEnlargedViewOpen()).toBe(true);
@@ -654,24 +665,65 @@ describe('content.ts: the sidebar is on hold during add mode (design spec v3 §H
   });
 });
 
-describe('content.ts: enlarged view wiring (design spec v2 §D)', () => {
+describe('content.ts: enlarged view wiring (design spec §AH)', () => {
+  const OTHER = 'https://example.com/other';
+
   async function openFirstNote(): Promise<void> {
     pageItems = [makeItem({ id: 7 }), makeItem({ id: 8, screenshotKey: 'key-8' })];
     loadContent();
     activate();
     await flushMicrotasks();
     (sidebarShadow().querySelector('button.thumbnail') as HTMLButtonElement).click();
+    await flushMicrotasks();
   }
 
-  test('clicking a note expands the sidebar into the enlarged view', async () => {
+  const sent = () => (chrome.runtime.sendMessage as jest.Mock).mock.calls.map((c) => c[0]);
+
+  test('clicking a note reads the whole site (GET_SITE_PAGES), then expands into the enlarged view', async () => {
+    sitePagesBefore = [
+      { normalisedUrl: OTHER, editedTitle: 'the other page', items: [makeItem({ id: 3, normalisedUrl: OTHER, screenshotKey: 'key-3' })] },
+    ];
     await openFirstNote();
+    expect(sent()).toContainEqual({ type: 'GET_SITE_PAGES', domain: 'localhost' });
     expect(sidebarApi.isEnlargedViewOpen()).toBe(true);
-    // The title shows the note's position on the page (the first of two),
-    // not its id (7) — types.ts, FeedbackItem.id.
-    expect(sidebarShadow().querySelector('.xp-title')!.textContent).toBe('feedback #1');
-    // The full-resolution image is fetched for the main note.
-    const sent = (chrome.runtime.sendMessage as jest.Mock).mock.calls.map((c) => c[0]);
-    expect(sent).toContainEqual({ type: 'GET_IMAGE', screenshotKey: 'key-1' });
+    // Both pages, in the order the site gave them; numbers per page.
+    const names = [...sidebarShadow().querySelectorAll('.xp-page-name')].map((n) => n.textContent);
+    expect(names).toEqual(['the other page', 'example']);
+    expect([...sidebarShadow().querySelectorAll('.xp-note-num')].map((n) => n.textContent)).toEqual(['#1', '#1', '#2']);
+    // The clicked note's text area has focus.
+    const focused = sidebarShadow().activeElement as HTMLTextAreaElement;
+    expect(focused.closest('.xp-note')!.getAttribute('data-item-id')).toBe('7');
+    // Full-resolution images are fetched.
+    expect(sent()).toContainEqual({ type: 'GET_IMAGE', screenshotKey: 'key-1' });
+  });
+
+  test('if the site cannot be read, the view opens on this page alone and the banner says so', async () => {
+    const base = (chrome.runtime.sendMessage as jest.Mock).getMockImplementation()!;
+    pageItems = [makeItem({ id: 7 })];
+    loadContent();
+    (chrome.runtime.sendMessage as jest.Mock).mockImplementation((message: any, callback?: (r?: unknown) => void) => {
+      if (message?.type === 'GET_SITE_PAGES') return callback?.({ ok: false, message: SITE_LOAD_FAILED_MESSAGE });
+      return base(message, callback);
+    });
+    activate();
+    await flushMicrotasks();
+    (sidebarShadow().querySelector('button.thumbnail') as HTMLButtonElement).click();
+    await flushMicrotasks();
+    expect(sidebarApi.isEnlargedViewOpen()).toBe(true);
+    expect(sidebarShadow().querySelectorAll('.xp-note')).toHaveLength(1);
+    expect(sidebarShadow().querySelector('.notif-text')!.textContent).toBe(SITE_LOAD_FAILED_MESSAGE);
+  });
+
+  test('entering add mode while the site is being read opens nothing', async () => {
+    pageItems = [makeItem({ id: 7 })];
+    loadContent();
+    activate();
+    await flushMicrotasks();
+    (sidebarShadow().querySelector('button.thumbnail') as HTMLButtonElement).click();
+    addButton().click();
+    await flushMicrotasks();
+    expect(sidebarApi.isEnlargedViewOpen()).toBe(false);
+    expect(addMode.isAddModeActive()).toBe(true);
   });
 
   test('entering add mode collapses the enlarged view first (instantly)', async () => {
@@ -682,20 +734,29 @@ describe('content.ts: enlarged view wiring (design spec v2 §D)', () => {
     expect(addMode.isAddModeActive()).toBe(true);
   });
 
-  test('autosave and delete go through UPDATE_ITEM / DELETE_ITEM', async () => {
+  test('autosave, delete and a rename go through UPDATE_ITEM / DELETE_ITEM / SET_PAGE_TITLE', async () => {
     await openFirstNote();
     jest.useFakeTimers();
     const ta = sidebarShadow().querySelector('.xp-note-input') as HTMLTextAreaElement;
     ta.value = 'changed';
     ta.dispatchEvent(new Event('input', { bubbles: true }));
     jest.advanceTimersByTime(700);
-    (sidebarShadow().querySelector('.xp-delete') as HTMLButtonElement).click();
-    const sent = (chrome.runtime.sendMessage as jest.Mock).mock.calls.map((c) => c[0]);
-    expect(sent).toContainEqual(expect.objectContaining({ type: 'UPDATE_ITEM', itemId: 7, patch: { note: 'changed' } }));
-    expect(sent).toContainEqual(expect.objectContaining({ type: 'DELETE_ITEM', itemId: 7 }));
+    (sidebarShadow().querySelector('.xp-note-delete') as HTMLButtonElement).click();
+    (sidebarShadow().querySelector('.xp-page-edit') as HTMLButtonElement).click();
+    const input = sidebarShadow().querySelector('.xp-page-input') as HTMLInputElement;
+    input.value = 'renamed';
+    (sidebarShadow().querySelector('.xp-page-save') as HTMLButtonElement).click();
+    expect(sent()).toContainEqual(expect.objectContaining({ type: 'UPDATE_ITEM', itemId: 7, patch: { note: 'changed' } }));
+    expect(sent()).toContainEqual(expect.objectContaining({ type: 'DELETE_ITEM', itemId: 7 }));
+    expect(sent()).toContainEqual({
+      type: 'SET_PAGE_TITLE',
+      domain: 'localhost',
+      normalisedUrl: pageItems[0].normalisedUrl,
+      title: 'renamed',
+    });
   });
 
-  test('the extension icon cannot close the sidebar while the note is empty', async () => {
+  test('the extension icon cannot close the sidebar while a note is empty', async () => {
     await openFirstNote();
     const ta = sidebarShadow().querySelector('.xp-note-input') as HTMLTextAreaElement;
     ta.value = '';
@@ -703,6 +764,7 @@ describe('content.ts: enlarged view wiring (design spec v2 §D)', () => {
     onMessageListener({ type: 'ICON_CLICKED' }, {}, () => {});
     expect(sidebarApi.isSidebarVisible()).toBe(true);
     expect(sidebarApi.isEnlargedViewOpen()).toBe(true);
+    expect(sidebarShadow().activeElement).toBe(ta);
 
     ta.value = 'ok';
     ta.dispatchEvent(new Event('input', { bubbles: true }));
@@ -832,6 +894,7 @@ describe('content.ts: review fixes', () => {
     activate();
     await flushMicrotasks();
     (sidebarShadow().querySelector('button.thumbnail') as HTMLButtonElement).click();
+    await flushMicrotasks();
 
     const ta = sidebarShadow().querySelector('.xp-note-input') as HTMLTextAreaElement;
     ta.value = 'typed before unload';

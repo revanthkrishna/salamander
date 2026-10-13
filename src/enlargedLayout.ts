@@ -314,7 +314,10 @@ export function computeGridLayout(pages: LayoutPage[], opts: GridOptions): GridL
  * previous row's bottom, on this page or the one before — shows at the top
  * of the scroller, cut off by its edge, so it is plain there is more above.
  * With nothing before it (the site's first row) it starts at the top, with
- * no peek. Clamped to what the content can scroll; null for an unknown id.
+ * no peek. The note's own text area — which the view focuses — always ends
+ * up on screen, though: a row too tall to sit under a full peek gives up as
+ * much of the peek as it needs. Clamped to what the content can scroll;
+ * null for an unknown id.
  *
  * On a ~900px window that puts a mid-page row about a fifth of the way down
  * the panel, and a page's first row (under its heading) about a quarter.
@@ -322,8 +325,34 @@ export function computeGridLayout(pages: LayoutPage[], opts: GridOptions): GridL
 export function scrollTopFor(layout: GridLayout, id: number, viewportH: number): number | null {
   const note = layout.notes.get(id);
   if (!note) return null;
-  if (note.row === 0) return 0;
-  const before = layout.rows[note.row - 1];
+  const peekTop = note.row === 0 ? 0 : layout.rows[note.row - 1].bottom - PEEK_PX;
+  const textOnScreen = note.text.y + note.text.h + ROW_GAP / 2 - viewportH;
   const max = Math.max(0, layout.height - Math.max(0, viewportH));
-  return Math.round(Math.min(max, Math.max(0, before.bottom - PEEK_PX)));
+  return Math.round(Math.min(max, Math.max(0, peekTop, textOnScreen)));
+}
+
+// ---------------------------------------------------------------------------
+// A page's address
+// ---------------------------------------------------------------------------
+
+/** A page's normalised URL as its heading shows it: without the scheme,
+ *  which is https:// for every page of a site (urlNorm.ts) and says
+ *  nothing. */
+export function displayUrl(normalisedUrl: string): string {
+  return normalisedUrl.replace(/^https?:\/\//, '');
+}
+
+/**
+ * `text` cut to at most `maxChars` characters with a single ellipsis in the
+ * middle — a URL keeps its host at the start and its last path segment at
+ * the end, which are the two parts that tell pages apart. The head gets the
+ * odd character. Shown in the monospace face, so a character count is a
+ * width (src/pageHeading.ts measures one).
+ */
+export function ellipsizeMiddle(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  if (maxChars <= 1) return '\u2026';
+  const keep = maxChars - 1;
+  const head = Math.ceil(keep / 2);
+  return `${text.slice(0, head)}\u2026${text.slice(text.length - (keep - head))}`;
 }

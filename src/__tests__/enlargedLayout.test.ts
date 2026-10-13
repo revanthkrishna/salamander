@@ -22,6 +22,8 @@ import {
   ROW_GAP,
   computeGridLayout,
   contentWidthFor,
+  displayUrl,
+  ellipsizeMiddle,
   fitShot,
   LayoutPage,
   maxShotHeightFor,
@@ -287,11 +289,36 @@ describe('opening on a note: the peek', () => {
   test('clamped to what the content can scroll', () => {
     const g = site();
     expect(scrollTopFor(g, 4, 10000)).toBe(0);
-    const max = g.height - 300;
-    expect(scrollTopFor(g, 4, 300)).toBe(Math.min(max, g.rows[2].bottom - PEEK_PX));
+    const max = g.height - 700;
+    expect(max).toBeLessThan(g.rows[2].bottom - PEEK_PX);
+    expect(scrollTopFor(g, 4, 700)).toBe(max);
   });
 
   test('an unknown note has no position', () => {
     expect(scrollTopFor(site(), 99, 600)).toBeNull();
+  });
+
+  test('a row too tall for a full peek gives up peek so its text area is on screen', () => {
+    const g = computeGridLayout([page('a', [900, 200]), page('b', [600, 560])], { contentW: 1000 });
+    const n = g.notes.get(2)!;
+    const top = scrollTopFor(g, 2, 700)!;
+    expect(n.text.y + n.text.h - top).toBeLessThanOrEqual(700);
+    expect(g.rows[0].bottom - top).toBeLessThan(PEEK_PX);
+  });
+});
+
+describe('a page\'s address', () => {
+  test('shown without its scheme', () => {
+    expect(displayUrl('https://example.com/pricing')).toBe('example.com/pricing');
+    expect(displayUrl('https://localhost:3000')).toBe('localhost:3000');
+    expect(displayUrl('/Users/me/page.html')).toBe('/Users/me/page.html');
+  });
+
+  test('ellipsized in the middle, keeping the host and the last segment', () => {
+    expect(ellipsizeMiddle('example.com/a', 20)).toBe('example.com/a');
+    const cut = ellipsizeMiddle('example.com/blog/2026/10/how-we-built-it', 21);
+    expect(cut).toHaveLength(21);
+    expect(cut).toBe('example.co\u2026e-built-it');
+    expect(ellipsizeMiddle('abcdef', 1)).toBe('\u2026');
   });
 });

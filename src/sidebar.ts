@@ -49,6 +49,7 @@ import {
 import {
   openEnlargedView as openEnlargedViewImpl,
   ENLARGED_VIEW_CSS,
+  EnlargedSite,
   EnlargedViewCallbacks,
   EnlargedViewHandle,
   EnlargedViewMount,
@@ -1596,7 +1597,8 @@ let dockSuspended = false;
 let enlargedDockSuspended = false;
 /** The open enlarged view, if any (one at a time). */
 let enlargedView: EnlargedViewHandle | null = null;
-/** Items the list is currently rendering — the enlarged view opens on these. */
+/** Items the list is currently rendering — the enlarged view opens from one
+ *  of these (and shows them alone if the rest of the site can't be read). */
 let currentItems: FeedbackItem[] = [];
 let elNotif: HTMLDivElement | null = null;
 let elNotifIcon: HTMLSpanElement | null = null;
@@ -2886,25 +2888,32 @@ function enlargedMount(): EnlargedViewMount | null {
 }
 
 /**
- * Expand the sidebar into the enlarged view on item `itemId` (one of the
- * items the list is showing). Replaces any view already open. Returns false
- * if the sidebar isn't showing that item.
+ * Expand the sidebar into the enlarged view (design spec §AH) on item
+ * `itemId` — one of the items the list is showing — with every page of the
+ * site in `site`. With no site (it could not be read) the view shows this
+ * page's notes alone. Replaces any view already open. Returns false if the
+ * sidebar isn't showing that item, or the site does not hold it.
  */
-export function openEnlargedView(itemId: number, callbacks: EnlargedViewCallbacks): boolean {
+export function openEnlargedView(itemId: number, site: EnlargedSite | null, callbacks: EnlargedViewCallbacks): boolean {
   if (!visible) return false;
   enlargedView?.forceClose();
   const mount = enlargedMount();
-  const index = currentItems.findIndex((i) => i.id === itemId);
-  if (!mount || index < 0) return false;
+  const listed = currentItems.find((i) => i.id === itemId);
+  if (!mount || !listed) return false;
+  const shown: EnlargedSite = site ?? {
+    currentUrl: listed.normalisedUrl,
+    pages: [{ normalisedUrl: listed.normalisedUrl, editedTitle: null, items: currentItems }],
+  };
   let handle: EnlargedViewHandle | null = null;
-  handle = openEnlargedViewImpl(mount, currentItems, index, {
+  handle = openEnlargedViewImpl(mount, shown, itemId, {
     ...callbacks,
     onClosed: (id) => {
       if (enlargedView === handle) enlargedView = null;
       callbacks.onClosed(id);
     },
   });
-  if (handle.getState() !== 'closed') enlargedView = handle;
+  if (handle.getState() === 'closed') return false;
+  enlargedView = handle;
   return true;
 }
 

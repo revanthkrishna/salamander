@@ -25,15 +25,19 @@ export const SITE_LOAD_FAILED_MESSAGE = "couldn't load the other pages' notes. t
 export const PAGE_NAME_SAVE_ERROR_MESSAGE = "couldn't save the page name. try again.";
 export const IMAGE_LOAD_FAILED_MESSAGE = "couldn't load screenshot. try again.";
 
-/** A save failure for the note on screen. */
+/** A save failure, under the note's own text area. */
 export const SAVE_ERROR_MESSAGE = "couldn't save note. try again.";
-/** A save failure for a note other than the one on screen names it. */
-export function saveErrorFor(id: number): string {
-  return `couldn't save note #${id}. try again.`;
+/** A save failure reported in the sidebar's banner once the enlarged view
+ *  has closed names the note — by its number on its page (design spec §AD)
+ *  and, since the view shows the whole site, the page (§AH). */
+export function saveErrorFor(number: number, pageName: string): string {
+  return `couldn't save note #${number} on ${pageName}. try again.`;
 }
 export const DELETE_ERROR_MESSAGE = "couldn't delete item. try again.";
-/** The enlarged view's "a note can never be empty" lock (design spec v2 §D). */
-export const EMPTY_NOTE_MESSAGE = "a note can't be empty. add some text to continue.";
+/** "A note can never be empty" (design spec v2 §D, §AH): under a text area
+ *  that has been emptied. The last saved text stays stored, and the view
+ *  will not close until the note has text again. */
+export const NOTE_REQUIRED_MESSAGE = 'note required';
 
 /** Shown when a note is clicked while add mode's comment box holds typed
  *  text — opening it would throw that text away. */
@@ -55,9 +59,31 @@ export const NOTHING_TO_ERASE_MESSAGE = 'nothing to erase';
 export const ENTER_A_NOTE_MESSAGE = 'enter a note to save';
 /** Placeholder of the note's text area, in add mode and the enlarged view. */
 export const NOTE_PLACEHOLDER = 'type a note\u2026';
-/** Why the enlarged view's ↑ / ↓ are greyed out at the ends (design spec §AG). */
-export const FIRST_NOTE_MESSAGE = 'this is the first note';
-export const LAST_NOTE_MESSAGE = 'this is the last note';
+
+// ─── The enlarged view (design spec §AH) ────────────────────────────────────
+
+/** The view's accessible name: it shows every note of the site. */
+export const ENLARGED_VIEW_LABEL = 'all notes on this website';
+export const EXIT_ENLARGED_VIEW_LABEL = 'exit enlarged view';
+export const EXIT_ENLARGED_VIEW_TIP = 'exit enlarged view (esc)';
+/** Beside the heading of the page on screen. */
+export const THIS_PAGE_LABEL = 'this page';
+/** A page whose notes were captured with no HTML title. */
+export const UNTITLED_PAGE_NAME = 'untitled page';
+export const DELETE_NOTE_TIP = 'delete note';
+export const EDIT_PAGE_NAME_TIP = 'edit page name';
+export const SAVE_PAGE_NAME_LABEL = 'save page name';
+export const PAGE_NAME_FIELD_LABEL = 'page name';
+/** Accessible names that say which note or page a control acts on. */
+export function deleteNoteLabel(number: number, pageName: string): string {
+  return `delete note #${number} on ${pageName}`;
+}
+export function noteFieldLabel(number: number, pageName: string): string {
+  return `note #${number} on ${pageName}`;
+}
+export function editPageNameLabel(pageName: string): string {
+  return `edit page name: ${pageName}`;
+}
 
 // ─── Import (§1.7, §5) ───────────────────────────────────────────────────────
 
