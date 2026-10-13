@@ -82,6 +82,7 @@ import { FeedbackItem, SitePage } from './types';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
 import { KEY_PRIORITY } from './keyRouter';
 import { AutosaveController } from './autosave';
+import { FullImageLoader } from './fullImageLoader';
 // ICON_TRASH is the project's one trash glyph (design spec v5 §S) — the same
 // one the note list's hover delete draws.
 import { ICON_COLLAPSE, ICON_TRASH } from './icons';
@@ -211,11 +212,6 @@ const ARROW_SCROLL_PX = 64;
 const MOVE_MARGIN_PX = 200;
 /** Room kept above/below a note brought into view by focus. */
 const FOCUS_SCROLL_MARGIN = 24;
-/** Full images are fetched (GET_IMAGE) as a note comes within this much of
- *  the scroller's viewport. Thumbnails, inline in every item, stand in until
- *  then, and every box is sized from the stored selection before any image
- *  arrives, so nothing moves when one does. */
-const LAZY_ROOT_MARGIN = '800px 0px';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -452,9 +448,8 @@ class EnlargedView {
   private hiddenThumbs: HTMLElement[] = [];
   private autosave: AutosaveController<string>;
   private listDirty = false;
-  private fullImages = new Map<number, string>();
-  private fetching = new Set<number>();
-  private observer: IntersectionObserver | null = null;
+  /** The full-resolution images (src/fullImageLoader.ts). */
+  private images: FullImageLoader;
   private charW = 0;
 
   /** The note the view was opened on, and the last one focus was in —
@@ -494,6 +489,17 @@ class EnlargedView {
       save: this.saveNote,
       onSaveStarted: this.onSaveStarted,
       onSettled: this.onSaveSettled,
+    });
+    this.images = new FullImageLoader({
+      fetch: (item) => this.callbacks.fetchFullImage(item),
+      isClosed: () => this.state === 'closed',
+      onLoaded: (item, url) => {
+        // Keyed by note id, so a reply can only land on its own note.
+        const n = this.notes.get(item.id);
+        if (n && n.item === item) n.img.src = url;
+        const clone = this.clones.get(item.id);
+        if (clone) clone.img.src = url;
+      },
     });
     this.mql = reducedMotionQuery();
     this.reduced = this.mql?.matches ?? false;
@@ -666,7 +672,10 @@ class EnlargedView {
     this.isolation = installKeyboardIsolation(this.mount.host, this.onKeydown, KEY_PRIORITY.ENLARGED_ISOLATION);
     window.addEventListener('resize', this.onResize);
     this.mql?.addEventListener?.('change', this.onReducedChange);
-    this.startLazyImages();
+    this.images.start(
+      [...this.notes.values()].map((note) => ({ item: note.item, el: note.shot.el })),
+      this.scroller,
+    );
 
     // The clicked note's text area takes focus at once, caret at the end —
     // so Esc during the expand reaches this host, and the list can go inert
@@ -1025,7 +1034,7 @@ class EnlargedView {
     img.className = 'xp-card-img';
     img.alt = '';
     img.draggable = false;
-    img.src = this.fullImages.get(item.id) ?? item.thumbnailDataUrl;
+    img.src = this.images.get(item.id) ?? item.thumbnailDataUrl;
     // The list's badge, carried on the clone: it fades out as the clone
     // leaves the list and back in as one lands on it (MOTION_SPEC §4).
     const badge = document.createElement('span');
@@ -1126,51 +1135,6 @@ class EnlargedView {
     cancelTracks(clone.badge);
     clone.el.remove();
     if (this.clones.get(clone.id) === clone) this.clones.delete(clone.id);
-  }
-
-  // ─── Images ───────────────────────────────────────────────────────────────
-
-  /** Full images arrive as notes near the viewport (IntersectionObserver on
-   *  the scroller, with a margin). Without one (jsdom), all are fetched. */
-  private startLazyImages(): void {
-    if (typeof IntersectionObserver !== 'function') {
-      for (const note of this.notes.values()) this.ensureFullImage(note);
-      return;
-    }
-    const byEl = new Map<Element, NoteView>();
-    for (const note of this.notes.values()) byEl.set(note.shot.el, note);
-    this.observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          this.observer?.unobserve(entry.target);
-          const note = byEl.get(entry.target);
-          if (note) this.ensureFullImage(note);
-        }
-      },
-      { root: this.scroller, rootMargin: LAZY_ROOT_MARGIN },
-    );
-    for (const el of byEl.keys()) this.observer.observe(el);
-  }
-
-  private ensureFullImage(note: NoteView): void {
-    const id = note.item.id;
-    if (this.fullImages.has(id) || this.fetching.has(id)) return;
-    this.fetching.add(id);
-    const item = note.item;
-    void this.callbacks
-      .fetchFullImage(item)
-      .catch(() => null)
-      .then((url) => {
-        this.fetching.delete(id);
-        if (!url || this.state === 'closed') return;
-        this.fullImages.set(id, url);
-        // Keyed by note id, so a reply can only land on its own note.
-        const n = this.notes.get(id);
-        if (n && n.item === item) n.img.src = url;
-        const clone = this.clones.get(id);
-        if (clone) clone.img.src = url;
-      });
   }
 
   // ─── Collapse (MOTION_SPEC §6) ────────────────────────────────────────────
@@ -1316,8 +1280,7 @@ class EnlargedView {
     this.autosave.dispose();
     this.shakeAnim?.cancel();
     this.shakeAnim = null;
-    this.observer?.disconnect();
-    this.observer = null;
+    this.images.dispose();
     if (this.resizeRaf !== null) cancelAnimationFrameSafe(this.resizeRaf);
     this.resizeRaf = null;
 
