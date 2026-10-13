@@ -28,6 +28,15 @@
 // (getThemeCSS()) rather than any hardcoded palette. The extension is dark
 // only (design spec §AA): the token block is emitted once on :host and never
 // changes for the sidebar's lifetime.
+//
+// The parts with state of their own live beside it: the page shrink
+// (src/pageResize.ts), the width store (src/sidebarWidth.ts), the numbers
+// (src/sidebarMetrics.ts), the stylesheet (src/styles/sidebar.css.ts), the
+// banner (src/notifications.ts) and the "more options" menu
+// (src/actionMenu.ts). What stays here: building and wiring the panel (one
+// SidebarDom record while it is built), the add group's paint, the action
+// row's availability and add mode's hold, the note list, the enlarged view's
+// mount, and the API content.ts drives it through.
 
 import { FeedbackItem } from './types';
 import { addNoteShortcutLabel } from './shortcut';
@@ -113,17 +122,17 @@ function followWidth(width: number, changed: boolean): void {
 
 function applyWidthToPanel(): void {
   const sidebarWidth = getSidebarWidth();
-  if (elSidebar) {
-    elSidebar.style.width = `${sidebarWidth}px`;
+  if (dom) {
+    dom.panel.style.width = `${sidebarWidth}px`;
     // Responsive layout (design spec §3.1) — driven from here rather than a
     // CSS container query so the same jsdom tests that already exercise
     // every other width-driven behaviour in this module (drag/keyboard
     // resize, persistence) can assert on it directly, with no layout engine
     // required.
     const layout = sidebarLayoutFor(sidebarWidth);
-    elSidebar.classList.toggle('is-narrow', layout.narrow);
+    dom.panel.classList.toggle('is-narrow', layout.narrow);
+    dom.resizer.setAttribute('aria-valuenow', String(sidebarWidth));
   }
-  if (elResizer) elResizer.setAttribute('aria-valuenow', String(sidebarWidth));
 }
 
 export interface SidebarCallbacks {
@@ -198,40 +207,52 @@ function extensionUrl(path: string): string {
 // Module-level state
 // ---------------------------------------------------------------------------
 
-let sidebarHost: HTMLDivElement | null = null;
-let sidebarShadow: ShadowRoot | null = null;
+/** Every element and part of the built panel, while it is built
+ *  (initSidebar → destroySidebar). One record rather than a nullable
+ *  variable each, so code that has the panel has all of it. */
+interface SidebarDom {
+  /** The zero-size host on <html> and its closed shadow root. */
+  host: HTMLDivElement;
+  shadow: ShadowRoot;
+  /** The panel itself (.sidebar). */
+  panel: HTMLDivElement;
+  resizer: HTMLDivElement;
+  logoImg: HTMLImageElement;
+  btnClose: HTMLButtonElement;
+  /** The rounded box holding the "add note" button and its switch — it is the
+   *  element that carries the on/off fill, the border and the states (§A2). */
+  addGroup: HTMLDivElement;
+  btnAdd: HTMLButtonElement;
+  /** The "keep add mode on" switch (role="switch") attached to btnAdd. */
+  addSwitch: HTMLButtonElement;
+  /** Visually-hidden aria-describedby text for btnAdd (lock state/hint). */
+  addDesc: HTMLSpanElement;
+  /** Export and "more options" (§AE): pure layout, and the anchor the menu
+   *  hangs from. */
+  exportGroup: HTMLDivElement;
+  btnExport: HTMLButtonElement;
+  /** "more options" (⋯), the button that opens the menu. */
+  btnMenu: HTMLButtonElement;
+  /** The "more options" menu and its confirmation (src/actionMenu.ts). */
+  actionMenu: ActionMenu;
+  /** The notification banner (src/notifications.ts). */
+  notifications: Notifications;
+  /** The panel's tooltips (design spec §AG), the enlarged view's included. */
+  tooltips: TooltipHandle;
+  /** The note list's scrollport, its heading, the empty state and the list. */
+  body: HTMLDivElement;
+  heading: HTMLHeadingElement;
+  emptyState: HTMLParagraphElement;
+  thumbnailList: HTMLUListElement;
+  fileInput: HTMLInputElement;
+}
 
-let elSidebar: HTMLDivElement | null = null;
-let elResizer: HTMLDivElement | null = null;
-let elLogoImg: HTMLImageElement | null = null;
-let elBtnAdd: HTMLButtonElement | null = null;
-/** The rounded box holding the "add note" button and its switch — it is the
- *  element that carries the on/off fill, the border and the states (§A2). */
-let elAddGroup: HTMLDivElement | null = null;
+let dom: SidebarDom | null = null;
+
 /** The switch's pointer reveal (updateSwitchReveal): when the current one
  *  started, and the grace timer holding a finished one open. */
 let switchRevealStartedAt = -Infinity;
 let switchGraceTimer: ReturnType<typeof setTimeout> | null = null;
-/** The "keep add mode on" switch (role="switch") attached to elBtnAdd. */
-let elAddSwitch: HTMLButtonElement | null = null;
-/** Visually-hidden aria-describedby text for elBtnAdd (lock state/hint). */
-let elAddDesc: HTMLSpanElement | null = null;
-/** Export and "more options" (§AE): pure layout, and the anchor the menu
- *  hangs from. */
-let elExportGroup: HTMLDivElement | null = null;
-let elBtnExport: HTMLButtonElement | null = null;
-/** "more options" (⋯), the button that opens elActionMenu. */
-let elBtnMenu: HTMLButtonElement | null = null;
-/** The "more options" menu and its confirmation (src/actionMenu.ts). */
-let actionMenu: ActionMenu | null = null;
-/** The panel's tooltips (design spec §AG), the enlarged view's included. */
-let sidebarTooltips: TooltipHandle | null = null;
-let elBtnClose: HTMLButtonElement | null = null;
-let elFileInput: HTMLInputElement | null = null;
-let elHeading: HTMLHeadingElement | null = null;
-let elEmptyState: HTMLParagraphElement | null = null;
-let elThumbnailList: HTMLUListElement | null = null;
-let elBody: HTMLDivElement | null = null;
 /** Dock magnification (design spec §4) for the currently rendered list —
  *  rebuilt on every repaint, torn down on close/destroy (see
  *  syncDockMotion). */
@@ -256,8 +277,6 @@ let currentItems: FeedbackItem[] = [];
 /** The listed page's name as edited in the enlarged view, or null — kept
  *  for the view's fallback (openEnlargedView with no site). */
 let currentEditedTitle: string | null = null;
-/** The notification banner, while the panel is built. */
-let notifications: Notifications | null = null;
 
 let callbacksRef: SidebarCallbacks | null = null;
 let visible = false;
@@ -266,7 +285,7 @@ let visible = false;
 // DOM construction
 // ---------------------------------------------------------------------------
 
-function buildDOM(shadow: ShadowRoot): void {
+function buildDOM(host: HTMLDivElement, shadow: ShadowRoot): SidebarDom {
   const style = document.createElement('style');
   // Salamander design tokens (--sal-*) as :host custom properties, prepended
   // ahead of the sidebar's own CSS so every rule below can reference them.
@@ -275,23 +294,23 @@ function buildDOM(shadow: ShadowRoot): void {
   style.textContent = getThemeCSS() + '\n' + SIDEBAR_CSS + '\n' + ENLARGED_VIEW_CSS + '\n' + TOOLTIP_CSS;
   shadow.appendChild(style);
 
-  elSidebar = document.createElement('div');
-  elSidebar.className = 'sidebar';
-  elSidebar.setAttribute('role', 'complementary');
-  elSidebar.setAttribute('aria-label', 'annotator sidebar');
-  elSidebar.hidden = true;
+  const panel = document.createElement('div');
+  panel.className = 'sidebar';
+  panel.setAttribute('role', 'complementary');
+  panel.setAttribute('aria-label', 'annotator sidebar');
+  panel.hidden = true;
 
-  elResizer = document.createElement('div');
-  elResizer.className = 'resizer';
-  elResizer.setAttribute('role', 'separator');
-  elResizer.setAttribute('aria-orientation', 'vertical');
-  elResizer.setAttribute('aria-label', 'resize sidebar');
-  elResizer.dataset.tip = 'resize sidebar';
-  elResizer.dataset.tipSide = 'left';
-  elResizer.tabIndex = 0;
-  elResizer.setAttribute('aria-valuemin', String(SIDEBAR_MIN_WIDTH));
-  elResizer.setAttribute('aria-valuemax', String(SIDEBAR_MAX_WIDTH));
-  elResizer.setAttribute('aria-valuenow', String(getSidebarWidth()));
+  const resizer = document.createElement('div');
+  resizer.className = 'resizer';
+  resizer.setAttribute('role', 'separator');
+  resizer.setAttribute('aria-orientation', 'vertical');
+  resizer.setAttribute('aria-label', 'resize sidebar');
+  resizer.dataset.tip = 'resize sidebar';
+  resizer.dataset.tipSide = 'left';
+  resizer.tabIndex = 0;
+  resizer.setAttribute('aria-valuemin', String(SIDEBAR_MIN_WIDTH));
+  resizer.setAttribute('aria-valuemax', String(SIDEBAR_MAX_WIDTH));
+  resizer.setAttribute('aria-valuenow', String(getSidebarWidth()));
 
   // Purely visual hairline — a sibling (not ::after) so it can sit below
   // magnified items while the hit target sits above them (see .resizer).
@@ -305,20 +324,20 @@ function buildDOM(shadow: ShadowRoot): void {
 
   const logo = document.createElement('span');
   logo.className = 'logo';
-  elLogoImg = document.createElement('img');
-  elLogoImg.alt = ''; // decorative — the wordmark carries the name
-  elLogoImg.draggable = false;
-  logo.appendChild(elLogoImg);
+  const logoImg = document.createElement('img');
+  logoImg.alt = ''; // decorative — the wordmark carries the name
+  logoImg.draggable = false;
+  logo.appendChild(logoImg);
 
   const wordmark = document.createElement('span');
   wordmark.className = 'wordmark';
   wordmark.textContent = 'salamander';
 
-  elBtnClose = makeGhostButton(ICON_CLOSE, 'close sidebar', 'btn-close');
+  const btnClose = makeGhostButton(ICON_CLOSE, 'close sidebar', 'btn-close');
 
   header.appendChild(logo);
   header.appendChild(wordmark);
-  header.appendChild(elBtnClose);
+  header.appendChild(btnClose);
 
   // ── Action row: "add note" + "keep on" switch, export + "more options" ──
   //    (design spec v3 §A2, §AE)
@@ -328,123 +347,136 @@ function buildDOM(shadow: ShadowRoot): void {
   // "add note" group: an icon-only button with the switch attached to it.
   // Both halves are plain <button>s inside one <div> that owns the visuals,
   // so the group can carry one focus ring, one fill and one press scale.
-  elAddGroup = document.createElement('div');
-  elAddGroup.className = 'add-group';
+  const addGroup = document.createElement('div');
+  addGroup.className = 'add-group';
 
-  elBtnAdd = makeIconButton(ICON_COMMENT, 'add note', 'btn-add');
-  elBtnAdd.setAttribute('aria-pressed', 'false');
-  elBtnAdd.setAttribute('aria-describedby', ADD_BUTTON_DESC_ID);
+  const btnAdd = makeIconButton(ICON_COMMENT, 'add note', 'btn-add');
+  btnAdd.setAttribute('aria-pressed', 'false');
+  btnAdd.setAttribute('aria-describedby', ADD_BUTTON_DESC_ID);
 
-  elAddSwitch = document.createElement('button');
-  elAddSwitch.type = 'button';
-  elAddSwitch.className = 'add-switch';
-  elAddSwitch.setAttribute('role', 'switch');
-  elAddSwitch.setAttribute('aria-checked', 'false');
-  elAddSwitch.setAttribute('aria-label', ADD_SWITCH_NAME);
-  elAddSwitch.dataset.tip = ADD_SWITCH_TITLES.off;
+  const addSwitch = document.createElement('button');
+  addSwitch.type = 'button';
+  addSwitch.className = 'add-switch';
+  addSwitch.setAttribute('role', 'switch');
+  addSwitch.setAttribute('aria-checked', 'false');
+  addSwitch.setAttribute('aria-label', ADD_SWITCH_NAME);
+  addSwitch.dataset.tip = ADD_SWITCH_TITLES.off;
   const switchTrack = document.createElement('span');
   switchTrack.className = 'add-switch-track';
   switchTrack.setAttribute('aria-hidden', 'true');
   const switchKnob = document.createElement('span');
   switchKnob.className = 'add-switch-knob';
   switchTrack.appendChild(switchKnob);
-  elAddSwitch.appendChild(switchTrack);
+  addSwitch.appendChild(switchTrack);
 
-  elAddGroup.appendChild(elBtnAdd);
-  elAddGroup.appendChild(elAddSwitch);
-  elAddGroup.addEventListener('pointerenter', () => updateSwitchReveal(true));
-  elAddGroup.addEventListener('pointerleave', () => updateSwitchReveal(false));
+  addGroup.appendChild(btnAdd);
+  addGroup.appendChild(addSwitch);
+  addGroup.addEventListener('pointerenter', () => updateSwitchReveal(true));
+  addGroup.addEventListener('pointerleave', () => updateSwitchReveal(false));
 
-  elAddDesc = document.createElement('span');
-  elAddDesc.id = ADD_BUTTON_DESC_ID;
-  elAddDesc.className = 'sr-only';
+  const addDesc = document.createElement('span');
+  addDesc.id = ADD_BUTTON_DESC_ID;
+  addDesc.className = 'sr-only';
 
   // export group (design spec §AE): export and "more options", two separate
   // buttons, and the menu "more options" opens. The menu lives inside this
   // same (closed) shadow root — there is nowhere else it could go —
   // positioned against the group.
-  elExportGroup = document.createElement('div');
-  elExportGroup.className = 'export-group';
+  const exportGroup = document.createElement('div');
+  exportGroup.className = 'export-group';
 
-  elBtnExport = makeIconButton(ICON_EXPORT, 'export feedback', 'btn-export');
-  elBtnExport.dataset.tipReason = NOTHING_TO_EXPORT_MESSAGE;
+  const btnExport = makeIconButton(ICON_EXPORT, 'export feedback', 'btn-export');
+  btnExport.dataset.tipReason = NOTHING_TO_EXPORT_MESSAGE;
 
-  elBtnMenu = makeIconButton(ICON_MORE, 'more options', 'btn-menu');
-  elBtnMenu.setAttribute('aria-haspopup', 'menu');
-  elBtnMenu.setAttribute('aria-expanded', 'false');
+  const btnMenu = makeIconButton(ICON_MORE, 'more options', 'btn-menu');
+  btnMenu.setAttribute('aria-haspopup', 'menu');
+  btnMenu.setAttribute('aria-expanded', 'false');
 
-  actionMenu = new ActionMenu({
-    button: elBtnMenu,
-    group: elExportGroup,
+  const actionMenu = new ActionMenu({
+    button: btnMenu,
+    group: exportGroup,
     shadow,
-    host: sidebarHost!,
-    hideTooltip: () => sidebarTooltips?.hide(),
+    host,
+    hideTooltip: () => dom?.tooltips.hide(),
   });
 
-  elExportGroup.appendChild(elBtnExport);
-  elExportGroup.appendChild(elBtnMenu);
-  elExportGroup.appendChild(actionMenu.el);
+  exportGroup.appendChild(btnExport);
+  exportGroup.appendChild(btnMenu);
+  exportGroup.appendChild(actionMenu.el);
 
-  actionRow.appendChild(elAddGroup);
-  actionRow.appendChild(elExportGroup);
-  actionRow.appendChild(elAddDesc);
+  actionRow.appendChild(addGroup);
+  actionRow.appendChild(exportGroup);
+  actionRow.appendChild(addDesc);
 
   // Notification bar (src/notifications.ts).
-  notifications = new Notifications();
+  const notifications = new Notifications();
 
   const body = document.createElement('div');
   body.className = 'body';
-  elBody = body;
 
-  elHeading = document.createElement('h2');
-  elHeading.className = 'section-heading';
-  elHeading.hidden = true;
+  const heading = document.createElement('h2');
+  heading.className = 'section-heading';
+  heading.hidden = true;
 
-  elEmptyState = document.createElement('p');
-  elEmptyState.className = 'empty-state';
-  elEmptyState.textContent = 'no feedback on this page yet';
+  const emptyState = document.createElement('p');
+  emptyState.className = 'empty-state';
+  emptyState.textContent = 'no feedback on this page yet';
 
-  elThumbnailList = document.createElement('ul');
-  elThumbnailList.className = 'thumbnail-list';
-  elThumbnailList.hidden = true;
+  const thumbnailList = document.createElement('ul');
+  thumbnailList.className = 'thumbnail-list';
+  thumbnailList.hidden = true;
   // Tracked here rather than inside dockMotion because it has to survive
   // that layer being torn down and rebuilt on every repaint.
-  elThumbnailList.addEventListener('pointermove', (e) => {
+  thumbnailList.addEventListener('pointermove', (e) => {
     lastListPointerY = e.clientY;
   });
-  elThumbnailList.addEventListener('pointerleave', () => {
+  thumbnailList.addEventListener('pointerleave', () => {
     lastListPointerY = null;
   });
 
-  body.appendChild(elHeading);
-  body.appendChild(elEmptyState);
-  body.appendChild(elThumbnailList);
+  body.appendChild(heading);
+  body.appendChild(emptyState);
+  body.appendChild(thumbnailList);
 
-  elFileInput = document.createElement('input');
-  elFileInput.type = 'file';
-  elFileInput.accept = '.zip';
-  elFileInput.style.display = 'none';
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = '.zip';
+  fileInput.style.display = 'none';
 
-  elSidebar.appendChild(elResizer);
-  elSidebar.appendChild(resizerLine);
-  elSidebar.appendChild(header);
-  elSidebar.appendChild(actionRow);
-  elSidebar.appendChild(notifications.el);
-  elSidebar.appendChild(body);
-  elSidebar.appendChild(elFileInput);
+  panel.appendChild(resizer);
+  panel.appendChild(resizerLine);
+  panel.appendChild(header);
+  panel.appendChild(actionRow);
+  panel.appendChild(notifications.el);
+  panel.appendChild(body);
+  panel.appendChild(fileInput);
 
-  shadow.appendChild(elSidebar);
+  shadow.appendChild(panel);
   // One tooltip for the whole root — the panel and the enlarged view (§AG).
-  sidebarTooltips = attachTooltips(shadow);
-  // Nothing is known about the site's notes yet: start export and delete-all
-  // greyed out, as setSiteHasNotes(false) would.
-  syncActionAvailability();
-  // The panel's fixed chrome (header, action row, banner, resize handle) is
-  // not a scroller, so a wheel over it used to chain straight to the PAGE —
-  // scrolling the page while the pointer was on the sidebar. Non-passive so
-  // it can cancel that. The enlarged view mounts on the shadow root, outside
-  // this element, so its own scrolling is never touched here.
-  elSidebar.addEventListener('wheel', onSidebarChromeWheel, { passive: false });
+  const tooltips = attachTooltips(shadow);
+  return {
+    host,
+    shadow,
+    panel,
+    resizer,
+    logoImg,
+    btnClose,
+    addGroup,
+    btnAdd,
+    addSwitch,
+    addDesc,
+    exportGroup,
+    btnExport,
+    btnMenu,
+    actionMenu,
+    notifications,
+    tooltips,
+    body,
+    heading,
+    emptyState,
+    thumbnailList,
+    fileInput,
+  };
 }
 
 /** Ghost button (the header's close) — transparent at rest, per design spec
@@ -516,10 +548,10 @@ const ADD_BUTTON_DESC_ID = 'add-note-desc';
  * through CSS on their own.
  */
 function updateSwitchReveal(inside: boolean): void {
-  if (!elAddGroup) return;
+  if (!dom) return;
   if (switchGraceTimer !== null) clearTimeout(switchGraceTimer);
   switchGraceTimer = null;
-  const group = elAddGroup;
+  const group = dom.addGroup;
   if (inside) {
     if (!group.classList.contains('is-revealed')) {
       group.classList.add('is-revealed');
@@ -560,28 +592,27 @@ const ADD_SWITCH_TITLES = {
  * mode is actually doing.
  */
 export function setAddButtonState(state: AddButtonState): void {
-  if (!elBtnAdd || !elAddGroup) return;
+  if (!dom) return;
+  const { addGroup, btnAdd, addSwitch, addDesc } = dom;
   const isOn = state !== 'off';
   const keepOn = state === 'kept-on';
-  elAddGroup.classList.toggle('is-on', isOn);
-  elAddGroup.classList.toggle('is-switch-on', keepOn);
-  elBtnAdd.setAttribute('aria-pressed', String(isOn));
-  elBtnAdd.setAttribute('aria-label', ADD_BUTTON_NAME);
-  elBtnAdd.dataset.tip = ADD_BUTTON_TITLES[state];
+  addGroup.classList.toggle('is-on', isOn);
+  addGroup.classList.toggle('is-switch-on', keepOn);
+  btnAdd.setAttribute('aria-pressed', String(isOn));
+  btnAdd.setAttribute('aria-label', ADD_BUTTON_NAME);
+  btnAdd.dataset.tip = ADD_BUTTON_TITLES[state];
   // The shortcut adds a note, so it is named only while there is none to add.
-  if (state === 'off') elBtnAdd.dataset.tipKey = addNoteShortcutLabel();
-  else delete elBtnAdd.dataset.tipKey;
-  if (elAddSwitch) elAddSwitch.dataset.tip = keepOn ? ADD_SWITCH_TITLES.on : ADD_SWITCH_TITLES.off;
-  elAddSwitch?.setAttribute('aria-checked', String(keepOn));
+  if (state === 'off') btnAdd.dataset.tipKey = addNoteShortcutLabel();
+  else delete btnAdd.dataset.tipKey;
+  addSwitch.dataset.tip = keepOn ? ADD_SWITCH_TITLES.on : ADD_SWITCH_TITLES.off;
+  addSwitch.setAttribute('aria-checked', String(keepOn));
   // Merged: while the switch is on the group is one button, so it is one tab
   // stop too — the button half carries it, and both halves do the same thing
   // (§A2 micro states). The switch stays in the accessibility tree, checked,
   // so its state is still announced.
-  if (elAddSwitch) {
-    if (keepOn) elAddSwitch.setAttribute('tabindex', '-1');
-    else elAddSwitch.removeAttribute('tabindex');
-  }
-  if (elAddDesc) elAddDesc.textContent = ADD_BUTTON_DESCRIPTIONS[state];
+  if (keepOn) addSwitch.setAttribute('tabindex', '-1');
+  else addSwitch.removeAttribute('tabindex');
+  addDesc.textContent = ADD_BUTTON_DESCRIPTIONS[state];
 }
 
 // ---------------------------------------------------------------------------
@@ -592,13 +623,13 @@ export function setAddButtonState(state: AddButtonState): void {
  *  own double-injection guard — cross-cutting gotcha #6). Building the DOM does
  *  not make the sidebar visible; call openSidebar() for that. */
 export function initSidebar(callbacks: SidebarCallbacks): void {
-  if (sidebarHost) {
+  if (dom) {
     callbacksRef = callbacks;
     return;
   }
   callbacksRef = callbacks;
 
-  sidebarHost = document.createElement('div');
+  const sidebarHost = document.createElement('div');
   sidebarHost.id = 'annotator-sidebar-host';
   // Zero-size positioning host (the add-mode host is built the same way):
   // the actual panel inside the shadow root does its own `position: fixed`.
@@ -607,18 +638,28 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
   sidebarHost.style.cssText =
     'position: fixed; top: 0; right: 0; width: 0; height: 0; z-index: 2147483645; pointer-events: none;';
 
-  sidebarShadow = sidebarHost.attachShadow({ mode: 'closed' });
+  const sidebarShadow = sidebarHost.attachShadow({ mode: 'closed' });
   document.documentElement.appendChild(sidebarHost);
 
-  buildDOM(sidebarShadow);
+  const built = buildDOM(sidebarHost, sidebarShadow);
+  dom = built;
+  // Nothing is known about the site's notes yet: start export and delete-all
+  // greyed out, as setSiteHasNotes(false) would.
+  syncActionAvailability();
+  // The panel's fixed chrome (header, action row, banner, resize handle) is
+  // not a scroller, so a wheel over it used to chain straight to the PAGE —
+  // scrolling the page while the pointer was on the sidebar. Non-passive so
+  // it can cancel that. The enlarged view mounts on the shadow root, outside
+  // this element, so its own scrolling is never touched here.
+  built.panel.addEventListener('wheel', onSidebarChromeWheel, { passive: false });
 
-  elSidebar!.style.pointerEvents = 'auto';
+  built.panel.style.pointerEvents = 'auto';
 
-  wireAddGroup();
-  wireExportGroup();
-  wireChrome(sidebarShadow);
+  wireAddGroup(built);
+  wireExportGroup(built);
+  wireChrome(built);
 
-  if (elLogoImg) elLogoImg.src = extensionUrl(LOGO_PATH);
+  built.logoImg.src = extensionUrl(LOGO_PATH);
 
   // "add note" starts off (design spec v3 §A2) — content.ts moves it to
   // on/kept-on as the real add-mode state changes. The switch does not
@@ -632,15 +673,15 @@ export function initSidebar(callbacks: SidebarCallbacks): void {
 
 /** The "add note" group's listeners (design spec v3 §A2): the button's
  *  click / shift-click / shift-Enter / dblclick, and the switch's click. */
-function wireAddGroup(): void {
-  elBtnAdd!.addEventListener('click', (e) => {
+function wireAddGroup(d: SidebarDom): void {
+  d.btnAdd.addEventListener('click', (e) => {
     e.stopPropagation();
     // Shift+click: the single-gesture (and keyboard, below) twin of the
     // double-click lock.
     if (e.shiftKey) callbacksRef?.onAddDoubleClick?.();
     else callbacksRef?.onAdd();
   });
-  elBtnAdd!.addEventListener('keydown', (e) => {
+  d.btnAdd.addEventListener('keydown', (e) => {
     if (!e.shiftKey || (e.key !== 'Enter' && e.key !== ' ')) return;
     // Shift+Enter / Shift+Space lock too. preventDefault cancels the native
     // activation, so no plain click follows to toggle it straight back off.
@@ -648,7 +689,7 @@ function wireAddGroup(): void {
     e.stopPropagation();
     if (!e.repeat) callbacksRef?.onAddDoubleClick?.();
   });
-  elBtnAdd!.addEventListener('dblclick', (e) => {
+  d.btnAdd.addEventListener('dblclick', (e) => {
     e.stopPropagation();
     // Not every browser treats a button as a natural double-click target
     // for text selection, but pointer-down text selection can still occur
@@ -667,9 +708,9 @@ function wireAddGroup(): void {
   // than reporting `false` here is what makes the merged control honest —
   // onAdd while the switch is on exits add mode AND turns the switch off,
   // whereas onAddSwitchChange(false) would leave add mode running.
-  elAddSwitch!.addEventListener('click', (e) => {
+  d.addSwitch.addEventListener('click', (e) => {
     e.stopPropagation();
-    const on = elAddSwitch!.getAttribute('aria-checked') !== 'true';
+    const on = d.addSwitch.getAttribute('aria-checked') !== 'true';
     if (!on) {
       callbacksRef?.onAdd();
       return;
@@ -681,53 +722,53 @@ function wireAddGroup(): void {
 /** The export group's listeners (design spec §AE, §AF): export, "more
  *  options" and its menu — "import", "delete all for this website" and the
  *  confirmation the menu turns into — and the hidden file input. */
-function wireExportGroup(): void {
-  elBtnExport!.addEventListener('click', (e) => {
+function wireExportGroup(d: SidebarDom): void {
+  d.btnExport.addEventListener('click', (e) => {
     e.stopPropagation();
     // Greyed out with nothing to export (§AF): stays focusable and
     // hoverable so it can say why, but does nothing.
-    if (isSoftDisabled(elBtnExport)) return;
+    if (isSoftDisabled(d.btnExport)) return;
     callbacksRef?.onExport();
   });
 
   // "more options", the menu's keys and its question's buttons.
-  actionMenu!.wire();
+  d.actionMenu.wire();
 
-  actionMenu!.importItem.addEventListener('click', (e) => {
+  d.actionMenu.importItem.addEventListener('click', (e) => {
     e.stopPropagation();
     // The menu stays open: content.ts asks first if it must, then calls
     // openImportPicker() (§AF).
     callbacksRef?.onImport();
   });
 
-  actionMenu!.deleteAllItem.addEventListener('click', (e) => {
+  d.actionMenu.deleteAllItem.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (isSoftDisabled(actionMenu?.deleteAllItem ?? null)) return;
+    if (isSoftDisabled(d.actionMenu.deleteAllItem)) return;
     callbacksRef?.onDeleteAll();
   });
 
-  elFileInput!.addEventListener('change', () => {
-    const file = elFileInput!.files?.[0];
+  d.fileInput.addEventListener('change', () => {
+    const file = d.fileInput.files?.[0];
     if (file) callbacksRef?.onImportFile(file);
-    elFileInput!.value = '';
+    d.fileInput.value = '';
   });
 }
 
 /** The panel chrome's listeners: close, the resize handle, and the two
  *  outside-pointerdown listeners that close the "more options" menu. */
-function wireChrome(shadow: ShadowRoot): void {
-  elBtnClose!.addEventListener('click', (e) => {
+function wireChrome(d: SidebarDom): void {
+  d.btnClose.addEventListener('click', (e) => {
     e.stopPropagation();
     closeSidebar();
     callbacksRef?.onClose();
   });
 
-  elResizer!.addEventListener('mousedown', onResizerMouseDown);
-  elResizer!.addEventListener('keydown', onResizerKeyDown);
+  d.resizer.addEventListener('mousedown', onResizerMouseDown);
+  d.resizer.addEventListener('keydown', onResizerKeyDown);
 
   // A press outside closes the menu (src/actionMenu.ts says why it takes
   // two listeners).
-  actionMenu!.listenForOutsidePresses();
+  d.actionMenu.listenForOutsidePresses();
 }
 
 // ---------------------------------------------------------------------------
@@ -741,47 +782,35 @@ function wireChrome(shadow: ShadowRoot): void {
  * (ActionMenu.confirm).
  */
 export function confirmInMenu(message: string, confirmLabel: string, tone: ConfirmTone = 'danger'): Promise<boolean> {
-  return actionMenu ? actionMenu.confirm(message, confirmLabel, tone) : Promise.resolve(false);
+  return dom ? dom.actionMenu.confirm(message, confirmLabel, tone) : Promise.resolve(false);
 }
 
 /** Close the menu and open the native file picker (§1.7). Called from the
  *  import item's own click — or from the confirmation's "yes", still inside
  *  that click's user activation, which a file picker requires. */
 export function openImportPicker(): void {
-  actionMenu?.close();
-  elFileInput?.click();
+  dom?.actionMenu.close();
+  dom?.fileInput.click();
 }
 
 /** Close the "more options" menu from outside (content.ts, when a question
  *  cannot be asked because its count could not be read). */
 export function closeMoreOptionsMenu(): void {
-  actionMenu?.close();
+  dom?.actionMenu.close();
 }
 
 /** Whether the "more options" menu is open — content.ts checks it after a
  *  round trip, since the user may have dismissed the menu meanwhile. */
 export function isMoreOptionsMenuOpen(): boolean {
-  return actionMenu?.isOpen() ?? false;
+  return dom?.actionMenu.isOpen() ?? false;
 }
 
 /** Take down the sidebar's tooltip at once, without its fade — content.ts
  *  calls it as a capture starts, since a tooltip resting on a sidebar control
  *  can reach over the page and would otherwise end up in the screenshot. */
 export function hideTooltipNow(): void {
-  sidebarTooltips?.hide({ immediate: true });
+  dom?.tooltips.hide({ immediate: true });
 }
-
-// ---------------------------------------------------------------------------
-// Disabled reasons (design spec §AF)
-//
-// Export with nothing to export, and delete-all with nothing to delete, are
-// "soft" disabled: they look and act disabled but stay focusable and
-// hoverable (aria-disabled, not the disabled attribute — a truly disabled
-// button gets no pointer events and no focus), so the shared tooltip
-// (tooltip.ts, §AG) can show their `data-tip-reason` on hover or focus. The
-// attribute is written by tooltip.ts's setSoftDisabled(); see
-// syncActionAvailability().
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Resize gesture (§ enhancement: user-resizable sidebar)
@@ -823,7 +852,7 @@ function onResizerMouseDown(e: MouseEvent): void {
   if (resizeDragging) return;
   resizeDragging = true;
   resizeGrabOffset = viewportRightEdge() - e.clientX - getSidebarWidth();
-  elResizer?.classList.add('dragging');
+  dom?.resizer.classList.add('dragging');
   window.addEventListener('mousemove', onResizeDragMove, true);
   window.addEventListener('mouseup', onResizeDragEnd, true);
 }
@@ -842,7 +871,7 @@ function onResizeDragEnd(): void {
 
 function endResizeDrag(): void {
   resizeDragging = false;
-  elResizer?.classList.remove('dragging');
+  dom?.resizer.classList.remove('dragging');
   window.removeEventListener('mousemove', onResizeDragMove, true);
   window.removeEventListener('mouseup', onResizeDragEnd, true);
 }
@@ -865,14 +894,14 @@ function onResizerKeyDown(e: KeyboardEvent): void {
  *  (initSidebar is idempotent and every entry point calls it first); this is
  *  the tests' probe for construction/teardown. */
 export function isSidebarInitialised(): boolean {
-  return sidebarHost !== null;
+  return dom !== null;
 }
 
 /** Show the sidebar and shrink the page to make room for it. Safe to call when
  *  already open (re-asserts visibility and the page resize). */
 export function openSidebar(): void {
-  if (!elSidebar) return;
-  elSidebar.hidden = false;
+  if (!dom) return;
+  dom.panel.hidden = false;
   visible = true;
   applyPageResize(getSidebarWidth());
   syncDockMotion();
@@ -888,13 +917,13 @@ export function closeSidebar(): void {
   // §C2: the menu closes when the sidebar closes — a panel that reopened
   // with a menu already down would be a surprise, and nothing in a hidden
   // panel should stay in the accessibility tree.
-  actionMenu?.close();
-  if (elSidebar) {
-    elSidebar.hidden = true;
+  dom?.actionMenu.close();
+  if (dom) {
+    dom.panel.hidden = true;
   }
   // The tooltip is the panel's sibling in the root, not its child: hiding
   // the panel does not hide it.
-  sidebarTooltips?.hide();
+  dom?.tooltips.hide();
   visible = false;
   syncDockMotion();
   clearMessage();
@@ -908,7 +937,7 @@ export function isSidebarVisible(): boolean {
 /** Visible AND still in the document: a page that removed salamander's host
  *  has no sidebar to act from (the add-note shortcut asks). */
 export function isSidebarOnPage(): boolean {
-  return visible && !!sidebarHost?.isConnected;
+  return visible && !!dom?.host.isConnected;
 }
 
 /** Disable/enable the export header button (§1.6). Assembling a
@@ -947,6 +976,14 @@ export function setSiteHasNotes(has: boolean): void {
 //   - an export round trip is in flight (setExportButtonEnabled)
 //   - an import round trip is in flight (setImportButtonEnabled)
 //   - add mode is active, so the sidebar is "on hold" (setAddModeHold, §H)
+//
+// Disabled reasons (design spec §AF): export with nothing to export, and
+// delete-all with nothing to delete, are "soft" disabled: they look and act
+// disabled but stay focusable and hoverable (aria-disabled, not the disabled
+// attribute — a truly disabled button gets no pointer events and no focus),
+// so the shared tooltip (tooltip.ts, §AG) can show their `data-tip-reason`
+// on hover or focus. The attribute is written by tooltip.ts's
+// setSoftDisabled().
 // ---------------------------------------------------------------------------
 
 let exportEnabled = true;
@@ -960,18 +997,20 @@ let addModeHold = false;
 function syncActionAvailability(): void {
   // §H disables the whole export group; an in-flight export only disables
   // the export button, which would start a second one.
+  if (!dom) return;
+  const { btnExport, btnMenu, actionMenu, exportGroup, tooltips } = dom;
   const exportBlocked = addModeHold || !exportEnabled;
-  if (elBtnExport) elBtnExport.disabled = exportBlocked;
+  btnExport.disabled = exportBlocked;
   // Soft-disabled only for "nothing to export" (§AF): the add-mode hold and
   // an export in flight are brief and plain from context, so they keep the
   // plain disabled state and no tooltip.
   // A tooltip up for the old state would now say the wrong thing: hide it
   // now, not on the tooltip's MutationObserver (a microtask later).
-  if (setSoftDisabled(elBtnExport, !exportBlocked && !siteHasNotes)) sidebarTooltips?.hide();
-  if (elBtnMenu) elBtnMenu.disabled = addModeHold;
-  if (actionMenu) actionMenu.importItem.disabled = !importEnabled;
-  if (setSoftDisabled(actionMenu?.deleteAllItem ?? null, !siteHasNotes)) sidebarTooltips?.hide();
-  elExportGroup?.classList.toggle('is-disabled', addModeHold);
+  if (setSoftDisabled(btnExport, !exportBlocked && !siteHasNotes)) tooltips.hide();
+  btnMenu.disabled = addModeHold;
+  actionMenu.importItem.disabled = !importEnabled;
+  if (setSoftDisabled(actionMenu.deleteAllItem, !siteHasNotes)) tooltips.hide();
+  exportGroup.classList.toggle('is-disabled', addModeHold);
 }
 
 /**
@@ -988,8 +1027,8 @@ function syncActionAvailability(): void {
  */
 export function setAddModeHold(hold: boolean): void {
   addModeHold = hold;
-  if (hold) actionMenu?.close();
-  elBody?.classList.toggle('is-on-hold', hold);
+  if (hold) dom?.actionMenu.close();
+  dom?.body.classList.toggle('is-on-hold', hold);
   syncActionAvailability();
   applyListHold();
   setDockMagnificationSuspended(hold);
@@ -1009,8 +1048,8 @@ export function setAddModeHold(hold: boolean): void {
  * never strand the delete.
  */
 function playItemRemoval(itemId: number): Promise<void> | null {
-  const li = elThumbnailList
-    ?.querySelector<HTMLElement>(`button.thumbnail[data-item-id="${itemId}"]`)
+  const li = dom?.thumbnailList
+    .querySelector<HTMLElement>(`button.thumbnail[data-item-id="${itemId}"]`)
     ?.closest<HTMLElement>('.thumbnail-item');
   if (!li) return null;
   if (reducedMotionQuery()?.matches) return null;
@@ -1045,13 +1084,14 @@ function playItemRemoval(itemId: number): Promise<void> | null {
  * and `.body`'s overscroll-behavior stops it chaining on at the ends.
  */
 function onSidebarChromeWheel(e: WheelEvent): void {
-  if (!elBody || e.ctrlKey) return; // ctrl+wheel is the browser's zoom
-  if (e.composedPath().includes(elBody)) return;
+  if (!dom || e.ctrlKey) return; // ctrl+wheel is the browser's zoom
+  const body = dom.body;
+  if (e.composedPath().includes(body)) return;
   e.preventDefault();
   // Chrome reports pixels; lines and pages are what other engines send, and
   // cost nothing to honour.
-  const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? elBody.clientHeight : 1;
-  elBody.scrollBy({ top: e.deltaY * unit, left: 0 });
+  const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? body.clientHeight : 1;
+  body.scrollBy({ top: e.deltaY * unit, left: 0 });
 }
 
 /** Take the list's items out of the tab order while on hold (and put them
@@ -1065,8 +1105,8 @@ function onSidebarChromeWheel(e: WheelEvent): void {
  *  needs the same treatment or add mode would leave a live "delete" one Tab
  *  away from a held list. */
 function applyListHold(): void {
-  if (!elThumbnailList) return;
-  const held = elThumbnailList.querySelectorAll<HTMLButtonElement>('button.thumbnail, button.thumbnail-delete');
+  if (!dom) return;
+  const held = dom.thumbnailList.querySelectorAll<HTMLButtonElement>('button.thumbnail, button.thumbnail-delete');
   for (const btn of Array.from(held)) {
     if (addModeHold) btn.setAttribute('tabindex', '-1');
     else btn.removeAttribute('tabindex');
@@ -1095,27 +1135,28 @@ export function setThumbnails(items: FeedbackItem[], editedTitle: string | null 
 }
 
 function renderItems(items: FeedbackItem[]): void {
-  if (!elEmptyState || !elThumbnailList || !elHeading || !callbacksRef) return;
+  if (!dom || !callbacksRef) return;
+  const { heading, emptyState, thumbnailList } = dom;
   currentItems = items.slice();
   if (items.length === 0) {
-    elHeading.hidden = true;
-    elEmptyState.hidden = false;
-    elThumbnailList.hidden = true;
-    elThumbnailList.innerHTML = '';
+    heading.hidden = true;
+    emptyState.hidden = false;
+    thumbnailList.hidden = true;
+    thumbnailList.innerHTML = '';
     syncDockMotion();
     return;
   }
   // "this page (n)" (design spec §3.1) — only ever shown alongside the list,
   // never alongside the empty state.
-  elHeading.textContent = `this page (${items.length})`;
-  elHeading.hidden = false;
-  elEmptyState.hidden = true;
-  elThumbnailList.hidden = false;
+  heading.textContent = `this page (${items.length})`;
+  heading.hidden = false;
+  emptyState.hidden = true;
+  thumbnailList.hidden = false;
   // Tear the old motion layer down *before* the repaint so it releases the
   // outgoing <li>s, then attach a fresh one to the new ones.
   dockMotion?.destroy();
   dockMotion = null;
-  renderThumbnailList(elThumbnailList, items, {
+  renderThumbnailList(thumbnailList, items, {
     onOpen: (item) => {
       // A stray activation of the (hidden, inert-to-be) list while the view
       // is expanding or open — e.g. a native click from a repeated Enter on
@@ -1152,8 +1193,8 @@ function renderItems(items: FeedbackItem[]): void {
  *  than falling back to <body>. Returns false if there's no such item (e.g.
  *  it was just deleted). */
 export function focusThumbnail(id: number): boolean {
-  if (!visible || !elThumbnailList) return false;
-  const btn = elThumbnailList.querySelector<HTMLButtonElement>(`button.thumbnail[data-item-id="${id}"]`);
+  if (!visible || !dom) return false;
+  const btn = dom.thumbnailList.querySelector<HTMLButtonElement>(`button.thumbnail[data-item-id="${id}"]`);
   if (!btn) return false;
   btn.focus();
   return true;
@@ -1164,8 +1205,8 @@ export function focusThumbnail(id: number): boolean {
  *  list's box: after a delete the list is shorter, and the pointer that was
  *  over the last row may now be past the end of it. */
 function pointerYOverList(): number | null {
-  if (lastListPointerY === null || !elThumbnailList) return null;
-  const r = elThumbnailList.getBoundingClientRect();
+  if (lastListPointerY === null || !dom) return null;
+  const r = dom.thumbnailList.getBoundingClientRect();
   return lastListPointerY >= r.top && lastListPointerY <= r.bottom ? lastListPointerY : null;
 }
 
@@ -1173,17 +1214,18 @@ function pointerYOverList(): number | null {
  *  showing items, and none otherwise (so a closed sidebar holds no rAF,
  *  listeners or matchMedia subscription). */
 function syncDockMotion(): void {
-  const wanted = visible && !!elThumbnailList && !elThumbnailList.hidden && elThumbnailList.children.length > 0;
-  if (wanted && !dockMotion && elThumbnailList) {
-    dockMotion = attachDockMotion(elThumbnailList, {
-      scrollContainer: elBody,
+  const list = dom?.thumbnailList ?? null;
+  const wanted = visible && !!list && !list.hidden && list.children.length > 0;
+  if (wanted && !dockMotion && dom && list) {
+    dockMotion = attachDockMotion(list, {
+      scrollContainer: dom.body,
       // Only when the pointer really is over the list right now: a stale
       // coordinate would magnify a row nobody is pointing at.
       initialPointerY: pointerYOverList(),
       // See .body's CSS: the scroller only paints (and stops taking pointer
       // events) over the page while something is actually magnified.
-      onBleedChange: (bleeding) => elBody?.classList.toggle('is-bleeding', bleeding),
-      holdTargets: elResizer ? [elResizer] : [],
+      onBleedChange: (bleeding) => dom?.body.classList.toggle('is-bleeding', bleeding),
+      holdTargets: [dom.resizer],
     });
     syncDockSuspension();
   } else if (!wanted && dockMotion) {
@@ -1219,23 +1261,24 @@ function syncDockSuspension(): void {
 // ---------------------------------------------------------------------------
 
 function enlargedMount(): EnlargedViewMount | null {
-  if (!sidebarHost || !sidebarShadow || !elSidebar) return null;
+  if (!dom) return null;
   return {
-    host: sidebarHost,
-    shadow: sidebarShadow,
-    sidebarEl: elSidebar,
+    host: dom.host,
+    shadow: dom.shadow,
+    sidebarEl: dom.panel,
     getSidebarWidth: () => getSidebarWidth(),
     getListLayout: () => sidebarLayoutFor(getSidebarWidth()),
-    getLogoSrc: () => elLogoImg?.src ?? '',
+    getLogoSrc: () => dom?.logoImg.src ?? '',
     getListThumb: (id) =>
-      elThumbnailList?.querySelector<HTMLElement>(`button.thumbnail[data-item-id="${id}"] .thumbnail-image-wrap`) ?? null,
-    getListViewport: () => elBody?.getBoundingClientRect() ?? null,
+      dom?.thumbnailList.querySelector<HTMLElement>(`button.thumbnail[data-item-id="${id}"] .thumbnail-image-wrap`) ?? null,
+    getListViewport: () => dom?.body.getBoundingClientRect() ?? null,
     centreListOn: (id) => {
-      const li = elThumbnailList?.querySelector(`button.thumbnail[data-item-id="${id}"]`)?.closest('li');
-      if (!li || !elBody) return;
-      const b = elBody.getBoundingClientRect();
+      const li = dom?.thumbnailList.querySelector(`button.thumbnail[data-item-id="${id}"]`)?.closest('li');
+      if (!li || !dom) return;
+      const body = dom.body;
+      const b = body.getBoundingClientRect();
       const r = li.getBoundingClientRect();
-      elBody.scrollTop += r.top + r.height / 2 - (b.top + b.height / 2);
+      body.scrollTop += r.top + r.height / 2 - (b.top + b.height / 2);
     },
     renderList: (items) => renderItems(items),
     setDockSuspended: (suspended) => {
@@ -1244,7 +1287,7 @@ function enlargedMount(): EnlargedViewMount | null {
     },
     focusListItem: (id) => focusThumbnail(id),
     focusFallback: () => {
-      if (visible) elBtnAdd?.focus({ preventScroll: true });
+      if (visible) dom?.btnAdd.focus({ preventScroll: true });
     },
     showBanner: (message) => showError(message),
   };
@@ -1314,7 +1357,7 @@ export function flushEnlargedView(): void {
  *  content script stays loaded") — this exists for tests and for a hard reset
  *  if the content script is ever torn down without a page navigation. */
 export function destroySidebar(): void {
-  actionMenu?.cancelQuestion();
+  dom?.actionMenu.cancelQuestion();
   enlargedView?.destroy();
   enlargedView = null;
   currentItems = [];
@@ -1322,41 +1365,21 @@ export function destroySidebar(): void {
   enlargedDockSuspended = false;
   dockMotion?.destroy();
   dockMotion = null;
-  actionMenu?.close();
+  dom?.actionMenu.close();
   clearMessage();
   endResizeDrag();
   restorePageResize();
-  actionMenu?.destroy();
-  elSidebar?.removeEventListener('wheel', onSidebarChromeWheel);
-  if (sidebarHost && sidebarHost.parentNode) {
-    sidebarHost.parentNode.removeChild(sidebarHost);
+  if (dom) {
+    dom.actionMenu.destroy();
+    dom.panel.removeEventListener('wheel', onSidebarChromeWheel);
+    dom.host.parentNode?.removeChild(dom.host);
   }
-  sidebarHost = null;
-  sidebarShadow = null;
-  elSidebar = null;
-  elResizer = null;
-  elLogoImg = null;
-  elBtnAdd = null;
-  elAddGroup = null;
   if (switchGraceTimer !== null) clearTimeout(switchGraceTimer);
   switchGraceTimer = null;
   switchRevealStartedAt = -Infinity;
-  elAddSwitch = null;
-  elAddDesc = null;
-  elExportGroup = null;
-  elBtnExport = null;
-  elBtnMenu = null;
-  actionMenu = null;
-  sidebarTooltips?.destroy();
-  sidebarTooltips = null;
+  dom?.tooltips.destroy();
+  dom = null;
   siteHasNotes = false;
-  elBtnClose = null;
-  elFileInput = null;
-  elHeading = null;
-  elEmptyState = null;
-  elThumbnailList = null;
-  elBody = null;
-  notifications = null;
   callbacksRef = null;
   visible = false;
   dockSuspended = false;
@@ -1377,17 +1400,17 @@ export function destroySidebar(): void {
 
 /** Show the error bar inside the sidebar. Auto-clears after 8s. */
 export function showError(message: string): void {
-  notifications?.showError(message);
+  dom?.notifications.showError(message);
 }
 
 /** Show the warning bar inside the sidebar. Auto-clears after 8s. */
 export function showWarning(message: string): void {
-  notifications?.showWarning(message);
+  dom?.notifications.showWarning(message);
 }
 
 /** Hide whatever notification is showing and cancel its auto-clear timer. */
 export function clearMessage(): void {
-  notifications?.clear();
+  dom?.notifications.clear();
 }
 
 /** Test-only: the page-resize machinery's state, with the panel's width. */
