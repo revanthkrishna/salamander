@@ -80,3 +80,21 @@ test('every heading is fitted in one layout: all the writes, then all the reads,
   fitHeadings(hs, 7.2);
   expect(order).toEqual(['write0', 'write1', 'write2', 'read0', 'read1', 'read2', 'apply0', 'apply1', 'apply2']);
 });
+
+test('the rename field grows with its text: its width plus padding, at least 160px, at most what the line leaves beside ✓ and ×', () => {
+  const h = heading('https://example.com/a', 'Pricing');
+  const measure = h.el.querySelector('.xp-page-measure')!;
+  const input = () => h.el.querySelector<HTMLInputElement>('.xp-page-input')!;
+  Object.defineProperty(h.el, 'clientWidth', { value: 600, configurable: true });
+  let text = 300;
+  Object.defineProperty(measure, 'scrollWidth', { get: () => text, configurable: true });
+  h.beginEdit();
+  expect(input().style.width).toBe(`${300 + 30}px`);
+  text = 50;
+  input().value = 'x';
+  input().dispatchEvent(new Event('input'));
+  expect(input().style.width).toBe('160px');
+  text = 900;
+  input().dispatchEvent(new Event('input'));
+  expect(input().style.width).toBe(`${600 - 68}px`);
+});

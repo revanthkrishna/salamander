@@ -112,6 +112,9 @@ import { fitHeadings, measureCharWidth, PageHeading, RenameResult } from './page
 import {
   Box,
   GridLayout,
+  HEADING_NAME_H,
+  HEADING_SUB_GAP,
+  HEADING_SUB_H,
   EXIT_BTN_PX,
   NOTE_TEXT_H,
   PANEL_MARGIN,
@@ -316,6 +319,12 @@ const Z_BG = 2147483644; // below .sidebar (2147483645)
 const Z_STAGE = 2147483646;
 const Z_FRONT = 2147483647;
 
+/** A page's name, and the field that renames it: the display serif. */
+const PAGE_NAME_FACE_CSS = `font-family: var(--sal-font-display); font-style: italic; font-weight: 400;
+    font-size: 28px; line-height: 34px; letter-spacing: -0.01em;`;
+/** The rename field's side padding, pulled back by a negative margin. */
+const PAGE_FIELD_PAD_X = 12;
+
 /** The 28px icon button (design spec §X's small size) of a note's header and
  *  a page heading — §L's list delete treatment, surface at rest. */
 const SMALL_BUTTON_CSS = `
@@ -415,55 +424,70 @@ export const ENLARGED_VIEW_CSS = `
   }
   .xp-content { position: relative; margin: 0 0 0 ${PANEL_PAD_X}px; }
 
-  /* A page heading (src/pageHeading.ts). */
+  /* A page heading (src/pageHeading.ts): the name and its pencil on one
+     line, the address and "this page" on the line under it. */
   .xp-page { position: absolute; }
   .xp-page-line {
-    height: 100%;
+    height: ${HEADING_NAME_H}px;
+    display: flex; align-items: center; gap: 8px;
+    min-width: 0;
+  }
+  .xp-page-sub {
+    height: ${HEADING_SUB_H}px; margin-top: ${HEADING_SUB_GAP}px;
     display: flex; align-items: center; gap: 8px;
     min-width: 0;
   }
   /* The serif's italic ink overhangs its box on the left: the padding gives
      it room, the negative margin keeps the text's origin on the column's
-     edge. It never shrinks below its own width up to 60% of the line (and
-     is ellipsized past that), so the address gives way first — and the
-     address's room, which it is fitted to, does not change once fitted. */
+     edge. Ellipsized past 85% of the line, with the rest in its tooltip. */
   .xp-page-name {
-    flex: 0 0 auto; min-width: 0; max-width: 60%;
+    flex: 0 1 auto; min-width: 0; max-width: 85%;
     margin: 0 0 0 -8px; padding: 0 4px 0 8px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font-family: var(--sal-font-display);
-    font-style: italic; font-weight: 400;
-    font-size: 28px; line-height: 34px; letter-spacing: -0.01em;
+    ${PAGE_NAME_FACE_CSS}
     color: var(--sal-text);
   }
   .xp-page-name[hidden], .xp-page-edit[hidden], .xp-page-editor[hidden] { display: none; }
-  /* The pencil stays quiet until wanted: a ghost (§2) at rest. */
-  .xp-page-edit {
-    ${SMALL_BUTTON_CSS}
-    border-color: transparent; background: transparent;
+  /* The pencil is the note delete's button (SMALL_BUTTON_CSS) without the
+     red: the same box, border and radius, a neutral hover and press. */
+  .xp-page-edit { ${SMALL_BUTTON_CSS} }
+  .xp-page-edit:hover {
+    background: linear-gradient(var(--sal-hover), var(--sal-hover)), var(--sal-surface);
+    color: var(--sal-text);
   }
-  .xp-page-edit:hover { background: var(--sal-hover); color: var(--sal-text); }
-  .xp-page-edit:active { background: var(--sal-press); color: var(--sal-text); }
-  .xp-page-edit:focus-visible { outline: none; color: var(--sal-text); ${FOCUS_RING_CSS} }
+  .xp-page-edit:active {
+    background: linear-gradient(var(--sal-press), var(--sal-press)), var(--sal-surface);
+    color: var(--sal-text);
+  }
+  .xp-page-edit:focus-visible { outline: none; ${FOCUS_RING_CSS} }
   .xp-page-edit svg { width: 16px; height: 16px; display: block; }
   .xp-page-editor { display: flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; }
-  /* The note text area's look (.xp-note-input), one line tall. */
+  /* The name made editable in place: its face, size and line, in the note
+     text area's field (surface, inset line, accent on focus). The padding is
+     pulled back by a negative margin so the text stays where the name's
+     was; its width follows the text (pageHeading.ts, sizeField). */
   .xp-page-input {
-    width: 360px; min-width: 120px; flex: 0 1 auto;
-    height: 32px; margin: 0; padding: 0 12px;
+    width: 360px; min-width: 0; max-width: 100%; flex: 0 1 auto;
+    height: ${HEADING_NAME_H}px;
+    margin: 0 0 0 -${PAGE_FIELD_PAD_X}px; padding: 0 ${PAGE_FIELD_PAD_X}px;
     border: none; outline: none;
     border-radius: var(--sal-radius-md);
     background: var(--sal-surface);
     color: var(--sal-text);
-    font-family: var(--sal-font-body); font-size: 14px;
+    ${PAGE_NAME_FACE_CSS}
     box-shadow: inset 0 0 0 1px var(--sal-line);
     transition: box-shadow 150ms ${STD.css};
   }
   .xp-page-input:hover { box-shadow: inset 0 0 0 1px var(--sal-line-strong); }
   .xp-page-input:focus { box-shadow: inset 0 0 0 1px var(--sal-accent); }
+  /* The mirror the field is sized from: the same face, never seen. */
+  .xp-page-measure {
+    position: absolute; left: 0; top: 0;
+    visibility: hidden; white-space: pre; pointer-events: none;
+    ${PAGE_NAME_FACE_CSS}
+  }
   .xp-page-save, .xp-page-cancel {
     ${SMALL_BUTTON_CSS}
-    width: 32px; height: 32px;
     color: var(--sal-text);
   }
   /* Saving is the yellow action, like add mode's save (2026-09-30). */
@@ -476,20 +500,20 @@ export const ENLARGED_VIEW_CSS = `
      the same title apart. */
   .xp-page-url {
     flex: 0 1 auto; min-width: 0;
-    margin-left: 4px;
     /* Middle-ellipsized to fit in JS (pageHeading.ts); the end ellipsis is
        only a net, should the face change size under it. */
     overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
     font: 400 12px/20px var(--sal-font-mono);
     color: var(--sal-text);
   }
+  /* "this page": a small label in regular ink, outlined in the line colour. */
   .xp-page-here {
     flex-shrink: 0;
     height: 20px; padding: 0 7px;
     border-radius: var(--sal-radius-sm);
-    box-shadow: inset 0 0 0 1px var(--sal-line-strong);
+    box-shadow: inset 0 0 0 1px var(--sal-line);
     font: 600 11px/20px var(--sal-font-body);
-    color: var(--sal-accent-icon);
+    color: var(--sal-text);
     white-space: nowrap;
   }
   .xp-page-status {

@@ -280,6 +280,43 @@ describe('the whole site, one page', () => {
     expect(nameRule).toContain('font-style: italic');
   });
 
+  test('a heading is two lines: the name and its pencil, then the address with "this page" to its right, in regular ink', () => {
+    setup();
+    open(3);
+    const h = heading(PRICING);
+    const [line, sub] = [h.querySelector('.xp-page-line')!, h.querySelector('.xp-page-sub')!];
+    expect([...line.children].map((c) => c.className)).toEqual(['xp-page-name', 'xp-page-edit', 'xp-page-editor']);
+    expect([...sub.children].map((c) => c.className)).toEqual(['xp-page-url', 'xp-page-here']);
+    const css = q('style')!.textContent!;
+    const rule = (sel: string) => css.slice(css.indexOf(`${sel} {`), css.indexOf('}', css.indexOf(`${sel} {`)));
+    expect(rule('.xp-page-here')).toMatch(/color: var\(--sal-text\)/);
+    expect(rule('.xp-page-here')).toMatch(/inset 0 0 0 1px var\(--sal-line\)/);
+    expect(rule('.xp-page-here')).not.toMatch(/accent/);
+  });
+
+  test('the pencil is the delete\'s button without the red; the rename field is the name\'s own face', () => {
+    setup();
+    open(3);
+    const css = q('style')!.textContent!;
+    const rule = (sel: string) => css.slice(css.indexOf(`${sel} {`), css.indexOf('}', css.indexOf(`${sel} {`)));
+    const edit = rule('.xp-page-edit');
+    const del = rule('.xp-note-delete');
+    for (const decl of ['width: 28px; height: 28px;', 'border: 1px solid var(--sal-line); border-radius: var(--sal-radius-md);', 'background: var(--sal-surface);']) {
+      expect(edit).toContain(decl);
+      expect(del).toContain(decl);
+    }
+    const editStates = css.slice(css.indexOf('.xp-page-edit:hover'), css.indexOf('.xp-page-edit:focus-visible'));
+    expect(editStates).not.toMatch(/danger/);
+    expect(editStates).toMatch(/var\(--sal-hover\)/);
+    // The field: the serif, italic, at the name's size and line.
+    const input = rule('.xp-page-input');
+    const name = rule('.xp-page-name');
+    for (const decl of ['font-family: var(--sal-font-display)', 'font-style: italic', 'font-size: 28px', 'line-height: 34px']) {
+      expect(input).toContain(decl);
+      expect(name).toContain(decl);
+    }
+  });
+
   test('a page\'s default name is its first captured HTML title, else "untitled page"', () => {
     const a = makeItem(1, BLOG);
     const b = makeItem(2, BLOG);

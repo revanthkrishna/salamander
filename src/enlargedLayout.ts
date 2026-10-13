@@ -77,10 +77,14 @@ export const COL_GAP = 32;
 /** Text areas of one row → header line of the next. Room for a note's
  *  one-line error under its text area (16px + 8px) with air to spare. */
 export const ROW_GAP = 40;
-/** A page heading: the serif name (28px on a 34px line) and, while it is
- *  being renamed, the 32px field and buttons — one height for both, so
- *  renaming never moves the page. */
-export const HEADING_H = 36;
+/** A page heading, two lines (design spec §AH): the serif name (28px on a
+ *  34px line) — and, while it is being renamed, the field in the same face —
+ *  on a 40px line, one height for both so renaming never moves the page;
+ *  then, 2px under it, the 20px line of its address and "this page". */
+export const HEADING_NAME_H = 40;
+export const HEADING_SUB_GAP = 2;
+export const HEADING_SUB_H = 20;
+export const HEADING_H = HEADING_NAME_H + HEADING_SUB_GAP + HEADING_SUB_H;
 export const HEADING_GAP = 16;
 /** Last row of one page → the next page's heading. Wider than ROW_GAP so a
  *  page break reads as one. */

@@ -59,6 +59,13 @@ export function fitHeadings(headings: PageHeading[], charW: number): void {
   headings.forEach((h, i) => h.applyFit(fits[i], charW));
 }
 
+/** The rename field's horizontal padding, both sides together, plus a few
+ *  px so the caret at the end never sits on the edge. */
+const FIELD_PAD_PX = 2 * 12 + 6;
+const FIELD_MIN_PX = 160;
+/** What the field leaves beside it: ✓ and × (28px each) and their gaps. */
+const FIELD_BUTTONS_PX = 28 * 2 + 6 * 2;
+
 /** Longest name the field takes — a page name, not a note. */
 export const PAGE_NAME_MAX_LENGTH = 200;
 
@@ -90,6 +97,7 @@ export class PageHeading {
   private readonly cancelBtn: HTMLButtonElement;
   private readonly urlEl: HTMLSpanElement;
   private readonly statusEl: HTMLParagraphElement;
+  private readonly measureEl: HTMLSpanElement;
   private readonly defaultName: string;
   private edited: string | null;
   private editing = false;
@@ -149,22 +157,33 @@ export class PageHeading {
     this.urlEl.dataset.tip = opts.url;
     this.urlEl.textContent = displayUrl(opts.url);
 
+    // Two lines: the name (or, renaming, the field) with its pencil; under
+    // it the address, and "this page" to the address's right.
     const line = document.createElement('div');
     line.className = 'xp-page-line';
-    line.append(this.nameEl, this.editBtn, this.editor, this.urlEl);
+    line.append(this.nameEl, this.editBtn, this.editor);
+    const sub = document.createElement('div');
+    sub.className = 'xp-page-sub';
+    sub.append(this.urlEl);
     if (opts.isCurrent) {
       const here = document.createElement('span');
       here.className = 'xp-page-here';
       here.textContent = THIS_PAGE_LABEL;
-      line.append(here);
+      sub.append(here);
     }
+    // The field grows with its text: this mirror, in the field's face, is
+    // what is measured (sizeField).
+    this.measureEl = document.createElement('span');
+    this.measureEl.className = 'xp-page-measure';
+    this.measureEl.setAttribute('aria-hidden', 'true');
+    this.input.addEventListener('input', () => this.sizeField());
 
     this.statusEl = document.createElement('p');
     this.statusEl.className = 'xp-page-status';
     this.statusEl.setAttribute('role', 'status');
     this.statusEl.setAttribute('aria-live', 'polite');
 
-    el.append(line, this.statusEl);
+    el.append(line, sub, this.measureEl, this.statusEl);
     this.renderName();
   }
 
@@ -199,6 +218,7 @@ export class PageHeading {
     this.editBtn.hidden = true;
     this.editor.hidden = false;
     this.el.classList.add('is-editing');
+    this.sizeField();
     this.fitAddress();
     this.input.focus({ preventScroll: true });
     this.input.select();
@@ -277,6 +297,23 @@ export class PageHeading {
     else delete this.nameEl.dataset.tip;
     if (!(charW > 0) || !(fit.room > 0) || !fit.overflows) return;
     this.urlEl.textContent = ellipsizeMiddle(displayUrl(this.url), Math.max(1, Math.floor(fit.room / charW)));
+  }
+
+  /**
+   * The rename field is the name made editable in place: the same serif,
+   * size and line, wide enough for what is typed — its text's width plus
+   * the field's padding, never narrower than FIELD_MIN_PX and never wider
+   * than the line leaves beside ✓ and ×. Measured from a mirror span in the
+   * field's own face; without layout (0) the CSS width stands.
+   */
+  private sizeField(): void {
+    this.measureEl.textContent = this.input.value || this.name;
+    const text = this.measureEl.scrollWidth;
+    if (!(text > 0)) return;
+    const line = this.el.clientWidth;
+    const max = line > 0 ? line - FIELD_BUTTONS_PX : Infinity;
+    const w = Math.min(max, Math.max(FIELD_MIN_PX, text + FIELD_PAD_PX));
+    this.input.style.width = `${Math.round(w)}px`;
   }
 
   /** The heading's controls, in tab order. */
