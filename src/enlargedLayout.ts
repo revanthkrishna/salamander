@@ -26,9 +26,12 @@
 // MAX_PER_ROW, so a wide note ends up alone. Columns keep their own widths
 // (never equalised) and the row is centred as a whole — which centres the
 // one- and two-note rows the design calls for, and splits a full row's
-// leftover evenly. Inside a row the header lines and the text areas share a
-// y each; the screenshots sit in the band between, centred vertically
-// against each other, so a row reads as three bands: headers, images, notes.
+// leftover evenly. Each note is one group, centred on its image: its bar
+// ("#n" and delete, side by side) directly above the image, its text area
+// directly below. The groups are centred vertically in the row, so the
+// images are centred against each other; bars and text areas follow their
+// own image and need not line up across the row (design spec §AH, revised
+// 2026-10-12).
 //
 // ── The page ────────────────────────────────────────────────────────────────
 //   PAD_TOP · heading · HEADING_GAP · row · ROW_GAP · row … GROUP_GAP ·
@@ -66,10 +69,11 @@ export const NOTE_TEXT_W = 267;
 export const NOTE_TEXT_H = 96;
 /** A column is never narrower than its text area. */
 export const MIN_NOTE_W = NOTE_TEXT_W;
-/** The header line above each column: "#n" and the 28px delete. */
+/** The bar directly above each note's image: "#n" and the 28px delete,
+ *  side by side and centred over the image. */
 export const NOTE_HEAD_H = 28;
 export const NOTE_HEAD_GAP = 8;
-/** Screenshot band → text area. */
+/** Image → its text area. */
 export const NOTE_TEXT_GAP = 12;
 export const MAX_PER_ROW = 3;
 /** Between columns in a row. */
@@ -219,7 +223,7 @@ export interface NoteLayout {
   page: string;
   /** Index into GridLayout.rows. */
   row: number;
-  /** The whole column, header line to text-area bottom. */
+  /** The note's group: its column's width, bar top to text-area bottom. */
   slot: Box;
   head: Box;
   shot: Box;
@@ -288,29 +292,30 @@ export function computeGridLayout(pages: LayoutPage[], opts: GridOptions): GridL
     packRows(widths, contentW).forEach((indices, r) => {
       if (r > 0) y += ROW_GAP;
       const rowW = indices.reduce((sum, i) => sum + widths[i], 0) + COL_GAP * (indices.length - 1);
-      const bandH = Math.max(...indices.map((i) => shots[i].h));
-      const bandTop = y + NOTE_HEAD_H + NOTE_HEAD_GAP;
-      const textTop = Math.round(bandTop + bandH + NOTE_TEXT_GAP);
-      const bottom = textTop + NOTE_TEXT_H;
+      // Each note is one group — its bar, its image, its text area, stacked
+      // tight — and the groups are centred vertically in the row, so the
+      // images stay centred against each other; bars and text areas follow
+      // their own image rather than lining up across the row.
+      const groupH = (i: number) => NOTE_HEAD_H + NOTE_HEAD_GAP + shots[i].h + NOTE_TEXT_GAP + NOTE_TEXT_H;
+      const rowH = Math.max(...indices.map(groupH));
+      const bottom = Math.ceil(y + rowH);
       const rowIndex = rows.length;
       let x = Math.round((contentW - rowW) / 2);
       for (const i of indices) {
         const note = page.notes[i];
         const slotW = widths[i];
         const shot = shots[i];
+        const top = Math.round(y + (rowH - groupH(i)) / 2);
+        const shotY = top + NOTE_HEAD_H + NOTE_HEAD_GAP;
+        const textY = Math.round(shotY + shot.h + NOTE_TEXT_GAP);
         notes.set(note.id, {
           id: note.id,
           page: page.key,
           row: rowIndex,
-          slot: { x, y, w: slotW, h: bottom - y },
-          head: { x, y, w: slotW, h: NOTE_HEAD_H },
-          shot: {
-            x: x + Math.round((slotW - shot.w) / 2),
-            y: Math.round(bandTop + (bandH - shot.h) / 2),
-            w: shot.w,
-            h: shot.h,
-          },
-          text: { x: x + Math.round((slotW - textW) / 2), y: textTop, w: textW, h: NOTE_TEXT_H },
+          slot: { x, y: top, w: slotW, h: textY + NOTE_TEXT_H - top },
+          head: { x, y: top, w: slotW, h: NOTE_HEAD_H },
+          shot: { x: x + Math.round((slotW - shot.w) / 2), y: shotY, w: shot.w, h: shot.h },
+          text: { x: x + Math.round((slotW - textW) / 2), y: textY, w: textW, h: NOTE_TEXT_H },
         });
         x += slotW + COL_GAP;
       }

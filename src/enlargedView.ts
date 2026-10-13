@@ -525,10 +525,11 @@ export const ENLARGED_VIEW_CSS = `
   }
   .xp-page-status.is-shown { opacity: 1; }
 
-  /* A note: header line, screenshot, editor — each placed on its own. */
+  /* A note: its bar, screenshot and editor — each placed on its own. The
+     bar is "#n" and delete side by side, centred over the image. */
   .xp-note-head {
     position: absolute;
-    display: flex; align-items: center; justify-content: space-between;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
   }
   .xp-note-num {
     font: 600 12px/1 var(--sal-font-mono);

@@ -154,18 +154,26 @@ describe('the grid', () => {
     expect(g.rows.map((r) => r.ids)).toEqual([[1], [2], [3, 4]]);
   });
 
-  test('screenshots centre vertically in the row\'s band; the text areas all start at one y', () => {
+  test('each note is one group — bar right above its image, text area right below — and the groups centre vertically in the row', () => {
     const g = computeGridLayout([page('a', [267, 100], [300, 240], [267, 60])], { contentW: W });
     const [a, b, c] = [1, 2, 3].map((id) => g.notes.get(id)!);
-    const bandTop = a.slot.y + NOTE_HEAD_H + NOTE_HEAD_GAP;
-    // The tallest fills the band; the others centre on it.
-    expect(b.shot.y).toBe(bandTop);
-    expect(a.shot.y + a.shot.h / 2).toBeCloseTo(b.shot.y + b.shot.h / 2, 0);
-    expect(c.shot.y + c.shot.h / 2).toBeCloseTo(b.shot.y + b.shot.h / 2, 0);
-    expect(new Set([a.text.y, b.text.y, c.text.y]).size).toBe(1);
-    expect(a.text.y).toBe(bandTop + 240 + NOTE_TEXT_GAP);
-    // ...and the header lines share the row's top.
-    expect(new Set([a.head.y, b.head.y, c.head.y]).size).toBe(1);
+    for (const n of [a, b, c]) {
+      // The bar sits directly above its own image, the text area directly below.
+      expect(n.shot.y - (n.head.y + n.head.h)).toBe(NOTE_HEAD_GAP);
+      expect(n.text.y - (n.shot.y + n.shot.h)).toBeCloseTo(NOTE_TEXT_GAP, 0);
+      // ...and the bar and the text area are centred on the image.
+      expect(Math.abs(n.head.x + n.head.w / 2 - (n.shot.x + n.shot.w / 2))).toBeLessThanOrEqual(1);
+      expect(Math.abs(n.text.x + n.text.w / 2 - (n.shot.x + n.shot.w / 2))).toBeLessThanOrEqual(1);
+    }
+    // The tallest group fills the row; the others centre on it, so the
+    // images are centred against each other.
+    expect(b.head.y).toBe(g.rows[0].top);
+    expect(b.text.y + b.text.h).toBe(g.rows[0].bottom);
+    expect(Math.abs(a.shot.y + a.shot.h / 2 - (b.shot.y + b.shot.h / 2))).toBeLessThanOrEqual(1);
+    expect(Math.abs(c.shot.y + c.shot.h / 2 - (b.shot.y + b.shot.h / 2))).toBeLessThanOrEqual(1);
+    // Bars and text areas no longer line up across the row.
+    expect(new Set([a.head.y, b.head.y, c.head.y]).size).toBe(3);
+    expect(new Set([a.text.y, b.text.y, c.text.y]).size).toBe(3);
   });
 
   test('a narrow screenshot sits at its own size, centred over the one text-area width', () => {
