@@ -17,8 +17,10 @@
 
 import * as imageStore from '../imageStore';
 import * as storage from '../storage';
-import type { CaptureMessage, NewFeedbackItem } from '../messages';
-import { DELETE_ALL_FAILED_MESSAGE, PAGE_HAS_NO_NOTES_MESSAGE, PAGE_NAME_SAVE_ERROR_MESSAGE, SITE_LOAD_FAILED_MESSAGE } from '../copy';
+import * as exportModule from '../export';
+import type { CaptureMessage, ImportItemPayload, NewFeedbackItem } from '../messages';
+import type { DomainData } from '../types';
+import { DELETE_ALL_FAILED_MESSAGE, IMPORT_FAILED_MESSAGE, PAGE_HAS_NO_NOTES_MESSAGE, PAGE_NAME_SAVE_ERROR_MESSAGE, SITE_LOAD_FAILED_MESSAGE } from '../copy';
 
 jest.mock('../imageStore');
 jest.mock('../storage', () => ({
@@ -38,7 +40,12 @@ jest.mock('../storage', () => ({
   deleteDomainData: jest.fn().mockResolvedValue(undefined),
   getPenColor: jest.fn().mockResolvedValue(null),
   setPenColor: jest.fn().mockResolvedValue(undefined),
+  getDomainData: jest.fn().mockResolvedValue(null),
+  replaceDomainData: jest.fn().mockResolvedValue(undefined),
+  STORAGE_VERSION: jest.requireActual('../storage').STORAGE_VERSION,
 }));
+// The zip itself is export.test.ts's; here only the routing is checked.
+jest.mock('../export', () => ({ exportDomain: jest.fn() }));
 
 type Cb<T> = (result: T) => void;
 
@@ -224,6 +231,8 @@ beforeEach(() => {
   mockedStorage.updateItem.mockResolvedValue(true);
   mockedStorage.updateNote.mockResolvedValue(undefined);
   mockedStorage.deleteItem.mockResolvedValue(undefined);
+  mockedStorage.replaceDomainData.mockResolvedValue(undefined);
+  mockedStorage.getDomainData.mockResolvedValue(null);
   sendMessageMock.mockImplementation(
     (_tabId: number, _message: unknown, callback?: Cb<{ alive: boolean }>) => {
       callback?.({ alive: true });
@@ -1323,5 +1332,146 @@ describe('an item\'s drawing (design spec §AB)', () => {
   it('an item without one is stored without the key', async () => {
     await background.handleSaveItem({ type: 'SAVE_ITEM', domain: 'example.com', item: makeNewItem() });
     expect(mockedStorage.addItem.mock.calls[0][1]).not.toHaveProperty('drawing');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Import (§1.7): the replace write, the most destructive path in the product
+// ---------------------------------------------------------------------------
+
+function makeImportPayload(id: number, normalisedUrl: string, overrides: Partial<ImportItemPayload> = {}): ImportItemPayload {
+  const { screenshotKey: _k, thumbnailDataUrl: _t, ...rest } = { ...makeNewItem(), id, normalisedUrl, pageUrl: `https://${normalisedUrl}` };
+  return { ...rest, note: `note ${id}`, screenshotDataUrl: `data:image/png;base64,c2hvdC0${id}`, ...overrides } as ImportItemPayload;
+}
+
+/** What replaceDomainData was last asked to write. */
+function writtenDomainData(): DomainData {
+  const calls = mockedStorage.replaceDomainData.mock.calls;
+  return calls[calls.length - 1][1];
+}
+
+describe('handleImportReplace', () => {
+  it('keeps every id, groups the notes by page in bundle order, and sets nextItemNumber past the highest id', async () => {
+    const items = [makeImportPayload(4, 'example.com/a'), makeImportPayload(9, 'example.com/b'), makeImportPayload(2, 'example.com/a')];
+    const response = await background.handleImportReplace({ type: 'IMPORT_REPLACE', domain: 'example.com', items });
+    expect(response).toEqual({ ok: true });
+    expect(mockedStorage.replaceDomainData).toHaveBeenCalledTimes(1);
+    expect(mockedStorage.replaceDomainData.mock.calls[0][0]).toBe('example.com');
+    const data = writtenDomainData();
+    expect(data.meta).toEqual({ nextItemNumber: 10, version: storage.STORAGE_VERSION });
+    expect(Object.keys(data.pages)).toEqual(['example.com/a', 'example.com/b']);
+    expect(data.pages['example.com/a'].map((i) => i.id)).toEqual([4, 2]);
+    expect(data.pages['example.com/b'].map((i) => i.id)).toEqual([9]);
+  });
+
+  it('stores each note as sent, with a fresh screenshot key and a thumbnail rendered from its screenshot', async () => {
+    const payload = makeImportPayload(3, 'example.com/a');
+    await background.handleImportReplace({ type: 'IMPORT_REPLACE', domain: 'example.com', items: [payload] });
+    const [stored] = writtenDomainData().pages['example.com/a'];
+    const { screenshotDataUrl, ...fields } = payload;
+    expect(stored).toEqual({ ...fields, screenshotKey: expect.any(String), thumbnailDataUrl: expect.stringMatching(/^data:/) });
+    // The screenshot went into IndexedDB under that same fresh key.
+    expect(mockedImageStore.putImage).toHaveBeenCalledWith(stored.screenshotKey, screenshotDataUrl);
+  });
+
+  it('gives every note its own key', async () => {
+    const items = [makeImportPayload(1, 'example.com/a'), makeImportPayload(2, 'example.com/a')];
+    await background.handleImportReplace({ type: 'IMPORT_REPLACE', domain: 'example.com', items });
+    const keys = writtenDomainData().pages['example.com/a'].map((i) => i.screenshotKey);
+    expect(new Set(keys).size).toBe(2);
+  });
+
+  it('writes through the save queue: an in-flight save lands before the replace', async () => {
+    const order: string[] = [];
+    let releaseAdd!: () => void;
+    mockedStorage.addItem.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          order.push('add:start');
+          releaseAdd = () => {
+            order.push('add:end');
+            resolve();
+          };
+        }),
+    );
+    mockedStorage.replaceDomainData.mockImplementation(async () => {
+      order.push('replace');
+    });
+    const save = background.handleSaveItem({ type: 'SAVE_ITEM', domain: 'example.com', item: makeNewItem() });
+    const replace = background.handleImportReplace({
+      type: 'IMPORT_REPLACE',
+      domain: 'example.com',
+      items: [makeImportPayload(1, 'example.com/a')],
+    });
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(order).toEqual(['add:start']);
+    releaseAdd();
+    await Promise.all([save, replace]);
+    expect(order).toEqual(['add:start', 'add:end', 'replace']);
+  });
+
+  it('a failed write deletes the screenshots it stored, and reports the import copy', async () => {
+    mockedStorage.replaceDomainData.mockRejectedValue(new Error('QUOTA_BYTES quota exceeded'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const items = [makeImportPayload(1, 'example.com/a'), makeImportPayload(2, 'example.com/a')];
+    const response = await background.handleImportReplace({ type: 'IMPORT_REPLACE', domain: 'example.com', items });
+    expect(response).toEqual({ ok: false, message: IMPORT_FAILED_MESSAGE });
+    const stored = mockedImageStore.putImage.mock.calls.map((c) => c[0]);
+    expect(stored).toHaveLength(2);
+    expect(mockedImageStore.deleteImage.mock.calls.map((c) => c[0]).sort()).toEqual([...stored].sort());
+    warn.mockRestore();
+  });
+
+  it('a screenshot that cannot be decoded stops the import before anything is replaced, and cleans up', async () => {
+    (global as any).createImageBitmap
+      .mockImplementationOnce(async () => fakeBitmap)
+      .mockImplementationOnce(async () => {
+        throw new Error('corrupt PNG');
+      });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const items = [makeImportPayload(1, 'example.com/a'), makeImportPayload(2, 'example.com/a')];
+    const response = await background.handleImportReplace({ type: 'IMPORT_REPLACE', domain: 'example.com', items });
+    expect(response).toEqual({ ok: false, message: IMPORT_FAILED_MESSAGE });
+    expect(mockedStorage.replaceDomainData).not.toHaveBeenCalled();
+    const stored = mockedImageStore.putImage.mock.calls.map((c) => c[0]);
+    expect(stored).toHaveLength(1);
+    expect(mockedImageStore.deleteImage).toHaveBeenCalledWith(stored[0]);
+    warn.mockRestore();
+  });
+});
+
+describe('handleExport', () => {
+  it('hands export.ts a loader that reads the domain through the save queue', async () => {
+    const mockedExport = exportModule as jest.Mocked<typeof exportModule>;
+    mockedExport.exportDomain.mockImplementation(async (domain, load) => {
+      await load!(domain);
+      return { ok: true };
+    });
+    const order: string[] = [];
+    let releaseAdd!: () => void;
+    mockedStorage.addItem.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          order.push('add:start');
+          releaseAdd = () => {
+            order.push('add:end');
+            resolve();
+          };
+        }),
+    );
+    mockedStorage.getDomainData.mockImplementation(async () => {
+      order.push('read');
+      return null;
+    });
+    const save = background.handleSaveItem({ type: 'SAVE_ITEM', domain: 'example.com', item: makeNewItem() });
+    const exported = background.handleExport({ type: 'EXPORT', domain: 'example.com' });
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(order).toEqual(['add:start']);
+    releaseAdd();
+    expect(await exported).toEqual({ ok: true });
+    await save;
+    expect(order).toEqual(['add:start', 'add:end', 'read']);
+    expect(mockedExport.exportDomain).toHaveBeenCalledWith('example.com', expect.any(Function));
+    expect(mockedStorage.getDomainData).toHaveBeenCalledWith('example.com');
   });
 });
