@@ -1442,3 +1442,95 @@ describe('lifecycle', () => {
     (window as any).innerWidth = orig;
   });
 });
+
+// Pin for splitting the class (architecture review A4): every way the view
+// ends leaves no window/document/matchMedia listener, observer or key
+// handler of its own behind.
+describe('the view leaves nothing behind', () => {
+  type Reg = [EventTarget, string, EventListenerOrEventListenerObject, boolean];
+  let live: Reg[];
+  let restore: Array<() => void>;
+  let observers: Array<{ disconnected: boolean; observed: number }>;
+  let mqlListeners: number;
+
+  beforeEach(() => {
+    live = [];
+    restore = [];
+    observers = [];
+    mqlListeners = 0;
+    const capture = (o: unknown) => (typeof o === 'boolean' ? o : !!(o as AddEventListenerOptions | undefined)?.capture);
+    for (const target of [window, document] as EventTarget[]) {
+      const add = target.addEventListener;
+      const remove = target.removeEventListener;
+      target.addEventListener = function (this: EventTarget, type: string, l: EventListenerOrEventListenerObject | null, o?: boolean | AddEventListenerOptions) {
+        if (l) live.push([target, type, l, capture(o)]);
+        return add.call(this, type, l, o);
+      } as typeof target.addEventListener;
+      target.removeEventListener = function (this: EventTarget, type: string, l: EventListenerOrEventListenerObject | null, o?: boolean | EventListenerOptions) {
+        live = live.filter(([t, ty, ll, c]) => !(t === target && ty === type && ll === l && c === capture(o)));
+        return remove.call(this, type, l, o);
+      } as typeof target.removeEventListener;
+      restore.push(() => {
+        target.addEventListener = add;
+        target.removeEventListener = remove;
+      });
+    }
+    (window as any).matchMedia = jest.fn((query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: jest.fn(() => {
+        mqlListeners++;
+      }),
+      removeEventListener: jest.fn(() => {
+        mqlListeners--;
+      }),
+    }));
+    (window as any).IntersectionObserver = class {
+      record = { disconnected: false, observed: 0 };
+      constructor() {
+        observers.push(this.record);
+      }
+      observe() {
+        this.record.observed++;
+      }
+      unobserve() {}
+      disconnect() {
+        this.record.disconnected = true;
+      }
+    };
+  });
+
+  afterEach(() => {
+    for (const r of restore) r();
+  });
+
+  test.each([
+    ['the exit button', () => { exitBtn().click(); jest.advanceTimersByTime(T.collapseSettle); }],
+    ['esc', () => { keydown(textareaOf(1), 'Escape'); jest.advanceTimersByTime(T.collapseSettle); }],
+    ['an immediate collapse', () => sidebar.collapseEnlargedView({ immediate: true })],
+    ['a forced close', () => sidebar.collapseEnlargedView({ immediate: true, force: true })],
+    ['the sidebar closing', () => sidebar.closeSidebar()],
+  ])('%s', async (name, end) => {
+    setupPage(3);
+    const before = live.length;
+    const mqlBefore = mqlListeners;
+    open(1);
+    settleOpen();
+    expect(live.length).toBeGreaterThan(before);
+    expect(observers.length).toBe(1);
+    end();
+    await flush();
+    expect(sidebar.isEnlargedViewOpen()).toBe(false);
+    // Only what the sidebar itself had before the view opened is left (the
+    // sidebar closing also drops its own key isolation and the list's dock
+    // motion, so at most that).
+    if (name === 'the sidebar closing') {
+      expect(live.length).toBeLessThanOrEqual(before);
+      expect(mqlListeners).toBeLessThanOrEqual(mqlBefore);
+    } else {
+      expect(live.length).toBe(before);
+      expect(mqlListeners).toBe(mqlBefore);
+    }
+    expect(observers.every((o) => o.disconnected)).toBe(true);
+  });
+});
