@@ -1,6 +1,7 @@
 // The type surface — screenshot-based feedback capture (REQUIREMENTS.md
 // §1.2/§1.4/§1.6). Every module compiles against this file; a change to a
-// stored type here is a change to the data on disk (storage.ts's migration)
+// stored type here is a change to the data on disk (there is no migration
+// yet: storage.ts's STORAGE_VERSION and readIndex are where one would go)
 // and to the export format (src/bundle), so make it deliberately.
 
 // ---------------------------------------------------------------------------

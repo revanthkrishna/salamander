@@ -29,8 +29,9 @@
 //
 // Plus one non-layout declaration, `--annotator-sidebar-width: Npx`. Custom
 // properties inherit through shadow boundaries (closed roots included), so
-// setting it on <html> lets any other extension shadow tree track the live
-// width without any subscription plumbing.
+// setting it on <html> would let another extension shadow tree track the
+// live width without any subscription plumbing. Nothing reads it today
+// (owner decision D8).
 //
 // `margin-right` rather than `width: calc(100% - Npx)`, which was the
 // previous implementation and is subtly worse:
@@ -165,8 +166,9 @@
 // re-measure; ResizeObserver-based layouts already fire on their own.
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** Inherits through shadow boundaries, so other extension surfaces can
- *  track the sidebar's live width without subscription plumbing. */
+/** Inherits through shadow boundaries, so another surface could track the
+ *  sidebar's live width without subscription plumbing. Nothing reads it
+ *  today; whether to keep it is the owner's call (D8). */
 const SIDEBAR_WIDTH_CSS_VAR = '--annotator-sidebar-width';
 
 /** id of the injected backstop stylesheet — see defence 1 in the banner. */
@@ -352,8 +354,10 @@ function stopHtmlStyleObserver(): void {
   htmlStyleObserver = null;
 }
 
-/** Synthetic resize event so JS-measured layouts re-read their box. Wrapped
- *  because a page listener throwing must not take the sidebar down with it. */
+/** Synthetic resize event so JS-measured layouts re-read their box. A page
+ *  listener that throws is reported (to the console) by dispatchEvent, never
+ *  thrown out of it, so it cannot fail for that reason; the try/catch is
+ *  kept as a plain guard around a call into the page's world. */
 function notifyPageOfResize(): void {
   try {
     window.dispatchEvent(new Event('resize'));

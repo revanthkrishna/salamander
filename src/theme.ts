@@ -149,22 +149,6 @@ export const DARK_THEME: ThemeTokens = {
  *  Rounded rectangles everywhere — never pill shapes. */
 export const RADII = { sm: 6, md: 10, lg: 14 } as const;
 
-/** `chrome.runtime.getURL`-relative paths of the bundled webfont files —
- *  the type source for FontSpec.path below, so a typo in FONT_SPECS is a
- *  compile error. Matches manifest.json's web_accessible_resources entry
- *  (`fonts/*.woff2`). */
-const FONT_ASSET_PATHS = [
-  'fonts/instrument-serif-latin-400-normal.woff2',
-  'fonts/instrument-serif-latin-400-italic.woff2',
-  'fonts/instrument-sans-latin-400-normal.woff2',
-  'fonts/instrument-sans-latin-500-normal.woff2',
-  'fonts/instrument-sans-latin-600-normal.woff2',
-  'fonts/instrument-sans-latin-700-normal.woff2',
-  'fonts/jetbrains-mono-latin-400-normal.woff2',
-  'fonts/jetbrains-mono-latin-500-normal.woff2',
-  'fonts/jetbrains-mono-latin-600-normal.woff2',
-] as const;
-
 /** camelCase -> kebab-case, e.g. `lineStrong` -> `line-strong`. Used to turn
  *  ThemeTokens keys into `--sal-*` custom property names without a second,
  *  hand-maintained name table that could drift from the interface above. */
@@ -231,7 +215,9 @@ export const FOCUS_RING_CSS = 'box-shadow: 0 0 0 2px var(--sal-bg), 0 0 0 4px va
  * mousedown and mouseup, so the click landed on the panel instead. */
 
 /** Interaction-state transition timing shared by every control (§2):
- *  120-160ms ease-out on colour-ish properties, 80ms for the press scale. */
+ *  140ms ease-out on colour-ish properties. The `transform 80ms` is what the
+ *  removed press scale (above) ran on; it stays because it is emitted CSS
+ *  every surface pastes in, and dropping it changes that text. */
 export const STATE_TRANSITION_CSS =
   'transition: background-color 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out, transform 80ms ease-out;';
 
@@ -255,7 +241,9 @@ export function _resetThemeStateForTests(): void {
 
 interface FontSpec {
   family: string;
-  path: (typeof FONT_ASSET_PATHS)[number];
+  /** `chrome.runtime.getURL`-relative path of a bundled webfont file, under
+   *  manifest.json's web_accessible_resources entry (`fonts/*.woff2`). */
+  path: `fonts/${string}.woff2`;
   weight: string;
   style: 'normal' | 'italic';
 }

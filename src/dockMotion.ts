@@ -214,7 +214,8 @@ export function computeNudges(influences: readonly number[], heights: readonly n
 
 export interface DockMotionHandle {
   /** Re-read the cached layout (call after anything moves the items that
-   *  the built-in listeners can't see). */
+   *  the built-in listeners can't see). No production caller today: the
+   *  sidebar rebuilds the layer on every repaint instead. */
   refresh(): void;
   /** Suspend (true) or resume (false) pointer/focus-driven magnification.
    *  Suspending drops every item back to rest *instantly* — no release

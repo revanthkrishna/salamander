@@ -55,8 +55,8 @@ export interface ThumbnailCallbacks {
 }
 
 /** Hard cap on the note text handed to the DOM (design spec §3.1's visual
- *  3-line clamp is CSS's job now — sidebar.ts's `.thumbnail-note` rule sets
- *  `-webkit-line-clamp: 3`, which adapts to the resizable 188–300px sidebar
+ *  3-line clamp is CSS's job now — src/styles/sidebar.css.ts's `.thumbnail-note` rule sets
+ *  `-webkit-line-clamp: 3`, which adapts to the resizable 210–300px sidebar
  *  width the way a fixed character count never could). This is only a sanity
  *  ceiling for pathological notes so a many-KB note never bloats one list
  *  item's DOM/paint cost. */
@@ -66,12 +66,11 @@ const NOTE_PREVIEW_LENGTH = 600;
  *  are captured at whatever aspect ratio the user's selection happened to be,
  *  so without a fixed box the grid reads as uneven — some thumbnails tall,
  *  some short/wide. Width intentionally stays relative (100%, set in
- *  sidebar.ts's `.thumbnail-image-wrap` rule) rather than a paired fixed
- *  value: the sidebar itself is becoming resizable (188–300px) in this same
- *  round of work, so a hardcoded width would either overflow or leave a gap
- *  as the sidebar is dragged. Applied as an inline style rather than a new
- *  sidebar.ts CSS rule since this module owns the elements it builds and
- *  sidebar.ts is out of scope for this change.
+ *  the stylesheet's `.thumbnail-image-wrap` rule) rather than a paired fixed
+ *  value: the sidebar is resizable (210–300px), so a hardcoded width would
+ *  either overflow or leave a gap as it is dragged. Applied as an inline
+ *  style rather than a stylesheet rule since this module owns the elements
+ *  it builds.
  *
  *  Exported so sidebar.ts can combine it with the thumbnail box's live width
  *  (sidebar width minus the list's horizontal padding) into a single

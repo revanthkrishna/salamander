@@ -117,7 +117,7 @@ export const EXPORT_GROUP_PX = ADD_GROUP_PX * 2 + EXPORT_GROUP_GAP_PX;
  * can never be pushed onto a second line at any width that is reachable.
  *
  * Derived, never written out: §Q changed the switch's width, and a literal
- * total would have gone stale silently. It works out at 188px today — above
+ * total would have gone stale silently. It works out at 210px today — above
  * the old 100px floor and below NARROW_WIDTH_BREAKPOINT (220), which is why
  * that one still has work to do.
  */

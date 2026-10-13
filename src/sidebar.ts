@@ -115,6 +115,10 @@ export { clampSidebarWidth, getSidebarWidth, setSidebarWidth } from './sidebarWi
 /** Keyboard resize step for the handle's arrow keys. */
 const RESIZE_KEY_STEP = 10;
 
+/** How long past a row's removal transition its timer waits before
+ *  finishing anyway (a dropped transitionend must never strand a delete). */
+const REMOVE_TIMER_SLACK_MS = 60;
+
 /** The panel's subscription to the width store, while it is built. */
 let unsubscribeWidth: (() => void) | null = null;
 
@@ -543,8 +547,6 @@ const ADD_BUTTON_DESCRIPTIONS: Record<AddButtonState, string> = {
 
 const ADD_BUTTON_DESC_ID = 'add-note-desc';
 
-/** The switch's accessible name (§A2) — fixed, since role="switch" carries
- *  its state in aria-checked. */
 /**
  * The pointer's side of the switch's reveal (design spec v3 §A2). Entering
  * the group reveals it at once (cancelling any pending collapse — a reveal
@@ -579,6 +581,8 @@ function updateSwitchReveal(inside: boolean): void {
   }, ADD_SWITCH_GRACE_MS);
 }
 
+/** The switch's accessible name (§A2) — fixed, since role="switch" carries
+ *  its state in aria-checked. */
 const ADD_SWITCH_NAME = 'keep add mode on';
 
 /** Its visible tooltip, which says what flicking it does. On, the halves
@@ -1109,8 +1113,8 @@ function syncActionAvailability(): void {
  * ~0.5, dock magnification is switched off at the handle (rather than fought
  * with CSS — magnified items also bleed out over the page add mode is about
  * to screenshot), and export and "more options" are disabled with the menu
- * closed. The "add note" group, the theme toggle and close deliberately stay
- * live: the user must always be able to stop, change theme or close.
+ * closed. The "add note" group and close deliberately stay live: the user
+ * must always be able to stop or close.
  *
  * Idempotent, and everything it touches is restored by the same call with
  * `false` — which every one of content.ts's add-mode exit paths makes.
@@ -1164,7 +1168,7 @@ function playItemRemoval(itemId: number): Promise<void> | null {
       if (e.target === li && e.propertyName === 'max-height') finish();
     };
     li.addEventListener('transitionend', onEnd);
-    setTimeout(finish, ITEM_REMOVE_TOTAL_MS + 60);
+    setTimeout(finish, ITEM_REMOVE_TOTAL_MS + REMOVE_TIMER_SLACK_MS);
   });
 }
 

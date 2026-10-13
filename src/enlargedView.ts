@@ -269,7 +269,9 @@ export type EnlargedState = 'opening' | 'open' | 'closing' | 'closed';
 export interface EnlargedViewHandle {
   getState(): EnlargedState;
   /** User-initiated collapse (exit / Esc / scrim / toolbar icon / sidebar
-   *  close). Returns false — and moves focus to it — while a note is empty. */
+   *  close). Returns false — and moves focus to it — while a note is empty.
+   *  True means the view will close: at once, after its collapse, or once
+   *  the deletes still in flight have landed. */
   requestCollapse(opts?: { immediate?: boolean }): boolean;
   /** Collapse instantly, bypassing the empty-note lock (add mode, SPA
    *  navigation, sidebar teardown). Flushes non-empty unsaved edits; an

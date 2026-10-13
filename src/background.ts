@@ -290,11 +290,11 @@ export async function handleCapture(
   }
 }
 
-export function generateScreenshotKey(): string {
+function generateScreenshotKey(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
-  // Fallback for test/runtime environments without Web Crypto's randomUUID.
+  // Chrome 92+ always has randomUUID; jsdom may not, hence the fallback.
   return `img-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 

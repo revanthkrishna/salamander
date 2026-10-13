@@ -105,7 +105,7 @@ export class AutosaveController<T> {
   }
 
   /** True while a debounce is pending (for `id`, if given; for any id
-   *  otherwise). */
+   *  otherwise). Test seam: no production caller. */
   isPending(id?: number): boolean {
     return id === undefined ? this.timers.size > 0 : this.timers.has(id);
   }
@@ -124,6 +124,7 @@ export class AutosaveController<T> {
     return this.failed.has(id) && !this.inflight.has(id);
   }
 
+  /** Test seam: no production caller. */
   hasUnresolvedFailure(): boolean {
     return this.firstUnresolvedFailure() !== undefined;
   }

@@ -123,8 +123,9 @@ function emptyIndex(): DomainIndex {
 }
 
 // ---------------------------------------------------------------------------
-// Schema migration + the split/assemble pair (all pure, all exported for the
-// frozen-fixture tests)
+// The index's shape check and the split/assemble pair (pure; the pair is
+// exported for storage.test.ts). There is no migration: see the banner and
+// STORAGE_VERSION.
 // ---------------------------------------------------------------------------
 
 /** Shape check for what `domain:{domain}` holds: an object with `meta` and

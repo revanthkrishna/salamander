@@ -370,7 +370,12 @@ function handleUrlChange(): void {
 /** Fetch the current URL's feedback items and repaint the sidebar's thumbnail
  *  list (§1.5 — "current URL only"). Called on open, on every SPA navigation,
  *  after a successful capture, and after the enlarged view closes (an edit or
- *  a delete may have changed what should be showing). */
+ *  a delete may have changed what should be showing).
+ *
+ *  There is no request token: two overlapping refreshes paint in the order
+ *  they were sent only because the service worker answers GET_PAGE_ITEMS
+ *  through its single write queue, in order. A refresh that could be
+ *  answered out of order would need one. */
 async function refreshThumbnails(): Promise<void> {
   const message: GetPageItemsMessage = {
     type: 'GET_PAGE_ITEMS',

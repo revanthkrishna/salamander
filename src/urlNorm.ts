@@ -15,12 +15,25 @@
 
 /**
  * Returns true if the port is a standard/redundant port that should be stripped.
- * Standard ports: 80 (http) and 443 (https). Port 80 on https is also stripped.
+ * Standard ports: 80 (http) and 443 (https), whatever the scheme (port 80 on
+ * https is stripped too).
  */
-function isStandardPort(port: string, protocol: string): boolean {
+function isStandardPort(port: string): boolean {
   if (port === '') return true; // no port specified — nothing to strip
   const p = parseInt(port, 10);
   return p === 80 || p === 443;
+}
+
+/** `:port` when the port is kept (non-standard), else ''. */
+function portSuffix(port: string): string {
+  return isStandardPort(port) ? '' : `:${port}`;
+}
+
+/** A hostname as both normalisers key it: lowercase, `www.` stripped (and
+ *  no other subdomain). */
+function normaliseHostname(hostname: string): string {
+  const lower = hostname.toLowerCase();
+  return lower.startsWith('www.') ? lower.slice(4) : lower;
 }
 
 /**
@@ -42,13 +55,7 @@ export function normaliseUrl(url: string): string {
   }
 
   // Normalize hostname: lowercase, strip www.
-  let hostname = parsed.hostname.toLowerCase();
-  if (hostname.startsWith('www.')) {
-    hostname = hostname.slice(4);
-  }
-
-  // Preserve port only when it's non-standard
-  const portSuffix = isStandardPort(parsed.port, parsed.protocol) ? '' : `:${parsed.port}`;
+  const hostname = normaliseHostname(parsed.hostname);
 
   // Preserve path case; strip trailing slash
   let path = parsed.pathname;
@@ -59,7 +66,8 @@ export function normaliseUrl(url: string): string {
   }
 
   // No query, no fragment — just https + hostname + optional port + path
-  return `https://${hostname}${portSuffix}${path}`;
+  // (the port preserved only when it's non-standard)
+  return `https://${hostname}${portSuffix(parsed.port)}${path}`;
 }
 
 /**
@@ -93,19 +101,8 @@ export function normaliseDomain(host: string): string {
     port = '';
   }
 
-  // Lowercase
-  hostname = hostname.toLowerCase();
-
-  // Strip www. prefix only (not other subdomains)
-  if (hostname.startsWith('www.')) {
-    hostname = hostname.slice(4);
-  }
-
-  // Preserve port only when non-standard
-  const portNum = port === '' ? NaN : parseInt(port, 10);
-  const keepPort = port !== '' && portNum !== 80 && portNum !== 443;
-
-  return keepPort ? `${hostname}:${port}` : hostname;
+  // Lowercase, strip www. (only), and preserve the port only when non-standard
+  return `${normaliseHostname(hostname)}${portSuffix(port)}`;
 }
 
 /**

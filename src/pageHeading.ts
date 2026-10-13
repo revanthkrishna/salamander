@@ -26,7 +26,7 @@
 // its face is monospace, so the room is a character count, measured once per
 // heading set from the face itself (measureCharWidth).
 
-import { displayUrl, ellipsizeMiddle, Box } from './enlargedLayout';
+import { displayUrl, ellipsizeMiddle } from './enlargedLayout';
 import { ICON_CHECK, ICON_CLOSE, ICON_PENCIL } from './icons';
 import {
   CONFIRM_CANCEL_LABEL,
@@ -202,14 +202,6 @@ export class PageHeading {
 
   isEditing(): boolean {
     return this.editing;
-  }
-
-  setBox(box: Box): void {
-    const s = this.el.style;
-    s.left = `${box.x}px`;
-    s.top = `${box.y}px`;
-    s.width = `${box.w}px`;
-    s.height = `${box.h}px`;
   }
 
   /** Swap the name for the field, holding the current name, all selected. */
