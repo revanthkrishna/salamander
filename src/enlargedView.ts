@@ -80,6 +80,7 @@
 
 import { FeedbackItem, SitePage } from './types';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
+import { KEY_PRIORITY } from './keyRouter';
 import { AutosaveController } from './autosave';
 // ICON_TRASH is the project's one trash glyph (design spec v5 §S) — the same
 // one the note list's hover delete draws.
@@ -656,12 +657,13 @@ class EnlargedView {
     const sb = this.mount.sidebarEl;
     sb.classList.add('is-expanded', 'is-brand-riding');
 
-    // The page is frozen for as long as the view is up (§T). Taken before
-    // the keyboard isolation, which stops in-host key events reaching any
-    // later capture listener, and handed the (closed) shadow root so it can
-    // tell a key typed into a text area from one pressed on the page.
+    // The page is frozen for as long as the view is up (§T). The lock is
+    // handed the (closed) shadow root so it can tell a key typed into a text
+    // area from one pressed on the page, and sees keys before the keyboard
+    // isolation stops them (the key router's SCROLL_LOCK, then
+    // ENLARGED_ISOLATION).
     this.scrollLock = lockPageScroll(this.mount.host, this.mount.shadow);
-    this.isolation = installKeyboardIsolation(this.mount.host, this.onKeydown);
+    this.isolation = installKeyboardIsolation(this.mount.host, this.onKeydown, KEY_PRIORITY.ENLARGED_ISOLATION);
     window.addEventListener('resize', this.onResize);
     this.mql?.addEventListener?.('change', this.onReducedChange);
     this.startLazyImages();

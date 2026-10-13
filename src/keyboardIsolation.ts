@@ -27,13 +27,18 @@
 // NOT call preventDefault() — the browser still needs to run its native
 // text-editing default action (character insertion, cursor movement,
 // selection, etc.) against our actual textarea target. When the target is
-// NOT inside our host, the event passes through completely untouched.
+// NOT inside our host, the event passes through completely untouched. The
+// listener is the key router's (keyRouter.ts): each isolation is a handler
+// at its surface's priority, so the tooltip's Esc, add mode's Esc and the
+// scroll lock still see the keys they need first.
 //
 // Shared by addMode.ts (the add-mode comment box) and enlargedView.ts (the
 // note-editing textarea) — both have the identical closed-shadow-root
 // architecture and are identically vulnerable. Install only while the
 // respective surface is actually open/focused; never leave this listening
 // globally when neither UI is active.
+
+import { KEY_PRIORITY, KeyVerdict, registerKeyHandler } from './keyRouter';
 
 export type KeyboardIsolationCallback = (e: KeyboardEvent) => void;
 
@@ -42,12 +47,12 @@ export interface KeyboardIsolationHandle {
   release: () => void;
 }
 
-const ISOLATED_TYPES: Array<'keydown' | 'keyup' | 'keypress'> = ['keydown', 'keyup', 'keypress'];
+const ISOLATED_TYPES = ['keydown', 'keyup', 'keypress'] as const;
 
 /**
- * Installs capture-phase `window` listeners for keydown/keyup/keypress that
- * stop propagation of any keyboard event targeting inside `hostEl` (a Shadow
- * DOM host element) before it can reach the host page's own document/window
+ * Stops propagation of any keydown/keyup/keypress targeting inside `hostEl`
+ * (a Shadow DOM host element) at window capture, through the key router at
+ * `priority`, before it can reach the host page's own document/window
  * listeners.
  *
  * @param hostEl The extension's shadow-DOM host element. `event.composedPath()`
@@ -63,32 +68,24 @@ const ISOLATED_TYPES: Array<'keydown' | 'keyup' | 'keypress'> = ['keydown', 'key
 export function installKeyboardIsolation(
   hostEl: Element,
   onKeydown?: KeyboardIsolationCallback,
+  priority: number = KEY_PRIORITY.ADDMODE_ISOLATION,
 ): KeyboardIsolationHandle {
   function isInsideHost(e: Event): boolean {
     return e.composedPath().includes(hostEl);
   }
 
-  function handle(e: KeyboardEvent): void {
-    if (!isInsideHost(e)) return; // not our UI — let the page handle it untouched
+  function handle(e: KeyboardEvent): KeyVerdict {
+    if (!isInsideHost(e)) return 'pass'; // not our UI — let the page handle it untouched
 
     if (e.type === 'keydown') onKeydown?.(e);
 
     // Stop the page from ever seeing this event — but let the browser's
     // native default action (character insertion, cursor movement, etc.)
-    // still run against the real target inside our shadow root.
-    e.stopPropagation();
-    e.stopImmediatePropagation();
+    // still run against the real target inside our shadow root. The router
+    // stops it.
+    return 'stop';
   }
 
-  for (const type of ISOLATED_TYPES) {
-    window.addEventListener(type, handle, true);
-  }
-
-  return {
-    release: () => {
-      for (const type of ISOLATED_TYPES) {
-        window.removeEventListener(type, handle, true);
-      }
-    },
-  };
+  const release = registerKeyHandler({ priority, types: ISOLATED_TYPES, handle });
+  return { release };
 }

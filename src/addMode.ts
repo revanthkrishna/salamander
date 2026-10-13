@@ -50,6 +50,7 @@ import { getSidebarWidth } from './sidebarWidth';
 import { getContentViewportSize } from './dom';
 import { clamp } from './flip';
 import { installKeyboardIsolation, KeyboardIsolationHandle } from './keyboardIsolation';
+import { KEY_PRIORITY } from './keyRouter';
 import { getThemeCSS, RADII } from './theme';
 import {
   cropDrawing,
@@ -593,7 +594,7 @@ function buildCommentDOM(): void {
   // The isolation stops every key before it reaches anything inside our
   // shadow root too, so add mode's own keys (stroke undo, the swatches'
   // arrows, the pencil menu) are handled in its keydown hook.
-  if (host) keyboardIsolation = installKeyboardIsolation(host, handleIsolatedKeydown);
+  if (host) keyboardIsolation = installKeyboardIsolation(host, handleIsolatedKeydown, KEY_PRIORITY.ADDMODE_ISOLATION);
   // Outside pointerdown closes the pencil menu (§C2's rule). Two listeners
   // for the same reason as the sidebar's: inside this closed root the root
   // sees the real target; outside it, everything of ours retargets to host.
