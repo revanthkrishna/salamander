@@ -1135,7 +1135,10 @@ with one wide note, and the tops of the next row cut off by the bottom edge. Dec
   notes in capture order within a page, the order their numbers come from (§AD). The page on
   screen may sit in the middle.
 - **Data:** `GET_SITE_PAGES` (storage.ts `getSitePages`) reads the domain once, through the write
-  queue, when a note is clicked; thumbnails come inline as for the list. If it fails, the view
+  queue, when a note is clicked; thumbnails come inline as for the list. It is O(site): every item
+  of the domain, thumbnails included, crosses in one message, and a capture in another tab waits
+  behind the read — fine at the volumes this extension is for (tens of notes), and the first thing
+  to page if a site ever holds hundreds. If it fails, the view
   opens on this page's notes alone and the banner says "couldn't load the other pages' notes. try
   again." **(impl)**
 
@@ -1261,16 +1264,17 @@ A column of three bands: **header line**, **screenshot**, **text area**.
 
 - Clicking a note in the list opens the view with **that note's text area focused**, caret at the
   end of its text.
-- The view is scrolled so that **80px of whatever precedes the note's row shows at the top**, cut
-  off by the top bar — the previous row's bottom, on this page or the page before. The row's
-  "block" includes its page's heading when it is the page's first row, so a note never opens under
-  a heading it cannot see. With nothing before it (the site's first row), it starts at the top
-  with no peek. If the row is too tall for a full peek, it gives up as much peek as its text area
-  needs to be on screen. On a ~900px window that puts a mid-page row about a fifth of the way down
-  the panel and a page's first row about a quarter. **(impl — 80px is the owner's figure; the
-  "about 25%" follows from it rather than being forced, since forcing both would show more than
-  80px of the previous row on taller windows.)** Content shorter than the window is simply all
-  there, from the top.
+- The note's **row lands about 25% down the panel** (a quarter of the panel's height, top bar
+  included), and whatever precedes it — the previous row's bottom, on this page or the page before
+  — **peeks** above it, cut off by the top bar. **At least 80px** of it always shows: on a short
+  window, where a quarter of the way down would leave less, the row sits lower instead (a page's
+  first row, which brings its heading with it, sits lower sooner — it needs 80 + 64 + 52px
+  above). With nothing before it (the site's first row), or too little content above to fill the
+  space, it starts at the top with no peek. If the row is too tall for that, it gives up as much
+  as its text area needs to be on screen. Content shorter than the window is simply all there,
+  from the top. On a 1440×900 window a mid-page row's header line lands at 225px (25%), with
+  ~130px of the previous row above it. (The first build placed the row by the 80px peek alone,
+  which put it ~14% down on a 900px window, hugging the top bar; the owner chose 25%.)
 
 ## Keyboard and accessibility
 

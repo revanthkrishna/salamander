@@ -87,10 +87,13 @@ export const HEADING_GAP = 16;
 export const GROUP_GAP = 64;
 export const PAD_TOP = 24;
 export const PAD_BOTTOM = 64;
-/** How much of what precedes the opened note shows above it (design spec
- *  §AH): the bottom of the previous row — another page's, if need be — cut
- *  off by the top of the scroller, so it is plain there is more above. */
+/** The least of what precedes the opened note that shows above it (design
+ *  spec §AH): the bottom of the previous row — another page's, if need be —
+ *  cut off by the top of the scroller, so it is plain there is more above. */
 export const PEEK_PX = 80;
+/** Where the opened note's row lands: this fraction of the way down the
+ *  panel (design spec §AH, "about 25% down"). */
+export const LANDING_FRACTION = 0.25;
 
 /** The panel's top bar: the logo + wordmark and the exit button. The same
  *  56px as the docked sidebar's header, so the logo never moves vertically
@@ -307,28 +310,35 @@ export function computeGridLayout(pages: LayoutPage[], opts: GridOptions): GridL
 }
 
 /**
- * Where to scroll to open the view on note `id` (design spec §AH). The
- * note's "block" is its row, plus its page's heading when it is that page's
- * first row (a note is never opened under a heading it cannot see). The
- * block is placed so that exactly PEEK_PX of whatever precedes it — the
- * previous row's bottom, on this page or the one before — shows at the top
- * of the scroller, cut off by its edge, so it is plain there is more above.
- * With nothing before it (the site's first row) it starts at the top, with
- * no peek. The note's own text area — which the view focuses — always ends
- * up on screen, though: a row too tall to sit under a full peek gives up as
- * much of the peek as it needs. Clamped to what the content can scroll;
- * null for an unknown id.
+ * Where to scroll to open the view on note `id` (design spec §AH).
  *
- * On a ~900px window that puts a mid-page row about a fifth of the way down
- * the panel, and a page's first row (under its heading) about a quarter.
+ * The note's row lands about a quarter of the way down the panel
+ * (LANDING_FRACTION of the panel's height — the scroller plus the
+ * `topInset` of the top bar above it), and whatever precedes it — the
+ * previous row's bottom, on this page or the one before — peeks above it,
+ * cut off by the scroller's edge, so it is plain there is more above. Never
+ * less than PEEK_PX of it: on a short window, where a quarter of the way
+ * down would leave less, the row sits lower instead. A page's first row
+ * brings its heading on screen with it (a note is never opened under a
+ * heading it cannot see). The note's own text area — which the view
+ * focuses — always ends up on screen, even if a very tall row has to give
+ * up its peek for it. With nothing before it (the site's first row), or
+ * too little to fill the space above, it starts at the top. Clamped to what
+ * the content can scroll; null for an unknown id.
  */
-export function scrollTopFor(layout: GridLayout, id: number, viewportH: number): number | null {
+export function scrollTopFor(layout: GridLayout, id: number, viewportH: number, topInset = TOP_BAR_H): number | null {
   const note = layout.notes.get(id);
   if (!note) return null;
-  const peekTop = note.row === 0 ? 0 : layout.rows[note.row - 1].bottom - PEEK_PX;
+  const row = layout.rows[note.row];
+  const landing = LANDING_FRACTION * (viewportH + topInset) - topInset;
+  let top = row.top - landing;
+  if (note.row > 0) top = Math.min(top, layout.rows[note.row - 1].bottom - PEEK_PX);
+  // A page's first row sits under its heading: keep the heading in view.
+  const heading = row.first ? layout.headings.find((h) => h.page === row.page) : undefined;
+  if (heading) top = Math.min(top, heading.box.y);
   const textOnScreen = note.text.y + note.text.h + ROW_GAP / 2 - viewportH;
   const max = Math.max(0, layout.height - Math.max(0, viewportH));
-  return Math.round(Math.min(max, Math.max(0, peekTop, textOnScreen)));
+  return Math.round(Math.min(max, Math.max(0, top, textOnScreen)));
 }
 
 // ---------------------------------------------------------------------------

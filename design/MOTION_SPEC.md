@@ -65,7 +65,7 @@ Computed, not fixed (`src/enlargedLayout.ts`, design spec §AH): the panel is
 `max(0.75·vw, min(560, vw), sidebarWidth)`; the content column is the scroller's width less 32px
 each side; each note's screenshot is its selection's CSS size, never scaled up, scaled down to fit
 the column or the visible height; columns of `clamp(shot, 267, column)` packed three to a row and
-centred; the opening scroll position shows 80px of what precedes the note's row. A clone's
+centred; the opening scroll position lands the note's row 25% down the panel with at least 80px of what precedes it showing above. A clone's
 destination is its note's screenshot box in viewport coordinates at that scroll position (one
 layout read of the content's origin per gesture).
 

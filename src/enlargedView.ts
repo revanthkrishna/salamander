@@ -67,10 +67,10 @@
 // durations (MOTION_SPEC §12).
 //
 // ── Behaviour ───────────────────────────────────────────────────────────────
-// Opening focuses the clicked note's text area, caret at the end, with ~80px
-// of whatever precedes its row peeking at the top (enlargedLayout.ts,
-// scrollTopFor). Each note autosaves (debounced 700ms; flushed on blur,
-// collapse and unload). A note can never be saved empty: an emptied text
+// Opening focuses the clicked note's text area, caret at the end, its row
+// about a quarter of the way down with at least 80px of whatever precedes
+// it peeking at the top (enlargedLayout.ts, scrollTopFor). Each note
+// autosaves (debounced 700ms; flushed on blur, collapse and unload). A note can never be saved empty: an emptied text
 // area says "note required", and closing is refused — exit, Esc, the scrim
 // and the toolbar icon — with focus moved to it, until it has text again; a
 // forced close (navigation, add mode) leaves the last saved text in place.
@@ -148,8 +148,9 @@ export const T = {
   expandSettle: 500,
   collapse: 340,
   collapseSettle: 360,
-  /** A delete's re-pack: every remaining part travels to its new place, at
-   *  §7's shared-element morph duration (the carousel this replaces). */
+  /** A delete's re-pack: the remaining parts travel to their new places,
+   *  at the shared-element morph duration MOTION_SPEC §7 used to give the
+   *  carousel. */
   move: 400,
   scrimIn: 200,
   listOut: 150,

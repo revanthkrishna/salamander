@@ -17,7 +17,7 @@ import {
   contentWidthFor,
   maxShotHeightFor,
   panelWidthFor,
-  scrollTopFor,
+  PEEK_PX,
   TOP_BAR_H,
 } from '../enlargedLayout';
 import {
@@ -335,12 +335,26 @@ describe('opening on a note', () => {
     expect(shadow().activeElement).toBe(ta);
   });
 
-  test('scrolled so the notes before it peek at the top — even from another page', () => {
+  test('scrolled so its row is a quarter of the way down, the notes before it peeking', () => {
     setup();
-    open(3); // pricing's first row: blog's last row peeks above its heading
+    open(5);
     const layout = expectedLayout();
-    expect(scroller().scrollTop).toBe(scrollTopFor(layout, 3, window.innerHeight - TOP_BAR_H));
-    expect(scroller().scrollTop).toBeGreaterThan(0);
+    const top = scroller().scrollTop;
+    const at = layout.notes.get(5)!.row;
+    // jsdom: the panel is the 768px window, its scroller starts under the top bar.
+    expect((TOP_BAR_H + layout.rows[at].top - top) / window.innerHeight).toBeCloseTo(0.25, 2);
+    expect(layout.rows[at - 1].bottom - top).toBeGreaterThanOrEqual(PEEK_PX);
+  });
+
+  test('from a page\'s first note, its heading is on screen and the previous page\'s notes peek', () => {
+    setup();
+    open(3);
+    const layout = expectedLayout();
+    const top = scroller().scrollTop;
+    const at = layout.notes.get(3)!.row;
+    expect(layout.headings.find((h) => h.page === PRICING)!.box.y).toBeGreaterThanOrEqual(top);
+    expect(layout.rows[at - 1].page).toBe(BLOG);
+    expect(layout.rows[at - 1].bottom - top).toBeGreaterThanOrEqual(PEEK_PX);
   });
 
   test('the site\'s first note opens at the top, with no peek', () => {
