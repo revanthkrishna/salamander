@@ -325,6 +325,10 @@ export interface UpdateItemSuccessResponse {
 
 export interface UpdateItemErrorResponse {
   ok: false;
+  /** NOT_FOUND: the note no longer exists (deleted, delete-all or an import
+   *  from another tab), so nothing was written. FAILED: the write itself
+   *  failed. Both carry the same "couldn't save" copy. */
+  code: 'NOT_FOUND' | 'FAILED';
   message: string;
 }
 

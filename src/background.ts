@@ -428,27 +428,29 @@ export async function handleGetImage(message: GetImageMessage): Promise<GetImage
   }
 }
 
+/** An edit from the enlarged view's autosave. A note that no longer exists
+ *  (deleted, delete-all or an import from another tab while the view was
+ *  open) is NOT_FOUND, never "saved": nothing was written, and the view
+ *  must keep the draft and say it could not be saved. */
 export async function handleUpdateItem(message: UpdateItemMessage): Promise<UpdateItemResponse> {
   try {
-    // A vanished item (the domain was replaced by an import in another tab
-    // while the view was open) currently reports ok — storage's `found`
-    // result is not yet surfaced; see the technical review's F-14.
-    await enqueueSave(() => updateItem(message.domain, message.normalisedUrl, message.itemId, message.patch));
-    return { ok: true };
+    const found = await enqueueSave(() => updateItem(message.domain, message.normalisedUrl, message.itemId, message.patch));
+    return found ? { ok: true } : { ok: false, code: 'NOT_FOUND', message: SAVE_ERROR_MESSAGE };
   } catch (err) {
     console.warn('[Annotator] could not save note:', err);
-    return { ok: false, message: SAVE_ERROR_MESSAGE };
+    return { ok: false, code: 'FAILED', message: SAVE_ERROR_MESSAGE };
   }
 }
 
-/** The note-only alias of UPDATE_ITEM (see UpdateNoteMessage). */
+/** The note-only alias of UPDATE_ITEM (see UpdateNoteMessage), answering
+ *  exactly as it does. */
 export async function handleUpdateNote(message: UpdateNoteMessage): Promise<UpdateNoteResponse> {
   try {
-    await enqueueSave(() => updateNote(message.domain, message.normalisedUrl, message.itemId, message.note));
-    return { ok: true };
+    const found = await enqueueSave(() => updateNote(message.domain, message.normalisedUrl, message.itemId, message.note));
+    return found ? { ok: true } : { ok: false, code: 'NOT_FOUND', message: SAVE_ERROR_MESSAGE };
   } catch (err) {
     console.warn('[Annotator] could not save note:', err);
-    return { ok: false, message: SAVE_ERROR_MESSAGE };
+    return { ok: false, code: 'FAILED', message: SAVE_ERROR_MESSAGE };
   }
 }
 

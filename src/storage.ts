@@ -376,15 +376,15 @@ export async function updateItem(
 }
 
 /** Edit an item's note text in place — `updateItem` with a `{ note }` patch.
- *  Kept as the UPDATE_NOTE message's storage half. No-op if the item can't
- *  be found. */
+ *  Kept as the UPDATE_NOTE message's storage half. Resolves as updateItem
+ *  does: false, writing nothing, if the item can't be found. */
 export async function updateNote(
   domain: string,
   normalisedUrl: string,
   itemId: number,
   note: string,
-): Promise<void> {
-  await updateItem(domain, normalisedUrl, itemId, { note });
+): Promise<boolean> {
+  return updateItem(domain, normalisedUrl, itemId, { note });
 }
 
 /** Remove an item and its screenshot blob (§1.5 — deleting a feedback item

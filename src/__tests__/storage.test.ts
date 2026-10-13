@@ -148,7 +148,7 @@ describe('storage.ts — domain/item CRUD', () => {
     await seedImage(item.screenshotKey);
     await addItem(DOMAIN, item);
 
-    await expect(updateNote(DOMAIN, item.normalisedUrl, 999, 'x')).resolves.toBeUndefined();
+    await expect(updateNote(DOMAIN, item.normalisedUrl, 999, 'x')).resolves.toBe(false);
     expect((await getPageItems(DOMAIN, item.normalisedUrl))[0].note).toBe('note text');
   });
 

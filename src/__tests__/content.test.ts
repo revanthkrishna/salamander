@@ -34,6 +34,7 @@ import {
   IMPORT_REPLACE_CONFIRM_LABEL,
   SITE_LOAD_FAILED_MESSAGE,
   PAGE_HAS_NO_NOTES_MESSAGE,
+  SAVE_ERROR_MESSAGE,
 } from '../copy';
 import { makeItem } from './helpers/items';
 
@@ -740,6 +741,25 @@ describe('content.ts: enlarged view wiring (design spec §AH)', () => {
       normalisedUrl: pageItems[0].normalisedUrl,
       title: 'renamed',
     });
+  });
+
+  test('an edit to a note deleted elsewhere (NOT_FOUND) is not reported saved: the note keeps its draft and says it could not save', async () => {
+    await openFirstNote();
+    const base = (chrome.runtime.sendMessage as jest.Mock).getMockImplementation()!;
+    (chrome.runtime.sendMessage as jest.Mock).mockImplementation((message: any, callback?: (r?: unknown) => void) => {
+      if (message?.type === 'UPDATE_ITEM') return callback?.({ ok: false, code: 'NOT_FOUND', message: SAVE_ERROR_MESSAGE });
+      return base(message, callback);
+    });
+    jest.useFakeTimers();
+    const ta = sidebarShadow().querySelector('.xp-note-input') as HTMLTextAreaElement;
+    ta.value = 'typed after the delete';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    jest.advanceTimersByTime(700);
+    jest.useRealTimers();
+    await flushMicrotasks();
+    expect(sent()).toContainEqual(expect.objectContaining({ type: 'UPDATE_ITEM', patch: { note: 'typed after the delete' } }));
+    expect(sidebarShadow().querySelector('.xp-note-status')!.textContent).toBe(SAVE_ERROR_MESSAGE);
+    expect(ta.value).toBe('typed after the delete');
   });
 
   test('renaming a page whose notes were deleted elsewhere: the NO_NOTES reply says so under the heading', async () => {

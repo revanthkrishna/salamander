@@ -34,7 +34,7 @@ jest.mock('../storage', () => ({
   getSitePages: jest.fn().mockResolvedValue([]),
   setPageTitle: jest.fn().mockResolvedValue(true),
   updateItem: jest.fn().mockResolvedValue(true),
-  updateNote: jest.fn().mockResolvedValue(undefined),
+  updateNote: jest.fn().mockResolvedValue(true),
   deleteItem: jest.fn().mockResolvedValue(undefined),
   getDomainCounts: jest.fn().mockResolvedValue({ items: 0, pages: 0 }),
   deleteDomainData: jest.fn().mockResolvedValue(undefined),
@@ -229,7 +229,7 @@ beforeEach(() => {
   mockedStorage.addItem.mockResolvedValue(undefined);
   mockedStorage.getPageItems.mockResolvedValue([]);
   mockedStorage.updateItem.mockResolvedValue(true);
-  mockedStorage.updateNote.mockResolvedValue(undefined);
+  mockedStorage.updateNote.mockResolvedValue(true);
   mockedStorage.deleteItem.mockResolvedValue(undefined);
   mockedStorage.replaceDomainData.mockResolvedValue(undefined);
   mockedStorage.getDomainData.mockResolvedValue(null);
@@ -1027,8 +1027,20 @@ describe('handleUpdateItem', () => {
       patch: { note: 'edited note' },
     });
 
-    expect(response).toEqual({ ok: false, message: "couldn't save note. try again." });
+    expect(response).toEqual({ ok: false, code: 'FAILED', message: "couldn't save note. try again." });
     warn.mockRestore();
+  });
+
+  it('a note that no longer exists is NOT_FOUND with the "couldn\'t save" copy, never ok', async () => {
+    mockedStorage.updateItem.mockResolvedValue(false);
+    const response = await background.handleUpdateItem({
+      type: 'UPDATE_ITEM',
+      domain: 'example.com',
+      normalisedUrl: 'example.com/a',
+      itemId: 3,
+      patch: { note: 'edited note' },
+    });
+    expect(response).toEqual({ ok: false, code: 'NOT_FOUND', message: "couldn't save note. try again." });
   });
 
   it('shares the save queue with SAVE_ITEM (no overlapping read-modify-write)', async () => {
@@ -1092,8 +1104,20 @@ describe('handleUpdateNote', () => {
       note: 'edited note',
     });
 
-    expect(response).toEqual({ ok: false, message: "couldn't save note. try again." });
+    expect(response).toEqual({ ok: false, code: 'FAILED', message: "couldn't save note. try again." });
     warn.mockRestore();
+  });
+
+  it('answers a note that no longer exists exactly as UPDATE_ITEM does', async () => {
+    mockedStorage.updateNote.mockResolvedValue(false);
+    const response = await background.handleUpdateNote({
+      type: 'UPDATE_NOTE',
+      domain: 'example.com',
+      normalisedUrl: 'example.com/a',
+      itemId: 3,
+      note: 'edited note',
+    });
+    expect(response).toEqual({ ok: false, code: 'NOT_FOUND', message: "couldn't save note. try again." });
   });
 });
 
@@ -1228,6 +1252,7 @@ describe('domain-record writes share the save queue', () => {
     );
     mockedStorage.updateNote.mockImplementation(async () => {
       order.push('update');
+      return true;
     });
     mockedStorage.deleteItem.mockImplementation(async () => {
       order.push('delete');
@@ -1259,7 +1284,7 @@ describe('domain-record writes share the save queue', () => {
     const order: string[] = [];
     let releaseUpdate!: () => void;
     mockedStorage.updateNote.mockImplementation(
-      () => new Promise<void>((resolve) => (releaseUpdate = () => { order.push('update'); resolve(); })),
+      () => new Promise<boolean>((resolve) => (releaseUpdate = () => { order.push('update'); resolve(true); })),
     );
     mockedStorage.getPageItems.mockImplementation(async () => {
       order.push('read');
