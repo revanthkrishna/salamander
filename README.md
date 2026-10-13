@@ -12,7 +12,7 @@ Version 2.1.0 · Manifest V3 · MIT
 - **draw** — a pencil (yellow, black or red, 2px) for marking up the selection before saving. Undo with Cmd/Ctrl+Z. The drawing is kept as its own layer on the note and burned into the PNG only at export.
 - **note** — a comment box with a 1000-character limit. Notes autosave when edited later; a note can never be empty.
 - **context** — every note carries a CSS selector, an XPath, a sanitised HTML snippet, the elements inside the selection, the visible text, and page metadata, so the code can be found without the page.
-- **review** — notes for the current URL appear as thumbnails with dock-style magnification; click one and the sidebar expands into an enlarged view to browse, edit and delete.
+- **review** — notes for the current URL appear as thumbnails with dock-style magnification; click one and the sidebar expands into an enlarged view: every note on the site on one scrolling page, grouped by page, each editable in place, with pages you can rename.
 - **export / import** — one `.zip` per site: `screenshots/{id}.png` plus a single `feedback.md` that people and agents read and the extension imports back.
 - **private** — no network requests at all (`connect-src 'none'`). Data lives in the browser profile until you export or delete it.
 
@@ -42,9 +42,9 @@ Requires Chrome 105 or newer (`chrome.storage.session`, CSS `:has()`). The `dist
 5. Type a note (placeholder "type a note…") and click **save**. The overlay hides for one frame, the screenshot and DOM context are captured, and the note appears at the bottom of the list. **cancel** discards it; clicking outside the box does nothing.
 6. To capture several in a row, hover the add button and flick **keep add mode on** — after each save you are straight back in add mode. Click the button or press Esc to stop. Double-click or shift+click the button does the same as the switch.
 7. Shortcut: with the sidebar open, **Option+N** (Mac) or **Alt+N** (Windows/Linux) adds one note, like a single click on add note. It does nothing while you are typing, while a note is being placed or while the enlarged view is open.
-7. Click a thumbnail to open the enlarged view: ↑/↓ or the peeking neighbours to move between notes, edit the text (it autosaves), the trash icon to delete, Esc or the rail's exit button to collapse. Hover a thumbnail for a delete button that skips the enlarged view.
-8. Browse the site normally — the sidebar stays open across SPA navigation and full reloads, showing the notes for whatever URL you are on. Notes are numbered by their position on the page — every page counts from 1, and deleting a note renumbers the ones after it.
-9. **export** downloads `feedback-{domain}-{date}.zip` with every note on the site. The **more options** button (⋯) beside it holds **import**, which replaces the site's notes with a bundle's (after confirmation if any exist), and **delete all for this website**, which deletes every note on every page of the site after a confirmation quoting how many.
+8. Click a thumbnail to open the enlarged view: every note on the site, page by page (oldest page first), each under its page's name and address, the page you are on labelled "this page". The note you clicked has the cursor, with the notes before it peeking at the top. Every note is editable at once and autosaves; a note can't be left empty ("note required"). Click the pencil beside a page's name to rename it (Enter saves, Esc cancels, an empty name restores the page's title) — the name is used in the export too. The trash icon above a note deletes it. Esc, the scrim or the arrow at the top right collapses the view. Hover a thumbnail for a delete button that skips the enlarged view.
+9. Browse the site normally — the sidebar stays open across SPA navigation and full reloads, showing the notes for whatever URL you are on. Notes are numbered by their position on the page — every page counts from 1, and deleting a note renumbers the ones after it.
+10. **export** downloads `feedback-{domain}-{date}.zip` with every note on the site. The **more options** button (⋯) beside it holds **import**, which replaces the site's notes with a bundle's (after confirmation if any exist), and **delete all for this website**, which deletes every note on every page of the site after a confirmation quoting how many.
 
 All visible UI text is lowercase by design. The extension is dark-themed only.
 
@@ -105,6 +105,7 @@ salamander 2.1.0\
 - Line 1 is the format stamp import checks; only format 2 is read (no backward compatibility — the extension was never published with another format).
 - One `## page` section per normalised URL, notes in capture order. `### feedback n` is the note's position on its page (from 1 on every page, the same number the sidebar shows); `screenshots/{id}.png` is the note's internal id, unique across the site. Each note's JSON is the complete record; the visible `**note:**` line is for people and ignored on import.
 - Free text in the JSON is capped (`text` 120, `html` 300, `area_text` 200, element text/attributes 80) and ends in `…` when cut. Notes and identifiers are never cut.
+- `page_title` is the page's name as the enlarged view shows it: the name you gave it there, else the HTML title captured with its notes. Re-importing brings a given name back as those notes' title.
 - A drawing is only ever in the pixels: the alt text says "marked up by the reviewer" so a reader knows the marks are not part of the page. Re-importing keeps it flattened into the image.
 
 Import validates before writing anything, in order: file type → readable archive → `feedback.md` present → format stamp → item structure and JSON fields → every screenshot present → no duplicate ids (nor the same number twice on one page) → domain matches the current site. Every message is lowercase and listed in `REQUIREMENTS.md` §5.
@@ -157,7 +158,10 @@ src/
   drawing.ts             stroke model, cropping, SVG and canvas renderers
   thumbnails.ts          the note list's items
   dockMotion.ts          dock-style magnification spring
-  enlargedView.ts        the expanded review/edit view
+  enlargedView.ts        the expanded review/edit view: the whole site on one page
+  enlargedLayout.ts      its pure geometry: note sizes, row packing, the opening scroll
+  pageHeading.ts         a page's heading in it, and its rename
+  scrollLock.ts          the host page's scroll lock while it is open
   flip.ts                shared-element motion helpers
   autosave.ts            debounced per-item autosave controller
   export.ts              zip assembly, drawing composite, chrome.downloads

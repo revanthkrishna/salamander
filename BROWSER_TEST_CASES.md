@@ -248,9 +248,9 @@ Place a box first (click or drag) for each of these; the pencil only exists once
       and for a tall selection (letterboxed either way). Hover the list so it magnifies: the
       drawing scales with the image. Clicking directly on a stroke opens the note.
 - [ ] **2a.12. (the enlarged view)** Open a note with a drawing: through the whole expand morph the
-      drawing stays glued to the image, and again on collapse. Navigate with ↑/↓: it rides the
-      carousel with its image, and shows on the peeks too. Nothing in the enlarged view can draw
-      (no pencil cursor, no swatches).
+      drawing stays glued to the image, and again on collapse. Delete a note before it so the rows
+      re-pack: the drawing slides with its image. Nothing in the enlarged view can draw (no pencil
+      cursor, no swatches).
 - [ ] **2a.13. (export)** Export a domain with one drawn and one plain note. In the zip, the drawn
       note's PNG has the strokes burned in at full resolution (on a 2x display the lines are 4
       device px wide and line up with what you saw); the plain note's PNG is identical to what was
@@ -262,57 +262,64 @@ Place a box first (click or drag) for each of these; the pencil only exists once
 
 ## 3. Viewing & managing feedback (§1.5, §3.3)
 
-- [ ] **3.1.** Click a thumbnail → the sidebar expands leftward to ~75% of the window (the page
-      itself doesn't reflow; the strip still visible is dimmed). The clicked thumbnail should
-      visibly *grow* into the large screenshot, and the notes above/below it grow into the peeking
-      cards — nothing should just fade or jump. The title reads "feedback #n".
-- [ ] **3.1a. (v5 §R — the sheet)** The title bar, the screenshot and the text area read as one
-      block, centred in the expanded panel both horizontally and vertically. The x / ↑ / ↓ rail sits
-      against the **window's** right edge, ~20px in and vertically centred, and must not move when
-      you navigate to a differently-sized note. There is no bar under the text area at all.
-- [ ] **3.1b. (v5 §R — the arc)** About 20px of the previous note shows past the top edge and 20px
-      of the next past the bottom, and both are pushed slightly RIGHT of the centred block —
-      symmetrically, as if all three centres lay on one circle. Each peek is 3/4 of **its own**
-      note's size, so a peek of a big note is bigger than a peek of a small one (and can be bigger
-      than the note you're looking at). Navigating to it grows it to its true size. Two notes of very
-      different sizes should get visibly different pushes, both still on the same arc.
-- [ ] **3.2.** Edit the note, then pause — **nothing** should appear (v5 §R removed the "saved"
-      confirmation entirely). Collapse and reopen to confirm the edit was kept (there is no save
-      button). Break the save (e.g. offline) — the failure shows as plain left-aligned red text
-      directly under the text area, with no bar or background, and nothing moves when it appears.
-- [ ] **3.3.** Edit the note and immediately press ↓ (or Esc) without pausing — the edit must still
-      be saved (flushed on navigate/collapse).
-- [ ] **3.3a. (navigation)** Use ↓/↑ (focus not in the text area), the rail's ↑/↓ buttons, and
-      clicks on the peeking cards to move between notes — each move is a smooth carousel (the
-      peek grows into the main slot, the main shrinks into the opposite peek). ↑ is disabled on
-      the first note, ↓ on the last. Hover a peek → the top one nudges down, the bottom one up,
-      nothing else. Press ↓ several times quickly — it should keep up without glitches.
-- [ ] **3.3b. (empty note)** Clear the note text completely (or leave only spaces), then try to
-      leave: x, Esc, clicking the dimmed page, ↑/↓, the peeks, closing the sidebar. Every one must
-      be blocked with the inline error "a note can't be empty. add some text to continue." and a red
-      text-area border; the old text is still what's stored. Type something → the error clears and
-      leaving works again.
+Enlarged view 2.0 (design spec §AH). Set up: notes on three pages of one site — page A first
+(three notes, one tiny, one default, one big), then page B (the page you test from: two default
+notes, one very wide), then page C (one tall note, one default).
+
+- [ ] **3.1.** From page B, click its second thumbnail → the sidebar expands leftward to ~75% of the
+      window over a dimmed strip (the page itself doesn't reflow). Every thumbnail visible in the
+      list *grows* into its place in the grid; page A's and C's notes, the headings and the text
+      areas fade in, a row at a time. Nothing jumps when the animation ends.
+- [ ] **3.1a. (the page)** The view is one scrolling page of all three pages, A first: each under a
+      heading — the page's name in the italic serif, a pencil, its address in monospace (not
+      grey), and on B only a small "this page" label. The list behind still shows only B's notes.
+      Logo top left; one exit button (→) top right; no ↑/↓ rail, no peek cards.
+- [ ] **3.1b. (opening position)** The clicked note's text area has the cursor (yellow edge, caret
+      at the end of its text). Above B's heading, the bottom ~80px of A's last row shows, cut off
+      by the top bar. Opening A's first note instead starts at the very top with nothing peeking.
+- [ ] **3.1c. (rows)** Up to three notes per row, each at its screenshot's real size (compare with
+      the selection you made) — never stretched, never enlarged; the wide one is scaled down to
+      the column and has a row to itself; the tiny one sits centred over a text area wider than it.
+      Rows of one or two are centred. In a row the "#n" + delete lines line up, the screenshots
+      are centred against each other, and the text areas all start at one height and are all the
+      same size. Narrow the window: fewer per row, down to one; nothing overlaps.
+- [ ] **3.2. (editing)** Edit two notes on different pages, pause — **nothing** appears (no
+      "saved"). Collapse and reopen: both edits were kept. Break the save (e.g. offline) — the
+      failure shows as plain red text under that note's text area, and nothing moves.
+- [ ] **3.3.** Edit a note and immediately press Esc without pausing — the edit must still be
+      saved (flushed on collapse). Long notes scroll inside their text area; the text area never
+      grows.
+- [ ] **3.3a. (keyboard)** Tab goes exit → A's pencil → A's notes (delete, then text area, each) →
+      B's pencil → … and wraps; a note brought into view by Tab scrolls just enough to show it
+      whole. With focus on a button, ↑/↓, page up/down and home/end scroll the view.
+- [ ] **3.3b. (empty note)** Clear a note (or leave only spaces): "note required" appears under it
+      at once, with a red edge. Now try to leave — exit, Esc, clicking the dimmed page, the toolbar
+      icon, closing the sidebar: every one is refused, the view scrolls to the empty note and puts
+      the cursor in it (a small shake the first time). Type something → the error clears and
+      leaving works. Reload instead (a forced close): the old text is what's stored.
 - [ ] **3.3c. (reduced motion)** Turn on reduced motion (OS setting, or DevTools → Rendering →
-      emulate prefers-reduced-motion) — opening, navigating and collapsing should change layout
+      emulate prefers-reduced-motion) — opening, deleting and collapsing should change layout
       instantly with only crossfades, no sliding or growing.
 - [ ] **3.3d. (v5 §T — the page cannot scroll)** With the enlarged view open, try to scroll the
       page behind the scrim: mouse wheel, trackpad two-finger, and the keyboard (space, page
-      up/down, home/end, arrows with focus outside the text area). Nothing behind should move, and
-      the page must not jump sideways when the view opens (no scrollbar-width reflow). Put a long
-      note in the text area and scroll it — that must still work, and once it reaches its last line
-      the page behind must still not take over. Check over both halves of the screen (the dimmed
-      page strip and the panel itself) — the scrim makes the whole viewport belong to our host, so a
-      lock that only checks "is this inside our UI" blocks nothing anywhere. Then leave by every route (x, Esc,
-      the scrim, closing the sidebar, entering add mode, an in-page SPA navigation) and confirm the
-      page scrolls normally again each time.
-- [ ] **3.3e. (v5 §U — the exit icon)** The top rail button is a "collapse the panel to the right"
-      glyph (a rounded panel outline with a divider near its right and a chevron pointing right),
-      not an ×. Hovering it still says "exit enlarged view (esc)".
-- [ ] **3.4.** In the enlarged view click **delete** — the trash glyph must be the SAME one the note
-      list's hover delete uses (v5 §S). The note disappears immediately (no
-      confirmation) and the view moves on to the next note (or the previous one if it was last),
-      whose title shows its new, shifted number (design spec §AD — see 3.11); deleting the only
-      note collapses back to the empty list. Reload to confirm it's really gone.
+      up/down, home/end, arrows with focus outside a text field). Nothing behind should move, and
+      the page must not jump sideways when the view opens (no scrollbar-width reflow). The view
+      itself scrolls, from anywhere over the panel — over a text area too; a text area at its last
+      line hands the wheel on to the view, and the view at its end does not hand it to the page.
+      Then leave by every route (exit, Esc, the scrim, closing the sidebar, entering add mode, an
+      in-page SPA navigation) and confirm the page scrolls normally again each time.
+- [ ] **3.3e. (renaming a page)** Click a heading's pencil: the name becomes a text field holding
+      it, all selected, with ✓ and × beside it, and nothing below moves. Type a new name, Enter →
+      the heading shows it. Rename again and press Esc → the old name stays and the view stays
+      open. Click away from a half-typed name → it is saved. Save an empty name → the page's
+      title comes back. Collapse and reopen → the name is kept; export → each of that page's notes
+      has the name as `page_title` in `feedback.md`. Delete all the page's notes (or **delete all
+      for this website**) and capture there again → the page has its title back.
+- [ ] **3.4.** Click a note's **delete** — the trash glyph must be the SAME one the note list's
+      hover delete uses (v5 §S). The note shrinks away immediately (no confirmation), the notes
+      after it renumber and slide into their re-packed places, and focus moves to the next
+      note's delete. A page's last note takes its heading with it. Deleting the site's last note
+      collapses back to the empty list. Reload to confirm it's really gone.
 - [ ] **3.5.** After capturing several items, confirm the newest one appears at the **bottom** of
       the sidebar list (chronological order, not reverse).
 - [ ] **3.6.** Capture items on page A, navigate to page B (different URL, same domain) — sidebar
@@ -323,10 +330,11 @@ Place a box first (click or drag) for each of these; the pencil only exists once
       the actual screenshot scaled to fit inside it — no thumbnail should be a different height
       than the others, and no screenshot should be cropped (the full image should always be
       visible, letterboxed if its aspect ratio doesn't match the box).
-- [ ] **3.8. (Focus)** Open a note with the keyboard (Tab to a thumbnail, Enter) — focus lands on the
-      x button in the rail; Tab cycles rail → peeks → note → delete. Collapse (x or Esc) — focus
-      returns to the thumbnail you opened it from. Delete the only note — focus lands on the add
-      note button, not the page body.
+- [ ] **3.8. (Focus)** Open a note with the keyboard (Tab to a thumbnail, Enter) — focus lands in
+      that note's text area, and holding Enter does not type newlines into it while it opens.
+      Collapse (Esc) — focus returns to the thumbnail you opened it from (or to the last note of
+      this page you were in). Delete the site's only note — focus lands on the add note button,
+      not the page body.
 - [ ] **3.8a.** Start add mode, place a box and type a comment, then click a note in the list — it
       must not open; a banner says "finish or cancel your note first." and your comment is kept.
 - [ ] **3.8b.** Edit a note, then immediately reload the page — the edit should still be there
@@ -363,13 +371,11 @@ Place a box first (click or drag) for each of these; the pencil only exists once
         sidebar should show "couldn't delete item. try again." (the same wording the enlarged
         view's delete uses).
 - [ ] **3.11. (Numbering is position, design spec §AD)** Capture four notes on one page (#1–#4).
-      - Open #2 in the enlarged view and delete it: the view moves to the old #3, whose title now
-        reads "feedback #2"; the bottom peek is labelled "next note: feedback #3" (was #4); press
-        ↓ and the title reads "feedback #3". Collapse: the list shows #1, #2, #3 — the badges the
-        cards morph back onto must match the list, with no flash of the old numbers.
-      - Open the last note and delete it: the view moves to the previous note and its number is
-        unchanged. Delete during the expand animation (click the trash before the cards settle):
-        the same result, no stray number mid-morph.
+      - Open the enlarged view and delete #2: the old #3 and #4 become "#2" and "#3" at once as
+        they slide up. Collapse: the list shows #1, #2, #3 — the badges the screenshots morph
+        back onto must match the list, with no flash of the old numbers.
+      - Delete during the expand animation (click a trash icon before the screenshots settle):
+        the same result, no stray number or orphaned screenshot mid-morph.
       - Delete every note on the page (list or view), then capture again: the new note is #1, not
         #5. Reload: still #1.
       - Two pages of the same site can each show a "feedback #1"; the export's `screenshots/`
@@ -441,13 +447,14 @@ Place a box first (click or drag) for each of these; the pencil only exists once
       notes, **import** opens the picker straight away.
 - [ ] **5.3a. (Tooltips, §AG)** No browser-native tooltip anywhere. Hover each control — close,
       add note, the switch, export, more options, the resize handle, a note's delete, the pencil
-      and colours in add mode, the enlarged view's rail and peeks and delete: after about a
-      second a themed tooltip appears (above, or to the left for the rail and the resize handle),
+      and colours in add mode, the enlarged view's exit, pencils, addresses and deletes: after
+      about a second a themed tooltip appears (above — below for the exit button at the top — or
+      to the left for the resize handle),
       and moving straight to the next control shows its tooltip at once. Clicking hides it.
 - [ ] **5.3b. (Tooltips never linger, §AG)** Each of these should leave no tooltip behind:
-      in the enlarged view, hover a rail button until its tooltip shows, then press Esc (the view
-      collapses; the tooltip goes with it); hover a peeking neighbour until "next note" shows,
-      then press ↓ (the peek becomes the main note; its tooltip goes); hover a note's delete in
+      in the enlarged view, hover the exit button until its tooltip shows, then press Esc (the view
+      collapses; the tooltip goes with it); hover a note's delete there until its tooltip shows,
+      then scroll the view (the tooltip goes); hover a note's delete in
       the list until its tooltip shows, then scroll the list with the wheel; with a tooltip up in
       the panel, close the sidebar from the toolbar icon. In add mode, hover the pencil until its
       tooltip shows, then click save: the saved screenshot (open it in the enlarged view) shows

@@ -17,21 +17,14 @@ band, "Low" motion density, 0% overshoot. All values below are at 1x; the protot
 "slow (4x)" debug tweak (`this.ms(v)`) that scales every duration uniformly — do not build that
 into shipped code, it's a design-review aid only.
 
-**Status against the build (2026-09-22).** The choreography, curves and durations below are what
-`src/enlargedView.ts` (`T`), `src/flip.ts` and `src/dockMotion.ts` implement. Later sections of
-`SALAMANDER_SPEC.md` removed some of the *elements* this document names; where a step below
-mentions one, it is now a no-op:
-- the theme toggle (§AA — dark only), the "n / total" counter (v4 §M) and the peek captions
-  (v5 §R) no longer exist, so they neither fade nor travel;
-- the editor's extension bar, the "✓ saved" hint (§10) and the delete button in that bar are
-  gone (v5 §R): delete is an icon button in the title bar, and a save failure or the empty-note
-  error is plain left-aligned text under the textarea, not a slot in a bar. §10's debounce (700ms)
-  and immediate-flush rules still apply exactly; only the confirmation was removed;
-- geometry (§4) is the 1440px prototype's. The build derives it live (`computeEnlargedGeometry`):
-  the block is centred in the sheet, the rail (36px buttons) is 20px off the *viewport's* right
-  edge, and each peek is its own note at 0.75 of its own natural size on the §R arc, not 75% of
-  the main slot;
-- the shake in §11 runs once, on the first blocked attempt only.
+**Status against the build (2026-10-12) — enlarged view 2.0.** `SALAMANDER_SPEC.md` §AH replaced
+the single-note sheet with one scrolling page of every note on the site, so the *choreography*
+below (§2–§9) is rewritten for it; the curves (§1), the durations, reduced motion (§12) and the
+implementation rules (§13) are unchanged and still what `src/enlargedView.ts` (`T`),
+`src/flip.ts` and `src/dockMotion.ts` implement. Geometry is no longer a fixed set of slots: it
+is computed by `src/enlargedLayout.ts` (§4). Gone with the old sheet: the main slot, the peeks
+and their arc, the x / ↑ / ↓ rail, the prev/next carousel and peek hover. Their earlier
+description is in git history (this file before 2026-10-12).
 
 ## 1. Curves
 
@@ -48,11 +41,12 @@ the deleted card's shrink). No bounce, no overshoot anywhere (Corporate: 0–3%;
 ## 2. Model: shared elements vs. fades
 
 Elements that exist in **both** views never fade — they travel from their old rect to their new one
-(FLIP: transform/scale, or an equivalent property-level tween — see §10):
+(FLIP: transform/scale, or an equivalent property-level tween — see §13):
 1. the sidebar panel background
-2. the clicked note's thumbnail (list slot ↔ main slot)
-3. the thumbnails of its immediate list neighbours (list slot ↔ peek slot)
-4. the logo + wordmark, which ride the panel's left edge as it moves
+2. **every note whose list thumbnail is visible** in the list's scrollport (the clicked one always),
+   list slot ↔ its place in the grid
+3. the logo + wordmark, which ride the panel's left edge as it moves (and move from the docked
+   header's 16px inset to the content column's 32px on the panel's own curve)
 
 Everything that exists in only **one** view fades in place — no slide, no scale, no translate.
 
@@ -60,141 +54,101 @@ Everything that exists in only **one** view fades in place — no slide, no scal
 
 | | morphs (shared element, travels) | fades only (no movement) |
 |---|---|---|
-| **list-view-only** | — | theme + close buttons, add/export/import row, "this page (n)", every *other* list item (not the 3 shared notes), the list note-text of the 3 shared notes |
-| **enlarged-view-only** | — | rail (x, ↑, ↓), "feedback #n" / "n / total", note editor (textarea + bar), delete button, "✓ saved" hint, empty-note error, peek captions (2-line, fade only — they never travel even though their card does) |
-| **shared (both views)** | panel bg, clicked thumbnail, ≤2 neighbour thumbnails, logo+wordmark | number badge (visible in list, **fades to 0 opacity** as its card settles into main or either peek — never present at rest on main/peeks) |
+| **list-view-only** | — | close button, add/export row, "this page (n)", list items not visible in the list's scrollport, every list note's text |
+| **enlarged-view-only** | — | exit button, page headings, every note's "#n" + delete header and text area, notes of other pages (and scrolled-out ones) including their screenshots, the "note required" / failure lines |
+| **shared (both views)** | panel bg, every visible list thumbnail ↔ its note's screenshot, logo+wordmark | number badge (on the clone; fades out as it leaves the list, back in as it lands on it) |
 | **backdrop** | — | scrim (fade only, never travels) |
-
-Edge case: if a neighbour's list slot is scrolled out of view when you open a note, it is **not**
-morphed (no rect to FLIP from) — it fades into its peek slot instead (200ms `std`, 150ms delay).
 
 ## 4. Geometry
 
-1440px reference viewport; panel = 75% = 1080px.
+Computed, not fixed (`src/enlargedLayout.ts`, design spec §AH): the panel is
+`max(0.75·vw, min(560, vw), sidebarWidth)`; the content column is the scroller's width less 32px
+each side; each note's screenshot is its selection's CSS size, never scaled up, scaled down to fit
+the column or the visible height; columns of `clamp(shot, 267, column)` packed three to a row and
+centred; the opening scroll position shows 80px of what precedes the note's row. A clone's
+destination is its note's screenshot box in viewport coordinates at that scroll position (one
+layout read of the content's origin per gesture).
 
-- **list slot**: 267×100, radius 10. Item pitch 194 (100 thumb + 8 gap + 70 note), list header
-  offset 138 (56 header + 56 action row + 26 heading).
-- **main slot**: 720×380, radius 10, screenshot inset (padding) 28.
-- **peek slots**: 540×285 — **exactly 75% of the main slot** in both dimensions, same radius 10.
-  Right edge flush with the right edge of the x/↑/↓ rail (`slot('prev'|'next').right = 149px`, same
-  as the rail's own right inset). The prev (top) peek sits above the title and is hard-cut by the
-  panel's top edge (`top: -201px`); the next (bottom) peek sits below the editor and is hard-cut by
-  the bottom edge (`top: 762px`, panel height 900px).
-- **no number badge on peeks, and none on the main slot either** — the badge belongs to the list
-  only. It is present (opacity 1) whenever a card is in list-slot geometry and fades to opacity 0
-  by the time the card settles into main or peek geometry (§3, §5, §7 badge timings). There is no
-  state in which a badge is visible on an enlarged-view card.
-- **hard clip only**: the panel has `overflow: hidden`. No gradients, masks, blur or
-  `backdrop-filter` anywhere in this feature.
+- **hard clip only**: the stage clips at the panel's left edge (its animated width), the front
+  layer (the clones) at the scroller's top edge too, so a clone lands exactly as clipped as the
+  note it becomes. No gradients, masks, blur or `backdrop-filter` anywhere in this feature.
 
 ## 5. Expand (click a list note) — total ≈ 500ms
 
-- **t0**: capture the list rects of the clicked note and its visible prev/next (after scroll;
-  include the dock-magnified transform if the item was hovered — `hovId`). Hide the real list
-  thumbnails (`visibility: hidden`) and place floating clones exactly on top of them.
-- **0–450ms, `std`**: panel grows leftward, width 300 → 1080 (duration table: page transition
-  400–600ms → Corporate "slow" end ≈ 450; distance scaling: full-screen ≈ 1.8–2x of a 250ms base).
-- **0–450ms, `std`, same curve**: the clicked thumbnail morphs list slot → main slot; prev/next
-  morph list slot → peek slot. Identical curve+duration to the panel so a card never outruns the
-  panel's left edge.
-- **0–200ms, `std`**: scrim fades in (multi-element: Modal-with-Content, backdrop first).
-- **0–150ms, `acc`**: list-only elements fade out (entrance-exit: Dissolve Exit, no scale).
-- **150ms delay + 200ms, `std`**: badges fade out (settling into main/peek — see §4).
-- **250ms delay + 200ms, `std`**: peek captions fade in.
-- **200/250/300ms delay, 200ms each, `std`**: title / editor / rail fade in, in that reading order
-  (multi-element: List Items, Corporate 50ms stagger; total stagger 100ms).
-- **at the end**: focus moves to the exit (x) button.
+- **t0**: read the site (`GET_SITE_PAGES`, one queued round trip), lay it out, set the scroll
+  position, measure the list rects of every visible thumbnail on this page (after scroll; the dock
+  transform included). Hide those list thumbnails and their notes' real screenshots; place clones
+  on the list rects. Focus the clicked note's text area (caret at the end); the list goes inert.
+- **0–450ms, `std`**: panel grows leftward, width 300 → 75% of the viewport; the logo moves 16 → 32px.
+- **0–450ms, `std`, same curve**: every clone morphs list slot → its note's screenshot box.
+  Identical curve and duration to the panel, so a clone never outruns the panel's left edge.
+- **0–200ms, `std`**: scrim fades in. **0–150ms, `acc`**: the list fades out.
+- **150ms delay + 200ms, `std`**: the clones' badges fade out.
+- **from 150ms, 200ms each, `std`**: the grid fades in a band at a time — a heading, or a row of
+  notes (header, screenshot unless it is a clone's, text area) — top down from the opening
+  position, 50ms apart, capped at two steps (Grid Cards, Corporate stagger; the last fade ends by
+  450ms). What is off screen is simply there.
+- **300ms delay + 200ms, `std`**: the exit button fades in.
+- **at 500ms**: the clones are swapped for the real screenshots (pixel-identical boxes) and the
+  list thumbnails restored. The scroller holds still until then.
 
-## 6. Collapse (x, Esc, or scrim click) — the exact reverse, ≈ 75% of the duration
+## 6. Collapse (exit, Esc, scrim, toolbar icon) — ≈ 75% of the duration
 
-(entrance-exit rule: exits are 65–75% of the matching entrance.)
+- **t0**: flush every pending edit; repaint the (still hidden) list if the view changed this
+  page's notes; centre it on the note focus returns to; measure the visible list rects once.
+- **0–340ms, `std`**: panel contracts back to the docked width; the logo moves 32 → 16px. Every
+  note **on screen in the panel** that has a visible thumbnail in the list gets a clone at its
+  current box, which morphs into that thumbnail, its badge fading back in (150ms `std`). Clones
+  still in flight (a collapse mid-open) reverse from where they are.
+- **0–120ms, `acc`**: the grid (the whole scroller), the exit button and anything without a
+  thumbnail fade out.
+- **150ms delay + 150ms, `acc`**: scrim fades out. **150ms delay + 200ms, `std`**: the list fades
+  back in.
+- **at 360ms**: the clones are removed and the list thumbnails restored; focus returns to the list
+  item of the last note focused on this page, else the one opened.
 
-- **t0**: scroll the (still-hidden) list so the current note is centred; recompute its list rect and
-  its neighbours' list rects against that scroll position.
-- **0–120ms, `acc`**: title, editor, rail and peek captions fade out.
-- **0–340ms, `std`**: panel contracts rightward 1080 → 300 while the main card shrinks back into its
-  list slot and the peeks shrink into theirs (same curve/duration as the panel).
-- **150ms delay + 150ms, `acc`**: scrim fades out.
-- **150ms delay + 200ms, `std`**: list-only elements fade back in (100–150ms overlap with the
-  contraction — entrance-exit continuity, not sequenced end-to-end).
-- **at the end**: swap the clones back for the real list thumbnails (pixel-identical, no visible
-  pop) and restore `visibility`. Focus returns to the list item.
+## 7. (Prev / next — removed)
 
-## 7. Prev / Next (↑/↓, rail buttons, or click on a peek) — a carousel of morphs, 400ms, `std`
-
-- **next** (`go(1)`): the next peek grows into the main slot; the main shrinks into the (now vacated)
-  prev peek slot; the old prev peek fades out in place (150ms, `acc`); the note *after* next fades
-  into the vacated next-peek slot (200ms, `std`, 200ms delay). "prev" (`go(-1)`) is the exact mirror.
-- Title/editor content crossfades, not morphs: old content fades out over 120ms `acc`, swaps, new
-  content fades in over 180ms `std` (multi-element: Tab Switch — old fades first at ~150ms mark
-  logically, new starts ~100ms in). Rail and panel stay perfectly still.
-- 400ms matches "shared-element morph (400ms)" in multi-element: Page Transition. **Input is
-  blocked** (`busy`) until the whole gesture settles, ~400–600ms depending on interruption handling
-  (see §11 for why that's a minimum bar, not the final design).
+There is no carousel any more: the whole site is one scrolling page (design spec §AH). ↑/↓ scroll
+it (64px), PageUp/PageDown page it (less the 80px peek), Home/End go to the ends — `smooth`, or
+instant under reduced motion. Focus moved to a note (Tab, the empty-note lock) scrolls just enough
+to show it whole.
 
 ## 8. Delete
 
-- **0–180ms, `acc`**: the main card (the one being deleted) shrinks to `scale(0.95)` and fades to 0
-  opacity. Title and editor fade out over the same window (they share the enlarged-only fade-out
-  path used by prev/next's crossfade-out, 120ms `acc`, inside the 180ms window).
-- **at 180ms**, the note is actually removed from the data model. Two outcomes:
-  - **notes remain**: the index snaps to `min(oldIndex, newLength − 1)` — i.e. the note that was
-    "next" becomes the new main (normal case), or, if the *last* note in the list was the one
-    deleted, the note that was the prev peek becomes the new main instead (mirrors a "prev" move).
-    This re-triggers the exact §7 carousel geometry (400ms `std` rect morph for main/peeks, the
-    note-after-next/prev fading into the vacated far peek at 200ms `std` + 200ms delay), while
-    title/editor for the new current note crossfade back in over 180ms `std` (they were already
-    faded out from the 0–180ms step, so this is a fade-*in*, not a second fade-out). Total gesture
-    ≈ 580ms; input stays blocked until 600ms.
-  - **that was the only remaining note**: skip the carousel entirely — there is no note left to
-    become the new main. Run the §6 Collapse sequence directly (panel contracts 1080 → 300 over
-    340ms `std`, scrim/list fades as in §6) straight back to the list view, which now shows the
-    empty state ("no feedback on this page yet"). The rail/editor fade-out from the 0–180ms delete
-    step and Collapse's own 0–120ms fade-out target the same already-hidden elements, so this never
-    double-animates — Collapse's fade-out step is simply a no-op on elements already at 0 opacity.
-- Deleting is always allowed even while the empty-note error (§10) is blocking navigation — delete
-  is the one action §D exempts from the "note can never be empty" lock.
+- **0–180ms, `acc`**: the note shrinks to `scale(0.95)` around its own centre and fades to 0; a
+  page's last note fades its heading with it. DELETE_ITEM runs alongside.
+- **at 180ms** (and the reply in), the note is removed from the model:
+  - **notes remain**: the later notes on its page renumber; the site is laid out again and every
+    heading and every part of every note (header, screenshot, text area — separately, since a note
+    can change rows and its row's band height can change) travels from where it is on screen to
+    its new place: **400ms `std`**, transform-only FLIP. If the content's height change made the
+    browser clamp the scroll position, the clamp is folded into the start offsets so nothing jumps.
+    Focus moves to the next note's delete.
+  - **that was the site's last note**: run §6 straight back to the (empty) list.
+- A second delete mid-move retargets every part from its live position (the analytic record of
+  each move, §13). A delete during the expand retargets the clones in flight and pushes the
+  expand's end back.
+- Deleting is always allowed, even while the empty-note lock (§11) holds the view open.
 
-## 9. Peek hover (open view only)
+## 9. (Peek hover — removed)
 
-- Hovering (pointer only — see below) a peek card moves **only that card**, by transform, nothing
-  else on the panel changes:
-  - **prev (top) peek** → `translateY(+7px)` (down, toward the title — reads as "pulling closer").
-  - **next (bottom) peek** → `translateY(−7px)` (up, toward the editor).
-- No scale, no shadow, no border change, no opacity change from the hover itself — transform only.
-- Timing: **enter 90ms, leave 180ms**, both `std`. This is intentionally tighter than the general
-  120–180ms button/toggle band (`timing-easing-tables.md`) because it's a single-property
-  GPU-composited transform with nothing else competing for attention.
-- Keyboard focus on a peek shows the standard focus ring (`0 0 0 2px {bg}, 0 0 0 4px {focus}`) but
-  does **not** trigger the ±7px lift — focus is a state indicator, hover is a gesture; conflating
-  them would make the ring feel like it's "reaching" for the pointer on every keyboard move.
-- Reduced motion: the lift never happens (pointer or keyboard); only the focus ring remains as a
-  state cue. Clicking/activating a peek still navigates instantly regardless.
+The peeks are ordinary content now — the previous row's bottom, cut off by the scroller's top
+edge — so they have no hover of their own.
 
-## 10. Autosave feedback ("✓ saved" hint)
+## 10. Autosave (no "✓ saved" hint)
 
-- Typing updates the stored draft immediately (no visual debounce on the data) — the debounce only
-  gates the **confirmation hint**, so nothing is ever silently lost if the tab closes mid-debounce
-  (the last non-empty text is always the one in memory).
-- **700ms** after the last keystroke with no further typing: the "✓ saved" hint (check icon + label
-  "saved", right side of the editor's extension bar, `role="status" aria-live="polite"`) fades in
-  over **150ms, `std`**.
-- It stays visible for **1400ms**, then fades out over **300ms, `acc`** (state-feedback.md's success
-  confirmation shape kept low-intensity for Corporate: opacity only, no scale-pop/particles/bounce —
-  those belong to the Playful preset this codebase doesn't use).
-- Blur, prev/next navigation, and collapse each force an **immediate** save of any pending unsaved
-  change (skip the 700ms debounce — the user has already signalled intent by leaving) before their
-  own transition starts, so the hint's fade-in is never clipped mid-flight by an outgoing crossfade.
-  Practically: if there's a dirty draft, run the save synchronously, then start §6/§7/§8's timeline
-  on the next frame.
-- Failure: replace the hint in the same slot with the inline danger error text ("couldn't save
-  note. try again.") — same 150ms `std` fade-in — and leave it visible (no auto-hide) until the next
-  save attempt succeeds or the user edits again.
+- The hint is gone (design spec v5 §R): a successful save says nothing. Every note autosaves on its
+  **own** 700ms debounce (§AH: all notes are editable at once), and each blur, a collapse and a
+  page unload force an **immediate** save of every pending change.
+- Failure: "couldn't save note. try again." fades in under that note's text area over **200ms,
+  `std`** (§11's entrance), no movement, and stays until the next save succeeds or the note is
+  edited again.
 
 ## 11. Empty-note error (blocked navigation)
 
-Triggered when the user tries to leave a note (prev/next buttons, peeks, ↑/↓, x, Esc, scrim click,
-sidebar close) while the trimmed draft is empty (SALAMANDER_SPEC §D: "a note can never be empty").
+Triggered when the user tries to close the view (exit, Esc, scrim click, toolbar icon, sidebar
+close) while any note's trimmed draft is empty — and, since §AH, shown as soon as a note is emptied (SALAMANDER_SPEC §D: "a note can never be empty").
 Based on `patterns/state-feedback.md`'s **Inline Validation** recipe (border → red, text feedback,
 optional shake), scaled down to Corporate/"Low" intensity and made **non-spatial** per the design
 call already made for this feature (no slide-down, unlike that recipe's generic "error text slides
@@ -203,18 +157,18 @@ down + fades in"):
 - **textarea border**: transitions directly to `danger` colour over **150ms, `std`** (colour-only —
   reuses the exact border-colour transition already used for the textarea's hover/focus states, just
   targeting the danger token instead of `lineStrong`/`accent`).
-- **inline error text** ("a note can't be empty. add some text to continue.") appears in the editor
-  bar's left slot — replacing the delete button? No: it takes the **same slot the "✓ saved" hint /
-  save-failure text uses** (right side), since delete must stay reachable (§8 — delete is exempt from
-  the block). Fades in over **200ms, `std`**, no movement.
+- **inline error text** ("note required", §AH) appears directly under the emptied text area, in
+  the row gap, reserving no space — the same line a save failure uses. Fades in over **200ms,
+  `std`**, no movement. Delete stays reachable (§8 — delete is exempt from the block).
 - **optional micro-shake**: a single tiny horizontal shake on the textarea, **±4px, 2 cycles,
   ease-in-out, 200ms total** — a toned-down dose of the skill's Error Shake recipe (±10–15px,
   2–3 cycles, 300–400ms total; "no overshoot: errors feel firm"). Fire it once, on the **first**
   blocked attempt while transitioning into the error state — do not re-shake on every repeated
-  blocked click while the error is already showing (that reads as nagging, not firm). **Never** runs
+  blocked click while the error is already showing (that reads as nagging, not firm); emptying the
+  note again re-arms it. **Never** runs
   under `prefers-reduced-motion: reduce`, full stop, independent of whether the border/text fades
   also get reduced-motion treatment (they don't need to — they're already opacity/colour only).
-- Focus stays in (or returns to) the textarea; the error text's `aria-live="polite"` region carries
+- Focus moves to the first empty note (scrolled into view, §7); the error text's `aria-live="polite"` region carries
   it to screen readers, same pattern as the existing add-mode/list notification banners.
 - **Clears** as soon as non-whitespace text is typed: border fades back to its normal state over
   150ms `std`; error text fades out over **120ms, `acc`** (exit ≈ 65–75% of the 200ms entrance, per
@@ -225,18 +179,14 @@ down + fades in"):
 Governing rule (kept from the existing spec): **no spatial motion** — layout/position changes
 happen instantly; only crossfades remain, at roughly halved durations.
 
-- **Expand**: total collapses to ~184ms (34ms trigger delay + 150ms fade window) vs. ~484ms normal.
-  Panel width and every card's rect jump instantly (`transition: none` on the geometric properties);
-  only opacity animates — scrim, list-fade-out, title/editor/rail-fade-in, badge and caption fades
-  all keep running but at their `rd`-branched shorter durations (e.g. scrim 100ms not 200ms,
-  list-only fade-out 75ms not 150ms, title/editor/rail-in 125ms not 200ms).
-- **Collapse**: ~200ms vs. ~360ms, same halving pattern.
-- **Prev/Next and Delete's carousel step**: replaced by fade-out (75ms `acc`) → instant index swap →
-  fade-in, ~220ms total block, instead of the 400/580ms morph carousel. No card ever visibly travels.
-- **Peek hover**: the ±7px lift never happens, under pointer or keyboard, full stop (§9).
-- **Dock hover** (list, §9 reference / `src/dockMotion.ts`): magnification transforms are fully off;
-  only the note background still fades in on hover/focus.
-- **Autosave hint / empty-note error**: unaffected — both are already opacity/colour-only, which
+- **Expand**: ~160ms vs. ~500ms. The panel width and the logo jump; no clone is made; only opacity
+  animates — scrim 100ms, list out 75ms, the whole grid and the exit button in over 125ms.
+- **Collapse**: ~200ms vs. ~360ms, same halving pattern; the panel snaps back at 75ms.
+- **Delete**: the note fades out over 75ms `acc`, then the rows re-pack instantly. No part ever
+  visibly travels. Scrolling (keys, focus) is instant rather than smooth.
+- **Dock hover** (list, `src/dockMotion.ts`): magnification transforms are fully off; only the note
+  background still fades in on hover/focus.
+- **Save failure / empty-note error**: unaffected — both are already opacity/colour-only, which
   reduced motion permits — **except** the empty-note error's optional micro-shake, which is always
   suppressed regardless of any other reduced-motion branching.
 
@@ -246,8 +196,8 @@ happen instantly; only crossfades remain, at roughly halved durations.
 closed shadow root (SALAMANDER_SPEC §6). Shared elements are real DOM nodes, not a virtual overlay
 framework. Recipe per morphing card: **First** — measure the source rect
 (`getBoundingClientRect()` on the real list item) once, before hiding it. **Last** — compute the
-destination rect arithmetically (`slot('main'|'prev'|'next')`, no DOM read needed — it's fixed
-geometry, §4). **Invert** — position/size the floating clone at Last, then apply a transform that
+destination rect arithmetically (the layout's box for the note plus the content's origin, read once
+per gesture — §4). **Invert** — position/size the floating clone at Last, then apply a transform that
 maps it back onto First (`translate(dx, dy) scale(sx, sy)`). **Play** — clear that transform (or
 transition it to identity) and let the declared CSS transition/WAAPI animation carry it from First
 to Last. Key clones by note id so identity is stable across pre → opening → open → closing (a card
@@ -292,7 +242,9 @@ an `Animation` exposes `.currentTime`/`.finished` (a promise) and `.updatePlayba
 for interruption (below); re-targeting a live CSS transition mid-flight needs a reflow-forcing
 restart hack to get the same effect.
 
-**Interruptibility.** The reference guards prev/next and delete with a single `busy` flag that
+**Interruptibility.** (Written for the old carousel; §AH has no prev/next, and the rule now
+applies to deletes, which retarget every part from its live position — option (a) — and to a
+collapse mid-open, which reverses the clones in flight.) The reference guards prev/next and delete with a single `busy` flag that
 silently drops a second input — acceptable as a floor, not the ship target, since a fast double-tap
 of ↓ (or keyboard repeat) will otherwise feel unresponsive. In order of preference: (a) **retarget**
 — on a second ↓ while a carousel morph is in flight, read the live animation's current rect as the

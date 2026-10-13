@@ -187,6 +187,9 @@ perfect — make sound styling decisions where they're rough, stay within the to
   **Superseded 2026-09-30** — see "Add mode's buttons match the sidebar's" at the end.
 
 ## D. Enlarged view — replaces the modal
+
+**Superseded 2026-10-12 by §AH (enlarged view 2.0)** where it describes the layout, the rail, the peeks or navigation between notes.
+
 Clicking a note no longer opens a centered modal. The SIDEBAR ITSELF expands:
 - Panel grows leftward from its docked width to 75% of the viewport width (min sensible width;
   handle small viewports). The page is NOT re-laid out (no margin change) — the expanded panel overlays
@@ -426,6 +429,8 @@ its own treatment on the chevron half. Nothing scales on press — §2.
 
 ## M. Enlarged view
 
+**Superseded 2026-10-12 by §AH (enlarged view 2.0)** where it describes the layout, the rail, the peeks or navigation between notes.
+
 - **Title clipped.** "feedback #12" is cut off at its end. Find the real cause (it is a layout
   constraint, not a font metric — `.xp-title` is `pointer-events: none` by design, which is not the
   bug) and fix it so the title renders in full at every panel width.
@@ -512,6 +517,8 @@ OVERRIDES v4 §M where they conflict. Tokens from §1 only; all visible text low
 
 ## R. The enlarged view's sheet: a centred block and an arc of peeks
 
+**Superseded 2026-10-12 by §AH (enlarged view 2.0)** where it describes the layout, the rail, the peeks or navigation between notes.
+
 **The block.** The focused note is its title bar + image + textarea. That whole block is centred in
 the sheet, horizontally AND vertically. Its centre is the anchor for everything below.
 
@@ -583,6 +590,8 @@ Constraints, in order of importance:
   than remembering each caller.
 
 ## U. The exit button is a collapse-panel icon
+
+**Superseded 2026-10-12 by §AH (enlarged view 2.0)** where it describes the layout, the rail, the peeks or navigation between notes.
 
 `.xp-exit` drops the × for a "collapse the panel to the right" glyph, in §1's icon language
 (1.8px stroke, round caps/joins, `currentColor`, 24×24 viewBox): a rounded rectangle outline with a
@@ -1099,7 +1108,208 @@ The text area's own inner padding is the box's 6px too, so the text, the text ar
 buttons share one inset. Its placeholder (here and in the enlarged view) is **"type a note…"**
 (was "what should change here?").
 
-The enlarged view's **↑** and **↓** (already `aria-disabled` at the ends) say why when greyed out:
+(Superseded by §AH: the ↑/↓ buttons are gone.) The enlarged view's **↑** and **↓** (already `aria-disabled` at the ends) said why when greyed out:
 **"this is the first note"** / **"this is the last note"**, to the left of the rail like their
 names. Other disabled states stay without a reason by design: export and ⋯ while add mode is on,
 export/import while one is in flight, and the comment box's controls during "saving…".
+
+---
+
+# AH. Enlarged view 2.0 — the whole site, one page (2026-10-12)
+
+REPLACES v2 §D's layout and navigation, v4 §M, v5 §R and §U, and the ↑/↓ disabled reasons above.
+§D's autosave and "a note can never be empty", §E's motion model, §S (one trash icon) and §T (the
+page does not scroll) stand, adapted below. The owner's sketch is
+[`enlarged-view-2-sketch.png`](enlarged-view-2-sketch.png): the scrim on the left, the panel's
+edge, the logo top left, an exit square with "→" top right; under them the bottoms of two notes
+peeking, a serif page name, a row of three notes (the middle text area yellow — focused), a row
+with one wide note, and the tops of the next row cut off by the bottom edge. Decisions marked
+**(impl)** were the implementer's, made to the design language; the rest are the owner's.
+
+## What it shows
+
+- **Every note on the website** (the domain, as everywhere), as **one vertical scrolling page**.
+  The sidebar list stays "this page" only; only the enlarged view shows other pages.
+- **Order:** pages by their first note — ids are allocated in capture order, so this is the
+  order the pages were first noted on, the same order `feedback.md` writes them in (§AC) — and
+  notes in capture order within a page, the order their numbers come from (§AD). The page on
+  screen may sit in the middle.
+- **Data:** `GET_SITE_PAGES` (storage.ts `getSitePages`) reads the domain once, through the write
+  queue, when a note is clicked; thumbnails come inline as for the list. If it fails, the view
+  opens on this page's notes alone and the banner says "couldn't load the other pages' notes. try
+  again." **(impl)**
+
+## The panel
+
+- Unchanged: the sidebar grows leftward to 75% of the viewport (at least 560px or the viewport,
+  never narrower than the docked width), over the scrim, right-anchored; the page is never
+  re-laid out.
+- **Top bar, 56px** — the docked header's height, so the logo never moves vertically: the logo
+  and wordmark top left, and **one exit button** top right — a 36px secondary icon button, an
+  arrow pointing right (`M5 12h14M13 6l6 6-6 6`, the way the panel goes), "exit enlarged view
+  (esc)". The x / ↑ / ↓ rail and the peek carousel are gone, and so is v5 §U's collapse-panel
+  glyph, which read as a layout toggle once the panel became a page of its own. **(impl)**
+- **The scroller** fills the panel below the top bar. Its content column is inset **32px** each
+  side (`PANEL_PAD_X`); the logo moves from the docked 16px to the same 32px as the panel grows,
+  so the logo, the headings and the first notes share one left edge, and the exit button's right
+  edge is the column's right edge. **(impl)** A thin scrollbar in `line-strong`, a stable gutter
+  (the column never changes width with its content's height), overscroll contained. The content
+  is hard-cut by the top bar's edge (no fade) — which is what makes the peek read as "more above".
+
+## A page heading
+
+`[name][✎]  example.com/pricing  [this page]`, one 36px line:
+
+- **Name** — the display serif, italic, 28px/34px, `text`: the reviewer's name for the page, else
+  the HTML title captured with its first note (`context.pageMeta.title`), else "untitled page".
+  It keeps its own width up to 60% of the line and ellipsizes past that, so the address gives way
+  first.
+- **✎** — a 28px ghost button (the add-mode pencil glyph), muted at rest; `aria-label` "edit page
+  name: {name}".
+- **Address** — the normalised URL without its scheme (the same for every page of the site), the
+  mono face, 12px, **regular ink (`text`), not muted** — it is what tells two pages with the same
+  title apart. Too long for its room, it is ellipsized **in the middle**, keeping the host and the
+  last path segment; the face is monospace, so the room is a character count measured from the
+  face itself (and again once the font has loaded). Its tooltip is the full URL.
+- **"this page"** — on the page on screen only: 11px/600 body face, `accent-icon` ink, a 1px
+  `line-strong` inset outline, radius sm, 20px tall. Quiet, but the one yellow word in the row.
+  **(impl)**
+- Each page's notes are a `role="group"` named by its heading.
+
+### Renaming
+
+- ✎ swaps the name for a **text field** styled like the note text areas (surface, 1px `line`
+  inset, `line-strong` on hover, `accent` on focus), 360px × 32px, body face 14px, holding the
+  current name, all selected — with **✓ save** (32px, `accent-icon` glyph, like add mode's save)
+  and **× cancel** (32px) beside it. The line stays 36px tall, so renaming moves nothing.
+- **Enter** or ✓ saves; **Esc** or × cancels — that Esc never collapses the view. Focus leaving
+  the field and its two buttons **saves**, like a rename in Finder or Figma: a name typed and
+  clicked away from is never silently lost. Collapsing mid-rename saves too. **(impl)**
+- Saving an empty or whitespace-only name — or the captured title itself — restores the default.
+- **Stored** per page in the domain index, `meta.pageTitles[normalisedUrl]`, trimmed, through the
+  service worker's write queue (`SET_PAGE_TITLE`). It lasts until the page's last note is deleted
+  or **delete all for this website** runs (which removes the index it lives in); an import starts
+  with none. Either way the page is back on its default.
+- The new name shows at once; if it cannot be stored it goes back, with "couldn't save the page
+  name. try again." under the heading.
+- **Export:** the one place `feedback.md` writes a page's title is each note's `page_title`
+  (§AC); a renamed page's notes carry the name there. Re-imported, it comes back as those notes'
+  captured title — the page's default from then on. The stored items are never rewritten.
+
+## A note
+
+A column of three bands: **header line**, **screenshot**, **text area**.
+
+- **Screenshot** at the selection's own CSS size (`selectionRect`; the PNG is at the capture's
+  dpr). Never scaled up. Scaled down, aspect kept, only if it is wider than the content column, or
+  taller than what leaves its header and text area on screen with it (the scroller's height less
+  192px, at least 160px) **(impl)** — a reviewer should never have to scroll between an image
+  and its note. No card, no border; radius md; a `raised` fill shows only before it decodes.
+- **Column width** = the screenshot's width clamped between **267px** (the minimum: the text area's
+  width) and the content width (the maximum). A screenshot narrower than 267 sits at its own size,
+  centred over the text area; a wider one sets the column and the text area is centred under it.
+- **Text area: 267 × 96px for every note** — the minimum note width, and exactly the default
+  selection's width (§F, `DEFAULT_THUMBNAIL_BOX_SIZE`), so the most common note — a click-placed
+  267×100 — reads as one clean column, edge to edge, and three of them fit a row from a ~1250px
+  window. 96px is four lines of the 14px/1.45 note face; it never grows with its text, it scrolls
+  inside. Styled as before (surface, inset `line`, `accent` on focus, `danger` when empty).
+  **(impl)**
+- **Header line, 28px, 8px above the screenshot band:** "#n" — the number only, mono 12px/600,
+  `muted`; per page, as everywhere (§AD) — and a 28px delete (the list's trash glyph and
+  treatment, §S, §X's small size: a page of 32px buttons was heavy). It spans the column: "#n"
+  at its left edge, delete at its right. **On a shared line at the top of the row**, not glued to
+  its own screenshot: the screenshots are centred against each other, so per-screenshot headers
+  would step up and down with every height and break the row's top edge, while a shared line gives
+  the row three clean bands — headers, images, notes — and the header and the text area frame
+  each column at the same width. **(impl)**
+- Clicking a screenshot puts the cursor in its note.
+- Full images load lazily: `GET_IMAGE` as a note comes within 800px of the viewport
+  (IntersectionObserver on the scroller); the inline thumbnail stands in until then. Every box is
+  sized from the stored selection up front, so nothing moves when an image arrives.
+
+## Rows
+
+- **1, 2 or at most 3 notes**, filled greedily in order: a row takes the next note while the row
+  still fits the content width with **32px** between columns, so a wide note ends up alone.
+- Columns keep their own widths (never equalised); **every row is centred** — which centres the
+  one- and two-note rows, and splits a full row's leftover evenly.
+- In a row the header lines share a y; the screenshots are **centred vertically** against each
+  other in the band (the tallest fills it); the **text areas all start at one y**, 12px under the
+  band.
+- **Vertical rhythm (impl):** 24px above the first heading; heading 36 + 16 to its first row;
+  **40px** between rows (room for a note's one-line message, 16px + 6px, in the gap); **64px**
+  from a page's last row to the next heading, so a page break reads as one; 64px at the end.
+- **Narrow windows:** fewer per row, down to one (at the 560px minimum panel, one default note per
+  row); a screenshot wider than even one column is scaled down to it, and in a column narrower
+  than 267px the text area narrows with it.
+
+## Editing, all at once
+
+- Every note is in edit mode. Each autosaves **on its own debounce** (700ms, src/autosave.ts now
+  keeps a timer per id) and is flushed on its blur, on collapse, on sidebar close and on unload.
+  A failed save shows "couldn't save note. try again." under that note and is retried on the next
+  flush; one still failing after collapse is reported in the banner as "couldn't save note #n on
+  {page}. try again."
+- **A note can never be empty.** Emptied, its text area turns `danger` and says **"note
+  required"** under it, at once (not only when leaving is refused); it is never saved, and the last
+  saved text stays stored. **Closing is refused** while any note is empty — exit, Esc, the scrim,
+  the toolbar icon, closing the sidebar — and focus moves to the first empty note, scrolled into
+  view, with one small shake per emptying (§11, never under reduced motion). Deleting is still
+  allowed. A forced close (navigation, add mode) leaves the last saved text in place.
+
+## Opening
+
+- Clicking a note in the list opens the view with **that note's text area focused**, caret at the
+  end of its text.
+- The view is scrolled so that **80px of whatever precedes the note's row shows at the top**, cut
+  off by the top bar — the previous row's bottom, on this page or the page before. The row's
+  "block" includes its page's heading when it is the page's first row, so a note never opens under
+  a heading it cannot see. With nothing before it (the site's first row), it starts at the top
+  with no peek. If the row is too tall for a full peek, it gives up as much peek as its text area
+  needs to be on screen. On a ~900px window that puts a mid-page row about a fifth of the way down
+  the panel and a page's first row about a quarter. **(impl — 80px is the owner's figure; the
+  "about 25%" follows from it rather than being forced, since forcing both would show more than
+  80px of the previous row on taller windows.)** Content shorter than the window is simply all
+  there, from the top.
+
+## Keyboard and accessibility
+
+- Tab moves through the controls in reading order — exit, then per page its ✎ (or, renaming, the
+  field, ✓, ×), then each note's delete and text area — wrapping (the view is modal). Focus
+  brought to a note scrolls just enough to show it whole, with 24px to spare.
+- **Esc** collapses — unless a page is being renamed (Esc cancels that) or a note is empty
+  (refused). **↑/↓** scroll 64px, PageUp/PageDown a screen less the 80px peek, Home/End to the
+  ends, whenever focus is not in a text field. Keyboard isolation (NF-ISO-1) is unchanged: the
+  host page never sees a key.
+- The view is a modal `dialog` labelled "all notes on this website"; each delete is "delete note
+  #n on {page}", each text area "note #n on {page}", each pencil "edit page name: {page}"; a note's
+  message is a polite live region and the text area's `aria-describedby` (with `aria-invalid` for
+  "note required").
+- Focus returns, on collapse, to the list item of the last note focused **on this page**, else to
+  the one the view was opened on.
+
+## Motion (design/MOTION_SPEC.md §5–§8 as revised)
+
+MOTION_SPEC's curves and durations are reused unchanged.
+
+- **Open:** the panel grows leftward (450ms std) as before. **Every note whose thumbnail is visible
+  in the list** morphs from it into its place in the grid (450ms std, sampled transform-only FLIP,
+  the clicked one always) — a clone in the front layer, clipped where the scroller clips, swapped
+  for the real screenshot when it lands. Notes with no visible thumbnail (other pages, scrolled
+  out of the list) fade in; headings, headers and text areas fade in a band at a time from 150ms,
+  50ms apart, capped at two steps; the exit button last (300ms). The scroller holds still until
+  the morph settles.
+- **Close:** notes on screen in the panel that have a thumbnail in the list morph back into it
+  (340ms std); everything else fades out (120ms acc); the panel shrinks back. A collapse mid-open
+  reverses from the live state — the panel's width and every clone in flight.
+- **Delete:** the note shrinks to 0.95 and fades (180ms acc); then every remaining heading and
+  part of every note travels to its re-packed place (400ms std, FLIP from where it is on screen,
+  a clamped scroll position folded in). A page's last note fades its heading with it.
+- **Reduced motion:** crossfades only, at roughly halved durations; no clone, no travel.
+
+## Unchanged
+
+Add mode cannot coexist with the view (and Option/Alt+N does nothing while it is open); the scrim,
+the ~¾ width and its right anchoring stay; the theme and tokens stay; the page never re-lays out;
+the host page cannot scroll while it is open (§T), though the view's own scroller and text areas
+do — a text area at its end hands the wheel on to the scroller, not to the page.
