@@ -84,6 +84,10 @@ export interface PageHeadingOptions {
   /** The shown name changed (a rename, or one reverted): the notes under
    *  it name their page in their labels. */
   onNameChanged: () => void;
+  /** A rename did not stick (it went back, with `message` under the
+   *  heading). The view says it elsewhere when the heading is no longer
+   *  on screen. */
+  onRenameFailed?: (message: string) => void;
 }
 
 export class PageHeading {
@@ -249,7 +253,9 @@ export class PageHeading {
         this.edited = prev;
         this.renderName();
         this.opts.onNameChanged();
-        this.setStatus(result === 'no-notes' ? PAGE_HAS_NO_NOTES_MESSAGE : PAGE_NAME_SAVE_ERROR_MESSAGE);
+        const message = result === 'no-notes' ? PAGE_HAS_NO_NOTES_MESSAGE : PAGE_NAME_SAVE_ERROR_MESSAGE;
+        this.setStatus(message);
+        this.opts.onRenameFailed?.(message);
       });
   }
 

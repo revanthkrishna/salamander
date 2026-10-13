@@ -1111,6 +1111,46 @@ describe('renaming a page', () => {
     expect(heading(PRICING).querySelector('.xp-page-status')!.textContent).toBe(PAGE_HAS_NO_NOTES_MESSAGE);
   });
 
+  test.each([
+    ['failed', PAGE_NAME_SAVE_ERROR_MESSAGE],
+    ['no-notes', PAGE_HAS_NO_NOTES_MESSAGE],
+  ] as const)('a rename the collapse committed that comes back %p is said in the sidebar\'s banner', async (result, message) => {
+    setup();
+    open(3, makeCallbacks({ onSavePageTitle: jest.fn().mockResolvedValue(result) }));
+    settleOpen();
+    editBtn(PRICING).click();
+    typeInto(input(PRICING), 'plans');
+    exitBtn().click();
+    await flush();
+    jest.advanceTimersByTime(T.collapseSettle);
+    expect(sidebar.isEnlargedViewOpen()).toBe(false);
+    expect(q('.notif')!.hidden).toBe(false);
+    expect(q('.notif-text')!.textContent).toBe(message);
+  });
+
+  test('...and one that saved says nothing', async () => {
+    setup();
+    open(3);
+    settleOpen();
+    editBtn(PRICING).click();
+    typeInto(input(PRICING), 'plans');
+    exitBtn().click();
+    await flush();
+    jest.advanceTimersByTime(T.collapseSettle);
+    expect(q('.notif')!.hidden).toBe(true);
+  });
+
+  test('while the view is open a failed rename shows under its heading only, not in the banner', async () => {
+    setup();
+    open(3, makeCallbacks({ onSavePageTitle: jest.fn().mockResolvedValue('failed') }));
+    settleOpen();
+    editBtn(PRICING).click();
+    typeInto(input(PRICING), 'plans');
+    keydown(input(PRICING), 'Enter');
+    await flush();
+    expect(q('.notif')!.hidden).toBe(true);
+  });
+
   test('clicking away saves, as does closing the view mid-rename', () => {
     setup();
     const cbs = open(3);

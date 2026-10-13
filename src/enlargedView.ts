@@ -503,6 +503,13 @@ class EnlargedView {
         idPrefix: `xp-page-${i}`,
         onRename: (name) => this.callbacks.onSavePageTitle(p.normalisedUrl, name),
         onNameChanged: () => this.renumber(page),
+        // A rename the collapse committed comes back after the heading has
+        // gone: say so in the sidebar's banner instead, as a lost note
+        // save is (onSaveSettled). While the view is up, the heading's own
+        // line says it.
+        onRenameFailed: (message) => {
+          if (this.state === 'closing' || this.state === 'closed') this.mount.showBanner(message);
+        },
       });
       group.setAttribute('aria-labelledby', heading.nameId);
       group.appendChild(heading.el);
