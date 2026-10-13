@@ -179,6 +179,15 @@ export interface DomainMeta {
    *  released — but every index carries it so a future change has something
    *  to branch on. */
   version: number;
+  /** Page names the user edited in the enlarged view (design spec §AH),
+   *  keyed by normalised URL. A page with no entry shows its default name —
+   *  the HTML title captured with its first note
+   *  (`context.pageMeta.title`). An entry goes when the page's last note is
+   *  deleted or the whole site is ("delete all for this website" removes
+   *  the index it lives in), so the page is back on its default name.
+   *  Optional: an index that never had a page renamed omits it, and older
+   *  records need no migration. */
+  pageTitles?: Record<string, string>;
 }
 
 /** A domain's feedback as every consumer sees it: the items grouped by
@@ -199,6 +208,15 @@ export interface DomainData {
 export interface DomainIndex {
   meta: DomainMeta;
   pages: Record<string, number[]>;
+}
+
+/** One page of a site as the enlarged view shows it (design spec §AH):
+ *  its notes in capture order (the order their numbers come from), and the
+ *  name the user gave it, or null when it shows its default. */
+export interface SitePage {
+  normalisedUrl: string;
+  editedTitle: string | null;
+  items: FeedbackItem[];
 }
 
 // The bundle's snake_case json record type lives with the grammar it

@@ -7,7 +7,7 @@
 // Blob/File/ArrayBuffer do not survive. Every payload below is plain JSON;
 // images cross as data-URL strings.
 
-import { FeedbackItem, ItemPatch, Rect, ViewportSize } from './types';
+import { FeedbackItem, ItemPatch, Rect, SitePage, ViewportSize } from './types';
 
 // ---------------------------------------------------------------------------
 // Background -> content script
@@ -227,6 +227,53 @@ export interface GetPageItemsErrorResponse {
 }
 
 export type GetPageItemsResponse = GetPageItemsSuccessResponse | GetPageItemsErrorResponse;
+
+/** Fetch every page of a domain that has notes, with their notes and
+ *  edited names, for the enlarged view (design spec §AH) — which shows the
+ *  whole site, where the list shows only the page on screen. Thumbnails
+ *  come inline as they do for GET_PAGE_ITEMS; full images are still
+ *  fetched one at a time (GET_IMAGE), as each note nears the viewport. */
+export interface GetSitePagesMessage {
+  type: 'GET_SITE_PAGES';
+  domain: string;
+}
+
+export interface GetSitePagesSuccessResponse {
+  ok: true;
+  /** Ordered as the view and the export both show them: pages by their
+   *  first note's id, notes in capture order (storage.ts, getSitePages). */
+  pages: SitePage[];
+}
+
+export interface GetSitePagesErrorResponse {
+  ok: false;
+  message: string;
+}
+
+export type GetSitePagesResponse = GetSitePagesSuccessResponse | GetSitePagesErrorResponse;
+
+/** Rename a page in the enlarged view (design spec §AH), or give it back its
+ *  default name: `title` null, empty or whitespace-only clears the edit.
+ *  Kept per normalised URL in the domain index, through the write queue. */
+export interface SetPageTitleMessage {
+  type: 'SET_PAGE_TITLE';
+  domain: string;
+  normalisedUrl: string;
+  title: string | null;
+}
+
+export interface SetPageTitleSuccessResponse {
+  ok: true;
+}
+
+export interface SetPageTitleErrorResponse {
+  ok: false;
+  /** Lowercase, user-facing. Also the reply when the page no longer has any
+   *  notes (another tab deleted them): there is nothing left to name. */
+  message: string;
+}
+
+export type SetPageTitleResponse = SetPageTitleSuccessResponse | SetPageTitleErrorResponse;
 
 /** Fetch the full-resolution PNG for one item, for the enlarged view. The
  *  sidebar list itself never sends this — only the enlarged view does. */
@@ -474,6 +521,8 @@ export type ContentToBackgroundMessage =
   | CaptureMessage
   | SaveItemMessage
   | GetPageItemsMessage
+  | GetSitePagesMessage
+  | SetPageTitleMessage
   | GetImageMessage
   | UpdateItemMessage
   | UpdateNoteMessage
@@ -504,6 +553,8 @@ export interface MessageMap {
   CAPTURE: [CaptureMessage, CaptureResponse];
   SAVE_ITEM: [SaveItemMessage, SaveItemResponse];
   GET_PAGE_ITEMS: [GetPageItemsMessage, GetPageItemsResponse];
+  GET_SITE_PAGES: [GetSitePagesMessage, GetSitePagesResponse];
+  SET_PAGE_TITLE: [SetPageTitleMessage, SetPageTitleResponse];
   GET_IMAGE: [GetImageMessage, GetImageResponse];
   UPDATE_ITEM: [UpdateItemMessage, UpdateItemResponse];
   UPDATE_NOTE: [UpdateNoteMessage, UpdateNoteResponse];

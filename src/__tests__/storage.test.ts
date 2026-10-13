@@ -15,6 +15,8 @@ import {
   replaceDomainData,
   deleteDomainData,
   getDomainCounts,
+  getSitePages,
+  setPageTitle,
   setSidebarOpen,
   isSidebarOpen,
   clearSidebarState,
@@ -404,6 +406,134 @@ describe('storage.ts — the split layout (schema version 2)', () => {
     const index = split[`domain:${DOMAIN}`] as Parameters<typeof assembleDomainData>[1];
     expect(index).toEqual({ meta: data.meta, pages: { [URL_A]: [1, 3], [URL_B]: [2] } });
     expect(assembleDomainData(DOMAIN, index, split)).toEqual(data);
+  });
+});
+
+// Design spec §AH: the enlarged view's whole-site list, and the names the
+// user gives pages there — kept per normalised URL in the domain index, and
+// gone again with the page's last note or with the whole site.
+describe('storage.ts — site pages and edited page names (design spec §AH)', () => {
+  const A = 'https://example.com/a';
+  const B = 'https://example.com/b';
+  const C = 'https://example.com/c';
+  const on = (id: number, url: string) => makeItem({ id, normalisedUrl: url, pageUrl: url, screenshotKey: `shot-${id}` });
+
+  async function seed(): Promise<void> {
+    // Captured b, a, b, c: page b was noted on first.
+    for (const item of [on(1, B), on(2, A), on(3, B), on(4, C)]) {
+      await seedImage(item.screenshotKey);
+      await addItem(DOMAIN, item);
+    }
+  }
+
+  test('pages come ordered by their first note, notes in capture order, names null by default', async () => {
+    await seed();
+    const pages = await getSitePages(DOMAIN);
+    expect(pages.map((p) => p.normalisedUrl)).toEqual([B, A, C]);
+    expect(pages[0].items.map((i) => i.id)).toEqual([1, 3]);
+    expect(pages.every((p) => p.editedTitle === null)).toBe(true);
+  });
+
+  test('an unknown domain has no pages', async () => {
+    expect(await getSitePages('nope.example')).toEqual([]);
+  });
+
+  test('deleting a page\'s first note re-orders the pages by the note that is now first', async () => {
+    await seed();
+    await deleteItem(DOMAIN, B, 1);
+    expect((await getSitePages(DOMAIN)).map((p) => p.normalisedUrl)).toEqual([A, B, C]);
+  });
+
+  test('a name is stored trimmed, per page, and read back with the site', async () => {
+    await seed();
+    expect(await setPageTitle(DOMAIN, A, '  pricing page  ')).toBe(true);
+    const pages = await getSitePages(DOMAIN);
+    expect(pages.find((p) => p.normalisedUrl === A)!.editedTitle).toBe('pricing page');
+    expect(pages.find((p) => p.normalisedUrl === B)!.editedTitle).toBeNull();
+    const index = (await chrome.storage.local.get(`domain:${DOMAIN}`))[`domain:${DOMAIN}`] as any;
+    expect(index.meta.pageTitles).toEqual({ [A]: 'pricing page' });
+  });
+
+  test('an empty or whitespace-only name (or null) restores the default and drops the key', async () => {
+    await seed();
+    await setPageTitle(DOMAIN, A, 'pricing');
+    await setPageTitle(DOMAIN, B, 'blog');
+    expect(await setPageTitle(DOMAIN, A, '   ')).toBe(true);
+    expect(await setPageTitle(DOMAIN, B, null)).toBe(true);
+    expect((await getSitePages(DOMAIN)).every((p) => p.editedTitle === null)).toBe(true);
+    const index = (await chrome.storage.local.get(`domain:${DOMAIN}`))[`domain:${DOMAIN}`] as any;
+    expect('pageTitles' in index.meta).toBe(false);
+  });
+
+  test('a page with no notes cannot be named; nothing is written', async () => {
+    expect(await setPageTitle(DOMAIN, A, 'x')).toBe(false);
+    await seed();
+    expect(await setPageTitle(DOMAIN, 'https://example.com/none', 'x')).toBe(false);
+    expect((await getSitePages(DOMAIN)).every((p) => p.editedTitle === null)).toBe(true);
+  });
+
+  test('a rename touches only the index: no item is rewritten', async () => {
+    await seed();
+    const before = await getDomainData(DOMAIN);
+    await setPageTitle(DOMAIN, A, 'pricing');
+    const after = await getDomainData(DOMAIN);
+    expect(after!.pages).toEqual(before!.pages);
+    expect(after!.meta.nextItemNumber).toBe(before!.meta.nextItemNumber);
+  });
+
+  test('deleting a page\'s LAST note clears its name; deleting one of several keeps it', async () => {
+    await seed();
+    await setPageTitle(DOMAIN, B, 'blog');
+    await setPageTitle(DOMAIN, A, 'pricing');
+    await deleteItem(DOMAIN, B, 1);
+    expect((await getSitePages(DOMAIN)).find((p) => p.normalisedUrl === B)!.editedTitle).toBe('blog');
+    await deleteItem(DOMAIN, A, 2);
+    expect((await getSitePages(DOMAIN)).map((p) => p.normalisedUrl)).toEqual([B, C]);
+    const index = (await chrome.storage.local.get(`domain:${DOMAIN}`))[`domain:${DOMAIN}`] as any;
+    expect(index.meta.pageTitles).toEqual({ [B]: 'blog' });
+    // Noted on again, the page is back on its default.
+    const again = on(9, A);
+    await seedImage(again.screenshotKey);
+    await addItem(DOMAIN, again);
+    expect((await getSitePages(DOMAIN)).find((p) => p.normalisedUrl === A)!.editedTitle).toBeNull();
+  });
+
+  test('a capture keeps the names already given', async () => {
+    await seed();
+    await setPageTitle(DOMAIN, A, 'pricing');
+    const more = on(5, A);
+    await seedImage(more.screenshotKey);
+    await addItem(DOMAIN, more);
+    expect((await getSitePages(DOMAIN)).find((p) => p.normalisedUrl === A)!.editedTitle).toBe('pricing');
+  });
+
+  test('delete all for this website takes every name with it', async () => {
+    await seed();
+    await setPageTitle(DOMAIN, A, 'pricing');
+    await deleteDomainData(DOMAIN);
+    expect(await getSitePages(DOMAIN)).toEqual([]);
+    const again = on(1, A);
+    await seedImage(again.screenshotKey);
+    await addItem(DOMAIN, again);
+    expect((await getSitePages(DOMAIN))[0].editedTitle).toBeNull();
+  });
+
+  test('an import (replace) starts with no names', async () => {
+    await seed();
+    await setPageTitle(DOMAIN, A, 'pricing');
+    await replaceDomainData(DOMAIN, { meta: { nextItemNumber: 2, version: STORAGE_VERSION }, pages: { [A]: [on(1, A)] } });
+    expect((await getSitePages(DOMAIN))[0].editedTitle).toBeNull();
+  });
+
+  test('split / assemble carry the names of pages that still have notes, and only those', () => {
+    const data = {
+      meta: { nextItemNumber: 3, version: STORAGE_VERSION, pageTitles: { [A]: 'pricing', [C]: 'stale' } },
+      pages: { [A]: [on(1, A)], [B]: [on(2, B)] },
+    };
+    const split = splitDomainData(DOMAIN, data);
+    const index = split[`domain:${DOMAIN}`] as Parameters<typeof assembleDomainData>[1];
+    expect(index.meta.pageTitles).toEqual({ [A]: 'pricing' });
+    expect(assembleDomainData(DOMAIN, index, split).meta.pageTitles).toEqual({ [A]: 'pricing' });
   });
 });
 

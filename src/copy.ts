@@ -18,6 +18,11 @@ import type { ImportErrorCode, ImportErrorDetails } from './types';
 export const CAPTURE_FAILED_MESSAGE = "couldn't capture a screenshot here. try again.";
 
 export const ITEM_LOAD_FAILED_MESSAGE = "couldn't load feedback for this page. try again.";
+/** The enlarged view could not read the site's other pages (design spec
+ *  §AH); it opens on this page's notes alone. */
+export const SITE_LOAD_FAILED_MESSAGE = "couldn't load the other pages' notes. try again.";
+/** A page's new name could not be stored (design spec §AH). */
+export const PAGE_NAME_SAVE_ERROR_MESSAGE = "couldn't save the page name. try again.";
 export const IMAGE_LOAD_FAILED_MESSAGE = "couldn't load screenshot. try again.";
 
 /** A save failure for the note on screen. */

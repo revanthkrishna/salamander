@@ -17,7 +17,7 @@ import * as storage from './storage';
 import * as imageStore from './imageStore';
 import { buildFeedbackMarkdown, ExportHeader } from './bundle';
 import { exportFilename } from './urlNorm';
-import { DomainData, Drawing } from './types';
+import { DomainData, Drawing, FeedbackItem } from './types';
 import { ExportResponse } from './messages';
 import { EXPORT_FAILED_MESSAGE } from './copy';
 import { dataUrlToBytes, bytesToDataUrl, dataUrlToBlob, blobToDataUrl } from './dataUrl';
@@ -76,8 +76,32 @@ export async function exportDomain(
   }
 }
 
+/**
+ * `data.pages` with every page the user renamed in the enlarged view
+ * (design spec §AH) carrying that name as its notes' page title — the one
+ * place feedback.md writes a page's title is each note's `page_title` — so
+ * the export says what the reviewer called the page, and an import round
+ * trip brings the name back (as those notes' captured title, which is then
+ * the page's default). The stored items are not touched.
+ */
+export function pagesWithEditedTitles(data: DomainData): Record<string, FeedbackItem[]> {
+  const titles = data.meta.pageTitles ?? {};
+  const out: Record<string, FeedbackItem[]> = {};
+  for (const [url, items] of Object.entries(data.pages)) {
+    const title = titles[url];
+    out[url] =
+      title === undefined
+        ? items
+        : items.map((item) => ({
+            ...item,
+            context: { ...item.context, pageMeta: { ...item.context.pageMeta, title } },
+          }));
+  }
+  return out;
+}
+
 async function buildZipDataUrl(data: DomainData, header: ExportHeader): Promise<string> {
-  const markdown = buildFeedbackMarkdown(data.pages, header);
+  const markdown = buildFeedbackMarkdown(pagesWithEditedTitles(data), header);
 
   const files: Record<string, Uint8Array> = {
     'feedback.md': strToU8(markdown),

@@ -12,7 +12,7 @@
 // makes, and the zip is read back with fflate.
 
 import { unzipSync, strFromU8 } from 'fflate';
-import { exportDomain, compositeDrawing, ExportEnvironment } from '../export';
+import { exportDomain, compositeDrawing, ExportEnvironment, pagesWithEditedTitles } from '../export';
 import { bytesToDataUrl } from '../dataUrl';
 import { buildFeedbackMarkdown } from '../bundle';
 import { parseImportBundle } from '../import';
@@ -370,6 +370,56 @@ describe('export: per-page numbering and the round trip', () => {
     for (const name of Object.keys(first)) {
       expect(Array.from(second[name])).toEqual(Array.from(first[name]));
     }
+  });
+});
+
+// Design spec §AH: a page the user renamed in the enlarged view exports
+// under that name — the one place feedback.md writes a page's title is each
+// note's page_title — so an import round trip keeps it.
+describe('export: edited page names (design spec §AH)', () => {
+  const A = 'https://example.com/a';
+  const B = 'https://example.com/b';
+  const onPage = (id: number, url: string) => makeItem(id, { normalisedUrl: url, pageUrl: url });
+
+  function site(): DomainData {
+    return {
+      meta: { nextItemNumber: 4, version: 2, pageTitles: { [A]: 'pricing, renamed' } },
+      pages: { [A]: [onPage(1, A), onPage(3, A)], [B]: [onPage(2, B)] },
+    };
+  }
+
+  test('every note of a renamed page carries the name as its page_title; other pages keep theirs', async () => {
+    getImage.mockImplementation(async (key: string) => (STORED[key] ? bytesToDataUrl(new Uint8Array(STORED[key]), 'image/png') : null));
+    const res = await exportDomain('example.com', async () => site(), ENV);
+    expect(res).toEqual({ ok: true });
+    const url = downloads[0].url;
+    const md = strFromU8(unzipSync(new Uint8Array(Buffer.from(url.slice(url.indexOf(',') + 1), 'base64')))['feedback.md']);
+    expect(md.match(/"page_title": "[^"]*"/g)).toEqual([
+      '"page_title": "pricing, renamed"',
+      '"page_title": "pricing, renamed"',
+      '"page_title": "example"',
+    ]);
+  });
+
+  test('the stored items are not changed by it', () => {
+    const data = site();
+    const out = pagesWithEditedTitles(data);
+    expect(out[A][0].context.pageMeta.title).toBe('pricing, renamed');
+    expect(data.pages[A][0].context.pageMeta.title).toBe('example');
+    expect(out[B]).toBe(data.pages[B]);
+  });
+
+  test('an import of that export brings the name back as the notes\' title', async () => {
+    getImage.mockImplementation(async (key: string) => (STORED[key] ? bytesToDataUrl(new Uint8Array(STORED[key]), 'image/png') : null));
+    await exportDomain('example.com', async () => site(), ENV);
+    const zipUrl = downloads[downloads.length - 1].url;
+    const zip = new Uint8Array(Buffer.from(zipUrl.slice(zipUrl.indexOf(',') + 1), 'base64'));
+    const file = { name: 'b.zip', arrayBuffer: async () => zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength) } as unknown as File;
+    const bundle = await parseImportBundle(file, 'example.com');
+    expect(bundle.items.filter((i) => i.normalisedUrl === A).map((i) => i.context.pageMeta.title)).toEqual([
+      'pricing, renamed',
+      'pricing, renamed',
+    ]);
   });
 });
 

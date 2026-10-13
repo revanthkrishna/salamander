@@ -4,6 +4,7 @@
 //
 // Layout in chrome.storage.local (schema version 2):
 //   `domain:{domain}`     -> DomainIndex: { meta, pages: { normalisedUrl: id[] } }
+//                            (meta.pageTitles: the pages the user renamed)
 //   `item:{domain}:{id}`  -> FeedbackItem (thumbnail data-URL inline)
 //
 // The split exists so the sidebar's list still paints from one round trip
@@ -39,7 +40,7 @@
 // chrome.storage.local directly: they are not domain data, a round trip
 // for them would be silly, and nothing here ever touches those keys.
 
-import { DomainData, DomainIndex, FeedbackItem, ItemPatch } from './types';
+import { DomainData, DomainIndex, DomainMeta, FeedbackItem, ItemPatch, SitePage } from './types';
 import * as imageStore from './imageStore';
 
 /** The schema version stamped on every domain index this build writes.
@@ -146,10 +147,12 @@ export function splitDomainData(domain: string, data: DomainData): Record<string
     pages[url] = items.map((item) => item.id);
     for (const item of items) out[itemKey(domain, item.id)] = item;
   }
-  const index: DomainIndex = {
-    meta: { nextItemNumber: data.meta.nextItemNumber, version: STORAGE_VERSION },
-    pages,
-  };
+  const meta: DomainMeta = { nextItemNumber: data.meta.nextItemNumber, version: STORAGE_VERSION };
+  // Only the names of pages that still have notes travel: a name outlives
+  // its page's last note nowhere (design spec §AH).
+  const titles = Object.entries(data.meta.pageTitles ?? {}).filter(([url]) => (pages[url]?.length ?? 0) > 0);
+  if (titles.length > 0) meta.pageTitles = Object.fromEntries(titles);
+  const index: DomainIndex = { meta, pages };
   out[domainKey(domain)] = index;
   return out;
 }
@@ -170,7 +173,9 @@ export function assembleDomainData(
     }
     pages[url] = items;
   }
-  return { meta: { ...index.meta }, pages };
+  const meta: DomainMeta = { ...index.meta };
+  if (index.meta.pageTitles) meta.pageTitles = { ...index.meta.pageTitles };
+  return { meta, pages };
 }
 
 function itemKeysOf(domain: string, index: DomainIndex): string[] {
@@ -215,6 +220,53 @@ export async function getDomainCounts(domain: string): Promise<{ items: number; 
   if (!index) return { items: 0, pages: 0 };
   const lists = Object.values(index.pages).filter((ids) => ids.length > 0);
   return { items: lists.reduce((sum, ids) => sum + ids.length, 0), pages: lists.length };
+}
+
+/**
+ * Every page of a domain that has notes, for the enlarged view (design spec
+ * §AH): pages ordered by their first note's id — ids are allocated in
+ * capture order, so that is the order the pages were first noted on, the
+ * same order the export writes them in (src/bundle/v2.ts) — and each page's
+ * notes in capture order, the order their numbers come from. Each page
+ * carries its edited name, or null for its default. Empty when nothing has
+ * been captured for the domain.
+ */
+export async function getSitePages(domain: string): Promise<SitePage[]> {
+  const data = await getDomainData(domain);
+  if (!data) return [];
+  const titles = data.meta.pageTitles ?? {};
+  return Object.entries(data.pages)
+    .filter(([, items]) => items.length > 0)
+    .sort(([, a], [, b]) => a[0].id - b[0].id)
+    .map(([normalisedUrl, items]) => ({ normalisedUrl, editedTitle: titles[normalisedUrl] ?? null, items }));
+}
+
+/**
+ * Give a page of a domain the name the user typed in the enlarged view
+ * (design spec §AH), or — `title` null, empty or whitespace — clear it so
+ * the page shows its default again. Stored trimmed, in the domain index's
+ * `meta.pageTitles`, so it costs one small write and no item is touched.
+ * Resolves false (writing nothing) when the page has no notes: a name only
+ * exists alongside notes, and deleting a page's last note clears it.
+ */
+export async function setPageTitle(domain: string, normalisedUrl: string, title: string | null): Promise<boolean> {
+  const index = await readIndex(domain);
+  if (!index || !(index.pages[normalisedUrl]?.length)) return false;
+  const name = title?.trim() ?? '';
+  const titles = { ...(index.meta.pageTitles ?? {}) };
+  if (name === '') delete titles[normalisedUrl];
+  else titles[normalisedUrl] = name;
+  setTitles(index.meta, titles);
+  index.meta.version = STORAGE_VERSION;
+  await storageSet({ [domainKey(domain)]: index });
+  return true;
+}
+
+/** Write `titles` onto `meta`, dropping the key when nothing is left so an
+ *  index with no renamed page looks exactly like one that never had one. */
+function setTitles(meta: DomainMeta, titles: Record<string, string>): void {
+  if (Object.keys(titles).length > 0) meta.pageTitles = titles;
+  else delete meta.pageTitles;
 }
 
 /** Delete a domain's record entirely — index, every item, every blob. */
@@ -326,6 +378,13 @@ export async function deleteItem(
   const remaining = ids.filter((id) => id !== itemId);
   if (remaining.length === 0) {
     delete index.pages[normalisedUrl];
+    // The page's last note: its edited name goes with it, and the page is
+    // back on its default if it is ever noted on again (design spec §AH).
+    if (index.meta.pageTitles?.[normalisedUrl] !== undefined) {
+      const titles = { ...index.meta.pageTitles };
+      delete titles[normalisedUrl];
+      setTitles(index.meta, titles);
+    }
   } else {
     index.pages[normalisedUrl] = remaining;
   }

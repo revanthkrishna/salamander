@@ -13,6 +13,8 @@ import {
   getNextItemId,
   addItem,
   getPageItems,
+  getSitePages,
+  setPageTitle,
   updateItem,
   updateNote,
   deleteItem,
@@ -37,6 +39,8 @@ import {
   DOMAIN_COUNT_FAILED_MESSAGE,
   IMPORT_FAILED_MESSAGE,
   DELETE_ALL_FAILED_MESSAGE,
+  SITE_LOAD_FAILED_MESSAGE,
+  PAGE_NAME_SAVE_ERROR_MESSAGE,
 } from './copy';
 import { FeedbackItem, Rect, ViewportSize, DomainData } from './types';
 import {
@@ -49,6 +53,10 @@ import {
   SaveItemResponse,
   GetPageItemsMessage,
   GetPageItemsResponse,
+  GetSitePagesMessage,
+  GetSitePagesResponse,
+  SetPageTitleMessage,
+  SetPageTitleResponse,
   GetImageMessage,
   GetImageResponse,
   UpdateItemMessage,
@@ -180,6 +188,8 @@ const handlers: MessageHandlers = {
   CAPTURE: (message, sender) => handleCapture(message, sender),
   SAVE_ITEM: (message) => handleSaveItem(message),
   GET_PAGE_ITEMS: (message) => handleGetPageItems(message),
+  GET_SITE_PAGES: (message) => handleGetSitePages(message),
+  SET_PAGE_TITLE: (message) => handleSetPageTitle(message),
   GET_IMAGE: (message) => handleGetImage(message),
   UPDATE_ITEM: (message) => handleUpdateItem(message),
   UPDATE_NOTE: (message) => handleUpdateNote(message),
@@ -349,14 +359,14 @@ export function _resetSaveQueueForTests(): void {
 // Thumbnail list + enlarged view (§1.5, §3.3)
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Four small read/write handlers on top of storage.ts/imageStore.ts.
-// GET_IMAGE is a pure read; GET_PAGE_ITEMS reads through saveQueueTail so it
-// sees every write sent before it. UPDATE_ITEM/UPDATE_NOTE and DELETE_ITEM
-// share saveQueueTail with SAVE_ITEM as well: a delete rewrites the domain
-// index, and an item update read-modify-writes that item's key, so
-// unserialised, a note edit overlapping a capture in another tab (or a
-// second edit of the same note) could write back a stale copy and drop the
-// other change.
+// Small read/write handlers on top of storage.ts/imageStore.ts.
+// GET_IMAGE is a pure read; GET_PAGE_ITEMS and GET_SITE_PAGES read through
+// saveQueueTail so they see every write sent before them. UPDATE_ITEM/
+// UPDATE_NOTE, DELETE_ITEM and SET_PAGE_TITLE share saveQueueTail with
+// SAVE_ITEM as well: a delete or a rename rewrites the domain index, and an
+// item update read-modify-writes that item's key, so unserialised, a note
+// edit overlapping a capture in another tab (or a second edit of the same
+// note) could write back a stale copy and drop the other change.
 
 export async function handleGetPageItems(
   message: GetPageItemsMessage,
@@ -369,6 +379,33 @@ export async function handleGetPageItems(
   } catch (err) {
     console.warn('[Annotator] could not load page items:', err);
     return { ok: false, message: ITEM_LOAD_FAILED_MESSAGE };
+  }
+}
+
+/** Every page of the site with its notes and edited name, for the enlarged
+ *  view (design spec §AH). Through the queue like GET_PAGE_ITEMS: the view
+ *  opens right after a capture or an edit may have been sent. */
+export async function handleGetSitePages(message: GetSitePagesMessage): Promise<GetSitePagesResponse> {
+  try {
+    const pages = await enqueueSave(() => getSitePages(message.domain));
+    return { ok: true, pages };
+  } catch (err) {
+    console.warn('[Annotator] could not load the site\'s pages:', err);
+    return { ok: false, message: SITE_LOAD_FAILED_MESSAGE };
+  }
+}
+
+/** A page's edited name (design spec §AH): a read-modify-write of the domain
+ *  index, so it shares the queue with every other index write — a rename
+ *  racing a capture or a delete on the same site can't drop either. A page
+ *  with no notes left has nothing to name, and says so as a failure. */
+export async function handleSetPageTitle(message: SetPageTitleMessage): Promise<SetPageTitleResponse> {
+  try {
+    const found = await enqueueSave(() => setPageTitle(message.domain, message.normalisedUrl, message.title));
+    return found ? { ok: true } : { ok: false, message: PAGE_NAME_SAVE_ERROR_MESSAGE };
+  } catch (err) {
+    console.warn('[Annotator] could not save the page name:', err);
+    return { ok: false, message: PAGE_NAME_SAVE_ERROR_MESSAGE };
   }
 }
 

@@ -18,7 +18,7 @@
 import * as imageStore from '../imageStore';
 import * as storage from '../storage';
 import type { CaptureMessage, NewFeedbackItem } from '../messages';
-import { DELETE_ALL_FAILED_MESSAGE } from '../copy';
+import { DELETE_ALL_FAILED_MESSAGE, PAGE_NAME_SAVE_ERROR_MESSAGE, SITE_LOAD_FAILED_MESSAGE } from '../copy';
 
 jest.mock('../imageStore');
 jest.mock('../storage', () => ({
@@ -28,6 +28,8 @@ jest.mock('../storage', () => ({
   getNextItemId: jest.fn().mockResolvedValue(1),
   addItem: jest.fn().mockResolvedValue(undefined),
   getPageItems: jest.fn().mockResolvedValue([]),
+  getSitePages: jest.fn().mockResolvedValue([]),
+  setPageTitle: jest.fn().mockResolvedValue(true),
   updateItem: jest.fn().mockResolvedValue(true),
   updateNote: jest.fn().mockResolvedValue(undefined),
   deleteItem: jest.fn().mockResolvedValue(undefined),
@@ -883,6 +885,78 @@ describe('handleGetPageItems', () => {
       message: "couldn't load feedback for this page. try again.",
     });
     warn.mockRestore();
+  });
+});
+
+describe('handleGetSitePages (design spec §AH)', () => {
+  it('returns storage.ts\'s ordered pages for the domain unchanged', async () => {
+    const pages = [{ normalisedUrl: 'example.com/a', editedTitle: 'pricing', items: [{ id: 1 } as any] }];
+    mockedStorage.getSitePages.mockResolvedValue(pages);
+    const response = await background.handleGetSitePages({ type: 'GET_SITE_PAGES', domain: 'example.com' });
+    expect(mockedStorage.getSitePages).toHaveBeenCalledWith('example.com');
+    expect(response).toEqual({ ok: true, pages });
+  });
+
+  it('maps a storage read failure to the site copy, not a throw', async () => {
+    mockedStorage.getSitePages.mockRejectedValue(new Error('boom'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const response = await background.handleGetSitePages({ type: 'GET_SITE_PAGES', domain: 'example.com' });
+    expect(response).toEqual({ ok: false, message: SITE_LOAD_FAILED_MESSAGE });
+    warn.mockRestore();
+  });
+
+  it('is routed by handleRuntimeMessage like every other read', async () => {
+    mockedStorage.getSitePages.mockResolvedValue([]);
+    const sendResponse = jest.fn();
+    const keepOpen = background.handleRuntimeMessage({ type: 'GET_SITE_PAGES', domain: 'example.com' }, makeSender(1), sendResponse);
+    expect(keepOpen).toBe(true);
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(sendResponse).toHaveBeenCalledWith({ ok: true, pages: [] });
+  });
+});
+
+describe('handleSetPageTitle (design spec §AH)', () => {
+  const msg = (title: string | null) =>
+    ({ type: 'SET_PAGE_TITLE', domain: 'example.com', normalisedUrl: 'example.com/a', title }) as const;
+
+  it('stores the name through storage.setPageTitle', async () => {
+    mockedStorage.setPageTitle.mockResolvedValue(true);
+    expect(await background.handleSetPageTitle(msg('pricing'))).toEqual({ ok: true });
+    expect(mockedStorage.setPageTitle).toHaveBeenCalledWith('example.com', 'example.com/a', 'pricing');
+  });
+
+  it('passes a reset (null) through as-is', async () => {
+    mockedStorage.setPageTitle.mockResolvedValue(true);
+    expect(await background.handleSetPageTitle(msg(null))).toEqual({ ok: true });
+    expect(mockedStorage.setPageTitle).toHaveBeenCalledWith('example.com', 'example.com/a', null);
+  });
+
+  it('a page with no notes left, or a write that fails, is the page-name copy', async () => {
+    mockedStorage.setPageTitle.mockResolvedValue(false);
+    expect(await background.handleSetPageTitle(msg('x'))).toEqual({ ok: false, message: PAGE_NAME_SAVE_ERROR_MESSAGE });
+    mockedStorage.setPageTitle.mockRejectedValue(new Error('quota'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(await background.handleSetPageTitle(msg('x'))).toEqual({ ok: false, message: PAGE_NAME_SAVE_ERROR_MESSAGE });
+    warn.mockRestore();
+  });
+
+  it('waits for a delete queued before it (it rewrites the same index)', async () => {
+    const order: string[] = [];
+    let release!: () => void;
+    mockedStorage.deleteItem.mockImplementation(
+      () => new Promise<void>((resolve) => (release = () => { order.push('delete'); resolve(); })),
+    );
+    mockedStorage.setPageTitle.mockImplementation(async () => {
+      order.push('rename');
+      return true;
+    });
+    const del = background.handleDeleteItem({ type: 'DELETE_ITEM', domain: 'example.com', normalisedUrl: 'example.com/a', itemId: 1 });
+    const rename = background.handleSetPageTitle(msg('pricing'));
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(order).toEqual([]);
+    release();
+    await Promise.all([del, rename]);
+    expect(order).toEqual(['delete', 'rename']);
   });
 });
 
