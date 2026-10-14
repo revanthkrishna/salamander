@@ -16,8 +16,14 @@ import {
   TOP_BAR_H,
 } from '../enlargedLayout';
 import { STD } from '../flip';
+import { CONFIRM_ACTIONS_GAP_PX } from '../sidebarMetrics';
 
 const EXIT_BTN = EXIT_BTN_PX;
+/** The top bar's tools (the notice, "delete all") → the exit button: wider
+ *  than the gaps inside the tools, so exit stands apart. */
+const TOOLS_GAP_PX = 20;
+/** What the tools leave on the top bar's left for the logo + wordmark. */
+const BRAND_RESERVE_PX = 232;
 
 // ---------------------------------------------------------------------------
 // CSS — appended to the sidebar's single <style> (sidebar.ts)
@@ -113,16 +119,75 @@ export const ENLARGED_VIEW_CSS = `
     pointer-events: auto;
     ${STATE_TRANSITION_CSS}
   }
-  /* The top bar's notice (the site could not be read in full), right-
-     aligned against the exit button. */
+  /* The top bar's tools, right-aligned against the exit button and
+     TOOLS_GAP_PX from it — more than between the controls inside: the notice
+     (the site could not be read in full; a delete-all that failed), then
+     "delete all". Bounded on the left by the logo + wordmark's room; a
+     notice too long for what is left ellipsizes. */
+  .xp-tools {
+    position: absolute; top: ${PANEL_MARGIN}px; right: ${PANEL_MARGIN + EXIT_BTN + TOOLS_GAP_PX}px;
+    left: ${BRAND_RESERVE_PX}px;
+    height: ${EXIT_BTN}px;
+    display: flex; align-items: center; justify-content: flex-end; gap: 16px;
+    pointer-events: none;
+  }
   .xp-notice {
-    position: absolute; top: 0; right: ${PANEL_MARGIN + EXIT_BTN + PANEL_MARGIN}px;
+    flex: 0 1 auto; min-width: 0;
     margin: 0;
-    font-size: 12px; line-height: ${TOP_BAR_H}px;
+    font-size: 12px; line-height: ${EXIT_BTN}px;
     color: var(--sal-danger);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     pointer-events: none;
   }
+
+  /* "delete all" (design spec §AH, 2026-10-13): the menu's destructive
+     item as a top-bar button — the note delete's trash glyph and the menu
+     item's danger ink, on the exit button's secondary box; the note
+     delete's danger tint on hover and press. Asked, it turns in place into
+     "confirm?" and two answers, the confirming one with the menu
+     question's soft danger fill. */
+  .xp-delete-all-group {
+    flex-shrink: 0;
+    display: flex; align-items: center;
+    pointer-events: auto;
+  }
+  .xp-delete-all, .xp-confirm-btn {
+    flex-shrink: 0;
+    height: ${EXIT_BTN}px; margin: 0; padding: 0 12px;
+    display: flex; align-items: center; gap: 8px;
+    white-space: nowrap;
+    background: var(--sal-surface);
+    border: 1px solid var(--sal-line);
+    border-radius: var(--sal-radius-md);
+    font-family: var(--sal-font-body); font-size: 13px; font-weight: 500; line-height: 1;
+    cursor: pointer;
+    ${STATE_TRANSITION_CSS}
+  }
+  .xp-delete-all[hidden], .xp-confirm[hidden] { display: none; }
+  .xp-delete-all { color: var(--sal-danger); }
+  .xp-delete-all:hover {
+    background: linear-gradient(var(--sal-danger-soft), var(--sal-danger-soft)), var(--sal-surface);
+  }
+  .xp-delete-all:active {
+    background: linear-gradient(var(--sal-danger-press), var(--sal-danger-press)), var(--sal-surface);
+  }
+  .xp-delete-all-icon { width: 16px; height: 16px; flex-shrink: 0; display: inline-flex; }
+  .xp-delete-all-icon svg { width: 100%; height: 100%; display: block; }
+  .xp-confirm { display: flex; align-items: center; gap: 12px; }
+  .xp-confirm-text {
+    font-family: var(--sal-font-body); font-size: 13px; line-height: 1;
+    color: var(--sal-text);
+    white-space: nowrap;
+  }
+  .xp-confirm-actions { display: flex; align-items: center; gap: ${CONFIRM_ACTIONS_GAP_PX}px; }
+  .xp-confirm-btn { color: var(--sal-text); }
+  .xp-confirm-btn:hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
+  .xp-confirm-btn:active { background: var(--sal-press); }
+  .xp-confirm-btn.is-danger { background: var(--sal-danger-soft); border-color: transparent; color: var(--sal-danger); }
+  .xp-confirm-btn.is-danger:hover { background: var(--sal-danger-hover); }
+  .xp-confirm-btn.is-danger:active { background: var(--sal-danger-press); }
+  .xp-confirm-btn[aria-disabled="true"] { cursor: default; }
+  .xp-delete-all:focus-visible, .xp-confirm-btn:focus-visible { outline: none; ${FOCUS_RING_CSS} }
   .xp-exit:hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
   .xp-exit:active { background: var(--sal-press); border-color: var(--sal-line-strong); }
   .xp-exit:focus-visible { outline: none; ${FOCUS_RING_CSS} }

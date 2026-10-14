@@ -61,6 +61,9 @@ export interface SiteActions {
   requestImport: () => Promise<void>;
   importFile: (file: File) => Promise<void>;
   deleteAll: () => Promise<void>;
+  /** The enlarged view's "delete all", already confirmed in its top bar:
+   *  the same delete, no question; resolves whether it went through. */
+  deleteAllConfirmed: () => Promise<boolean>;
   deleteItem: (item: FeedbackItem) => Promise<void>;
   refreshSiteHasNotes: () => Promise<void>;
 }
@@ -126,19 +129,36 @@ export function createSiteActions(deps: SiteActionsDeps): SiteActions {
     );
     if (!confirmed) return;
 
-    deleteAllInFlight = true;
     try {
-      const message: DeleteDomainDataMessage = { type: 'DELETE_DOMAIN_DATA', domain };
-      const response = await send(message);
+      const response = await sendDeleteAll(domain);
       if (!response || !response.ok) {
         sidebar.showError(response?.message ?? DELETE_ALL_FAILED_MESSAGE);
       }
     } finally {
-      deleteAllInFlight = false;
       // Repaint from storage either way: on success the list empties and the
       // item greys itself out; on failure whatever did survive is shown.
       await refreshThumbnails();
     }
+  }
+
+  /** DELETE_DOMAIN_DATA, one at a time. */
+  async function sendDeleteAll(domain: string) {
+    deleteAllInFlight = true;
+    try {
+      const message: DeleteDomainDataMessage = { type: 'DELETE_DOMAIN_DATA', domain };
+      return await send(message);
+    } finally {
+      deleteAllInFlight = false;
+    }
+  }
+
+  /** The enlarged view's "delete all" (design spec §AH, 2026-10-13): asked
+   *  in its own top bar, so no question here; the view says the outcome
+   *  itself and closes on success, and its closing repaints the list. */
+  async function handleDeleteAllConfirmed(): Promise<boolean> {
+    if (deleteAllInFlight) return false;
+    const response = await sendDeleteAll(normaliseDomain(location.host));
+    return response?.ok === true;
   }
 
   /**
@@ -305,6 +325,7 @@ export function createSiteActions(deps: SiteActionsDeps): SiteActions {
     requestImport: handleImportRequest,
     importFile: handleImportFile,
     deleteAll: handleDeleteAll,
+    deleteAllConfirmed: handleDeleteAllConfirmed,
     deleteItem: handleDeleteItem,
     refreshSiteHasNotes,
   };

@@ -113,6 +113,14 @@ describe('the rest of the copy is lowercase and stable', () => {
     expect(noteFieldLabel(2, 'Pricing')).toBe('note #2 on Pricing');
     expect(editPageNameLabel('Pricing')).toBe('edit page name: Pricing');
   });
+
+  test('the top bar\'s delete all (design spec §AH, 2026-10-13)', () => {
+    expect(copy.DELETE_ALL_LABEL).toBe('delete all');
+    expect(copy.DELETE_ALL_SITE_LABEL).toBe('delete all notes on this website');
+    expect(copy.DELETE_ALL_QUESTION).toBe('confirm?');
+    expect(copy.DELETE_ALL_YES_LABEL).toBe('yes, delete all');
+    expect(copy.DELETE_ALL_FAILED_MESSAGE).toBe("couldn't delete feedback. try again.");
+  });
 });
 
 describe('labels: add mode and the note list, byte-exact', () => {

@@ -107,6 +107,13 @@ export const THIS_PAGE_LABEL = 'this page';
 /** A page whose notes were captured with no HTML title. */
 export const UNTITLED_PAGE_NAME = 'untitled page';
 export const DELETE_NOTE_TIP = 'delete note';
+/** The top bar's "delete all" (design spec §AH, 2026-10-13): the menu's
+ *  "delete all for this website", asked in place — its label, the name and
+ *  tooltip that say how far it reaches, and the question it turns into. */
+export const DELETE_ALL_LABEL = 'delete all';
+export const DELETE_ALL_SITE_LABEL = 'delete all notes on this website';
+export const DELETE_ALL_QUESTION = 'confirm?';
+export const DELETE_ALL_YES_LABEL = 'yes, delete all';
 export const EDIT_PAGE_NAME_TIP = 'edit page name';
 export const SAVE_PAGE_NAME_LABEL = 'save page name';
 export const PAGE_NAME_FIELD_LABEL = 'page name';

@@ -90,6 +90,11 @@ const SELECTORS = {
   enlarged: '#annotator-sidebar-host .enlarged',
   enlargedOpen: '#annotator-sidebar-host .enlarged[data-state="open"]',
   enlargedExit: '#annotator-sidebar-host .xp-exit',
+  /** The top bar's "delete all" and the question it turns into. */
+  enlargedDeleteAll: '#annotator-sidebar-host .xp-delete-all',
+  enlargedConfirm: '#annotator-sidebar-host .xp-confirm',
+  enlargedConfirmYes: '#annotator-sidebar-host .xp-confirm-btn.is-danger',
+  enlargedConfirmCancel: '#annotator-sidebar-host .xp-confirm-btn:not(.is-danger)',
   enlargedScroll: '#annotator-sidebar-host .xp-scroll',
   // One per note, in reading order; `.xp-note[data-item-id]` wraps each.
   enlargedNote: '#annotator-sidebar-host .xp-note',

@@ -823,6 +823,36 @@ describe('content.ts: enlarged view wiring (design spec §AH)', () => {
     });
   });
 
+  test('the top bar\'s delete all, once confirmed there, deletes the whole site with no second question, and the list empties', async () => {
+    await openFirstNote();
+    const base = (chrome.runtime.sendMessage as jest.Mock).getMockImplementation()!;
+    (chrome.runtime.sendMessage as jest.Mock).mockImplementation((message: any, callback?: (r?: unknown) => void) => {
+      if (message?.type === 'DELETE_DOMAIN_DATA') {
+        pageItems = [];
+        return callback?.({ ok: true });
+      }
+      if (message?.type === 'GET_DOMAIN_ITEM_COUNT') return callback?.({ ok: true, count: pageItems.length, pageCount: pageItems.length ? 1 : 0 });
+      return base(message, callback);
+    });
+    (chrome.runtime.sendMessage as jest.Mock).mockClear();
+    jest.useFakeTimers();
+    (sidebarShadow().querySelector('.xp-delete-all') as HTMLButtonElement).click();
+    expect(sent()).not.toContainEqual(expect.objectContaining({ type: 'DELETE_DOMAIN_DATA' }));
+    (sidebarShadow().querySelector('.xp-confirm-btn.is-danger') as HTMLButtonElement).click();
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(sent()).toContainEqual({ type: 'DELETE_DOMAIN_DATA', domain: 'localhost' });
+    // No count is read and the menu asks nothing: the top bar already did.
+    expect(sent()).not.toContainEqual(expect.objectContaining({ type: 'GET_DOMAIN_ITEM_COUNT' }));
+    expect(sidebarShadow().querySelector('.action-menu.is-confirm')).toBeNull();
+    jest.advanceTimersByTime(1000);
+    jest.useRealTimers();
+    await flushMicrotasks();
+    await flushMicrotasks();
+    expect(sidebarApi.isEnlargedViewOpen()).toBe(false);
+    expect(sidebarShadow().querySelectorAll('button.thumbnail')).toHaveLength(0);
+    expect((sidebarShadow().querySelector('.empty-state') as HTMLElement).hidden).toBe(false);
+  });
+
   test('an edit to a note deleted elsewhere (NOT_FOUND) is not reported saved: the note keeps its draft and says it could not save', async () => {
     await openFirstNote();
     const base = (chrome.runtime.sendMessage as jest.Mock).getMockImplementation()!;

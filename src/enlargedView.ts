@@ -90,6 +90,12 @@ import { Clone, CloneLayer } from './cloneLayer';
 import { ICON_CHEVRON_RIGHT, ICON_TRASH } from './icons';
 import { buildDrawingSvg, hasStrokes } from './drawing';
 import {
+  CANCEL_LABEL,
+  DELETE_ALL_FAILED_MESSAGE,
+  DELETE_ALL_LABEL,
+  DELETE_ALL_QUESTION,
+  DELETE_ALL_SITE_LABEL,
+  DELETE_ALL_YES_LABEL,
   DELETE_ERROR_MESSAGE,
   DELETE_NOTE_TIP,
   ENLARGED_VIEW_LABEL,
@@ -202,9 +208,6 @@ const LOGO_H_PX = 20;
  *  the exit button's top (design spec §AH, revised 2026-10-13) — so the
  *  row rises 2px. */
 const BRAND_SETTLED_TOP_PX = PANEL_MARGIN - (DOCKED_HEADER_H - LOGO_H_PX) / 2;
-/** What the top bar's notice leaves for the logo + wordmark on its left
- *  and the exit button on its right. */
-const NOTICE_RESERVE_PX = 300;
 /** ↑ / ↓ scroll step (the browser's own arrow-key step is ~40px; a row of
  *  notes is ~250px, so this moves a useful amount without skipping one). */
 const ARROW_SCROLL_PX = 64;
@@ -235,6 +238,10 @@ export interface EnlargedViewCallbacks {
   onSaveNote: (item: FeedbackItem, note: string) => Promise<boolean>;
   /** Delete `item` (and its blob); resolves false on failure. */
   onDelete: (item: FeedbackItem) => Promise<boolean>;
+  /** Delete every note on every page of the site, and every screenshot —
+   *  the menu's "delete all for this website", already confirmed in the
+   *  top bar; resolves false on failure. */
+  onDeleteAll: () => Promise<boolean>;
   /** Persist a page's edited name (null = its default); resolves how it
    *  went (pageHeading.ts, RenameResult). */
   onSavePageTitle: (normalisedUrl: string, title: string | null) => Promise<RenameResult>;
@@ -426,6 +433,10 @@ class EnlargedView {
   /** The rule under the top bar (the docked header's divider). */
   private barRule!: HTMLDivElement;
   private noticeEl: HTMLParagraphElement | null = null;
+  /** The top bar's right-hand tools, left of the exit button: the notice
+   *  and "delete all". */
+  private tools!: HTMLDivElement;
+  private deleteAll!: DeleteAllControl;
   private readonly notice: string | null;
   private scroller!: HTMLDivElement;
   private content!: HTMLDivElement;
@@ -444,6 +455,11 @@ class EnlargedView {
   private readonly openedId: number;
   private anchorId: number;
   private pendingDeletes = 0;
+  /** "delete all" has been confirmed and its round trip is in flight. */
+  private deletingAll = false;
+  /** Every note of the site is gone (delete all): focus has no note of this
+   *  page to return to. */
+  private siteDeleted = false;
   private collapseAfterDeletes = false;
 
   private settleTimer: Timer | null = null;
@@ -684,7 +700,9 @@ class EnlargedView {
     sb.setAttribute('inert', '');
 
     const from = this.mount.getSidebarWidth();
-    const chrome = this.noticeEl ? [this.btnExit, this.barRule, this.noticeEl] : [this.btnExit, this.barRule];
+    const chrome = this.noticeEl
+      ? [this.btnExit, this.barRule, this.deleteAll.group, this.noticeEl]
+      : [this.btnExit, this.barRule, this.deleteAll.group];
     for (const el of chrome) el.style.opacity = '0';
     this.scrim.style.opacity = '0';
     this.syncBrandWord(true);
@@ -837,22 +855,37 @@ class EnlargedView {
     this.barRule = div('xp-bar-rule');
     this.barRule.setAttribute('aria-hidden', 'true');
 
-    this.stage.append(this.brand, this.barRule, this.btnExit, this.scroller);
-    if (this.notice) {
-      // In the top bar, beside the exit button: seen while the view is
-      // looked at, which is when its being incomplete needs explaining — a
-      // banner in the list behind it would be invisible, and gone by the
-      // time the view closes.
-      this.noticeEl = document.createElement('p');
-      this.noticeEl.className = 'xp-notice';
-      this.noticeEl.setAttribute('role', 'status');
-      this.noticeEl.textContent = this.notice;
-      this.stage.appendChild(this.noticeEl);
-    }
+    // Left of the exit button, a wider gap away than the controls inside
+    // it: the notice, if any, then "delete all".
+    this.tools = div('xp-tools');
+    this.deleteAll = buildDeleteAll();
+    this.deleteAll.button.addEventListener('click', () => this.askDeleteAll());
+    this.deleteAll.yes.addEventListener('click', () => void this.confirmDeleteAll());
+    this.deleteAll.cancel.addEventListener('click', () => this.cancelDeleteAll(true));
+    this.tools.appendChild(this.deleteAll.group);
+
+    this.stage.append(this.brand, this.barRule, this.tools, this.btnExit, this.scroller);
+    // In the top bar, beside the tools: seen while the view is looked at,
+    // which is when its being incomplete needs explaining — a banner in the
+    // list behind it would be invisible, and gone by the time the view
+    // closes.
+    if (this.notice) this.setNotice(this.notice);
     w.append(this.scrim, this.bg, this.stage, this.front);
     w.addEventListener('focusin', this.onFocusIn);
     w.addEventListener('pointerdown', this.onPointerDown, true);
     this.mount.shadow.appendChild(w);
+  }
+
+  /** Say `text` in the top bar, left of the tools, for as long as the view
+   *  is open (or until the next notice). */
+  private setNotice(text: string): void {
+    if (!this.noticeEl) {
+      this.noticeEl = document.createElement('p');
+      this.noticeEl.className = 'xp-notice';
+      this.noticeEl.setAttribute('role', 'status');
+      this.tools.prepend(this.noticeEl);
+    }
+    this.noticeEl.textContent = text;
   }
 
   private scrollerHeight(): number {
@@ -867,8 +900,6 @@ class EnlargedView {
     this.panelW = panelWidthFor(vp.w, this.mount.getSidebarWidth());
     const scrollerW = Math.max(1, this.panelW - 1); // inside .xp-bg's border
     this.scroller.style.width = `${scrollerW}px`;
-    // The notice has the top bar between the wordmark and the exit button.
-    if (this.noticeEl) this.noticeEl.style.maxWidth = `${Math.max(0, this.panelW - NOTICE_RESERVE_PX)}px`;
     const contentW = contentWidthFor(this.scroller.clientWidth || scrollerW);
     this.layout = computeGridLayout(
       this.pages.map((p) => ({ key: p.url, notes: p.items.map((it) => ({ id: it.id, natural: naturalOf(it) })) })),
@@ -1091,6 +1122,7 @@ class EnlargedView {
     const rd = this.reduced;
     fadeTo(this.btnExit, 0, { duration: rd ? T.rdStageOut : T.stageOut, curve: ACC });
     fadeTo(this.barRule, 0, { duration: rd ? T.rdStageOut : T.stageOut, curve: ACC });
+    fadeTo(this.deleteAll.group, 0, { duration: rd ? T.rdStageOut : T.stageOut, curve: ACC });
     if (this.noticeEl) fadeTo(this.noticeEl, 0, { duration: rd ? T.rdStageOut : T.stageOut, curve: ACC });
     fadeTo(this.scroller, 0, { duration: rd ? T.rdStageOut : T.stageOut, curve: ACC });
     this.syncBrandWord(false);
@@ -1160,6 +1192,7 @@ class EnlargedView {
    *  is on this page, else the one the view was opened on, if it is still
    *  there. */
   private focusReturnId(): number | null {
+    if (this.siteDeleted) return null;
     for (const id of [this.anchorId, this.openedId]) {
       const note = this.notes.get(id);
       if (note && note.page.url === this.currentUrl) return id;
@@ -1193,7 +1226,7 @@ class EnlargedView {
       page.part.move?.anim?.cancel();
       cancelTracks(page.heading.el);
     }
-    for (const el of [this.scrim, this.bg, this.stage, this.front, this.btnExit, this.barRule, this.noticeEl, this.scroller, this.brand, this.brandWord]) {
+    for (const el of [this.scrim, this.bg, this.stage, this.front, this.btnExit, this.barRule, this.deleteAll?.group, this.noticeEl, this.scroller, this.brand, this.brandWord]) {
       if (el) cancelTracks(el);
     }
 
@@ -1336,6 +1369,78 @@ class EnlargedView {
       const rest = order.filter((n) => n !== note && this.notes.has(n.item.id));
       const next = rest[Math.min(at, rest.length - 1)];
       if (next) this.focusQuietly(next.del);
+    }
+  }
+
+  // ─── Delete all (design spec §AH, 2026-10-13) ─────────────────────────────
+
+  private isAskingDeleteAll(): boolean {
+    return !!this.deleteAll && !this.deleteAll.confirm.hidden;
+  }
+
+  /** "delete all" asks in place: "confirm?", then "yes, delete all" and
+   *  "cancel", focus on cancel. Allowed with an empty note on screen —
+   *  deleting is never what the empty-note lock refuses. */
+  private askDeleteAll(): void {
+    if (this.state !== 'open' && this.state !== 'opening') return;
+    if (this.deletingAll || this.isAskingDeleteAll()) return;
+    const d = this.deleteAll;
+    d.confirm.hidden = false;
+    d.cancel.focus({ preventScroll: true });
+    d.button.hidden = true;
+  }
+
+  /** Back to the button — with focus on it for cancel and Esc, left where
+   *  it went for a press or a focus elsewhere. */
+  private cancelDeleteAll(refocus: boolean): void {
+    if (!this.isAskingDeleteAll() || this.deletingAll) return;
+    const d = this.deleteAll;
+    d.button.hidden = false;
+    if (refocus) d.button.focus({ preventScroll: true });
+    d.confirm.hidden = true;
+  }
+
+  /**
+   * Every note on every page of the site, and every screenshot, goes: the
+   * menu's "delete all for this website", already confirmed. Edits waiting
+   * on their debounce are dropped first (they would only fail against notes
+   * that are gone). On success nothing is left, so the view closes onto the
+   * list's empty state — every note fading, none morphing, since the list
+   * has no thumbnail left to land on. On failure the question goes back to
+   * the button and the top bar says so; the view stays as it was. A collapse
+   * asked for meanwhile (Esc, exit) waits for the outcome, as for a delete.
+   */
+  private async confirmDeleteAll(): Promise<void> {
+    if (this.state !== 'open' && this.state !== 'opening') return;
+    if (this.deletingAll) return;
+    this.deletingAll = true;
+    this.pendingDeletes++;
+    const d = this.deleteAll;
+    for (const el of [d.yes, d.cancel]) el.setAttribute('aria-disabled', 'true');
+    for (const note of this.notes.values()) this.autosave.cancelPending(note.item.id);
+    const ok = await this.callbacks.onDeleteAll().catch(() => false);
+    // The view may have been closed meanwhile (add mode, a navigation).
+    if ((this.state as EnlargedState) === 'closed') return;
+    this.deletingAll = false;
+    this.pendingDeletes--;
+    for (const el of [d.yes, d.cancel]) el.removeAttribute('aria-disabled');
+    if (ok) {
+      this.siteDeleted = true;
+      for (const note of this.notes.values()) this.autosave.forget(note.item.id);
+      for (const page of this.pages) {
+        page.items = [];
+        if (page.heading.isEditing()) page.heading.cancel();
+      }
+      this.listDirty = true;
+      this.collapseAfterDeletes = false;
+      this.beginCollapse();
+      return;
+    }
+    this.cancelDeleteAll(true);
+    this.setNotice(DELETE_ALL_FAILED_MESSAGE);
+    if (this.pendingDeletes === 0 && this.collapseAfterDeletes) {
+      this.collapseAfterDeletes = false;
+      if (this.state === 'open' || this.state === 'opening') this.requestCollapse();
     }
   }
 
@@ -1564,8 +1669,13 @@ class EnlargedView {
   private pointerFocus = false;
   private quietFocus = false;
 
-  private onPointerDown = (): void => {
+  private onPointerDown = (e: Event): void => {
     this.pointerFocus = true;
+    // A press anywhere but the question puts "delete all" back; the press
+    // then does what it would have (focus a note, exit, close on the scrim).
+    if (this.isAskingDeleteAll() && !(e.target instanceof Node && this.deleteAll.confirm.contains(e.target))) {
+      this.cancelDeleteAll(false);
+    }
   };
 
   /** Move focus without the reveal-scroll onFocusIn would do. */
@@ -1580,6 +1690,8 @@ class EnlargedView {
 
   private onFocusIn = (e: FocusEvent): void => {
     const t = e.target;
+    // Focus moving off the question (Tab, a click) puts the button back.
+    if (t instanceof Node && this.isAskingDeleteAll() && !this.deleteAll.confirm.contains(t)) this.cancelDeleteAll(false);
     if (!(t instanceof Node) || this.state !== 'open') return;
     const reveal = !this.pointerFocus && !this.quietFocus;
     for (const note of this.notes.values()) {
@@ -1655,8 +1767,11 @@ class EnlargedView {
 
     if (e.key === 'Escape') {
       e.preventDefault();
-      // Esc while renaming a page cancels the rename, and only that.
-      if (renaming) renaming.heading.cancel();
+      // Esc while "delete all" asks puts the button back, and only that
+      // (once it is answered, Esc is a collapse, which waits for the
+      // outcome); while renaming a page it cancels the rename, and only that.
+      if (this.isAskingDeleteAll() && !this.deletingAll) this.cancelDeleteAll(true);
+      else if (renaming) renaming.heading.cancel();
       else this.requestCollapse();
       return;
     }
@@ -1685,11 +1800,13 @@ class EnlargedView {
     if (this.state === 'open' && this.scrollByKey(e.key)) e.preventDefault();
   };
 
-  /** Tab order is reading order — exit, then per page its heading control
-   *  and each note's delete and text area — wrapping, since the view is
-   *  modal over the page. */
+  /** Tab order is reading order — the top bar's "delete all" (or, while it
+   *  asks, its two answers) and exit, then per page its heading control and
+   *  each note's delete and text area — wrapping, since the view is modal
+   *  over the page. */
   private cycleFocus(dir: -1 | 1): void {
-    const order: HTMLElement[] = [this.btnExit];
+    const d = this.deleteAll;
+    const order: HTMLElement[] = this.isAskingDeleteAll() ? [d.yes, d.cancel, this.btnExit] : [d.button, this.btnExit];
     for (const page of this.pages) {
       order.push(...page.heading.focusables());
       for (const item of page.items) {
@@ -1747,6 +1864,53 @@ function liveBox(part: Part): Box {
 function fadeInEl(el: HTMLElement, delay: number): void {
   el.style.opacity = '0';
   fadeTo(el, 1, { duration: T.fade, delay, curve: STD });
+}
+
+/** The top bar's "delete all" and the question it turns into. */
+interface DeleteAllControl {
+  group: HTMLDivElement;
+  button: HTMLButtonElement;
+  /** "confirm?", then the two answers; hidden until asked. */
+  confirm: HTMLDivElement;
+  yes: HTMLButtonElement;
+  cancel: HTMLButtonElement;
+}
+
+function buildDeleteAll(): DeleteAllControl {
+  const group = div('xp-delete-all-group');
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'xp-delete-all';
+  const icon = document.createElement('span');
+  icon.className = 'xp-delete-all-icon';
+  icon.innerHTML = ICON_TRASH;
+  const label = document.createElement('span');
+  label.textContent = DELETE_ALL_LABEL;
+  button.append(icon, label);
+  button.setAttribute('aria-label', DELETE_ALL_SITE_LABEL);
+  button.dataset.tip = DELETE_ALL_SITE_LABEL;
+
+  const confirm = div('xp-confirm');
+  confirm.setAttribute('role', 'group');
+  confirm.setAttribute('aria-label', DELETE_ALL_SITE_LABEL);
+  confirm.hidden = true;
+  const question = document.createElement('span');
+  question.className = 'xp-confirm-text';
+  question.textContent = DELETE_ALL_QUESTION;
+  const yes = document.createElement('button');
+  yes.type = 'button';
+  yes.className = 'xp-confirm-btn is-danger';
+  yes.textContent = DELETE_ALL_YES_LABEL;
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'xp-confirm-btn';
+  cancel.textContent = CANCEL_LABEL;
+  const answers = div('xp-confirm-actions');
+  answers.append(yes, cancel);
+  confirm.append(question, answers);
+
+  group.append(button, confirm);
+  return { group, button, confirm, yes, cancel };
 }
 
 function div(className: string): HTMLDivElement {

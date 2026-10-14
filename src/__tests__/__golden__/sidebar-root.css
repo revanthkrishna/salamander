@@ -802,14 +802,64 @@
     pointer-events: auto;
     transition: background-color 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out, transform 80ms ease-out;
   }
+  .xp-tools {
+    position: absolute; top: 16px; right: 72px;
+    left: 232px;
+    height: 36px;
+    display: flex; align-items: center; justify-content: flex-end; gap: 16px;
+    pointer-events: none;
+  }
   .xp-notice {
-    position: absolute; top: 0; right: 68px;
+    flex: 0 1 auto; min-width: 0;
     margin: 0;
-    font-size: 12px; line-height: 68px;
+    font-size: 12px; line-height: 36px;
     color: var(--sal-danger);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     pointer-events: none;
   }
+
+  .xp-delete-all-group {
+    flex-shrink: 0;
+    display: flex; align-items: center;
+    pointer-events: auto;
+  }
+  .xp-delete-all, .xp-confirm-btn {
+    flex-shrink: 0;
+    height: 36px; margin: 0; padding: 0 12px;
+    display: flex; align-items: center; gap: 8px;
+    white-space: nowrap;
+    background: var(--sal-surface);
+    border: 1px solid var(--sal-line);
+    border-radius: var(--sal-radius-md);
+    font-family: var(--sal-font-body); font-size: 13px; font-weight: 500; line-height: 1;
+    cursor: pointer;
+    transition: background-color 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out, transform 80ms ease-out;
+  }
+  .xp-delete-all[hidden], .xp-confirm[hidden] { display: none; }
+  .xp-delete-all { color: var(--sal-danger); }
+  .xp-delete-all:hover {
+    background: linear-gradient(var(--sal-danger-soft), var(--sal-danger-soft)), var(--sal-surface);
+  }
+  .xp-delete-all:active {
+    background: linear-gradient(var(--sal-danger-press), var(--sal-danger-press)), var(--sal-surface);
+  }
+  .xp-delete-all-icon { width: 16px; height: 16px; flex-shrink: 0; display: inline-flex; }
+  .xp-delete-all-icon svg { width: 100%; height: 100%; display: block; }
+  .xp-confirm { display: flex; align-items: center; gap: 12px; }
+  .xp-confirm-text {
+    font-family: var(--sal-font-body); font-size: 13px; line-height: 1;
+    color: var(--sal-text);
+    white-space: nowrap;
+  }
+  .xp-confirm-actions { display: flex; align-items: center; gap: 8px; }
+  .xp-confirm-btn { color: var(--sal-text); }
+  .xp-confirm-btn:hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
+  .xp-confirm-btn:active { background: var(--sal-press); }
+  .xp-confirm-btn.is-danger { background: var(--sal-danger-soft); border-color: transparent; color: var(--sal-danger); }
+  .xp-confirm-btn.is-danger:hover { background: var(--sal-danger-hover); }
+  .xp-confirm-btn.is-danger:active { background: var(--sal-danger-press); }
+  .xp-confirm-btn[aria-disabled="true"] { cursor: default; }
+  .xp-delete-all:focus-visible, .xp-confirm-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--sal-bg), 0 0 0 4px var(--sal-focus); }
   .xp-exit:hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
   .xp-exit:active { background: var(--sal-press); border-color: var(--sal-line-strong); }
   .xp-exit:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--sal-bg), 0 0 0 4px var(--sal-focus); }

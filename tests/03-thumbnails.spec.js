@@ -261,6 +261,42 @@ test('delete is immediate: the rest renumber; the site\'s last note collapses to
   await expect(page.locator(S.emptyState)).toBeVisible();
 });
 
+test('delete all in the top bar: asked in place, Esc and cancel keep everything, yes deletes every page', async () => {
+  const page = await context.newPage();
+  await twoPagesWithNotes(page);
+  await helper.openThumbnail(page, 0);
+
+  // Asking: "confirm?" and two answers, focus on cancel; Esc puts the button
+  // back and the view stays open.
+  await page.locator(S.enlargedDeleteAll).click();
+  await expect(page.locator(S.enlargedConfirm)).toContainText('confirm?');
+  await expect(page.locator(S.enlargedConfirmYes)).toHaveText('yes, delete all');
+  await expect(page.locator(S.enlargedConfirmCancel)).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.locator(S.enlargedConfirm)).toBeHidden();
+  await expect(page.locator(S.enlargedDeleteAll)).toBeFocused();
+  await expect(page.locator(S.enlargedOpen)).toHaveCount(1);
+  // Cancel, from the keyboard.
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await expect(page.locator(S.enlargedConfirm)).toBeHidden();
+  await expect(page.locator(S.enlargedNote)).toHaveCount(4);
+
+  // Allowed with a note emptied; yes deletes the whole site.
+  await page.locator(S.enlargedNoteInput).nth(0).fill('');
+  await page.locator(S.enlargedDeleteAll).click();
+  await page.locator(S.enlargedConfirmYes).click();
+  await page.locator(S.enlarged).waitFor({ state: 'detached', timeout: 5000 });
+  await expect(page.locator(S.thumbnail)).toHaveCount(0);
+  await expect(page.locator(S.emptyState)).toBeVisible();
+  // Every page went, not just this one.
+  await page.locator('#goto-page-one').click();
+  await expect(page).toHaveURL(/\/$/);
+  await page.waitForTimeout(500);
+  await expect(page.locator(S.thumbnail)).toHaveCount(0);
+  await expect(page.locator(S.emptyState)).toBeVisible();
+});
+
 test('Space activates the view\'s buttons, even on a site too short to scroll', async () => {
   const page = await context.newPage();
   await openPageWithSidebar(page);

@@ -454,6 +454,7 @@ async function openItemEnlarged(item: FeedbackItem): Promise<void> {
       const reply = await send(deleteItemMsg);
       return reply?.ok === true;
     },
+    onDeleteAll: () => siteActions.deleteAllConfirmed(),
     onSavePageTitle: async (normalisedUrl, title) => {
       const rename: SetPageTitleMessage = { type: 'SET_PAGE_TITLE', domain, normalisedUrl, title };
       const reply = await send(rename);
