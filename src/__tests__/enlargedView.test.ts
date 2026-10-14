@@ -1394,6 +1394,48 @@ describe('delete all, in the top bar', () => {
     expect(shadow().activeElement).toBe(textareaOf(5));
   });
 
+  test('a note\'s delete that fails behind a confirmed delete all does not come back mid-collapse', async () => {
+    // The note's DELETE_ITEM queues behind DELETE_DOMAIN_DATA in the worker,
+    // so it answers (NOT_FOUND) after the site delete has gone through.
+    let answerDelete!: (ok: boolean) => void;
+    const f = inFlight({ onDelete: jest.fn(() => new Promise<boolean>((r) => (answerDelete = r))) });
+    f.start();
+    deleteOf(5).click();
+    jest.advanceTimersByTime(T.deleteStep);
+    await f.settle(true);
+    expect(wrapper()!.dataset.state).toBe('closing');
+    animCalls = [];
+    answerDelete(false);
+    await flush();
+    expect(statusOf(5).textContent).not.toBe(DELETE_ERROR_MESSAGE);
+    expect(animCalls.some((c) => c.el === note(5) && c.keyframes[1]?.opacity === '1')).toBe(false);
+  });
+
+  test('a failure leaves focus where the user moved it meanwhile; still on the question, it goes back to the button', async () => {
+    let f = inFlight();
+    f.start();
+    textareaOf(6).focus();
+    await f.settle(false);
+    expect(shadow().activeElement).toBe(textareaOf(6));
+    sidebar.destroySidebar();
+    f = inFlight();
+    f.start();
+    await f.settle(false);
+    expect(shadow().activeElement).toBe(da());
+  });
+
+  test('a forced close while it runs does not save drafts against notes about to be gone', async () => {
+    const f = inFlight();
+    typeInto(textareaOf(5), 'typed, not yet saved');
+    f.start();
+    sidebar.collapseEnlargedView({ force: true });
+    await f.settle(true);
+    jest.advanceTimersByTime(T.autosave * 2);
+    await flush();
+    expect(f.cbs.onSaveNote).not.toHaveBeenCalled();
+    expect(q('.notif:not([hidden])')).toBeNull();
+  });
+
   test('a collapse asked for while it runs waits for the outcome', async () => {
     let resolve!: (ok: boolean) => void;
     setup();

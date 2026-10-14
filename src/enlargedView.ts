@@ -1101,7 +1101,7 @@ class EnlargedView {
       this.collapseAfterDeletes = true;
       return true;
     }
-    this.flushSave();
+    this.flushSaveUnlessDeletingAll();
     if (opts.immediate) {
       this.finish(true);
       return true;
@@ -1113,8 +1113,15 @@ class EnlargedView {
   forceClose(): void {
     if (this.state === 'closed') return;
     this.commitRenames();
-    this.flushSave();
+    this.flushSaveUnlessDeletingAll();
     this.finish(true);
+  }
+
+  /** The closing flush — skipped while delete all is in flight: every note
+   *  is about to be gone, and a draft saved against one only comes back as
+   *  "couldn't save" in the list's banner. */
+  private flushSaveUnlessDeletingAll(): void {
+    if (!this.deletingAll) this.flushSave();
   }
 
   /** A rename still being typed is saved, not dropped, by a collapse. */
@@ -1338,6 +1345,9 @@ class EnlargedView {
       if (this.state === 'closed') return;
       this.pendingDeletes--;
       if (!ok) {
+        // Already collapsing (delete all went through meanwhile, and this
+        // delete found the note gone): nothing to bring back.
+        if (this.state === 'closing') return;
         note.deleting = false;
         note.shrink?.cancel();
         note.shrink = null;
@@ -1494,7 +1504,9 @@ class EnlargedView {
       this.beginCollapse();
       return;
     }
-    this.cancelDeleteAll(true);
+    // Back to the button — and focus with it only if it is still on the
+    // question: focus the user moved meanwhile stays where they put it.
+    this.cancelDeleteAll(this.deleteAll.confirm.contains(this.mount.shadow.activeElement));
     this.setNotice(DELETE_ALL_FAILED_MESSAGE);
     if (this.pendingDeletes === 0 && this.collapseAfterDeletes) {
       this.collapseAfterDeletes = false;
