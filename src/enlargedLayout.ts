@@ -95,11 +95,12 @@ export const HEADING_GAP = 16;
 export const GROUP_GAP = 64;
 export const PAD_TOP = 24;
 export const PAD_BOTTOM = 64;
-/** How much of what comes right before the opened note shows above it
- *  (design spec §AH, revised 2026-10-13): the last 40px of the previous row
- *  — or, for a page's first row, of its heading — cut off by the top of the
- *  scroller, so it is plain there is more above. Fixed: the note lands just
- *  under it, near the top, on every window tall enough for it. */
+/** How much of the previous row shows above the opened note (design spec
+ *  §AH, revised 2026-10-13): its last 40px, cut off by the top of the
+ *  scroller, so it is plain there is more above — the previous page's last
+ *  row, for a page's first note, above that page's heading shown whole.
+ *  Fixed: the note lands just under it, near the top, on every window tall
+ *  enough for it. */
 export const OPEN_PEEK_PX = 40;
 /** The overlap the page keys keep (PageUp/PageDown scroll a screen less
  *  this), so the reader never loses their place. */
@@ -336,11 +337,11 @@ export function computeGridLayout(pages: LayoutPage[], opts: GridOptions): GridL
  * Where to scroll to open the view on note `id` (design spec §AH, revised
  * 2026-10-13).
  *
- * Whatever comes right before the note's row — the previous row on its
- * page, or, for a page's first row, the page's heading — shows its last
- * OPEN_PEEK_PX under the top bar, cut off by the scroller's edge; the row
- * follows it at its usual gap. A note in the site's first row starts at the
- * top, with no peek. On a window too short for both the peek and the note's
+ * The row before the note's shows its last OPEN_PEEK_PX under the top bar,
+ * cut off by the scroller's edge, and the note's row follows at its usual
+ * gap. For a page's first row that is the previous page's last row, and the
+ * page's heading sits whole between the two: a heading is never cut. A note
+ * in the site's first row starts at the top, with no peek. On a window too short for both the peek and the note's
  * text area (which the view focuses), the text area wins: the scroll goes
  * as far as it takes to show it whole, with half a row gap under it for its
  * message. Clamped to what the content can scroll, so content shorter than
@@ -350,10 +351,7 @@ export function scrollTopFor(layout: GridLayout, id: number, viewportH: number):
   const note = layout.notes.get(id);
   if (!note) return null;
   if (note.row === 0) return 0;
-  const row = layout.rows[note.row];
-  const heading = row.first ? layout.headings.find((h) => h.page === row.page) : undefined;
-  const before = heading ? heading.box.y + heading.box.h : layout.rows[note.row - 1].bottom;
-  const peekTop = before - OPEN_PEEK_PX;
+  const peekTop = layout.rows[note.row - 1].bottom - OPEN_PEEK_PX;
   const textOnScreen = note.text.y + note.text.h + ROW_GAP / 2 - viewportH;
   const max = Math.max(0, layout.height - Math.max(0, viewportH));
   return Math.round(Math.min(max, Math.max(0, peekTop, textOnScreen)));

@@ -3,7 +3,7 @@
 // Covers REQUIREMENTS §1.6 / FR-EV-* — thumbnails and the enlarged view 2.0
 // (design spec §AH): the sidebar expanding into one scrolling page of every
 // note on the site. Opening focuses the clicked note with the last 40px of
-// what comes before it peeking under the top bar; every note is editable and autosaves on its own;
+// the row before it peeking under the top bar (a page's heading whole); every note is editable and autosaves on its own;
 // pages are renamed in place; delete is immediate; an emptied note holds the
 // view open; Esc collapses.
 
@@ -75,16 +75,16 @@ test('clicking a thumbnail expands the sidebar into the enlarged view, its note 
   await expect(page.locator('#annotator-sidebar-host .xp-rail, #annotator-sidebar-host .xp-card')).toHaveCount(0);
 });
 
-test('the whole site in one view: open from the second page, its heading peeking 40px under the top bar', async () => {
+test('the whole site in one view: open from the second page, its heading whole, page one\'s notes peeking 40px above it', async () => {
   const page = await context.newPage();
   await twoPagesWithNotes(page);
 
   // The list shows this page only...
   await expect(page.locator(S.thumbnail)).toHaveCount(2);
-  // A short window, so the four notes do not all fit and the view has to
-  // scroll to the clicked one — with room below for the scroll not to be
-  // clamped by the content's end.
-  await page.setViewportSize({ width: 1280, height: 420 });
+  // A window short enough that the four notes do not all fit and the view
+  // has to scroll to the clicked one, tall enough for the peek, the heading
+  // and the note's text area together.
+  await page.setViewportSize({ width: 1280, height: 530 });
   await helper.openThumbnail(page, 0);
   // ...the view shows both, the page noted on first first.
   await expect(page.locator(S.pageName)).toHaveText(['Annotator Test Page', 'Test Page Two']);
@@ -95,15 +95,15 @@ test('the whole site in one view: open from the second page, its heading peeking
 
   // The clicked note (page two's first) is focused...
   await expect(page.locator(S.enlargedNoteInput).nth(2)).toBeFocused();
-  // ...and what comes right before it, its page's heading, shows its last
-  // 40px under the top bar; page one's notes are above, out of sight.
+  // ...its page's heading is on screen whole, and page one's notes peek
+  // above it: the last 40px of their row under the top bar.
   const scroller = page.locator(S.enlargedScroll);
   expect(await scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
   const top = (await scroller.boundingBox()).y;
   const heading = await page.locator(S.pageHeading).nth(1).boundingBox();
-  expect(Math.round(heading.y + heading.height - top)).toBe(40);
+  expect(heading.y).toBeGreaterThanOrEqual(top);
   const above = await page.locator(S.enlargedNoteInput).nth(1).boundingBox();
-  expect(above.y + above.height).toBeLessThanOrEqual(top);
+  expect(Math.round(above.y + above.height - top)).toBe(40);
 });
 
 test('opening on a window too short for the peek: the focused note\'s text area is shown whole', async () => {
@@ -117,9 +117,9 @@ test('opening on a window too short for the peek: the focused note\'s text area 
   const box = await input.boundingBox();
   expect(box.y).toBeGreaterThanOrEqual(scroller.y);
   expect(box.y + box.height).toBeLessThanOrEqual(scroller.y + scroller.height);
-  // Less than the 40px peek of its heading is left above it.
+  // Its heading and the peek above it gave way.
   const heading = await page.locator(S.pageHeading).nth(1).boundingBox();
-  expect(heading.y + heading.height - scroller.y).toBeLessThan(40);
+  expect(heading.y).toBeLessThan(scroller.y);
 });
 
 test('editing two notes at once: each autosaves, and both are there after a collapse', async () => {

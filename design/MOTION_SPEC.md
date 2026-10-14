@@ -70,9 +70,9 @@ Computed, not fixed (`src/enlargedLayout.ts`, design spec §AH): the panel is
 `max(0.75·vw, min(560, vw), sidebarWidth)`; the content column is the scroller's width less 16px
 each side; each note's screenshot is its selection's CSS size, never scaled up, scaled down to fit
 the column or the visible height; columns of `clamp(shot, 267, column)` packed three to a row and
-centred; the opening scroll position shows the last 40px of whatever comes right before the
-note (the previous row, or its page's heading) under the top bar — the site's first row at the
-top; on a window too short for that and the note's text area, the text area wins (design spec
+centred; the opening scroll position shows the last 40px of the row before the note's under the
+top bar (for a page's first note, the previous page's last row, with the heading whole below it)
+— the site's first row at the top; on a window too short for that and the note's text area, the text area wins (design spec
 §AH, "Opening", revised 2026-10-13). A clone's
 destination is its note's screenshot box in viewport coordinates at that scroll position (one
 layout read of the content's origin per gesture).

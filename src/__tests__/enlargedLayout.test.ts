@@ -300,7 +300,7 @@ describe('opening on a note: a fixed 40px peek of what comes before it', () => {
     expect(underBar(g.rows[1].top, top)).toBe(OPEN_PEEK_PX + ROW_GAP);
   });
 
-  test('a page\'s first row: its heading\'s last 40px peek, the row at its heading gap under it', () => {
+  test('a page\'s first row: its heading whole, the previous page\'s last row peeking 40px above it', () => {
     // Enough after it that the scroll is not clamped by the content's end.
     const g = computeGridLayout(
       [page('a', [900, 200], [900, 200]), page('b', [900, 200], [900, 200], [900, 200], [900, 200])],
@@ -308,10 +308,28 @@ describe('opening on a note: a fixed 40px peek of what comes before it', () => {
     );
     const h = g.headings[1].box;
     const top = scrollTopFor(g, 3, 1200 - TOP_BAR_H)!;
-    expect(underBar(h.y + h.h, top)).toBe(OPEN_PEEK_PX);
-    expect(underBar(g.rows[2].top, top)).toBe(OPEN_PEEK_PX + HEADING_GAP);
-    // The previous page's last row is above the top bar, out of sight.
-    expect(underBar(g.rows[1].bottom, top)).toBeLessThan(0);
+    expect(g.rows[1].page).toBe('a');
+    expect(underBar(g.rows[1].bottom, top)).toBe(OPEN_PEEK_PX);
+    // The heading is never cut: wholly under the top bar, then the row.
+    expect(underBar(h.y, top)).toBe(OPEN_PEEK_PX + GROUP_GAP);
+    expect(underBar(g.rows[2].top, top)).toBe(OPEN_PEEK_PX + GROUP_GAP + HEADING_H + HEADING_GAP);
+  });
+
+  test('the site\'s first page has no row before it: its first row opens at the top', () => {
+    const g = site();
+    expect(scrollTopFor(g, 1, 400)).toBe(0);
+  });
+
+  test('a page\'s first row on a short window: the text area still wins over the heading and the peek', () => {
+    const g = computeGridLayout(
+      [page('a', [900, 200], [900, 200]), page('b', [900, 200], [900, 200], [900, 200], [900, 200])],
+      { contentW: 1000 },
+    );
+    const n = g.notes.get(3)!;
+    const vh = 400 - TOP_BAR_H;
+    const top = scrollTopFor(g, 3, vh)!;
+    expect(n.text.y + n.text.h + ROW_GAP / 2 - top).toBe(vh);
+    expect(underBar(g.rows[1].bottom, top)).toBeLessThan(OPEN_PEEK_PX);
   });
 
   test('the same peek on a tall and on a short window, while both fit', () => {

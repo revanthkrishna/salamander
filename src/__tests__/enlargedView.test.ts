@@ -390,14 +390,15 @@ describe('opening on a note', () => {
     expect(top).toBe(scrollTopFor(layout, 5, window.innerHeight - TOP_BAR_H));
   });
 
-  test('from a page\'s first note, its heading peeks 40px under the top bar', () => {
+  test('from a page\'s first note, its heading shows whole, the previous page\'s last row peeking 40px above it', () => {
     setup();
     open(3);
     const layout = expectedLayout();
     const top = scroller().scrollTop;
-    const h = layout.headings.find((x) => x.page === PRICING)!.box;
-    expect(layout.notes.get(3)!.row).toBe(layout.rows.findIndex((r) => r.page === PRICING));
-    expect(h.y + h.h - top).toBe(OPEN_PEEK_PX);
+    const at = layout.notes.get(3)!.row;
+    expect(layout.rows[at - 1].page).toBe(BLOG);
+    expect(layout.rows[at - 1].bottom - top).toBe(OPEN_PEEK_PX);
+    expect(layout.headings.find((x) => x.page === PRICING)!.box.y).toBeGreaterThan(top);
   });
 
   test('the site\'s first note opens at the top, with no peek', () => {

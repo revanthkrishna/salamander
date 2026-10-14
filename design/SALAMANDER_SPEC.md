@@ -1313,12 +1313,13 @@ One **group** (revised 2026-10-12): its **bar**, directly above its **screenshot
 
 - Clicking a note in the list opens the view with **that note's text area focused**, caret at the
   end of its text.
-- **A fixed 40px peek** (revised 2026-10-13, replacing "about 25% down"): whatever comes right
-  before the focused note — the previous row, or, for a page's first row, the page's heading —
-  shows its last **40px** under the top bar, cut off by it, and the note's row follows at its usual
-  gap (40px after a row, 16px after a heading). The owner found the 25% landing put the note too
-  far down. **(impl)** The heading counts as "what comes before" a page's first note, so its
-  address line and the foot of its name peek; the previous page's notes are above, out of sight.
+- **A fixed 40px peek** (revised 2026-10-13, replacing "about 25% down"): the row before the
+  focused note's shows its last **40px** under the top bar, cut off by it, and the note's row
+  follows at its usual gap. The owner found the 25% landing put the note too far down.
+- **A page's first note:** the page's heading is shown **whole** — a heading is never cut — with
+  the last 40px of the previous page's last row peeking above it (then the 64px page break, the
+  heading, 16px, the row). (A first build of this revision peeked the heading itself, cutting its
+  name in half; the owner chose this.)
 - **The site's first row** (every note in it) starts at the top, with no peek.
 - **A window too short** for both the peek and the focused note's text area: the text area wins —
   the view scrolls as far as it takes to show it whole, with half a row gap (20px) under it for its

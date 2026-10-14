@@ -307,9 +307,8 @@ notes, one very wide), then page C (one tall note, one default).
       rule runs under the top bar, edge to edge — the same line as under the docked sidebar's
       header block.
 - [ ] **3.1b. (opening position)** The clicked note's text area has the cursor (yellow edge, caret
-      at the end of its text). Open B's first note: the bottom 40px of B's heading (its address
-      line, the foot of its name) shows under the top bar, cut off by it, with the note right
-      under. Open a note in a later row: the bottom 40px of the row before it shows instead.
+      at the end of its text). Open B's first note: B's heading shows whole, and above it the
+      bottom 40px of A's last row, cut off by the top bar. Open a note in a later row: the bottom 40px of the row before it shows instead.
       Opening A's first note starts at the very top with nothing peeking. Make the window short
       (~350px tall) and open a later note: its text area is fully on screen, the peek smaller.
 - [ ] **3.1c. (rows)** Up to three notes per row, each at its screenshot's real size (compare with
