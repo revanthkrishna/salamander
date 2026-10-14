@@ -222,8 +222,8 @@ describe('parseImportBundle — §5 error ladder', () => {
     const second = makeItem({ id: 2, normalisedUrl: url, note: 'second' });
     // A hand edit that gives the second note the first one's heading.
     const markdown = markdownFor({ [url]: [first, second] }).replace(
-      '### feedback 2\n\n![feedback 2](screenshots/2.png)',
-      '### feedback 1\n\n![feedback 1](screenshots/2.png)',
+      '### note 2\n\n![note 2](screenshots/2.png)',
+      '### note 1\n\n![note 1](screenshots/2.png)',
     );
     const file = rawZipFile({
       'feedback.md': strToU8(markdown),
@@ -242,7 +242,7 @@ describe('parseImportBundle — §5 error ladder', () => {
     const a1 = makeItem({ id: 1, normalisedUrl: urlA, pageUrl: urlA, note: 'a' });
     const b1 = makeItem({ id: 2, normalisedUrl: urlB, pageUrl: urlB, note: 'b' });
     const markdown = markdownFor({ [urlA]: [a1], [urlB]: [b1] });
-    expect(markdown.match(/^### feedback \d+$/gm)).toEqual(['### feedback 1', '### feedback 1']);
+    expect(markdown.match(/^### note \d+$/gm)).toEqual(['### note 1', '### note 1']);
 
     const bundle = await parseImportBundle(makeBundleFile({ [urlA]: [a1], [urlB]: [b1] }), 'example.com');
 
@@ -253,7 +253,7 @@ describe('parseImportBundle — §5 error ladder', () => {
     const url = 'https://example.com/a';
     const first = makeItem({ id: 1, normalisedUrl: url, note: 'first' });
     const second = makeItem({ id: 2, normalisedUrl: url, note: 'second' });
-    const markdown = markdownFor({ [url]: [first, second] }).replace('### feedback 2', '### feedback 3');
+    const markdown = markdownFor({ [url]: [first, second] }).replace('### note 2', '### note 3');
     const file = rawZipFile({
       'feedback.md': strToU8(markdown),
       'screenshots/1.png': PNG_BYTES,
@@ -339,7 +339,7 @@ describe('parseImportBundle — §5 error ladder', () => {
 
   test('#6 comes before #4b: a broken file in another format reports the format', async () => {
     const file = rawZipFile({
-      'feedback.md': strToU8('<!-- salamander-feedback-format: 1 -->\n### feedback 1\n```json\n{\n'),
+      'feedback.md': strToU8('<!-- salamander-feedback-format: 1 -->\n### note 1\n```json\n{\n'),
     });
 
     await expect(parseImportBundle(file, 'example.com')).rejects.toMatchObject({

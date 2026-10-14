@@ -116,11 +116,11 @@ test('importing a non-zip file is rejected with the invalid-file-type error', as
 
   await expect(page.locator(helper.SELECTORS.notif)).toBeVisible();
   await expect(page.locator(helper.SELECTORS.notifText)).toHaveText(
-    'invalid file type. please upload a .zip feedback bundle.',
+    'invalid file type. choose a .zip feedback bundle.',
   );
 });
 
-test('"delete all for this website" confirms with both counts, then empties every page', async () => {
+test('"delete all on this website" confirms with both counts, then empties every page', async () => {
   const page = await context.newPage();
   await openPageWithSidebar(page);
   await helper.captureFeedbackItem(page, { x: 150, y: 200, note: 'on page one', expectedCount: 1 });

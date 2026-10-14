@@ -46,8 +46,8 @@ describe('the decision', () => {
 
 describe('the wording', () => {
   test('⌥N on macOS, alt+n elsewhere', () => {
-    expect(addNoteTip(true)).toBe('tip: ⌥N to add a note');
-    expect(addNoteTip(false)).toBe('tip: alt+n to add a note');
+    expect(addNoteTip(true)).toBe('tip: press ⌥N to add a note');
+    expect(addNoteTip(false)).toBe('tip: press alt+n to add a note');
   });
 });
 

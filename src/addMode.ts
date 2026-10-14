@@ -699,7 +699,7 @@ function buildDrawMenu(): HTMLDivElement {
   elEraseItem.setAttribute('role', 'menuitem');
   // Greyed out while nothing is drawn, but still hoverable and focusable
   // (aria-disabled, not disabled), so it can say why — like the sidebar's
-  // "delete all for this website" (§AF).
+  // "delete all on this website" (§AF).
   elEraseItem.dataset.tipReason = NOTHING_TO_ERASE_MESSAGE;
   elEraseItem.dataset.tipSide = 'left';
   const icon = document.createElement('span');

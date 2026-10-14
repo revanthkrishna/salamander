@@ -1168,7 +1168,7 @@ describe('handleDeleteItem', () => {
       itemId: 5,
     });
 
-    expect(response).toEqual({ ok: false, message: "couldn't delete item. try again." });
+    expect(response).toEqual({ ok: false, message: "couldn't delete the note. try again." });
     warn.mockRestore();
   });
 });

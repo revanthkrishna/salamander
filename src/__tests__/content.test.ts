@@ -1392,7 +1392,7 @@ describe('content.ts: import (§1.7) — asked in the menu before the file is pi
   });
 });
 
-describe('content.ts: delete all for this website (design spec §AE)', () => {
+describe('content.ts: delete all on this website (design spec §AE)', () => {
   let countReply: unknown;
   let deleteReply: unknown;
   let confirmAnswer: boolean;

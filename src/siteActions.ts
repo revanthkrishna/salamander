@@ -1,7 +1,7 @@
 // src/siteActions.ts
 // What the sidebar's site-wide actions do (design spec §AE, §AF; §1.6,
 // §1.7): export, import (the question asked in the menu, then the file),
-// "delete all for this website", the list's hover delete, and the site's
+// "delete all on this website", the list's hover delete, and the site's
 // counts that grey export and delete-all out. Each is a round trip to the
 // service worker plus what the sidebar shows for its outcome. Moved out of
 // content.ts unchanged; content.ts wires the sidebar's callbacks to them.

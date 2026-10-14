@@ -516,7 +516,7 @@ describe('storage.ts — site pages and edited page names (design spec §AH)', (
     expect((await getSitePages(DOMAIN)).find((p) => p.normalisedUrl === A)!.editedTitle).toBe('pricing');
   });
 
-  test('delete all for this website takes every name with it', async () => {
+  test('delete all on this website takes every name with it', async () => {
     await seed();
     await setPageTitle(DOMAIN, A, 'pricing');
     await deleteDomainData(DOMAIN);

@@ -176,7 +176,7 @@ describe('sidebar shell', () => {
     expect(menu.getAttribute('aria-label')).toBe('more options');
     const items = Array.from(menu.querySelectorAll('.action-menu-item'));
     expect(items.map((b) => b.getAttribute('role'))).toEqual(['menuitem', 'menuitem']);
-    expect(items.map((b) => b.textContent)).toEqual(['import', 'delete all for this website']);
+    expect(items.map((b) => b.textContent)).toEqual(['import', 'delete all on this website']);
     expect(items[1].classList.contains('is-danger')).toBe(true);
     const divider = menu.querySelector('.action-menu-divider')!;
     expect(divider.getAttribute('role')).toBe('separator');
@@ -187,7 +187,7 @@ describe('sidebar shell', () => {
   test('empty state text is exactly the lowercase copy from REQUIREMENTS §3.1', () => {
     sidebar.initSidebar(makeCallbacks());
     const empty = shadowRoot().querySelector('.empty-state') as HTMLElement;
-    expect(empty.textContent).toBe('no feedback on this page yet');
+    expect(empty.textContent).toBe('no notes on this page yet');
     expect(empty.hidden).toBe(false);
   });
 
@@ -709,7 +709,7 @@ describe('sidebar shell', () => {
     const list = shadowRoot().querySelector('.thumbnail-list') as HTMLElement;
     expect(empty.hidden).toBe(false);
     expect(list.hidden).toBe(true);
-    expect(empty.textContent).toBe('no feedback on this page yet');
+    expect(empty.textContent).toBe('no notes on this page yet');
   });
 
   test('setThumbnails(items) hides the empty state, shows "this page (n)", one button.thumbnail per item, badge + note preview', () => {
@@ -1118,7 +1118,7 @@ describe('sidebar review fixes', () => {
     expect(sidebar.focusThumbnail(2)).toBe(true);
     const focused = shadowRoot().activeElement as HTMLElement;
     expect(focused.classList.contains('thumbnail')).toBe(true);
-    expect(focused.getAttribute('aria-label')).toBe('feedback item 2');
+    expect(focused.getAttribute('aria-label')).toBe('note #2');
     expect(sidebar.focusThumbnail(99)).toBe(false);
   });
 });

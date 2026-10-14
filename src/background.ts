@@ -619,7 +619,7 @@ export async function handleGetDomainItemCount(
 }
 
 /**
- * "delete all for this website" (design spec §AE): the domain's
+ * "delete all on this website" (design spec §AE): the domain's
  * index, every item on every page, and every screenshot. Through the write
  * queue like every other mutation, so a save still in flight lands first
  * and is deleted with the rest rather than resurrecting a half-emptied

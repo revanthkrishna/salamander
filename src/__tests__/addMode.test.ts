@@ -610,9 +610,9 @@ describe('add mode', () => {
     jest.useFakeTimers();
     try {
       addMode.startAddMode(makeCallbacks());
-      expect(addMode.showPlacingTip('tip: alt+n to add a note')).toBe(true);
+      expect(addMode.showPlacingTip('tip: press alt+n to add a note')).toBe(true);
       const tooltip = previewTooltipEl();
-      expect(tooltip.textContent).toBe('tip: alt+n to add a note');
+      expect(tooltip.textContent).toBe('tip: press alt+n to add a note');
       mousemove(300, 200);
       expect(tooltip.dataset.visible).toBe('true');
       expect([tooltip.style.left, tooltip.style.top]).toEqual(['316px', '220px']);
@@ -639,7 +639,7 @@ describe('add mode', () => {
       jest.advanceTimersByTime(5000);
       addMode.exitAddMode();
       addMode.startAddMode(makeCallbacks());
-      addMode.showPlacingTip('tip: alt+n to add a note');
+      addMode.showPlacingTip('tip: press alt+n to add a note');
       mousemove(300, 200);
       expect(previewTooltipEl().dataset.visible).toBe('true');
       jest.advanceTimersByTime(5000);
@@ -655,9 +655,9 @@ describe('add mode', () => {
       addMode.startAddMode(makeCallbacks());
       mousemove(300, 200);
       jest.advanceTimersByTime(3000);
-      addMode.showPlacingTip('tip: alt+n to add a note');
+      addMode.showPlacingTip('tip: press alt+n to add a note');
       const tooltip = previewTooltipEl();
-      expect(tooltip.textContent).toBe('tip: alt+n to add a note');
+      expect(tooltip.textContent).toBe('tip: press alt+n to add a note');
       jest.advanceTimersByTime(4999);
       expect(tooltip.dataset.visible).toBe('true');
       jest.advanceTimersByTime(1);

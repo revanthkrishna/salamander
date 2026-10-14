@@ -257,7 +257,7 @@ export interface EnlargedViewCallbacks {
   /** Delete `item` (and its blob); resolves false on failure. */
   onDelete: (item: FeedbackItem) => Promise<boolean>;
   /** Delete every note on every page of the site, and every screenshot —
-   *  the menu's "delete all for this website", already confirmed in the
+   *  the menu's "delete all on this website", already confirmed in the
    *  top bar; resolves false on failure. */
   onDeleteAll: () => Promise<boolean>;
   /** Persist a page's edited name (null = its default); resolves how it
@@ -1470,7 +1470,7 @@ class EnlargedView {
 
   /**
    * Every note on every page of the site, and every screenshot, goes: the
-   * menu's "delete all for this website", already confirmed. Edits waiting
+   * menu's "delete all on this website", already confirmed. Edits waiting
    * on their debounce are dropped first (they would only fail against notes
    * that are gone). On success nothing is left, so the view closes onto the
    * list's empty state — every note fading, none morphing, since the list

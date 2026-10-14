@@ -547,7 +547,7 @@ describe('the colour swatches', () => {
     editing();
     const group = q('.swatches')!;
     expect(group.getAttribute('role')).toBe('radiogroup');
-    expect(group.getAttribute('aria-label')).toBe('pencil colour');
+    expect(group.getAttribute('aria-label')).toBe('pencil color');
     expect(swatches().map((s) => [s.getAttribute('role'), s.getAttribute('aria-label'), s.dataset.color])).toEqual([
       ['radio', 'yellow', YELLOW],
       ['radio', 'black', BLACK],

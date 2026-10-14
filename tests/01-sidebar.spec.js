@@ -33,7 +33,7 @@ test('clicking the icon opens the sidebar, docked right, with the header/action-
   // the extension became dark only, §AA). v3 §A2/§C2 then merged the
   // row into two groups — "add note" (icon-only) with a "keep add mode on"
   // switch, and export beside a "more options" button (§AE) whose menu holds
-  // "import" and "delete all for this website".
+  // "import" and "delete all on this website".
   // export/close keep a fixed aria-label; the add button's is state-dependent
   // (the tooltip changes with the state, the aria-label does not), so its selector
   // targets the stable .btn-add class instead (see SELECTORS.btnAdd).
@@ -65,7 +65,7 @@ test('clicking the icon opens the sidebar, docked right, with the header/action-
   await expect(page.locator(helper.SELECTORS.btnImport)).toBeHidden();
 
   // §3.1's decided empty-state copy, lowercase.
-  await expect(page.locator(helper.SELECTORS.emptyState)).toHaveText('no feedback on this page yet');
+  await expect(page.locator(helper.SELECTORS.emptyState)).toHaveText('no notes on this page yet');
   await expect(page.locator(helper.SELECTORS.thumbnailList)).toBeHidden();
 });
 

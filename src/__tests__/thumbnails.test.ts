@@ -133,7 +133,7 @@ describe('renderThumbnailList', () => {
 
     expect(del.type).toBe('button');
     // Labelled by position in the list (the only item), not by id.
-    expect(del.getAttribute('aria-label')).toBe('delete feedback item 1');
+    expect(del.getAttribute('aria-label')).toBe('delete note #1');
     // Every visible string is lowercase (REQUIREMENTS §3.4).
     expect(del.dataset.tip).toBe('delete');
     expect(del.hasAttribute('title')).toBe(false);
@@ -179,7 +179,7 @@ describe('renderThumbnailList', () => {
     const btn = listEl.querySelector('button.thumbnail') as HTMLButtonElement;
     expect(btn.tagName).toBe('BUTTON');
     expect(btn.type).toBe('button');
-    expect(btn.getAttribute('aria-label')).toBe('feedback item 1');
+    expect(btn.getAttribute('aria-label')).toBe('note #1');
   });
 });
 
@@ -207,10 +207,10 @@ describe('renderThumbnailList — numbering by position', () => {
     expect(badges()).toEqual(['1', '2']);
     expect(itemIds()).toEqual(['4', '9']);
     const [first, second] = Array.from(listEl.querySelectorAll('button.thumbnail'));
-    expect(first.getAttribute('aria-label')).toBe('feedback item 1');
-    expect(second.getAttribute('aria-label')).toBe('feedback item 2');
+    expect(first.getAttribute('aria-label')).toBe('note #1');
+    expect(second.getAttribute('aria-label')).toBe('note #2');
     const deletes = Array.from(listEl.querySelectorAll('button.thumbnail-delete'));
-    expect(deletes.map((d) => d.getAttribute('aria-label'))).toEqual(['delete feedback item 1', 'delete feedback item 2']);
+    expect(deletes.map((d) => d.getAttribute('aria-label'))).toEqual(['delete note #1', 'delete note #2']);
     expect(deletes.map((d) => (d as HTMLElement).dataset.itemId)).toEqual(['4', '9']);
   });
 

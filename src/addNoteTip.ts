@@ -1,6 +1,6 @@
 // src/addNoteTip.ts
 // The Option/Alt+N tip (design spec §AH's companion, 2026-10-13): when the
-// add-mode hint that follows the cursor says "tip: ⌥N to add a note"
+// add-mode hint that follows the cursor says "tip: press ⌥N to add a note"
 // instead of "click or drag to select". Pure: the counts come from the
 // service worker (background.ts, storage.ts), which owns both stores.
 //

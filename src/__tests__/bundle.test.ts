@@ -119,10 +119,10 @@ describe('buildFeedbackMarkdown', () => {
     // The page's array order is the sidebar's order, so it is the file's
     // too — never re-sorted by id — and the heading is the position in it;
     // the screenshot path is the id (types.ts, FeedbackItem.id).
-    expect(md).toContain('### feedback 1\n\n![feedback 1](screenshots/5.png)');
-    expect(md).toContain('### feedback 2\n\n![feedback 2](screenshots/3.png)');
+    expect(md).toContain('### note 1\n\n![note 1](screenshots/5.png)');
+    expect(md).toContain('### note 2\n\n![note 2](screenshots/3.png)');
     expect(md.indexOf('screenshots/5.png')).toBeLessThan(md.indexOf('screenshots/3.png'));
-    expect(md).not.toContain('### feedback 3');
+    expect(md).not.toContain('### note 3');
   });
 
   test('every page numbers its notes from 1; the same number on two pages is two notes, told apart by id', () => {
@@ -131,7 +131,7 @@ describe('buildFeedbackMarkdown', () => {
     const b1 = makeItem({ id: 2, normalisedUrl: 'https://example.com/b' });
     const md = build({ 'https://example.com/a': [a1, a2], 'https://example.com/b': [b1] });
 
-    expect(md.match(/^### feedback \d+$/gm)).toEqual(['### feedback 1', '### feedback 2', '### feedback 1']);
+    expect(md.match(/^### note \d+$/gm)).toEqual(['### note 1', '### note 2', '### note 1']);
     expect(md.match(/screenshots\/\d+\.png/g)).toEqual(['screenshots/1.png', 'screenshots/3.png', 'screenshots/2.png']);
     // The json carries the id only — the position is the heading, not a field.
     expect(md.match(/^  "id": \d+,$/gm)).toEqual(['  "id": 1,', '  "id": 3,', '  "id": 2,']);
@@ -158,7 +158,7 @@ describe('buildFeedbackMarkdown', () => {
 
   test('an empty drawing does not mark the screenshot as marked up', () => {
     const item = makeItem({ drawing: { width: 100, height: 50, strokes: [] } });
-    expect(build({ [item.normalisedUrl]: [item] })).toContain('![feedback 1](screenshots/1.png)');
+    expect(build({ [item.normalisedUrl]: [item] })).toContain('![note 1](screenshots/1.png)');
   });
 
   test('the json lists its fields in the spec\'s order, with no page_meta block', () => {
@@ -349,7 +349,7 @@ describe('round trip: buildFeedbackMarkdown -> decodeFeedbackMarkdown', () => {
   test('notes that look like structure are skipped whole, never read as it', () => {
     const hostile = [
       '## page "https://evil.example/"',
-      '### feedback 99',
+      '### note 99',
       '**note:** fake',
       '<details>',
       '<summary>element data</summary>',
@@ -422,7 +422,7 @@ describe('decodeFeedbackMarkdown — malformed current-format files throw a plai
   const good = build({ [item.normalisedUrl]: [item] });
 
   test.each([
-    ['the screenshot line is missing', good.replace('![feedback 1](screenshots/1.png)\n', '')],
+    ['the screenshot line is missing', good.replace('![note 1](screenshots/1.png)\n', '')],
     ['the screenshot line names an id the json does not carry', good.replace('screenshots/1.png', 'screenshots/2.png')],
     ['the note line is missing', good.replace('**note:** this button is misaligned', 'this button is misaligned')],
     ['the json is unparsable', good.replace('"id": 1,', '"id": 1,,')],
@@ -449,7 +449,7 @@ describe('decodeFeedbackMarkdown — malformed current-format files throw a plai
   test('a heading whose number is not the note\'s position still reads, the number taken as written', () => {
     // A hand-edited file may have gaps (someone deleted a note by hand); the
     // list renumbers on the next draw, so the reader does not police it.
-    const [entry] = decodeFeedbackMarkdown(good.replace('### feedback 1', '### feedback 7')).entries;
+    const [entry] = decodeFeedbackMarkdown(good.replace('### note 1', '### note 7')).entries;
     expect(entry).toEqual({ number: 7, item: asDecoded(item) });
   });
 

@@ -38,8 +38,8 @@ import {
 
 describe('§5 import copy (verbatim)', () => {
   test.each([
-    ['INVALID_FILE_TYPE', 'invalid file type. please upload a .zip feedback bundle.'],
-    ['CORRUPT_ARCHIVE', 'could not read this file — it appears to be corrupted.'],
+    ['INVALID_FILE_TYPE', 'invalid file type. choose a .zip feedback bundle.'],
+    ['CORRUPT_ARCHIVE', "couldn't read this file. it may be corrupted."],
     ['MISSING_MANIFEST', "this doesn't look like a feedback bundle."],
     ['UNSUPPORTED_FORMAT', "this bundle was made by a different version of the extension and can't be imported."],
     ['MALFORMED_CONTEXT', "this bundle appears to be corrupted (couldn't read feedback data)."],
@@ -98,13 +98,13 @@ describe('the rest of the copy is lowercase and stable', () => {
   test('a save failure reported after the view closes names the note and its page', () => {
     expect(saveErrorFor(7, 'pricing')).toBe("couldn't save note #7 on pricing. try again.");
     expect(SAVE_ERROR_MESSAGE).toBe("couldn't save note. try again.");
-    expect(DELETE_ERROR_MESSAGE).toBe("couldn't delete item. try again.");
+    expect(DELETE_ERROR_MESSAGE).toBe("couldn't delete the note. try again.");
   });
 
   test('the enlarged view (design spec §AH)', () => {
     expect(NOTE_REQUIRED_MESSAGE).toBe('note required');
     expect(PAGE_NAME_SAVE_ERROR_MESSAGE).toBe("couldn't save the page name. try again.");
-    expect(PAGE_HAS_NO_NOTES_MESSAGE).toBe("this page's notes were deleted elsewhere. reopen to see the site as it is.");
+    expect(PAGE_HAS_NO_NOTES_MESSAGE).toBe("these notes were deleted in another tab. reopen this view to see the latest.");
     expect(SITE_LOAD_FAILED_MESSAGE).toBe("couldn't load the other pages' notes. try again.");
     expect(ENLARGED_VIEW_LABEL).toBe('all notes on this website');
     expect(THIS_PAGE_LABEL).toBe('this page');
@@ -134,10 +134,10 @@ describe('labels: add mode and the note list, byte-exact', () => {
     expect(copy.NOTE_FIELD_LABEL).toBe('feedback note');
     expect(copy.DRAWING_OPTIONS_LABEL).toBe('drawing options');
     expect(copy.ERASE_ALL_LABEL).toBe('erase all');
-    expect(copy.PENCIL_COLOUR_LABEL).toBe('pencil colour');
+    expect(copy.PENCIL_COLOUR_LABEL).toBe('pencil color');
     expect(copy.DRAWING_SURFACE_LABEL).toBe('drawing on the selection');
-    expect(copy.listItemLabel(3)).toBe('feedback item 3');
-    expect(copy.deleteListItemLabel(3)).toBe('delete feedback item 3');
+    expect(copy.listItemLabel(3)).toBe('note #3');
+    expect(copy.deleteListItemLabel(3)).toBe('delete note #3');
     expect(copy.DELETE_LIST_ITEM_TIP).toBe('delete');
     expect(copy.EMPTY_NOTE_PREVIEW).toBe('no note');
   });

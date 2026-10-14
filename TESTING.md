@@ -107,7 +107,7 @@ Last recorded run, 2026-10-13: 48 passed. (Export is read back by wrapping `chro
 6. Hover the add button, flick **keep add mode on**, save two more notes without clicking the button; **cancel** one (you stay in add mode); click the button → everything stops.
 7. Capture on a second URL of the same site too. Click a thumbnail → the sidebar expands into one scrolling page of every note on the site, page by page under each page's name and address ("this page" on yours); the visible list thumbnails grow into their places, everything else fades in. The clicked note's text area has the cursor, and the bottom of whatever precedes it peeks at the top. Edit two notes, collapse — reopen to confirm both were kept (no save button, no "saved" text). Empty one → "note required" under it at once; try exit, Esc, the scrim, the toolbar icon → each refused, focus jumps to it. Rename a page with the pencil (Enter saves, Esc cancels without closing, an empty name restores the title). Scroll behind the view → the page must not move; the view itself scrolls.
 8. Delete from the enlarged view (the rest renumber and slide into their re-packed places; a page's last note takes its heading with it) and from the list's hover button (no confirmation either way); every note below the deleted one moves up a number. Delete all of a page's notes and capture again → #1, and the page has its title back.
-9. **export** → `feedback-{domain}-{date}.zip`. Unzip: `screenshots/{id}.png` per note, `feedback.md` whose line 1 is the format stamp, three header lines, one `## page` per URL, and per note the heading (`### feedback n`, counting from 1 on every page, the same numbers as the sidebar), image (`screenshots/{id}.png` — the internal id, unique across the site), `**note:**` line and the collapsed json block, all fixed text lowercase.
+9. **export** → `feedback-{domain}-{date}.zip`. Unzip: `screenshots/{id}.png` per note, `feedback.md` whose line 1 is the format stamp, three header lines, one `## page` per URL, and per note the heading (`### note n`, counting from 1 on every page, the same numbers as the sidebar), image (`screenshots/{id}.png` — the internal id, unique across the site), `**note:**` line and the collapsed json block, all fixed text lowercase.
 
 ### Flow 1a: drawing (design spec §AB)
 
@@ -132,7 +132,7 @@ Last recorded run, 2026-10-13: 48 passed. (Export is read back by wrapping `chro
 
 ### Flow 3: SPA navigation
 
-On reddit.com or twitter.com: capture two notes, follow an in-app link. The sidebar stays open, the list refreshes for the new URL ("no feedback on this page yet" if none), and going back restores the original items.
+On reddit.com or twitter.com: capture two notes, follow an in-app link. The sidebar stays open, the list refreshes for the new URL ("no notes on this page yet" if none), and going back restores the original items.
 
 ### Flow 4: reload persistence
 

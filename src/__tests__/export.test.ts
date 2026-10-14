@@ -201,8 +201,8 @@ describe('export: the drawn image only (design spec §AB)', () => {
     const md = strFromU8(files['feedback.md']);
     expect(md).toBe(
       buildFeedbackMarkdown({ 'https://example.com/page': [plain] }, headerFor(EXPORTED_AT)).replace(
-        '![feedback 1](screenshots/1.png)',
-        '![feedback 1 — marked up by the reviewer](screenshots/1.png)',
+        '![note 1](screenshots/1.png)',
+        '![note 1 — marked up by the reviewer](screenshots/1.png)',
       ),
     );
     expect(md).not.toMatch(/strokes|"drawing"|#E5484D/);
@@ -325,9 +325,9 @@ describe('export: per-page numbering and the round trip', () => {
 
     expect(Object.keys(files).sort()).toEqual(['feedback.md', 'screenshots/1.png', 'screenshots/2.png', 'screenshots/3.png']);
     const md = strFromU8(files['feedback.md']);
-    expect(md.match(/^### feedback \d+$/gm)).toEqual(['### feedback 1', '### feedback 2', '### feedback 1']);
-    expect(md).toContain('### feedback 2\n\n![feedback 2](screenshots/3.png)');
-    expect(md).toContain('## page "https://example.com/b"\n\n### feedback 1\n\n![feedback 1](screenshots/2.png)');
+    expect(md.match(/^### note \d+$/gm)).toEqual(['### note 1', '### note 2', '### note 1']);
+    expect(md).toContain('### note 2\n\n![note 2](screenshots/3.png)');
+    expect(md).toContain('## page "https://example.com/b"\n\n### note 1\n\n![note 1](screenshots/2.png)');
     // The file is the writer's output for these pages, untouched.
     expect(md).toBe(buildFeedbackMarkdown(pages(), headerFor(EXPORTED_AT)));
   });
@@ -335,7 +335,7 @@ describe('export: per-page numbering and the round trip', () => {
   test('the drawn alt text follows the heading number, not the id', async () => {
     const drawn = { [A]: [onPage(1, A), onPage(3, A, { drawing: DRAWING })] };
     const md = strFromU8((await exportPages(drawn, storedImage))['feedback.md']);
-    expect(md).toContain('### feedback 2\n\n![feedback 2 — marked up by the reviewer](screenshots/3.png)');
+    expect(md).toContain('### note 2\n\n![note 2 — marked up by the reviewer](screenshots/3.png)');
   });
 
   test('export → import → export is the same file: feedback.md and every screenshot byte for byte', async () => {

@@ -65,7 +65,7 @@ export class ActionMenu {
   readonly el: HTMLDivElement;
   /** "import" — the menu's first item. */
   readonly importItem: HTMLButtonElement;
-  /** "delete all for this website" (design spec §AE). */
+  /** "delete all on this website" (design spec §AE). */
   readonly deleteAllItem: HTMLButtonElement;
   /** The menu's two faces (design spec §AF): the item list, and the
    *  confirmation the menu turns into in place. */
@@ -94,7 +94,7 @@ export class ActionMenu {
     const divider = document.createElement('div');
     divider.className = 'action-menu-divider';
     divider.setAttribute('role', 'separator');
-    this.deleteAllItem = makeMenuItem(ICON_TRASH, 'delete all for this website', 'is-danger is-delete-all');
+    this.deleteAllItem = makeMenuItem(ICON_TRASH, 'delete all on this website', 'is-danger is-delete-all');
     // Its reason sits beside the menu, to the left: the menu is against the
     // window's right edge (§AF).
     this.deleteAllItem.dataset.tipReason = NOTHING_TO_DELETE_MESSAGE;

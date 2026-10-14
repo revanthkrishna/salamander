@@ -92,7 +92,7 @@ test("add note's tooltip shows the shortcut as a keycap", async () => {
 
 // ── The Option/Alt+N tip (src/addNoteTip.ts) ─────────────────────────────────
 
-const TIP = process.platform === 'darwin' ? 'tip: ⌥N to add a note' : 'tip: alt+n to add a note';
+const TIP = process.platform === 'darwin' ? 'tip: press ⌥N to add a note' : 'tip: press alt+n to add a note';
 const HINT = 'click or drag to select';
 const tooltip = '#annotator-addmode-host .preview-tooltip';
 

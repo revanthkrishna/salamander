@@ -85,7 +85,7 @@ States: regular · hover · press · focus-visible (keyboard) · disabled.
 - Action row (padding 4px 16px 16px, gap 8): primary "add note" button (36px tall, flex-grow, plus icon + label) · export and import as secondary icon buttons (36×36).
 - Narrow widths: when the sidebar is too narrow for this (<~220px), the wordmark hides and "add note" becomes icon-only (keep aria-label "add feedback"/existing labels). At the 100px minimum everything must still be reachable without overflow (wrap the action row to a column if needed).
 - Section heading: "this page (n)" — 12px / 600 / muted, plain text, n = item count. Shown only when there is at least one item; otherwise show the empty state instead.
-- Empty state: centred muted 13px "no feedback on this page yet".
+- Empty state: centred muted 13px "no notes on this page yet".
 - Note list: padding 0 16px, gap 16. Each item = a real `<button>` (keep role/labels/keyboard behaviour the tests rely on):
   - thumbnail: full width, 100px tall, radius md, overflow hidden, background `raised`, screenshot `object-fit: contain` (never crop).
   - number badge on top-left of the thumbnail (8px inset): accent fill, onAccent, mono 11px/600, 20px tall, radius sm. The number is the note's position in this page's list (§AD).
@@ -422,7 +422,7 @@ its own treatment on the chevron half. Nothing scales on press — §2.
   - It must not trigger the item's "open" activation: stop propagation, and keep it out of the
     thumbnail's own hit area.
   - It deletes immediately, with no confirmation, exactly like the enlarged view's delete — same
-    DELETE_ITEM path, same error message on failure (`couldn't delete item. try again.`).
+    DELETE_ITEM path, same error message on failure (`couldn't delete the note. try again.`).
   - Keyboard: reachable by Tab after its own list item; visible whenever it has focus.
   - It rides the dock magnification with its item (it is inside the transformed `<li>`), and must
     not disturb dockMotion's hit testing.
@@ -775,7 +775,7 @@ the character counter (moved here from the left), then cancel and save.
 - **(impl)** The comment box is 296px wide, not §3.2's 280: the bar now carries the pencil, three
   swatches, the counter, cancel and save, and with the counter showing that row needs 279px of
   content, which 280 minus the bar's own 6px padding could not hold.
-- The swatches are a **radio group** ("pencil colour"), each a small circle in its colour with a
+- The swatches are a **radio group** ("pencil color"), each a small circle in its colour with a
   clear selected state that reads in the dark theme — including for the black swatch, which needs a
   visible edge on a dark surface. Arrow keys move between them, as a radio group should.
 
@@ -828,7 +828,7 @@ salamander 1.1.0\
 
 ## page "https://example.com/pricing"
 
-### feedback 1
+### note 1
 
 ![feedback 1 — marked up by the reviewer](screenshots/1.png)
 
@@ -859,7 +859,7 @@ salamander 1.1.0\
 - **Pages**: `## page "{normalised url}"` — the address notes are grouped by. Notes on one page can
   have different full URLs (query strings, fragments); each note's exact URL is in its JSON.
   Pages in the order they were first captured; notes in capture order within a page.
-- **Each note**: `### feedback {n}`, a blank line, the screenshot, a blank line,
+- **Each note**: `### note {n}`, a blank line, the screenshot, a blank line,
   `**note:** {text}`, a blank line, the details block.
   - `{n}` is the note's number as the sidebar shows it: its position on its page, counting from 1
     on every page (§AD). The screenshot path keeps the internal id, `screenshots/{id}.png`, which is
@@ -904,7 +904,7 @@ salamander 1.1.0\
 
 # AD. Note numbers are per page (2026-09-22)
 
-The number on a note — the list badge, the enlarged view's "feedback #n", the `### feedback n`
+The number on a note — the list badge, the enlarged view's "feedback #n", the `### note n`
 heading in `feedback.md` — is the note's **position in its page's list**, 1-based, recomputed
 every time it is drawn. It is not stored anywhere and it is not the note's id.
 
@@ -924,7 +924,7 @@ every time it is drawn. It is not stored anywhere and it is not the note's id.
 
 ---
 
-# AE. Export and "more options"; delete all for this website (2026-09-29)
+# AE. Export and "more options"; delete all on this website (2026-09-29)
 
 Supersedes §C2's segmented geometry and §K for the export group. §C2's menu behaviour (how it
 opens, closes and takes the keyboard) stands.
@@ -945,12 +945,12 @@ opens, closes and takes the keyboard) stands.
 
 ## The menu
 - `role="menu"`, `aria-label` "more options". Items, in order: **import**; a 1px `line` divider
-  (`role="separator"`); **delete all for this website**.
+  (`role="separator"`); **delete all on this website**.
 - Sized to its content (`width: max-content`, `min-width: 132px`) and never capped: every label
   stays on one line (items 32px tall, padding `0 12px`, `nowrap`). Anchored to the row's right
   edge, it grows leftwards; at the narrowest panel widths that takes it past the panel's left
   edge, out over the page, like any popover.
-- **delete all for this website**: trash icon, `danger` ink; hover and keyboard focus
+- **delete all on this website**: trash icon, `danger` ink; hover and keyboard focus
   `danger-soft` fill, press `danger-hover`. Greyed out whenever the site has no feedback — soft
   disabled (`aria-disabled`), so it stays focusable and ↑/↓ still reach it, to read its reason
   (§AF). While a delete is in flight it stays as it is; a second activation is simply ignored.
@@ -987,7 +987,7 @@ native confirm with the page's origin ("example.com says") and no page can chang
 questions were being asked in the website's name. They are now asked in place, by the menu.
 
 ## The menu becomes the question
-- Choosing **delete all for this website**, or **import** when the site already has notes, keeps
+- Choosing **delete all on this website**, or **import** when the site already has notes, keeps
   the menu open and turns it into the question.
 - Its box morphs from the menu's size to the **full width of the panel** — 16px from each side,
   the action row's own margin (`panel width − 1px border − 2 × 16px`) — and the question's
@@ -1024,7 +1024,7 @@ questions were being asked in the website's name. They are now asked in place, b
 - The menu always reopens as the item list, at its own size.
 
 ## Disabled reasons
-- With no notes on the site, **export** and **delete all for this website** are greyed out
+- With no notes on the site, **export** and **delete all on this website** are greyed out
   (`aria-disabled`, not `disabled`: they stay hoverable and focusable so they can say why) and
   clicking them does nothing.
 - Their reason shows in the shared tooltip (§AG) after 300ms of hover, or at once on keyboard
@@ -1174,7 +1174,7 @@ with one wide note, and the tops of the next row cut off by the bottom edge. Dec
   from 20px: the docked action row's gap between export and "more options"): "delete all" with the note delete's trash glyph (§S), 13px/500
   body face, in the menu item's `danger` ink, on the exit button's 36px secondary box (`surface`,
   1px `line`, radius md); the note delete's danger tint layered over the surface on hover and
-  press. It is the menu's **delete all for this website** — every note on every page and every
+  press. It is the menu's **delete all on this website** — every note on every page and every
   screenshot, the same `DELETE_DOMAIN_DATA` — named "delete all notes on this website" (its
   accessible name and tooltip).
   - **Asked in place, no separate box:** clicked, the button's box **morphs** into the question's
@@ -1246,7 +1246,7 @@ address with "this page" to its right on a 20px line —
 - Saving an empty or whitespace-only name — or the captured title itself — restores the default.
 - **Stored** per page in the domain index, `meta.pageTitles[normalisedUrl]`, trimmed, through the
   service worker's write queue (`SET_PAGE_TITLE`). It lasts until the page's last note is deleted
-  or **delete all for this website** runs (which removes the index it lives in); an import starts
+  or **delete all on this website** runs (which removes the index it lives in); an import starts
   with none. Either way the page is back on its default.
 - The new name shows at once; if it cannot be stored it goes back, with "couldn't save the page
   name. try again." under the heading — or, when the page's notes were deleted elsewhere (another
@@ -1392,7 +1392,7 @@ do — a text area at its end hands the wheel on to the scroller, not to the pag
 
 The shortcut (REQUIREMENTS FR-AM-2a) is invisible until someone reads add note's tooltip. Once in a
 while, the hint that follows the cursor at the start of add mode (§G, "click or drag to select")
-says instead **"tip: ⌥N to add a note"** on macOS and **"tip: alt+n to add a note"** elsewhere
+says instead **"tip: press ⌥N to add a note"** on macOS and **"tip: press alt+n to add a note"** elsewhere
 (copy.ts, `addNoteTip`). It is the same tooltip: the same look, the same place beside the cursor,
 the same 5 seconds (§N), replacing the usual hint that one time.
 

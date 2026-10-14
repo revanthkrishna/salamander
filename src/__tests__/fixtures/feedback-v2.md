@@ -5,9 +5,9 @@ salamander 1.1.0\
 
 ## page "https://example.com/pricing"
 
-### feedback 1
+### note 1
 
-![feedback 1 — marked up by the reviewer](screenshots/1.png)
+![note 1 — marked up by the reviewer](screenshots/1.png)
 
 **note:** the "start trial" cta is misaligned on mobile
 
@@ -67,9 +67,9 @@ salamander 1.1.0\
 
 </details>
 
-### feedback 2
+### note 2
 
-![feedback 2](screenshots/3.png)
+![note 2](screenshots/3.png)
 
 **note:** the comparison table overflows at 1024px
 
@@ -123,9 +123,9 @@ second paragraph: the sticky header covers row one when you scroll
 
 ## page "https://example.com/docs/getting-started"
 
-### feedback 1
+### note 1
 
-![feedback 1](screenshots/2.png)
+![note 1](screenshots/2.png)
 
 **note:** (none)
 

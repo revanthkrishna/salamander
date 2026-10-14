@@ -26,7 +26,7 @@ export const PAGE_NAME_SAVE_ERROR_MESSAGE = "couldn't save the page name. try ag
 /** A page was renamed after its notes were deleted elsewhere (another tab):
  *  a page exists only through its notes, so there is nothing to name, and
  *  trying again cannot help — reopening shows the site as it now is. */
-export const PAGE_HAS_NO_NOTES_MESSAGE = "this page's notes were deleted elsewhere. reopen to see the site as it is.";
+export const PAGE_HAS_NO_NOTES_MESSAGE = "these notes were deleted in another tab. reopen this view to see the latest.";
 export const IMAGE_LOAD_FAILED_MESSAGE = "couldn't load screenshot. try again.";
 
 /** A save failure, under the note's own text area. */
@@ -37,7 +37,7 @@ export const SAVE_ERROR_MESSAGE = "couldn't save note. try again.";
 export function saveErrorFor(number: number, pageName: string): string {
   return `couldn't save note #${number} on ${pageName}. try again.`;
 }
-export const DELETE_ERROR_MESSAGE = "couldn't delete item. try again.";
+export const DELETE_ERROR_MESSAGE = "couldn't delete the note. try again.";
 /** "A note can never be empty" (design spec v2 §D, §AH): under a text area
  *  that has been emptied. The last saved text stays stored, and the view
  *  will not close until the note has text again. */
@@ -55,7 +55,7 @@ export const EXPORT_FAILED_MESSAGE = "couldn't export feedback. try again.";
 /** §5 #7 — the reason export is greyed out, in its tooltip (design spec §AF);
  *  also the warning if the site empties between the check and the export. */
 export const NOTHING_TO_EXPORT_MESSAGE = 'nothing to export';
-/** The reason "delete all for this website" is greyed out (design spec §AF). */
+/** The reason "delete all on this website" is greyed out (design spec §AF). */
 export const NOTHING_TO_DELETE_MESSAGE = 'nothing to delete';
 /** The reason add mode's "erase all" is greyed out (design spec §AB). */
 export const NOTHING_TO_ERASE_MESSAGE = 'nothing to erase';
@@ -78,7 +78,7 @@ export const PLACING_HINT = 'click or drag to select';
 /** The Option/Alt+N tip (src/addNoteTip.ts), shown once in a while in the
  *  hint's place: the keycap as the platform writes it — ⌥ on macOS. */
 export function addNoteTip(mac: boolean): string {
-  return mac ? 'tip: \u2325N to add a note' : 'tip: alt+n to add a note';
+  return mac ? 'tip: press \u2325N to add a note' : 'tip: press alt+n to add a note';
 }
 /** The comment box and its text area (their accessible names). */
 export const ADD_NOTE_LABEL = 'add feedback note';
@@ -87,14 +87,14 @@ export const NOTE_FIELD_LABEL = 'feedback note';
  *  the colour swatches' group, and the surface strokes are drawn on. */
 export const DRAWING_OPTIONS_LABEL = 'drawing options';
 export const ERASE_ALL_LABEL = 'erase all';
-export const PENCIL_COLOUR_LABEL = 'pencil colour';
+export const PENCIL_COLOUR_LABEL = 'pencil color';
 export const DRAWING_SURFACE_LABEL = 'drawing on the selection';
 /** A note in the sidebar's list, and its hover delete (design spec v4 §L). */
 export function listItemLabel(number: number): string {
-  return `feedback item ${number}`;
+  return `note #${number}`;
 }
 export function deleteListItemLabel(number: number): string {
-  return `delete feedback item ${number}`;
+  return `delete note #${number}`;
 }
 export const DELETE_LIST_ITEM_TIP = 'delete';
 /** A listed note with no text (the list shows something rather than
@@ -113,7 +113,7 @@ export const THIS_PAGE_LABEL = 'this page';
 export const UNTITLED_PAGE_NAME = 'untitled page';
 export const DELETE_NOTE_TIP = 'delete note';
 /** The top bar's "delete all" (design spec §AH, 2026-10-13): the menu's
- *  "delete all for this website", asked in place — its label, the name and
+ *  "delete all on this website", asked in place — its label, the name and
  *  tooltip that say how far it reaches, and the question it turns into. */
 export const DELETE_ALL_LABEL = 'delete all';
 export const DELETE_ALL_SITE_LABEL = 'delete all notes on this website';
@@ -166,9 +166,9 @@ export function deleteAllConfirmMessage(itemCount: number, pageCount: number): s
 export function importErrorMessage(code: ImportErrorCode, details?: ImportErrorDetails): string {
   switch (code) {
     case 'INVALID_FILE_TYPE':
-      return 'invalid file type. please upload a .zip feedback bundle.';
+      return 'invalid file type. choose a .zip feedback bundle.';
     case 'CORRUPT_ARCHIVE':
-      return 'could not read this file — it appears to be corrupted.';
+      return "couldn't read this file. it may be corrupted.";
     case 'MISSING_MANIFEST':
       return "this doesn't look like a feedback bundle.";
     case 'UNSUPPORTED_FORMAT':

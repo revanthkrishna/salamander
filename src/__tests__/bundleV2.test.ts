@@ -255,17 +255,17 @@ describe('frozen v2 bundle — write', () => {
   });
 
   test('headings count from 1 on every page; screenshot paths keep the id', () => {
-    expect(fixture.match(/^### feedback \d+$/gm)).toEqual(['### feedback 1', '### feedback 2', '### feedback 1']);
+    expect(fixture.match(/^### note \d+$/gm)).toEqual(['### note 1', '### note 2', '### note 1']);
     expect(fixture.match(/screenshots\/\d+\.png/g)).toEqual(['screenshots/1.png', 'screenshots/3.png', 'screenshots/2.png']);
     // The alt text follows the heading, the path the id.
-    expect(fixture).toContain('### feedback 2\n\n![feedback 2](screenshots/3.png)');
-    expect(fixture).toContain('### feedback 1\n\n![feedback 1](screenshots/2.png)');
+    expect(fixture).toContain('### note 2\n\n![note 2](screenshots/3.png)');
+    expect(fixture).toContain('### note 1\n\n![note 1](screenshots/2.png)');
   });
 
   test('without the drawing only the alt text changes (the drawing is pixels, not data — §AB)', () => {
     const plain = { ...FIXTURE_PAGES, [PRICING]: [stored(ITEM_1), stored(ITEM_3)] };
     expect(buildFeedbackMarkdown(plain, HEADER)).toBe(
-      fixture.replace('![feedback 1 — marked up by the reviewer]', '![feedback 1]'),
+      fixture.replace('![note 1 — marked up by the reviewer]', '![note 1]'),
     );
     expect(fixture).not.toMatch(/strokes|#E5484D/);
   });

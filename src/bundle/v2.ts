@@ -11,7 +11,7 @@
 //
 //   ## page "{normalised url}"                  pages in first-capture order
 //
-//   ### feedback {n}                            notes in capture order, n =
+//   ### note {n}                            notes in capture order, n =
 //                                               position on the page from 1
 //   ![feedback {n}](screenshots/{id}.png)       alt gains " — marked up by the
 //                                               reviewer" when drawn on (§AB)
@@ -119,7 +119,7 @@ export interface JsonFeedbackItem {
 export type DecodedBundleItem = Omit<FeedbackItem, 'screenshotKey' | 'thumbnailDataUrl'>;
 
 /** One note as the reader gives it back: the item, and the display number
- *  its `### feedback {n}` heading showed. The number is not part of the
+ *  its `### note {n}` heading showed. The number is not part of the
  *  item (it is never stored — the list position is recomputed at every
  *  render); it is here for the importer's duplicate check. */
 export interface DecodedBundleEntry {
@@ -137,7 +137,7 @@ const JSON_FENCE_OPEN = '```json';
 const FENCE_CLOSE = '```';
 
 const PAGE_HEADING_RE = /^## page "(.*)"$/;
-const ITEM_HEADING_RE = /^### feedback (\d+)$/;
+const ITEM_HEADING_RE = /^### note (\d+)$/;
 const IMAGE_LINE_RE = /^!\[[^\]]*\]\(screenshots\/(\d+)\.png\)$/;
 
 // ---------------------------------------------------------------------------
@@ -182,9 +182,9 @@ function renderPage(section: { url: string; items: FeedbackItem[] }): string {
 /** One note. `number` is its display number (position on the page); the
  *  screenshot path is its id — see the file banner for why they differ. */
 function renderItem(item: FeedbackItem, number: number): string {
-  const alt = `feedback ${number}${hasStrokes(item.drawing) ? DRAWN_ALT_SUFFIX : ''}`;
+  const alt = `note ${number}${hasStrokes(item.drawing) ? DRAWN_ALT_SUFFIX : ''}`;
   return [
-    `### feedback ${number}`,
+    `### note ${number}`,
     '',
     `![${alt}](screenshots/${item.id}.png)`,
     '',
@@ -410,7 +410,7 @@ function skipBlank(lines: string[], i: number): number {
   return i;
 }
 
-/** The image line that must follow `### feedback {n}` (after blank lines),
+/** The image line that must follow `### note {n}` (after blank lines),
  *  with the id its screenshot path names, or null. */
 function imageLineAfter(lines: string[], headingIndex: number): { index: number; id: number } | null {
   const index = skipBlank(lines, headingIndex + 1);
@@ -445,7 +445,7 @@ function elementDataAt(lines: string[], k: number): ElementDataBlock | null {
   }
 }
 
-/** The lines of one note after its `### feedback {number}` heading: the
+/** The lines of one note after its `### note {number}` heading: the
  *  screenshot line (whose path names the note's id), the note line, and the
  *  element-data block for that id. */
 function readItemBlock(

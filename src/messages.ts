@@ -517,7 +517,7 @@ export type GetDomainItemCountResponse =
   | GetDomainItemCountSuccessResponse
   | GetDomainItemCountErrorResponse;
 
-/** "delete all for this website" (design spec §AE): every item on
+/** "delete all on this website" (design spec §AE): every item on
  *  every page of the domain, and every screenshot, in one write. */
 export interface DeleteDomainDataMessage {
   type: 'DELETE_DOMAIN_DATA';

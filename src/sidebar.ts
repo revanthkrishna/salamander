@@ -7,7 +7,7 @@
 //   - header row: logo + wordmark, close
 //   - action row: the "add note" group (button + "keep on" switch) and the
 //     export group: two buttons, export and "more options" (⋯), which opens
-//     a menu holding "import" and "delete all for this website"
+//     a menu holding "import" and "delete all on this website"
 //   - notification banner (error/warning, auto-clears)
 //   - "this page (n)" heading + note list, or the empty state
 //
@@ -178,7 +178,7 @@ export interface SidebarCallbacks {
    *  content.ts decides whether to ask first (confirmInMenu, when the site
    *  already has notes) and then calls openImportPicker(). */
   onImport: () => void;
-  /** "delete all for this website" — the menu's destructive item (design
+  /** "delete all on this website" — the menu's destructive item (design
    *  spec §AE, §AF). The menu stays open: content.ts reads the counts, asks
    *  through confirmInMenu and runs the delete. */
   onDeleteAll: () => void;
@@ -309,7 +309,7 @@ function buildDOM(host: HTMLDivElement, shadow: ShadowRoot): SidebarDom {
   const panel = document.createElement('div');
   panel.className = 'sidebar';
   panel.setAttribute('role', 'complementary');
-  panel.setAttribute('aria-label', 'annotator sidebar');
+  panel.setAttribute('aria-label', 'salamander sidebar');
   panel.hidden = true;
 
   const resizer = document.createElement('div');
@@ -432,7 +432,7 @@ function buildDOM(host: HTMLDivElement, shadow: ShadowRoot): SidebarDom {
 
   const emptyState = document.createElement('p');
   emptyState.className = 'empty-state';
-  emptyState.textContent = 'no feedback on this page yet';
+  emptyState.textContent = 'no notes on this page yet';
 
   const thumbnailList = document.createElement('ul');
   thumbnailList.className = 'thumbnail-list';
@@ -732,7 +732,7 @@ function wireAddGroup(d: SidebarDom): void {
 }
 
 /** The export group's listeners (design spec §AE, §AF): export, "more
- *  options" and its menu — "import", "delete all for this website" and the
+ *  options" and its menu — "import", "delete all on this website" and the
  *  confirmation the menu turns into — and the hidden file input. */
 function wireExportGroup(d: SidebarDom): void {
   d.btnExport.addEventListener('click', (e) => {

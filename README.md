@@ -41,10 +41,10 @@ Requires Chrome 105 or newer (`chrome.storage.session`, CSS `:has()`). The `dist
 4. Inside the box the cursor is a pencil: draw if you want, switch colour with the swatches, **erase all** from the pencil menu, Cmd/Ctrl+Z to undo a stroke.
 5. Type a note (placeholder "type a note…") and click **save**. The overlay hides for one frame, the screenshot and DOM context are captured, and the note appears at the bottom of the list. **cancel** discards it; clicking outside the box does nothing.
 6. To capture several in a row, hover the add button and flick **keep add mode on** — after each save you are straight back in add mode. Click the button or press Esc to stop. Double-click or shift+click the button does the same as the switch.
-7. Shortcut: with the sidebar open, **Option+N** (Mac) or **Alt+N** (Windows/Linux) adds one note, like a single click on add note. It does nothing while you are typing, while a note is being placed or while the enlarged view is open. Until you have used it, the third time in a browsing session you start add mode with a click, the hint beside the cursor says "tip: ⌥N to add a note" ("alt+n" off the Mac) instead of "click or drag to select" — at most three times per install.
+7. Shortcut: with the sidebar open, **Option+N** (Mac) or **Alt+N** (Windows/Linux) adds one note, like a single click on add note. It does nothing while you are typing, while a note is being placed or while the enlarged view is open. Until you have used it, the third time in a browsing session you start add mode with a click, the hint beside the cursor says "tip: press ⌥N to add a note" ("alt+n" off the Mac) instead of "click or drag to select" — at most three times per install.
 8. Click a thumbnail to open the enlarged view: every note on the site, page by page (oldest page first), each under its page's name and address, the page you are on labelled "this page". The note you clicked has the cursor, with the last 40px of the row before it peeking under the top bar (for a page's first note, the page's heading shows whole below that peek). Every note is editable at once and autosaves; a note can't be left empty ("note required"). Click the pencil beside a page's name to rename it (Enter saves, Esc cancels, an empty name restores the page's title) — the name is used in the export too. The trash icon above a note deletes it. **delete all**, beside the exit button at the top right, deletes every note on every page of the site after asking "confirm?" in place (yes, delete all / cancel; Esc cancels the question). Esc, the scrim or the exit button (›) at the top right closes the view. Hover a thumbnail for a delete button that skips the enlarged view.
 9. Browse the site normally — the sidebar stays open across SPA navigation and full reloads, showing the notes for whatever URL you are on. Notes are numbered by their position on the page — every page counts from 1, and deleting a note renumbers the ones after it.
-10. **export** downloads `feedback-{domain}-{date}.zip` with every note on the site. The **more options** button (⋯) beside it holds **import**, which replaces the site's notes with a bundle's (after confirmation if any exist), and **delete all for this website**, which deletes every note on every page of the site after a confirmation quoting how many.
+10. **export** downloads `feedback-{domain}-{date}.zip` with every note on the site. The **more options** button (⋯) beside it holds **import**, which replaces the site's notes with a bundle's (after confirmation if any exist), and **delete all on this website**, which deletes every note on every page of the site after a confirmation quoting how many.
 
 All visible UI text is lowercase by design. The extension is dark-themed only.
 
@@ -70,7 +70,7 @@ salamander 2.1.0\
 
 ## page "https://example.com/pricing"
 
-### feedback 1
+### note 1
 
 ![feedback 1 — marked up by the reviewer](screenshots/1.png)
 
@@ -103,7 +103,7 @@ salamander 2.1.0\
 ````
 
 - Line 1 is the format stamp import checks; only format 2 is read (no backward compatibility — the extension was never published with another format).
-- One `## page` section per normalised URL, notes in capture order. `### feedback n` is the note's position on its page (from 1 on every page, the same number the sidebar shows); `screenshots/{id}.png` is the note's internal id, unique across the site. Each note's JSON is the complete record; the visible `**note:**` line is for people and ignored on import.
+- One `## page` section per normalised URL, notes in capture order. `### note n` is the note's position on its page (from 1 on every page, the same number the sidebar shows); `screenshots/{id}.png` is the note's internal id, unique across the site. Each note's JSON is the complete record; the visible `**note:**` line is for people and ignored on import.
 - Free text in the JSON is capped (`text` 120, `html` 300, `area_text` 200, element text/attributes 80) and ends in `…` when cut. Notes and identifiers are never cut.
 - `page_title` is the page's name as the enlarged view shows it: the name you gave it there, else the HTML title captured with its notes. Re-importing brings a given name back as those notes' title.
 - A drawing is only ever in the pixels: the alt text says "marked up by the reviewer" so a reader knows the marks are not part of the page. Re-importing keeps it flattened into the image.

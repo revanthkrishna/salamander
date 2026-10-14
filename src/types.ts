@@ -95,7 +95,7 @@ export interface FeedbackItem {
    *  the storage key (`item:{domain}:{id}`), the screenshot filename in an
    *  export (`screenshots/{id}.png`) and the link to the IndexedDB image —
    *  and it is NOT the number the user sees. The number shown on a badge, in
-   *  the enlarged view's title and as a `### feedback {n}` heading is the
+   *  the enlarged view's title and as a `### note {n}` heading is the
    *  item's 1-based position in its page's list (`DomainData.pages[url]`,
    *  capture order), computed at every render and never stored: deleting a
    *  note renumbers those after it, and each page starts at 1. */
@@ -184,7 +184,7 @@ export interface DomainMeta {
    *  keyed by normalised URL. A page with no entry shows its default name —
    *  the HTML title captured with its first note
    *  (`context.pageMeta.title`). An entry goes when the page's last note is
-   *  deleted or the whole site is ("delete all for this website" removes
+   *  deleted or the whole site is ("delete all on this website" removes
    *  the index it lives in), so the page is back on its default name.
    *  Optional: an index that never had a page renamed omits it, and older
    *  records need no migration. */

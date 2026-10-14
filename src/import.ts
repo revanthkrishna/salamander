@@ -104,7 +104,7 @@ export async function parseImportBundle(
   // §5 #11 — duplicates within the bundle, of either number a note carries
   // (src/bundle/v2.ts's banner). The internal id must be unique across the
   // whole file: it becomes the storage key, so a repeat would collapse two
-  // notes into one. The display number (the `### feedback {n}` heading)
+  // notes into one. The display number (the `### note {n}` heading)
   // must be unique within its page only — numbering restarts on every
   // page, so the same number on two pages is exactly what a healthy export
   // looks like. Pages are told apart by normalised url, which is what the

@@ -122,7 +122,7 @@ function harness(): Harness {
     penColor: { restore: restorePen, remember: jest.fn() },
     onSaved: saved,
     now: () => now,
-    tip: { query: tipQuery, record: tipRecord, release: tipRelease, shortcutUsed: tipShortcutUsed, text: () => 'tip: alt+n to add a note' },
+    tip: { query: tipQuery, record: tipRecord, release: tipRelease, shortcutUsed: tipShortcutUsed, text: () => 'tip: press alt+n to add a note' },
   };
   return {
     control: createAddModeControl(deps),
@@ -416,7 +416,7 @@ describe('the Option/Alt+N tip (src/addNoteTip.ts)', () => {
     h.control.onButtonClick();
     expect(h.tip.query).toHaveBeenCalledTimes(1);
     await settle();
-    expect(h.tip.shown).toEqual(['tip: alt+n to add a note']);
+    expect(h.tip.shown).toEqual(['tip: press alt+n to add a note']);
     await pastWindow();
     // Not seen yet: nothing decided.
     expect(h.tip.record).not.toHaveBeenCalled();

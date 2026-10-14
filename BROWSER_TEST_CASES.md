@@ -57,7 +57,7 @@ the same page.
 - [ ] **R10a. (the Option/Alt+N tip)** In a fresh browser session (quit and reopen Chrome), click
       **add note** three times, leaving add mode with Esc each time and moving the pointer over the
       page: the first shows "click or drag to select" beside the cursor (for its first 5 seconds on
-      the page only); the third shows "tip: ⌥N to add a note" (Mac) or "tip: alt+n to add a note"
+      the page only); the third shows "tip: press ⌥N to add a note" (Mac) or "tip: press alt+n to add a note"
       (Windows/Linux) in its place, for 5 seconds, even if the usual hint is used up. A fourth
       click: no tip. A double-click on add note, the switch and
       Option/Alt+N do not count. Over three browser sessions it shows three times, then never;
@@ -85,7 +85,7 @@ the same page.
       right, then on the far right two separate buttons a little apart: "export" and "more
       options" (⋯).
 - [ ] **1.4.** With no feedback captured yet on this page, sidebar body shows the empty-state
-      message: "no feedback on this page yet".
+      message: "no notes on this page yet".
 - [ ] **1.5.** Click **close** → sidebar disappears, page returns to full width.
 - [ ] **1.6.** Click the extension icon again → sidebar re-opens, page narrows again.
 - [ ] **1.7. (SPA persistence)** On a site with client-side routing, open the sidebar, then click
@@ -414,7 +414,7 @@ notes, one very wide), then page C (one tall note, one default).
       - Capture a new note while the delete is showing: no trace of the button may appear in the
         screenshot.
       - Disconnect the network / reload the extension mid-click if you can force a failure — the
-        sidebar should show "couldn't delete item. try again." (the same wording the enlarged
+        sidebar should show "couldn't delete the note. try again." (the same wording the enlarged
         view's delete uses).
 - [ ] **3.11. (Numbering is position, design spec §AD)** Capture four notes on one page (#1–#4).
       - Open the enlarged view and delete #2: the old #3 and #4 become "#2" and "#3" at once as
@@ -458,7 +458,7 @@ notes, one very wide), then page C (one tall note, one default).
 ## 5. Importing (§1.7) and all error cases (§5)
 
 - [ ] **5.0. ("more options" menu, §AE)** Click **more options** (⋯) → a menu opens below it with
-      **import**, a divider, and **delete all for this website** in red. Both labels are on one
+      **import**, a divider, and **delete all on this website** in red. Both labels are on one
       line, at every sidebar width (at the narrowest, the menu reaches a little past the panel's
       left edge — expected). The button keeps its lit state while open. Check it closes on: Esc
       (focus returns to the button), a click anywhere else in the sidebar, a click on the page
@@ -468,7 +468,7 @@ notes, one very wide), then page C (one tall note, one default).
       is greyed out. Nothing in the menu should be reachable by Tab while it is closed. Measure the
       gaps: import sits the same distance from the menu's edge as from the divider, and so does
       delete-all.
-- [ ] **5.0a. (delete all, §AF)** On a site with no feedback, **delete all for this website** is
+- [ ] **5.0a. (delete all, §AF)** On a site with no feedback, **delete all on this website** is
       greyed out; hover it and a tooltip to the LEFT of the menu reads "nothing to delete".
       Capture a note on one page and two on another page of the same site (SPA links or two URLs).
       Open the menu → the item is live. Click it → the menu itself grows smoothly to the full
@@ -508,7 +508,7 @@ notes, one very wide), then page C (one tall note, one default).
 - [ ] **5.4. (Wrong file type)** Try importing a `.txt` or `.png` file → "invalid file type. please
       upload a .zip feedback bundle."
 - [ ] **5.5. (Corrupted zip)** Rename some random non-zip file to `.zip` and try importing it →
-      "could not read this file — it appears to be corrupted."
+      "couldn't read this file. it may be corrupted."
 - [ ] **5.6. (Missing feedback.md)** Take a valid export zip, delete `feedback.md` from it, re-zip,
       import → "this doesn't look like a feedback bundle."
 - [ ] **5.7. (Missing screenshot)** Take a valid export zip, delete one file from `screenshots/`,
@@ -523,9 +523,9 @@ notes, one very wide), then page C (one tall note, one default).
 - [ ] **5.10. (Duplicate IDs)** Edit `feedback.md` so two notes share the same id (the
       `screenshots/{id}.png` reference and the json `"id"` of one note both set to another note's
       id), re-zip, import → "this bundle appears to be corrupted (duplicate item ids)." Then, in a
-      fresh copy, give two notes **under the same `## page`** the same `### feedback n` heading
+      fresh copy, give two notes **under the same `## page`** the same `### note n` heading
       (and matching alt text) → the same message. A bundle with two pages that each start at
-      `### feedback 1` is normal and must import.
+      `### note 1` is normal and must import.
 - [ ] **5.11. (Other format)** Edit line 1 of `feedback.md` to `<!-- salamander-feedback-format: 3 -->`,
       re-zip, import → "this bundle was made by a different version of the extension and can't be
       imported." Nothing changes. The same message for a bundle exported by an older build (the
