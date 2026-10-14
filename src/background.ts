@@ -29,6 +29,8 @@ import {
   setAddNoteClicks,
   getAddNoteTipState,
   setAddNoteTipState,
+  isAddNoteTipReserved,
+  setAddNoteTipReserved,
   STORAGE_VERSION,
 } from './storage';
 import { isPenColor } from './drawing';
@@ -84,7 +86,6 @@ import {
   DeleteDomainDataMessage,
   DeleteDomainDataResponse,
   GetAddNoteTipResponse,
-  RecordAddNoteClickMessage,
   GetPenColorResponse,
   SetPenColorMessage,
   MessageHandlers,
@@ -222,7 +223,8 @@ const handlers: MessageHandlers = {
   SET_PEN_COLOR: (message) => handleSetPenColor(message),
   GET_ADD_NOTE_TIP: () => handleGetAddNoteTip(),
   // Notifications: no response, so the channel closes at once.
-  RECORD_ADD_NOTE_CLICK: (message) => void handleRecordAddNoteClick(message),
+  RECORD_ADD_NOTE_CLICK: () => void handleRecordAddNoteClick(),
+  RELEASE_ADD_NOTE_TIP: () => void handleReleaseAddNoteTip(),
   ADD_NOTE_SHORTCUT_USED: () => void handleAddNoteShortcutUsed(),
 };
 
@@ -527,25 +529,44 @@ function onTipChain<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
+/** Decide and reserve in one queued step: a yes takes one of the install's
+ *  showings and the session's at once, so a second tab asking before the
+ *  first one's outcome is told no. The reservation is marked first: if the
+ *  count cannot be written after it, the session simply shows no tip. */
 export function handleGetAddNoteTip(): Promise<GetAddNoteTipResponse> {
   return onTipChain(async () => {
-    const [clicks, state] = await Promise.all([getAddNoteClicks(), getAddNoteTipState()]);
-    return { show: shouldShowTip(clicks, state) };
+    const [clicks, state, reserved] = await Promise.all([getAddNoteClicks(), getAddNoteTipState(), isAddNoteTipReserved()]);
+    const show = shouldShowTip(clicks, state, reserved);
+    if (show) {
+      await setAddNoteTipReserved(true);
+      await setAddNoteTipState({ ...state, shown: state.shown + 1 });
+    }
+    return { show };
   }).catch((err) => {
     console.warn('[Annotator] could not read the add-note tip state:', err);
     return { show: false };
   });
 }
 
-export function handleRecordAddNoteClick(message: RecordAddNoteClickMessage): Promise<void> {
+export function handleRecordAddNoteClick(): Promise<void> {
   return onTipChain(async () => {
     await setAddNoteClicks((await getAddNoteClicks()) + 1);
-    if (message.tipShown === true) {
-      const state = await getAddNoteTipState();
-      await setAddNoteTipState({ ...state, shown: state.shown + 1 });
-    }
   }).catch((err) => {
     console.warn('[Annotator] could not count the add-note click:', err);
+  });
+}
+
+/** A reserved showing nobody saw goes back: to the install's count, and to
+ *  the session, whose next single-click third start may show it again. */
+export function handleReleaseAddNoteTip(): Promise<void> {
+  return onTipChain(async () => {
+    // Only a showing that was reserved can be given back.
+    if (!(await isAddNoteTipReserved())) return;
+    const state = await getAddNoteTipState();
+    await setAddNoteTipState({ ...state, shown: Math.max(0, state.shown - 1) });
+    await setAddNoteTipReserved(false);
+  }).catch((err) => {
+    console.warn('[Annotator] could not give back the add-note tip:', err);
   });
 }
 

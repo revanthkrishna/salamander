@@ -33,6 +33,10 @@ describe('the decision', () => {
     expect(shouldShowTip(2, { shown: 0, shortcutUsed: true })).toBe(false);
   });
 
+  test('never while the session\'s showing is already reserved', () => {
+    expect(shouldShowTip(2, FRESH_TIP_STATE, true)).toBe(false);
+  });
+
   test('a stored state that is not one reads as fresh', () => {
     expect(parseTipState(undefined)).toEqual(FRESH_TIP_STATE);
     expect(parseTipState({ shown: -1, shortcutUsed: 'yes' })).toEqual(FRESH_TIP_STATE);
@@ -48,15 +52,16 @@ describe('the wording', () => {
 });
 
 describe('the service worker\'s counts', () => {
-  /** One single-click start: ask, then count it as the controller does. */
+  /** One single-click start, as the controller runs it: ask; a no, or a
+   *  yes whose tip was then seen, counts the start. */
   async function clickStart(): Promise<boolean> {
     const { show } = await background.handleGetAddNoteTip();
-    await background.handleRecordAddNoteClick({ type: 'RECORD_ADD_NOTE_CLICK', tipShown: show });
+    await background.handleRecordAddNoteClick();
     return show;
   }
   /** The browser restarts: chrome.storage.session is empty again. */
   async function newSession(): Promise<void> {
-    await chrome.storage.session.remove('addNoteClicks');
+    await chrome.storage.session.remove(['addNoteClicks', 'addNoteTipReserved']);
   }
   const stored = async () => (await chrome.storage.local.get('addNoteTip')).addNoteTip;
 
@@ -88,12 +93,41 @@ describe('the service worker\'s counts', () => {
     expect(await stored()).toEqual({ shown: 3, shortcutUsed: false });
   });
 
-  test('a start that did not show it (a double-click took it back) is not counted against the lifetime', async () => {
+  test('a yes reserves the showing at once: two tabs asking before either outcome cannot both be told yes', async () => {
+    await clickStart();
+    await clickStart();
+    const [a, b] = await Promise.all([background.handleGetAddNoteTip(), background.handleGetAddNoteTip()]);
+    expect([a.show, b.show].sort()).toEqual([false, true]);
+    expect(await stored()).toEqual({ shown: 1, shortcutUsed: false });
+  });
+
+  test('...and at the install\'s last showing, two sessions\' tabs cannot take it twice', async () => {
+    await chrome.storage.local.set({ addNoteTip: { shown: 2, shortcutUsed: false } });
+    await clickStart();
+    await clickStart();
+    const answers = await Promise.all([background.handleGetAddNoteTip(), background.handleGetAddNoteTip()]);
+    expect(answers.filter((r) => r.show)).toHaveLength(1);
+    expect(await stored()).toEqual({ shown: 3, shortcutUsed: false });
+  });
+
+  test('a showing nobody saw (a double-click, a tip that never reached the screen) is given back; the next third start has it', async () => {
     await clickStart();
     await clickStart();
     expect((await background.handleGetAddNoteTip()).show).toBe(true);
-    await background.handleRecordAddNoteClick({ type: 'RECORD_ADD_NOTE_CLICK', tipShown: false });
-    expect(await stored()).toBeUndefined();
+    // Not seen: the start is not counted, the showing goes back.
+    await background.handleReleaseAddNoteTip();
+    expect(await stored()).toEqual({ shown: 0, shortcutUsed: false });
+    expect((await chrome.storage.session.get('addNoteTipReserved')).addNoteTipReserved).toBeUndefined();
+    expect(await clickStart()).toBe(true);
+    expect(await stored()).toEqual({ shown: 1, shortcutUsed: false });
+  });
+
+  test('once seen, the session\'s showing stays spent even before its start is counted', async () => {
+    await clickStart();
+    await clickStart();
+    expect((await background.handleGetAddNoteTip()).show).toBe(true);
+    // Another tab's third start, while this one's tip is still pending.
+    expect((await background.handleGetAddNoteTip()).show).toBe(false);
   });
 
   test('once the shortcut has been used, never again — in this session or the next', async () => {
@@ -106,17 +140,20 @@ describe('the service worker\'s counts', () => {
     expect([await clickStart(), await clickStart(), await clickStart()]).toEqual([false, false, false]);
   });
 
-  test('install state lives under its own key in chrome.storage.local, the session count in chrome.storage.session', async () => {
+  test('install state lives under its own key in chrome.storage.local, the session\'s in chrome.storage.session', async () => {
     await clickStart();
     expect(Object.keys(await chrome.storage.local.get(null))).toEqual([]);
     expect(Object.keys(await chrome.storage.session.get(null))).toEqual(['addNoteClicks']);
-    await background.handleAddNoteShortcutUsed();
+    await clickStart();
+    await clickStart();
     expect(Object.keys(await chrome.storage.local.get(null))).toEqual(['addNoteTip']);
+    expect(Object.keys(await chrome.storage.session.get(null)).sort()).toEqual(['addNoteClicks', 'addNoteTipReserved']);
   });
 
-  test('the two notifications close their channel at once; the question keeps it open for its answer', () => {
+  test('the notifications close their channel at once; the question keeps it open for its answer', () => {
     const sender = {} as chrome.runtime.MessageSender;
-    expect(background.handleRuntimeMessage({ type: 'RECORD_ADD_NOTE_CLICK', tipShown: false }, sender, jest.fn())).toBe(false);
+    expect(background.handleRuntimeMessage({ type: 'RECORD_ADD_NOTE_CLICK' }, sender, jest.fn())).toBe(false);
+    expect(background.handleRuntimeMessage({ type: 'RELEASE_ADD_NOTE_TIP' }, sender, jest.fn())).toBe(false);
     expect(background.handleRuntimeMessage({ type: 'ADD_NOTE_SHORTCUT_USED' }, sender, jest.fn())).toBe(false);
     expect(background.handleRuntimeMessage({ type: 'GET_ADD_NOTE_TIP' }, sender, jest.fn())).toBe(true);
   });
@@ -129,7 +166,8 @@ describe('the service worker\'s counts', () => {
     };
     try {
       expect(await background.handleGetAddNoteTip()).toEqual({ show: false });
-      await expect(background.handleRecordAddNoteClick({ type: 'RECORD_ADD_NOTE_CLICK', tipShown: true })).resolves.toBeUndefined();
+      await expect(background.handleRecordAddNoteClick()).resolves.toBeUndefined();
+      await expect(background.handleReleaseAddNoteTip()).resolves.toBeUndefined();
     } finally {
       (chrome.storage.session as unknown as { get: unknown }).get = get;
       warn.mockRestore();

@@ -1401,15 +1401,22 @@ the same 5 seconds (§N), replacing the usual hint that one time.
   the restarts the switch makes on its own. A start counts once the double-click window (400ms)
   has passed without a dblclick, so the first click of a double-click is not a single click — and
   if that click showed the tip, the double-click takes it back. "Session" is until the browser
-  restarts: the count lives in `chrome.storage.session`, through the service worker (the content
-  script cannot reach session storage).
+  restarts (or the extension is reloaded or updated, which also empties it): the count lives in
+  `chrome.storage.session`, through the service worker (the content script cannot reach session
+  storage).
+- **Shown means seen** (revised 2026-10-13, after review): a showing counts only once the tip has
+  been on screen. The service worker's yes *reserves* it — one of the install's three, and the
+  session's one, in the same queued step, so two tabs asking at once can never both be told yes.
+  If the tip never reaches the screen (the box is placed, or add mode left, before the pointer
+  brings it up; or the yes arrives too late) the showing is given back and that start is not
+  counted, so the next single click is the third again. **(impl)**
 - **How often:** at most **three times per install**, counted in `chrome.storage.local` (an
   uninstall clears it, so a reinstall starts again) — so at most once a session, in three sessions.
 - **Never again** once the shortcut has fired even once: a flag in the same `chrome.storage.local`
   record, set when Option/Alt+N starts add mode.
 - It gets a 5-second window of its own, even on a page whose first-run hint has had its window: it
-  is shown on purpose, rarely, and must be seen to count. The usual hint's window is then spent on
-  that page.
+  is shown on purpose, rarely, and must be seen to count. Once seen, the usual hint's window is
+  spent on that page; a tip never seen leaves that window exactly as it was.
 - Stored under its own key (`addNoteTip`), which no domain operation — import, delete all — ever
   touches. **(impl)**
 

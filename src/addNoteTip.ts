@@ -35,7 +35,8 @@ export function parseTipState(value: unknown): AddNoteTipState {
 }
 
 /** Whether the single-click start about to be counted — the session's
- *  `clicksBefore + 1`th — shows the tip. */
-export function shouldShowTip(clicksBefore: number, state: AddNoteTipState): boolean {
-  return clicksBefore + 1 === TIP_ON_CLICK && state.shown < TIP_LIFETIME_MAX && !state.shortcutUsed;
+ *  `clicksBefore + 1`th — shows the tip. `reserved`: a showing this session
+ *  is already promised (to another tab, or awaiting its outcome). */
+export function shouldShowTip(clicksBefore: number, state: AddNoteTipState, reserved = false): boolean {
+  return !reserved && clicksBefore + 1 === TIP_ON_CLICK && state.shown < TIP_LIFETIME_MAX && !state.shortcutUsed;
 }

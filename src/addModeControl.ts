@@ -58,10 +58,15 @@ export interface AddModeControlDeps {
   /** The Option/Alt+N tip (src/addNoteTip.ts), through the service worker,
    *  which keeps its counts (content.ts). */
   tip: {
-    /** Would a single-click start counted now show the tip? */
+    /** Would a single-click start counted now show the tip? A yes reserves
+     *  one of the install's showings (and the session's), so two tabs can
+     *  never both be told yes. */
     query: () => Promise<boolean>;
-    /** Count a single-click start, and whether it showed the tip. */
-    record: (tipShown: boolean) => void;
+    /** Count a single-click start of the session. */
+    record: () => void;
+    /** Give back a showing a yes reserved but nobody saw: the start was
+     *  half of a double-click, or the tip never reached the screen. */
+    release: () => void;
     /** The shortcut fired: never show the tip again. */
     shortcutUsed: () => void;
     /** The tip's words for this platform. */
@@ -303,23 +308,45 @@ export function createAddModeControl(deps: AddModeControlDeps): AddModeControl {
    * Add mode was just started by a click on "add note" (src/addNoteTip.ts):
    * ask the service worker whether this start shows the Option/Alt+N tip —
    * shown in the hint's place if the session is still placing when the
-   * answer comes — and count the start once the double-click window has
-   * passed without a dblclick.
+   * answer comes. Once the double-click window has passed without a
+   * dblclick:
+   *   - a start the tip was not for is counted;
+   *   - one it was for is counted once the tip has been on screen, and its
+   *     reserved showing kept; if the tip never got there (the box placed
+   *     first, add mode left, the answer too late), the showing is given
+   *     back and the start not counted, so the next single click is the
+   *     third again.
+   * Half of a double-click is never counted, and gives its showing back.
    */
   function startedByClick(): void {
     const click = { session, doubled: false, tipShown: false };
     pendingClick = click;
+    let settleSeen!: (seen: boolean) => void;
+    const seen = new Promise<boolean>((resolve) => (settleSeen = resolve));
     const answered = deps.tip
       .query()
       .catch(() => false)
       .then((show) => {
-        if (!show || click.doubled || click.session !== session || !addMode.isAddModeActive()) return;
-        click.tipShown = addMode.showPlacingTip(deps.tip.text());
+        if (!show) return false;
+        if (!click.doubled && click.session === session && addMode.isAddModeActive()) {
+          click.tipShown = addMode.showPlacingTip(deps.tip.text(), settleSeen);
+        }
+        if (!click.tipShown) settleSeen(false);
+        return true;
       });
     const windowPassed = new Promise<void>((resolve) => setTimeout(resolve, ADD_DBLCLICK_WINDOW_MS));
-    void Promise.all([answered, windowPassed]).then(() => {
+    void Promise.all([answered, windowPassed]).then(async ([reserved]) => {
       if (pendingClick === click) pendingClick = null;
-      if (!click.doubled) deps.tip.record(click.tipShown);
+      if (click.doubled) {
+        if (reserved) deps.tip.release();
+        return;
+      }
+      if (!reserved) {
+        deps.tip.record();
+        return;
+      }
+      if (await seen) deps.tip.record();
+      else deps.tip.release();
     });
   }
 

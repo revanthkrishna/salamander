@@ -283,6 +283,11 @@ let previewVisible = false;
 let tooltipDeadline: number | null = null;
 /** The pending hide, live only while the tooltip is actually on screen. */
 let tooltipTimer: ReturnType<typeof setTimeout> | null = null;
+/** The Option/Alt+N tip armed in the hint's place (showPlacingTip), until
+ *  it is settled: seen (on screen once), or not seen by the time the box is
+ *  placed or add mode ends. `deadlineBefore` is the page's hint window as
+ *  it was, put back if the tip is never seen. */
+let placingTip: { onSettled: (seen: boolean) => void; deadlineBefore: number | null } | null = null;
 
 let activeZone: ZoneKey | null = null;
 let keyboardIsolation: KeyboardIsolationHandle | null = null;
@@ -934,6 +939,17 @@ function showTooltip(cursorX: number, cursorY: number, bounds: Bounds): void {
   positionTooltip(cursorX, cursorY, bounds);
   elPreviewTooltip.dataset.visible = 'true';
   armTooltipTimer();
+  settlePlacingTip(true);
+}
+
+/** Tell the armed tip's owner whether it was seen, once. Never seen, it
+ *  leaves the page's first-run hint window exactly as it found it. */
+function settlePlacingTip(seen: boolean): void {
+  const tip = placingTip;
+  if (!tip) return;
+  placingTip = null;
+  if (!seen) tooltipDeadline = tip.deadlineBefore;
+  tip.onSettled(seen);
 }
 
 function hideTooltip(): void {
@@ -1061,6 +1077,7 @@ function onPlacementUp(e: MouseEvent): void {
 function finalizePlacement(): void {
   mode = 'editing';
   stopPlacingKeys();
+  settlePlacingTip(false);
   elBlocker?.classList.remove('placing');
   // The preview only ever exists during 'placing' (design spec §G: "gone
   // for good once a rect is placed") — drop its listeners and any lingering
@@ -1504,14 +1521,24 @@ function handleBoundsChange(): void {
  * time it is seen, even on a page whose first-run hint has already had its
  * window (the tip is shown on purpose, rarely, and must be seen to count).
  * Only while a box is still to be placed. Returns whether it took.
+ *
+ * `onSettled` hears, once, whether the tip was seen: true the first time it
+ * is on screen (at once, if the hint already is), false if the box is
+ * placed, add mode ends or the hint is restored first — and then the page's
+ * hint window is put back as it was, since nothing was shown in it.
  */
-export function showPlacingTip(text: string): boolean {
+export function showPlacingTip(text: string, onSettled: (seen: boolean) => void = () => {}): boolean {
   if (mode !== 'placing' || !elPreviewTooltip) return false;
+  settlePlacingTip(false);
+  placingTip = { onSettled, deadlineBefore: tooltipDeadline };
   elPreviewTooltip.textContent = text;
   const onScreen = elPreviewTooltip.dataset.visible === 'true';
   clearTooltipTimer();
   tooltipDeadline = null;
-  if (onScreen) armTooltipTimer();
+  if (onScreen) {
+    armTooltipTimer();
+    settlePlacingTip(true);
+  }
   return true;
 }
 
@@ -1519,6 +1546,7 @@ export function showPlacingTip(text: string): boolean {
  *  back to the usual hint, in whatever is left of the window. */
 export function restorePlacingHint(): void {
   if (elPreviewTooltip) elPreviewTooltip.textContent = PLACING_HINT;
+  settlePlacingTip(false);
 }
 
 export function isAddModeActive(): boolean {
@@ -1597,6 +1625,7 @@ export function exitAddMode(): void {
   // The hint's element is about to go; its deadline is page-session state
   // and deliberately survives (design spec v4 §N).
   clearTooltipTimer();
+  settlePlacingTip(false);
 
   document.removeEventListener('mousemove', onResizeMove);
   document.removeEventListener('mouseup', onResizeUp);
@@ -1663,6 +1692,7 @@ export function _boxForTests(): Rect {
  *  reason to call this — a real page load reloads the module. */
 export function _resetHintForTests(): void {
   clearTooltipTimer();
+  placingTip = null;
   tooltipDeadline = null;
 }
 

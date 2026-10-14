@@ -114,7 +114,7 @@ async function clickStart(page) {
  *  (chrome.storage.session) is gone; the install's state is not. */
 async function newBrowserSession() {
   const sw = await helper.getServiceWorker(context);
-  await sw.evaluate(() => chrome.storage.session.remove('addNoteClicks'));
+  await sw.evaluate(() => chrome.storage.session.remove(['addNoteClicks', 'addNoteTipReserved']));
 }
 
 test('the third single click on add note in a session shows the tip in the hint\'s place, once', async () => {
@@ -147,6 +147,22 @@ test('at most three times per install, one a session', async () => {
     thirds.push(await clickStart(page));
   }
   expect(thirds).toEqual([TIP, TIP, TIP, HINT]);
+});
+
+test('a tip that never reached the screen does not use up a showing: the next single click shows it', async () => {
+  const page = await openPageWithSidebar();
+  await clickStart(page);
+  await clickStart(page);
+  // The third start: placed at once, the pointer never travelling over the
+  // page, so the tip is never on screen.
+  await page.locator(SELECTORS.btnAdd).click();
+  await page.locator(SELECTORS.addModeHost).waitFor({ state: 'attached', timeout: 5000 });
+  await page.keyboard.press('Escape');
+  await page.locator(SELECTORS.addModeHost).waitFor({ state: 'detached', timeout: 5000 });
+  await page.waitForTimeout(600);
+  expect(await clickStart(page)).toBe(TIP);
+  const sw = await helper.getServiceWorker(context);
+  expect(await sw.evaluate(async () => (await chrome.storage.local.get('addNoteTip')).addNoteTip)).toEqual({ shown: 1, shortcutUsed: false });
 });
 
 test('never once Option/Alt+N has been used', async () => {

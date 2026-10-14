@@ -667,6 +667,66 @@ describe('add mode', () => {
     }
   });
 
+  test('the tip says whether it was seen: yes once it is on screen, no if the box is placed or add mode ends first', () => {
+    // Seen: the pointer brings it on screen.
+    let seen: boolean[] = [];
+    addMode.startAddMode(makeCallbacks());
+    addMode.showPlacingTip('tip', (v) => seen.push(v));
+    expect(seen).toEqual([]);
+    mousemove(300, 200);
+    expect(seen).toEqual([true]);
+    mousemove(320, 220);
+    expect(seen).toEqual([true]); // once
+    addMode.exitAddMode();
+    addMode._resetHintForTests();
+    // Already on screen when it arrives: seen at once.
+    seen = [];
+    addMode.startAddMode(makeCallbacks());
+    mousemove(300, 200);
+    addMode.showPlacingTip('tip', (v) => seen.push(v));
+    expect(seen).toEqual([true]);
+    addMode.exitAddMode();
+    addMode._resetHintForTests();
+    // Placed straight away, with no pointer travel: never seen.
+    seen = [];
+    addMode.startAddMode(makeCallbacks());
+    addMode.showPlacingTip('tip', (v) => seen.push(v));
+    place(blocker(), 300, 200);
+    expect(seen).toEqual([false]);
+    addMode.exitAddMode();
+    // Add mode left before it showed: never seen.
+    seen = [];
+    addMode.startAddMode(makeCallbacks());
+    addMode.showPlacingTip('tip', (v) => seen.push(v));
+    addMode.exitAddMode();
+    expect(seen).toEqual([false]);
+    // Taken back (a double-click): never seen.
+    seen = [];
+    addMode.startAddMode(makeCallbacks());
+    addMode.showPlacingTip('tip', (v) => seen.push(v));
+    addMode.restorePlacingHint();
+    expect(seen).toEqual([false]);
+  });
+
+  test('a tip never seen leaves a spent hint window spent: the hint does not come back on that page', () => {
+    jest.useFakeTimers();
+    try {
+      addMode.startAddMode(makeCallbacks());
+      mousemove(300, 200);
+      jest.advanceTimersByTime(5000);
+      addMode.exitAddMode();
+      // The tip is armed but the pointer never crosses the page.
+      addMode.startAddMode(makeCallbacks());
+      addMode.showPlacingTip('tip');
+      addMode.exitAddMode();
+      addMode.startAddMode(makeCallbacks());
+      mousemove(300, 200);
+      expect(previewTooltipEl().dataset.visible).toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('the tip only takes while a box is still to be placed; restoring puts the hint\'s words back', () => {
     expect(addMode.showPlacingTip('tip')).toBe(false); // idle
     addMode.startAddMode(makeCallbacks());

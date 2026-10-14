@@ -180,7 +180,8 @@ const addControl = createAddModeControl({
   now: () => Date.now(),
   tip: {
     query: async () => (await send({ type: 'GET_ADD_NOTE_TIP' }))?.show === true,
-    record: (tipShown) => void send({ type: 'RECORD_ADD_NOTE_CLICK', tipShown }),
+    record: () => void send({ type: 'RECORD_ADD_NOTE_CLICK' }),
+    release: () => void send({ type: 'RELEASE_ADD_NOTE_TIP' }),
     shortcutUsed: () => void send({ type: 'ADD_NOTE_SHORTCUT_USED' }),
     text: () => addNoteTip(isMac()),
   },

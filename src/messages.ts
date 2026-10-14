@@ -565,8 +565,12 @@ export interface SetPenColorMessage {
 }
 
 /** The Option/Alt+N tip (src/addNoteTip.ts): would a single-click start
- *  of add mode, counted now, show it? Reads only; RECORD_ADD_NOTE_CLICK
- *  counts the start once it is known not to be half of a double-click. */
+ *  of add mode, counted now, show it? A yes reserves the showing — one of
+ *  the install's three, and the session's one — in the same queued step,
+ *  so two tabs asking at once cannot both be told yes. RECORD_ADD_NOTE_CLICK
+ *  counts the start once it is known to be a single click (and, if it was
+ *  told yes, once the tip has been seen); RELEASE_ADD_NOTE_TIP gives back
+ *  a reserved showing that nobody saw. */
 export interface GetAddNoteTipMessage {
   type: 'GET_ADD_NOTE_TIP';
 }
@@ -576,11 +580,16 @@ export interface GetAddNoteTipResponse {
 }
 
 /** A single-click start of add mode happened (the double-click window has
- *  passed without a double-click); `tipShown` says whether it showed the
- *  tip, which then counts against its lifetime. Fire-and-forget. */
+ *  passed without a double-click). Fire-and-forget. */
 export interface RecordAddNoteClickMessage {
   type: 'RECORD_ADD_NOTE_CLICK';
-  tipShown: boolean;
+}
+
+/** A showing GET_ADD_NOTE_TIP reserved was never seen (half of a
+ *  double-click, or the tip never reached the screen): it goes back to the
+ *  install's count and the session's. Fire-and-forget. */
+export interface ReleaseAddNoteTipMessage {
+  type: 'RELEASE_ADD_NOTE_TIP';
 }
 
 /** The Option/Alt+N shortcut fired: the tip is never shown again.
@@ -611,6 +620,7 @@ export type ContentToBackgroundMessage =
   | SetPenColorMessage
   | GetAddNoteTipMessage
   | RecordAddNoteClickMessage
+  | ReleaseAddNoteTipMessage
   | AddNoteShortcutUsedMessage;
 
 // ---------------------------------------------------------------------------
@@ -648,6 +658,7 @@ export interface MessageMap {
   SET_PEN_COLOR: [SetPenColorMessage, void];
   GET_ADD_NOTE_TIP: [GetAddNoteTipMessage, GetAddNoteTipResponse];
   RECORD_ADD_NOTE_CLICK: [RecordAddNoteClickMessage, void];
+  RELEASE_ADD_NOTE_TIP: [ReleaseAddNoteTipMessage, void];
   ADD_NOTE_SHORTCUT_USED: [AddNoteShortcutUsedMessage, void];
 }
 

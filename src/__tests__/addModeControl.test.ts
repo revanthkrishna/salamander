@@ -33,9 +33,12 @@ interface Harness {
     answer: (show: boolean) => void;
     query: jest.Mock;
     record: jest.Mock;
+    release: jest.Mock;
     shortcutUsed: jest.Mock;
     shown: string[];
     restored: () => number;
+    /** The armed tip comes on screen (add mode's onSettled(true)). */
+    see: () => void;
   };
 }
 
@@ -59,7 +62,15 @@ function harness(): Harness {
   let restored = 0;
   const tipQuery = jest.fn(async () => tipAnswer);
   const tipRecord = jest.fn();
+  const tipRelease = jest.fn();
   const tipShortcutUsed = jest.fn();
+  /** The armed tip's onSettled, as add mode holds it until it settles. */
+  let tipSettle: ((seen: boolean) => void) | null = null;
+  const settleTip = (seen: boolean) => {
+    const f = tipSettle;
+    tipSettle = null;
+    f?.(seen);
+  };
   const deps: AddModeControlDeps = {
     addMode: {
       startAddMode: (cb) => {
@@ -70,6 +81,7 @@ function harness(): Harness {
       },
       exitAddMode: () => {
         isActive = false;
+        settleTip(false);
       },
       isAddModeActive: () => isActive,
       dismissDrawingMenu: () => {
@@ -79,13 +91,15 @@ function harness(): Harness {
       },
       hideOverlayUI: () => {},
       showOverlayUI: () => {},
-      showPlacingTip: (text) => {
+      showPlacingTip: (text, onSettled) => {
         if (!isActive) return false;
         tipShown.push(text);
+        tipSettle = onSettled ?? null;
         return true;
       },
       restorePlacingHint: () => {
         restored++;
+        settleTip(false);
       },
     },
     sidebar: {
@@ -108,7 +122,7 @@ function harness(): Harness {
     penColor: { restore: restorePen, remember: jest.fn() },
     onSaved: saved,
     now: () => now,
-    tip: { query: tipQuery, record: tipRecord, shortcutUsed: tipShortcutUsed, text: () => 'tip: alt+n to add a note' },
+    tip: { query: tipQuery, record: tipRecord, release: tipRelease, shortcutUsed: tipShortcutUsed, text: () => 'tip: alt+n to add a note' },
   };
   return {
     control: createAddModeControl(deps),
@@ -138,6 +152,7 @@ function harness(): Harness {
     },
     selfExit: () => {
       isActive = false;
+      settleTip(false);
     },
     tip: {
       answer: (show) => {
@@ -145,9 +160,11 @@ function harness(): Harness {
       },
       query: tipQuery,
       record: tipRecord,
+      release: tipRelease,
       shortcutUsed: tipShortcutUsed,
       shown: tipShown,
       restored: () => restored,
+      see: () => settleTip(true),
     },
   };
 }
@@ -383,11 +400,16 @@ describe('a capture still in flight when a new session starts (the capture sessi
 describe('the Option/Alt+N tip (src/addNoteTip.ts)', () => {
   /** Let the tip's answer (a resolved promise) land. */
   const settle = async () => {
-    for (let i = 0; i < 5; i++) await Promise.resolve();
+    for (let i = 0; i < 6; i++) await Promise.resolve();
   };
   const altN = () => key({ key: 'n', code: 'KeyN', altKey: true });
+  /** Past the double-click window, with every promise behind it landed. */
+  const pastWindow = async () => {
+    jest.advanceTimersByTime(ADD_DBLCLICK_WINDOW_MS);
+    await settle();
+  };
 
-  test('a single click asks; a yes shows the tip in the hint\'s place; the start is counted once the double-click window has passed', async () => {
+  test('a single click asks; a yes puts the tip in the hint\'s place; once it has been on screen the start counts and the showing is kept', async () => {
     jest.useFakeTimers();
     const h = harness();
     h.tip.answer(true);
@@ -395,25 +417,54 @@ describe('the Option/Alt+N tip (src/addNoteTip.ts)', () => {
     expect(h.tip.query).toHaveBeenCalledTimes(1);
     await settle();
     expect(h.tip.shown).toEqual(['tip: alt+n to add a note']);
+    await pastWindow();
+    // Not seen yet: nothing decided.
     expect(h.tip.record).not.toHaveBeenCalled();
-    jest.advanceTimersByTime(ADD_DBLCLICK_WINDOW_MS);
+    expect(h.tip.release).not.toHaveBeenCalled();
+    h.tip.see();
     await settle();
     expect(h.tip.record).toHaveBeenCalledTimes(1);
-    expect(h.tip.record).toHaveBeenCalledWith(true);
+    expect(h.tip.release).not.toHaveBeenCalled();
   });
 
-  test('a no shows nothing, and the start still counts', async () => {
+  test('seen before the double-click window ends, it counts as the window ends', async () => {
+    jest.useFakeTimers();
+    const h = harness();
+    h.tip.answer(true);
+    h.control.onButtonClick();
+    await settle();
+    h.tip.see();
+    await settle();
+    expect(h.tip.record).not.toHaveBeenCalled();
+    await pastWindow();
+    expect(h.tip.record).toHaveBeenCalledTimes(1);
+  });
+
+  test('a yes never seen — the box placed or add mode left first — gives its showing back and does not count the start', async () => {
+    jest.useFakeTimers();
+    for (const end of [(h: Harness) => h.selfExit(), (h: Harness) => h.control.onGlobalKeyDown(key({ key: 'Escape' }))]) {
+      const h = harness();
+      h.tip.answer(true);
+      h.control.onButtonClick();
+      await settle();
+      end(h);
+      await pastWindow();
+      expect(h.tip.release).toHaveBeenCalledTimes(1);
+      expect(h.tip.record).not.toHaveBeenCalled();
+    }
+  });
+
+  test('a no shows nothing, and the start counts', async () => {
     jest.useFakeTimers();
     const h = harness();
     h.control.onButtonClick();
-    await settle();
-    jest.advanceTimersByTime(ADD_DBLCLICK_WINDOW_MS);
-    await settle();
+    await pastWindow();
     expect(h.tip.shown).toEqual([]);
-    expect(h.tip.record).toHaveBeenCalledWith(false);
+    expect(h.tip.record).toHaveBeenCalledTimes(1);
+    expect(h.tip.release).not.toHaveBeenCalled();
   });
 
-  test('a double-click does not count, and takes back a tip its first click showed', async () => {
+  test('a double-click does not count, takes back a tip its first click showed and gives the showing back', async () => {
     jest.useFakeTimers();
     const h = harness();
     h.tip.answer(true);
@@ -427,6 +478,7 @@ describe('the Option/Alt+N tip (src/addNoteTip.ts)', () => {
     jest.advanceTimersByTime(ADD_DBLCLICK_WINDOW_MS * 2);
     await settle();
     expect(h.tip.record).not.toHaveBeenCalled();
+    expect(h.tip.release).toHaveBeenCalledTimes(1);
     expect(last(h.paints)).toBe('kept-on');
   });
 
@@ -446,6 +498,7 @@ describe('the Option/Alt+N tip (src/addNoteTip.ts)', () => {
       await settle();
       expect(h.tip.query).not.toHaveBeenCalled();
       expect(h.tip.record).not.toHaveBeenCalled();
+      expect(h.tip.release).not.toHaveBeenCalled();
       expect(h.tip.shown).toEqual([]);
     }
   });
@@ -460,18 +513,17 @@ describe('the Option/Alt+N tip (src/addNoteTip.ts)', () => {
     expect(h.tip.query).not.toHaveBeenCalled();
   });
 
-  test('an answer that lands after add mode has ended shows nothing', async () => {
+  test('a yes that lands after add mode has ended shows nothing, gives the showing back, and leaves the next click the third', async () => {
     jest.useFakeTimers();
     const h = harness();
     h.tip.answer(true);
     h.control.onButtonClick();
     h.control.onGlobalKeyDown(key({ key: 'Escape' }));
     expect(h.active()).toBe(false);
-    await settle();
-    jest.advanceTimersByTime(ADD_DBLCLICK_WINDOW_MS);
-    await settle();
+    await pastWindow();
     expect(h.tip.shown).toEqual([]);
-    expect(h.tip.record).toHaveBeenCalledWith(false);
+    expect(h.tip.release).toHaveBeenCalledTimes(1);
+    expect(h.tip.record).not.toHaveBeenCalled();
   });
 
   test('the shortcut, once it fires, is reported: the tip never shows again', () => {

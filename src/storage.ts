@@ -529,6 +529,9 @@ export async function setPenColor(color: string): Promise<void> {
 // (import, delete-all) ever touches; an uninstall clears it.
 
 const ADD_NOTE_CLICKS_SESSION_KEY = 'addNoteClicks';
+/** A showing of the tip promised this session (GET_ADD_NOTE_TIP's yes),
+ *  until it is seen — then for good — or given back. */
+const ADD_NOTE_TIP_RESERVED_SESSION_KEY = 'addNoteTipReserved';
 const ADD_NOTE_TIP_KEY = 'addNoteTip';
 
 export async function getAddNoteClicks(): Promise<number> {
@@ -539,6 +542,16 @@ export async function getAddNoteClicks(): Promise<number> {
 
 export async function setAddNoteClicks(count: number): Promise<void> {
   await sessionSet({ [ADD_NOTE_CLICKS_SESSION_KEY]: count });
+}
+
+export async function isAddNoteTipReserved(): Promise<boolean> {
+  const result = await sessionGet(ADD_NOTE_TIP_RESERVED_SESSION_KEY);
+  return result[ADD_NOTE_TIP_RESERVED_SESSION_KEY] === true;
+}
+
+export async function setAddNoteTipReserved(reserved: boolean): Promise<void> {
+  if (reserved) await sessionSet({ [ADD_NOTE_TIP_RESERVED_SESSION_KEY]: true });
+  else await sessionRemove(ADD_NOTE_TIP_RESERVED_SESSION_KEY);
 }
 
 export async function getAddNoteTipState(): Promise<AddNoteTipState> {
