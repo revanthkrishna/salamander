@@ -1,11 +1,12 @@
 // Storage layer — chrome.storage.local metadata, IndexedDB blobs
-// (src/imageStore.ts), chrome.storage.session sidebar state and the
-// pencil's colour.
+// (src/imageStore.ts), chrome.storage.session sidebar state, the
+// pencil's colour and the Option/Alt+N tip's counts.
 //
 // Layout in chrome.storage.local (schema version 2):
 //   `domain:{domain}`     -> DomainIndex: { meta, pages: { normalisedUrl: id[] } }
 //                            (meta.pageTitles: the pages the user renamed)
 //   `item:{domain}:{id}`  -> FeedbackItem (thumbnail data-URL inline)
+//   `addNoteTip`          -> the Option/Alt+N tip's install state (below)
 //
 // The split exists so the sidebar's list still paints from one round trip
 // (an index read plus one multi-key get, thumbnail already inline per item)
@@ -41,6 +42,7 @@
 // for them would be silly, and nothing here ever touches those keys.
 
 import { DomainData, DomainIndex, DomainMeta, FeedbackItem, ItemPatch, SitePage } from './types';
+import { AddNoteTipState, parseTipState } from './addNoteTip';
 import * as imageStore from './imageStore';
 
 /** The schema version stamped on every domain index this build writes.
@@ -515,4 +517,35 @@ export async function getPenColor(): Promise<string | null> {
 
 export async function setPenColor(color: string): Promise<void> {
   await sessionSet({ [PEN_COLOR_SESSION_KEY]: color });
+}
+
+// ---------------------------------------------------------------------------
+// The Option/Alt+N tip's counts (src/addNoteTip.ts)
+// ---------------------------------------------------------------------------
+// The session's single-click starts of add mode in chrome.storage.session
+// (back to none when the browser restarts), and the install's tip state —
+// how often it has shown, whether the shortcut has been used — in
+// chrome.storage.local, under one key of its own that no domain operation
+// (import, delete-all) ever touches; an uninstall clears it.
+
+const ADD_NOTE_CLICKS_SESSION_KEY = 'addNoteClicks';
+const ADD_NOTE_TIP_KEY = 'addNoteTip';
+
+export async function getAddNoteClicks(): Promise<number> {
+  const result = await sessionGet(ADD_NOTE_CLICKS_SESSION_KEY);
+  const value = result[ADD_NOTE_CLICKS_SESSION_KEY];
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+}
+
+export async function setAddNoteClicks(count: number): Promise<void> {
+  await sessionSet({ [ADD_NOTE_CLICKS_SESSION_KEY]: count });
+}
+
+export async function getAddNoteTipState(): Promise<AddNoteTipState> {
+  const result = await storageGet(ADD_NOTE_TIP_KEY);
+  return parseTipState(result[ADD_NOTE_TIP_KEY]);
+}
+
+export async function setAddNoteTipState(state: AddNoteTipState): Promise<void> {
+  await storageSet({ [ADD_NOTE_TIP_KEY]: state });
 }

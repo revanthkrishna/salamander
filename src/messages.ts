@@ -564,6 +564,31 @@ export interface SetPenColorMessage {
   color: string;
 }
 
+/** The Option/Alt+N tip (src/addNoteTip.ts): would a single-click start
+ *  of add mode, counted now, show it? Reads only; RECORD_ADD_NOTE_CLICK
+ *  counts the start once it is known not to be half of a double-click. */
+export interface GetAddNoteTipMessage {
+  type: 'GET_ADD_NOTE_TIP';
+}
+
+export interface GetAddNoteTipResponse {
+  show: boolean;
+}
+
+/** A single-click start of add mode happened (the double-click window has
+ *  passed without a double-click); `tipShown` says whether it showed the
+ *  tip, which then counts against its lifetime. Fire-and-forget. */
+export interface RecordAddNoteClickMessage {
+  type: 'RECORD_ADD_NOTE_CLICK';
+  tipShown: boolean;
+}
+
+/** The Option/Alt+N shortcut fired: the tip is never shown again.
+ *  Fire-and-forget. */
+export interface AddNoteShortcutUsedMessage {
+  type: 'ADD_NOTE_SHORTCUT_USED';
+}
+
 export type ContentToBackgroundMessage =
   | SidebarOpenedMessage
   | SidebarClosedMessage
@@ -583,7 +608,10 @@ export type ContentToBackgroundMessage =
   | GetDomainItemCountMessage
   | DeleteDomainDataMessage
   | GetPenColorMessage
-  | SetPenColorMessage;
+  | SetPenColorMessage
+  | GetAddNoteTipMessage
+  | RecordAddNoteClickMessage
+  | AddNoteShortcutUsedMessage;
 
 // ---------------------------------------------------------------------------
 // The request map — what makes the channel typed at both ends
@@ -618,6 +646,9 @@ export interface MessageMap {
   DELETE_DOMAIN_DATA: [DeleteDomainDataMessage, DeleteDomainDataResponse];
   GET_PEN_COLOR: [GetPenColorMessage, GetPenColorResponse];
   SET_PEN_COLOR: [SetPenColorMessage, void];
+  GET_ADD_NOTE_TIP: [GetAddNoteTipMessage, GetAddNoteTipResponse];
+  RECORD_ADD_NOTE_CLICK: [RecordAddNoteClickMessage, void];
+  ADD_NOTE_SHORTCUT_USED: [AddNoteShortcutUsedMessage, void];
 }
 
 export type MessageType = keyof MessageMap;

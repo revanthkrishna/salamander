@@ -32,7 +32,8 @@ export function isAddNoteShortcut(e: KeyboardEvent): boolean {
   return true;
 }
 
-function isMac(): boolean {
+/** macOS, where the shortcut is Option+N and its keycap ⌥N. */
+export function isMac(): boolean {
   const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
   const platform = nav.userAgentData?.platform || nav.platform || '';
   return /mac/i.test(platform);

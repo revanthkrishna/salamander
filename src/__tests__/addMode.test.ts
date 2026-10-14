@@ -604,6 +604,81 @@ describe('add mode', () => {
     }
   });
 
+  // ── the Option/Alt+N tip in the hint's place (src/addNoteTip.ts) ──────────
+
+  test('the tip takes the hint\'s place: the same tooltip, following the cursor, for the same 5s', () => {
+    jest.useFakeTimers();
+    try {
+      addMode.startAddMode(makeCallbacks());
+      expect(addMode.showPlacingTip('tip: alt+n to add a note')).toBe(true);
+      const tooltip = previewTooltipEl();
+      expect(tooltip.textContent).toBe('tip: alt+n to add a note');
+      mousemove(300, 200);
+      expect(tooltip.dataset.visible).toBe('true');
+      expect([tooltip.style.left, tooltip.style.top]).toEqual(['316px', '220px']);
+      jest.advanceTimersByTime(4999);
+      expect(tooltip.dataset.visible).toBe('true');
+      jest.advanceTimersByTime(1);
+      expect(tooltip.dataset.visible).toBeUndefined();
+      // The next session is back to the usual hint, whose window the tip used.
+      addMode.exitAddMode();
+      addMode.startAddMode(makeCallbacks());
+      expect(previewTooltipEl().textContent).toBe('click or drag to select');
+      mousemove(300, 200);
+      expect(previewTooltipEl().dataset.visible).toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('the tip gets a window of its own, even once the page\'s hint has had its window', () => {
+    jest.useFakeTimers();
+    try {
+      addMode.startAddMode(makeCallbacks());
+      mousemove(300, 200);
+      jest.advanceTimersByTime(5000);
+      addMode.exitAddMode();
+      addMode.startAddMode(makeCallbacks());
+      addMode.showPlacingTip('tip: alt+n to add a note');
+      mousemove(300, 200);
+      expect(previewTooltipEl().dataset.visible).toBe('true');
+      jest.advanceTimersByTime(5000);
+      expect(previewTooltipEl().dataset.visible).toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('a tip arriving while the hint is already on screen swaps the words and restarts the 5s', () => {
+    jest.useFakeTimers();
+    try {
+      addMode.startAddMode(makeCallbacks());
+      mousemove(300, 200);
+      jest.advanceTimersByTime(3000);
+      addMode.showPlacingTip('tip: alt+n to add a note');
+      const tooltip = previewTooltipEl();
+      expect(tooltip.textContent).toBe('tip: alt+n to add a note');
+      jest.advanceTimersByTime(4999);
+      expect(tooltip.dataset.visible).toBe('true');
+      jest.advanceTimersByTime(1);
+      expect(tooltip.dataset.visible).toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('the tip only takes while a box is still to be placed; restoring puts the hint\'s words back', () => {
+    expect(addMode.showPlacingTip('tip')).toBe(false); // idle
+    addMode.startAddMode(makeCallbacks());
+    place(blocker(), 300, 200);
+    expect(addMode.showPlacingTip('tip')).toBe(false); // editing
+    addMode.exitAddMode();
+    addMode.startAddMode(makeCallbacks());
+    addMode.showPlacingTip('tip');
+    addMode.restorePlacingHint();
+    expect(previewTooltipEl().textContent).toBe('click or drag to select');
+  });
+
   test('exiting add mode leaves no hint timer behind to fire on a detached element', () => {
     jest.useFakeTimers();
     try {

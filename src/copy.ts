@@ -75,6 +75,11 @@ export const SAVE_LABEL = 'save';
 export const SAVING_LABEL = 'saving\u2026';
 /** The first-run hint beside the cursor while placing (design spec §G). */
 export const PLACING_HINT = 'click or drag to select';
+/** The Option/Alt+N tip (src/addNoteTip.ts), shown once in a while in the
+ *  hint's place: the keycap as the platform writes it — ⌥ on macOS. */
+export function addNoteTip(mac: boolean): string {
+  return mac ? 'tip: \u2325N to add a note' : 'tip: alt+n to add a note';
+}
 /** The comment box and its text area (their accessible names). */
 export const ADD_NOTE_LABEL = 'add feedback note';
 export const NOTE_FIELD_LABEL = 'feedback note';

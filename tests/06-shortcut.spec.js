@@ -89,3 +89,77 @@ test("add note's tooltip shows the shortcut as a keycap", async () => {
   const cap = page.locator('#annotator-sidebar-host .sal-tip[data-open="true"] kbd.sal-tip-key');
   await expect(cap).toHaveText(/^(⌥N|Alt\+N)$/, { timeout: 3000 });
 });
+
+// ── The Option/Alt+N tip (src/addNoteTip.ts) ─────────────────────────────────
+
+const TIP = process.platform === 'darwin' ? 'tip: ⌥N to add a note' : 'tip: alt+n to add a note';
+const HINT = 'click or drag to select';
+const tooltip = '#annotator-addmode-host .preview-tooltip';
+
+/** One single click on add note; the words the cursor's hint shows (the
+ *  tip's answer and the start's count settle within the double-click
+ *  window); then out again with Esc. */
+async function clickStart(page) {
+  await helper.enterAddMode(page);
+  await page.mouse.move(200, 300);
+  await page.mouse.move(220, 320, { steps: 3 });
+  await page.waitForTimeout(600);
+  const words = await page.locator(tooltip).textContent();
+  await page.keyboard.press('Escape');
+  await page.locator(SELECTORS.addModeHost).waitFor({ state: 'detached', timeout: 5000 });
+  return words;
+}
+
+/** The browser restarting, as far as the tip can tell: the session's count
+ *  (chrome.storage.session) is gone; the install's state is not. */
+async function newBrowserSession() {
+  const sw = await helper.getServiceWorker(context);
+  await sw.evaluate(() => chrome.storage.session.remove('addNoteClicks'));
+}
+
+test('the third single click on add note in a session shows the tip in the hint\'s place, once', async () => {
+  const page = await openPageWithSidebar();
+  const words = [];
+  for (let i = 0; i < 4; i++) words.push(await clickStart(page));
+  expect(words).toEqual([HINT, HINT, TIP, HINT]);
+});
+
+test('the switch and a double-click do not count towards it', async () => {
+  const page = await openPageWithSidebar();
+  // A double-click turns the switch on: not a single click.
+  await page.locator(SELECTORS.btnAdd).dblclick();
+  await page.locator(SELECTORS.addModeHost).waitFor({ state: 'attached', timeout: 5000 });
+  await page.waitForTimeout(600);
+  await page.keyboard.press('Escape');
+  await page.locator(SELECTORS.addModeHost).waitFor({ state: 'detached', timeout: 5000 });
+  const words = [];
+  for (let i = 0; i < 3; i++) words.push(await clickStart(page));
+  expect(words).toEqual([HINT, HINT, TIP]);
+});
+
+test('at most three times per install, one a session', async () => {
+  const page = await openPageWithSidebar();
+  const thirds = [];
+  for (let s = 0; s < 4; s++) {
+    if (s > 0) await newBrowserSession();
+    await clickStart(page);
+    await clickStart(page);
+    thirds.push(await clickStart(page));
+  }
+  expect(thirds).toEqual([TIP, TIP, TIP, HINT]);
+});
+
+test('never once Option/Alt+N has been used', async () => {
+  const page = await openPageWithSidebar();
+  await page.mouse.click(200, 300);
+  await page.keyboard.press('Alt+KeyN');
+  await page.locator(SELECTORS.addModeHost).waitFor({ state: 'attached', timeout: 5000 });
+  await page.keyboard.press('Escape');
+  await page.locator(SELECTORS.addModeHost).waitFor({ state: 'detached', timeout: 5000 });
+  await page.waitForTimeout(300);
+  const words = [];
+  for (let i = 0; i < 3; i++) words.push(await clickStart(page));
+  await newBrowserSession();
+  for (let i = 0; i < 3; i++) words.push(await clickStart(page));
+  expect(words).toEqual([HINT, HINT, HINT, HINT, HINT, HINT]);
+});

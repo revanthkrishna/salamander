@@ -33,12 +33,12 @@
 // re-inject + re-ACTIVATE on a later full-page reload.
 
 import { normaliseUrl, normaliseDomain } from './urlNorm';
-import { isTypingTarget } from './shortcut';
+import { isMac, isTypingTarget } from './shortcut';
 import * as sidebar from './sidebar';
 import * as addMode from './addMode';
 import * as capture from './capture';
 import { ensureFontsLoaded } from './theme';
-import { FINISH_NOTE_FIRST_MESSAGE } from './copy';
+import { FINISH_NOTE_FIRST_MESSAGE, addNoteTip } from './copy';
 import type { EnlargedSite } from './enlargedView';
 import { FeedbackItem } from './types';
 import { onContextInvalidated, send } from './rpc';
@@ -178,6 +178,12 @@ const addControl = createAddModeControl({
   penColor: { restore: restorePenColor, remember: rememberPenColor },
   onSaved: () => void refreshThumbnails(),
   now: () => Date.now(),
+  tip: {
+    query: async () => (await send({ type: 'GET_ADD_NOTE_TIP' }))?.show === true,
+    record: (tipShown) => void send({ type: 'RECORD_ADD_NOTE_CLICK', tipShown }),
+    shortcutUsed: () => void send({ type: 'ADD_NOTE_SHORTCUT_USED' }),
+    text: () => addNoteTip(isMac()),
+  },
 });
 
 // Export, import, delete-all, the list's delete and the site's counts

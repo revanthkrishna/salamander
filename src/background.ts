@@ -25,9 +25,14 @@ import {
   replaceDomainData,
   getPenColor,
   setPenColor,
+  getAddNoteClicks,
+  setAddNoteClicks,
+  getAddNoteTipState,
+  setAddNoteTipState,
   STORAGE_VERSION,
 } from './storage';
 import { isPenColor } from './drawing';
+import { shouldShowTip } from './addNoteTip';
 import * as imageStore from './imageStore';
 import { exportDomain } from './export';
 import { dataUrlToBlob, blobToDataUrl } from './dataUrl';
@@ -78,6 +83,8 @@ import {
   GetDomainItemCountResponse,
   DeleteDomainDataMessage,
   DeleteDomainDataResponse,
+  GetAddNoteTipResponse,
+  RecordAddNoteClickMessage,
   GetPenColorResponse,
   SetPenColorMessage,
   MessageHandlers,
@@ -213,6 +220,10 @@ const handlers: MessageHandlers = {
   IMPORT_ABORT: (message) => handleImportAbort(message),
   GET_PEN_COLOR: () => handleGetPenColor(),
   SET_PEN_COLOR: (message) => handleSetPenColor(message),
+  GET_ADD_NOTE_TIP: () => handleGetAddNoteTip(),
+  // Notifications: no response, so the channel closes at once.
+  RECORD_ADD_NOTE_CLICK: (message) => void handleRecordAddNoteClick(message),
+  ADD_NOTE_SHORTCUT_USED: () => void handleAddNoteShortcutUsed(),
 };
 
 function isKnownMessageType(type: unknown): type is MessageType {
@@ -496,6 +507,54 @@ export function handleSetPenColor(message: SetPenColorMessage): void {
   if (!isPenColor(message.color)) return;
   void setPenColor(message.color).catch((err) => {
     console.warn('[Annotator] could not save the pencil colour:', err);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The Option/Alt+N tip (src/addNoteTip.ts) — the session's count of
+// single-click starts in chrome.storage.session, the install's tip state in
+// chrome.storage.local. Its read-modify-writes run one at a time (tabs can
+// count at once), on their own chain: they are not domain data, and never
+// wait behind a capture. Best-effort: a failure only means the tip shows a
+// session later, or not at all.
+// ─────────────────────────────────────────────────────────────────────────────
+
+let tipChain: Promise<unknown> = Promise.resolve();
+
+function onTipChain<T>(task: () => Promise<T>): Promise<T> {
+  const run = tipChain.then(task, task);
+  tipChain = run.catch(() => undefined);
+  return run;
+}
+
+export function handleGetAddNoteTip(): Promise<GetAddNoteTipResponse> {
+  return onTipChain(async () => {
+    const [clicks, state] = await Promise.all([getAddNoteClicks(), getAddNoteTipState()]);
+    return { show: shouldShowTip(clicks, state) };
+  }).catch((err) => {
+    console.warn('[Annotator] could not read the add-note tip state:', err);
+    return { show: false };
+  });
+}
+
+export function handleRecordAddNoteClick(message: RecordAddNoteClickMessage): Promise<void> {
+  return onTipChain(async () => {
+    await setAddNoteClicks((await getAddNoteClicks()) + 1);
+    if (message.tipShown === true) {
+      const state = await getAddNoteTipState();
+      await setAddNoteTipState({ ...state, shown: state.shown + 1 });
+    }
+  }).catch((err) => {
+    console.warn('[Annotator] could not count the add-note click:', err);
+  });
+}
+
+export function handleAddNoteShortcutUsed(): Promise<void> {
+  return onTipChain(async () => {
+    const state = await getAddNoteTipState();
+    if (!state.shortcutUsed) await setAddNoteTipState({ ...state, shortcutUsed: true });
+  }).catch((err) => {
+    console.warn('[Annotator] could not note the shortcut was used:', err);
   });
 }
 

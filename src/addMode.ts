@@ -1497,6 +1497,30 @@ function handleBoundsChange(): void {
   }
 }
 
+/**
+ * The Option/Alt+N tip (src/addNoteTip.ts) takes the hint's place for this
+ * add-mode session: the same tooltip, following the cursor the same way,
+ * for the same TOOLTIP_LIFETIME — a window of its own, starting the first
+ * time it is seen, even on a page whose first-run hint has already had its
+ * window (the tip is shown on purpose, rarely, and must be seen to count).
+ * Only while a box is still to be placed. Returns whether it took.
+ */
+export function showPlacingTip(text: string): boolean {
+  if (mode !== 'placing' || !elPreviewTooltip) return false;
+  elPreviewTooltip.textContent = text;
+  const onScreen = elPreviewTooltip.dataset.visible === 'true';
+  clearTooltipTimer();
+  tooltipDeadline = null;
+  if (onScreen) armTooltipTimer();
+  return true;
+}
+
+/** The tip was for a start that turned out to be half of a double-click:
+ *  back to the usual hint, in whatever is left of the window. */
+export function restorePlacingHint(): void {
+  if (elPreviewTooltip) elPreviewTooltip.textContent = PLACING_HINT;
+}
+
 export function isAddModeActive(): boolean {
   return mode !== 'idle';
 }

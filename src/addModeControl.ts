@@ -25,7 +25,14 @@ import type { KeyVerdict } from './keyRouter';
 export interface AddModeControlDeps {
   addMode: Pick<
     typeof AddModeModule,
-    'startAddMode' | 'exitAddMode' | 'isAddModeActive' | 'dismissDrawingMenu' | 'hideOverlayUI' | 'showOverlayUI'
+    | 'startAddMode'
+    | 'exitAddMode'
+    | 'isAddModeActive'
+    | 'dismissDrawingMenu'
+    | 'hideOverlayUI'
+    | 'showOverlayUI'
+    | 'showPlacingTip'
+    | 'restorePlacingHint'
   >;
   sidebar: Pick<
     typeof SidebarModule,
@@ -48,6 +55,18 @@ export interface AddModeControlDeps {
   onSaved: () => void;
   /** Milliseconds, for the double-click pairing (Date.now in production). */
   now: () => number;
+  /** The Option/Alt+N tip (src/addNoteTip.ts), through the service worker,
+   *  which keeps its counts (content.ts). */
+  tip: {
+    /** Would a single-click start counted now show the tip? */
+    query: () => Promise<boolean>;
+    /** Count a single-click start, and whether it showed the tip. */
+    record: (tipShown: boolean) => void;
+    /** The shortcut fired: never show the tip again. */
+    shortcutUsed: () => void;
+    /** The tip's words for this platform. */
+    text: () => string;
+  };
 }
 
 export interface AddModeControl {
@@ -98,6 +117,12 @@ export function createAddModeControl(deps: AddModeControlDeps): AddModeControl {
    *  new session has started (the button clicked off and on, or Esc then
    *  Option/Alt+N, while it was in flight) leaves that session alone. */
   let session = 0;
+
+  /** The single-click start not yet counted for the Option/Alt+N tip: it
+   *  counts once the double-click window has passed without a dblclick
+   *  (and the tip's question has been answered) — the first click of a
+   *  double-click is not a single click. */
+  let pendingClick: { session: number; doubled: boolean; tipShown: boolean } | null = null;
 
   function clearPendingAddOff(): void {
     if (pendingAddOffTimer !== null) {
@@ -230,6 +255,7 @@ export function createAddModeControl(deps: AddModeControlDeps): AddModeControl {
       // Off -> on: act immediately, never delayed (the double-click ambiguity
       // below only ever applies to the *second* click of a pair).
       enter();
+      startedByClick();
       return;
     }
     if (addKeptOn) {
@@ -263,7 +289,38 @@ export function createAddModeControl(deps: AddModeControlDeps): AddModeControl {
    *  switch already on. They are alternates now, not the only path — the
    *  visible switch is. */
   function onButtonDoubleClick(): void {
+    if (pendingClick) {
+      // The click that started add mode was half of this double-click: it
+      // does not count, and does not keep a tip it may have shown.
+      pendingClick.doubled = true;
+      if (pendingClick.tipShown) addMode.restorePlacingHint();
+      pendingClick = null;
+    }
     setSwitch(true);
+  }
+
+  /**
+   * Add mode was just started by a click on "add note" (src/addNoteTip.ts):
+   * ask the service worker whether this start shows the Option/Alt+N tip —
+   * shown in the hint's place if the session is still placing when the
+   * answer comes — and count the start once the double-click window has
+   * passed without a dblclick.
+   */
+  function startedByClick(): void {
+    const click = { session, doubled: false, tipShown: false };
+    pendingClick = click;
+    const answered = deps.tip
+      .query()
+      .catch(() => false)
+      .then((show) => {
+        if (!show || click.doubled || click.session !== session || !addMode.isAddModeActive()) return;
+        click.tipShown = addMode.showPlacingTip(deps.tip.text());
+      });
+    const windowPassed = new Promise<void>((resolve) => setTimeout(resolve, ADD_DBLCLICK_WINDOW_MS));
+    void Promise.all([answered, windowPassed]).then(() => {
+      if (pendingClick === click) pendingClick = null;
+      if (!click.doubled) deps.tip.record(click.tipShown);
+    });
   }
 
   /** sidebar.SidebarCallbacks.onAddSwitchChange — the user flicked the "keep
@@ -323,6 +380,8 @@ export function createAddModeControl(deps: AddModeControlDeps): AddModeControl {
     clearPendingAddOff();
     addKeptOn = false;
     enter();
+    // Once used, the tip has nothing left to teach.
+    deps.tip.shortcutUsed();
     return 'stop';
   }
 

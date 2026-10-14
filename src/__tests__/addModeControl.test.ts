@@ -27,6 +27,16 @@ interface Harness {
   drawMenuOpen: (on: boolean) => void;
   /** add mode tearing itself down (what it does before reporting a cancel). */
   selfExit: () => void;
+  /** The Option/Alt+N tip: what the service worker answers, and what the
+   *  controller asked, counted and showed. */
+  tip: {
+    answer: (show: boolean) => void;
+    query: jest.Mock;
+    record: jest.Mock;
+    shortcutUsed: jest.Mock;
+    shown: string[];
+    restored: () => number;
+  };
 }
 
 function harness(): Harness {
@@ -44,6 +54,12 @@ function harness(): Harness {
   const saved = jest.fn();
   const restorePen = jest.fn();
   const captureAndSave = jest.fn<Promise<CaptureOutcome>, [AddModeResult, unknown]>();
+  let tipAnswer = false;
+  const tipShown: string[] = [];
+  let restored = 0;
+  const tipQuery = jest.fn(async () => tipAnswer);
+  const tipRecord = jest.fn();
+  const tipShortcutUsed = jest.fn();
   const deps: AddModeControlDeps = {
     addMode: {
       startAddMode: (cb) => {
@@ -63,6 +79,14 @@ function harness(): Harness {
       },
       hideOverlayUI: () => {},
       showOverlayUI: () => {},
+      showPlacingTip: (text) => {
+        if (!isActive) return false;
+        tipShown.push(text);
+        return true;
+      },
+      restorePlacingHint: () => {
+        restored++;
+      },
     },
     sidebar: {
       collapseEnlargedView: () => true,
@@ -84,6 +108,7 @@ function harness(): Harness {
     penColor: { restore: restorePen, remember: jest.fn() },
     onSaved: saved,
     now: () => now,
+    tip: { query: tipQuery, record: tipRecord, shortcutUsed: tipShortcutUsed, text: () => 'tip: alt+n to add a note' },
   };
   return {
     control: createAddModeControl(deps),
@@ -113,6 +138,16 @@ function harness(): Harness {
     },
     selfExit: () => {
       isActive = false;
+    },
+    tip: {
+      answer: (show) => {
+        tipAnswer = show;
+      },
+      query: tipQuery,
+      record: tipRecord,
+      shortcutUsed: tipShortcutUsed,
+      shown: tipShown,
+      restored: () => restored,
     },
   };
 }
@@ -342,5 +377,111 @@ describe('a capture still in flight when a new session starts (the capture sessi
     expect(h.active()).toBe(false);
     expect(last(h.paints)).toBe('off');
     expect(h.saved).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the Option/Alt+N tip (src/addNoteTip.ts)', () => {
+  /** Let the tip's answer (a resolved promise) land. */
+  const settle = async () => {
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+  };
+  const altN = () => key({ key: 'n', code: 'KeyN', altKey: true });
+
+  test('a single click asks; a yes shows the tip in the hint\'s place; the start is counted once the double-click window has passed', async () => {
+    jest.useFakeTimers();
+    const h = harness();
+    h.tip.answer(true);
+    h.control.onButtonClick();
+    expect(h.tip.query).toHaveBeenCalledTimes(1);
+    await settle();
+    expect(h.tip.shown).toEqual(['tip: alt+n to add a note']);
+    expect(h.tip.record).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(ADD_DBLCLICK_WINDOW_MS);
+    await settle();
+    expect(h.tip.record).toHaveBeenCalledTimes(1);
+    expect(h.tip.record).toHaveBeenCalledWith(true);
+  });
+
+  test('a no shows nothing, and the start still counts', async () => {
+    jest.useFakeTimers();
+    const h = harness();
+    h.control.onButtonClick();
+    await settle();
+    jest.advanceTimersByTime(ADD_DBLCLICK_WINDOW_MS);
+    await settle();
+    expect(h.tip.shown).toEqual([]);
+    expect(h.tip.record).toHaveBeenCalledWith(false);
+  });
+
+  test('a double-click does not count, and takes back a tip its first click showed', async () => {
+    jest.useFakeTimers();
+    const h = harness();
+    h.tip.answer(true);
+    h.control.onButtonClick();
+    await settle();
+    expect(h.tip.shown).toHaveLength(1);
+    h.setNow(1100);
+    h.control.onButtonClick();
+    h.control.onButtonDoubleClick();
+    expect(h.tip.restored()).toBe(1);
+    jest.advanceTimersByTime(ADD_DBLCLICK_WINDOW_MS * 2);
+    await settle();
+    expect(h.tip.record).not.toHaveBeenCalled();
+    expect(last(h.paints)).toBe('kept-on');
+  });
+
+  test('the switch, shift+click and the shortcut neither ask nor count', async () => {
+    jest.useFakeTimers();
+    for (const start of [
+      (h: Harness) => h.control.setSwitch(true),
+      (h: Harness) => h.control.onButtonDoubleClick(), // shift+click / shift+Enter
+      (h: Harness) => h.control.onGlobalKeyDown(altN()),
+    ]) {
+      const h = harness();
+      h.tip.answer(true);
+      start(h);
+      expect(h.active()).toBe(true);
+      await settle();
+      jest.advanceTimersByTime(ADD_DBLCLICK_WINDOW_MS * 2);
+      await settle();
+      expect(h.tip.query).not.toHaveBeenCalled();
+      expect(h.tip.record).not.toHaveBeenCalled();
+      expect(h.tip.shown).toEqual([]);
+    }
+  });
+
+  test('add mode starting again on its own (the switch kept on, after a save) does not ask', async () => {
+    const h = harness();
+    h.control.setSwitch(true);
+    h.captureAndSave.mockResolvedValue({ ok: true, item: {} as never });
+    h.callbacks().onOk(RESULT);
+    await flush();
+    expect(h.starts()).toBe(2);
+    expect(h.tip.query).not.toHaveBeenCalled();
+  });
+
+  test('an answer that lands after add mode has ended shows nothing', async () => {
+    jest.useFakeTimers();
+    const h = harness();
+    h.tip.answer(true);
+    h.control.onButtonClick();
+    h.control.onGlobalKeyDown(key({ key: 'Escape' }));
+    expect(h.active()).toBe(false);
+    await settle();
+    jest.advanceTimersByTime(ADD_DBLCLICK_WINDOW_MS);
+    await settle();
+    expect(h.tip.shown).toEqual([]);
+    expect(h.tip.record).toHaveBeenCalledWith(false);
+  });
+
+  test('the shortcut, once it fires, is reported: the tip never shows again', () => {
+    const h = harness();
+    expect(h.control.onGlobalKeyDown(altN())).toBe('stop');
+    expect(h.tip.shortcutUsed).toHaveBeenCalledTimes(1);
+    // Not when it does nothing.
+    const g = harness();
+    g.typing(true);
+    expect(g.control.onGlobalKeyDown(altN())).toBe('pass');
+    expect(g.tip.shortcutUsed).not.toHaveBeenCalled();
   });
 });
