@@ -817,6 +817,7 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     pointer-events: none;
   }
+  .xp-notice:empty { display: none; }
 
   .xp-delete-all-group {
     position: relative;

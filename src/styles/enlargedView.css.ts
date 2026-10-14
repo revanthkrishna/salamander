@@ -144,6 +144,9 @@ export const ENLARGED_VIEW_CSS = `
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     pointer-events: none;
   }
+  /* Empty until there is something to say: not laid out, so the tools'
+     gap does not open for it. */
+  .xp-notice:empty { display: none; }
 
   /* "delete all" (design spec §AH, 2026-10-13): the menu's destructive
      item as a top-bar button — the note delete's trash glyph and the menu

@@ -246,7 +246,9 @@ describe('the whole site, one page', () => {
     expect(shadow().querySelectorAll('style')).toHaveLength(1);
     expect(qa('.xp-page').map((h) => h.dataset.pageUrl)).toEqual([BLOG, PRICING, ABOUT]);
     expect(qa('.xp-note').map((n) => n.dataset.itemId)).toEqual(['1', '2', '4', '3', '5', '6', '7', '8']);
-    expect(q('.xp-notice')).toBeNull();
+    // The notice's live region is there, empty — and not laid out.
+    expect(q('.xp-notice')!.textContent).toBe('');
+    expect(q('style')!.textContent).toMatch(/\.xp-notice:empty \{ display: none; \}/);
     // Numbers are per page, in capture order (design spec §AD).
     expect(nums()).toEqual(['#1', '#2', '#3', '#1', '#2', '#3', '#1', '#2']);
     // The sidebar's own list still shows only this page.
@@ -1359,13 +1361,19 @@ describe('delete all, in the top bar', () => {
     setup();
     open(3, makeCallbacks({ onDeleteAll: jest.fn().mockResolvedValue(false) }));
     settleOpen();
+    // The live region is there, empty, before anything goes wrong...
+    const region = q('.xp-notice');
+    expect(region?.getAttribute('role')).toBe('status');
+    expect(region?.textContent).toBe('');
     da().click();
     yes().click();
     await flush();
     expect(wrapper()!.dataset.state).toBe('open');
     expect(asking()).toBe(false);
     expect(shadow().activeElement).toBe(da());
+    // ...and the failure is a change to it, which is what gets announced.
     const notice = q('.xp-notice')!;
+    expect(notice).toBe(region);
     expect(notice.textContent).toBe(DELETE_ALL_FAILED_MESSAGE);
     expect(notice.getAttribute('role')).toBe('status');
     expect(qa('.xp-note')).toHaveLength(8);

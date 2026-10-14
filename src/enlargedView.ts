@@ -718,9 +718,7 @@ class EnlargedView {
     sb.setAttribute('inert', '');
 
     const from = this.mount.getSidebarWidth();
-    const chrome = this.noticeEl
-      ? [this.btnExit, this.barRule, this.deleteAll.group, this.noticeEl]
-      : [this.btnExit, this.barRule, this.deleteAll.group];
+    const chrome = [this.btnExit, this.barRule, this.deleteAll.group, this.noticeEl!];
     for (const el of chrome) el.style.opacity = '0';
     this.scrim.style.opacity = '0';
     this.syncBrandWord(true);
@@ -876,6 +874,14 @@ class EnlargedView {
     // Left of the exit button, a wider gap away than the controls inside
     // it: the notice, if any, then "delete all".
     this.tools = div('xp-tools');
+    // The notice's live region exists from the start, empty (and so not
+    // laid out): a status region only announces a change to itself, so one
+    // inserted already holding its text — a delete all that failed — would
+    // be shown but never read.
+    this.noticeEl = document.createElement('p');
+    this.noticeEl.className = 'xp-notice';
+    this.noticeEl.setAttribute('role', 'status');
+    this.tools.appendChild(this.noticeEl);
     this.deleteAll = buildDeleteAll();
     this.deleteAll.button.addEventListener('click', () => this.askDeleteAll());
     this.deleteAll.yes.addEventListener('click', () => void this.confirmDeleteAll());
@@ -897,13 +903,7 @@ class EnlargedView {
   /** Say `text` in the top bar, left of the tools, for as long as the view
    *  is open (or until the next notice). */
   private setNotice(text: string): void {
-    if (!this.noticeEl) {
-      this.noticeEl = document.createElement('p');
-      this.noticeEl.className = 'xp-notice';
-      this.noticeEl.setAttribute('role', 'status');
-      this.tools.prepend(this.noticeEl);
-    }
-    this.noticeEl.textContent = text;
+    if (this.noticeEl) this.noticeEl.textContent = text;
   }
 
   private scrollerHeight(): number {
