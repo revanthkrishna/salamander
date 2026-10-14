@@ -89,6 +89,16 @@ export const ENLARGED_VIEW_CSS = `
     color: var(--sal-text);
   }
 
+  /* The top bar's bottom rule (design spec §AH, 2026-10-13): the docked
+     header block's divider — .action-row's 1px \`line\` border, edge to
+     edge — on the bar's last pixel row, above the scroller's hard cut. */
+  .xp-bar-rule {
+    position: absolute; left: 0; right: 0; top: ${TOP_BAR_H - 1}px;
+    height: 0;
+    border-bottom: 1px solid var(--sal-line);
+    pointer-events: none;
+  }
+
   /* Exit: one secondary icon button, top right — v5 §U's collapse-panel
      glyph. */
   .xp-exit {

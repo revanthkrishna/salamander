@@ -783,6 +783,13 @@
     color: var(--sal-text);
   }
 
+  .xp-bar-rule {
+    position: absolute; left: 0; right: 0; top: 67px;
+    height: 0;
+    border-bottom: 1px solid var(--sal-line);
+    pointer-events: none;
+  }
+
   .xp-exit {
     position: absolute; top: 16px; right: 16px;
     width: 36px; height: 36px; margin: 0; padding: 0;

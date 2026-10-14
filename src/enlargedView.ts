@@ -422,6 +422,8 @@ class EnlargedView {
   private brand!: HTMLDivElement;
   private brandWord!: HTMLSpanElement;
   private btnExit!: HTMLButtonElement;
+  /** The rule under the top bar (the docked header's divider). */
+  private barRule!: HTMLDivElement;
   private noticeEl: HTMLParagraphElement | null = null;
   private readonly notice: string | null;
   private scroller!: HTMLDivElement;
@@ -681,7 +683,7 @@ class EnlargedView {
     sb.setAttribute('inert', '');
 
     const from = this.mount.getSidebarWidth();
-    const chrome = this.noticeEl ? [this.btnExit, this.noticeEl] : [this.btnExit];
+    const chrome = this.noticeEl ? [this.btnExit, this.barRule, this.noticeEl] : [this.btnExit, this.barRule];
     for (const el of chrome) el.style.opacity = '0';
     this.scrim.style.opacity = '0';
     this.syncBrandWord(true);
@@ -827,7 +829,14 @@ class EnlargedView {
     this.scroller.addEventListener('wheel', holdStill, { passive: false });
     this.scroller.addEventListener('touchmove', holdStill, { passive: false });
 
-    this.stage.append(this.brand, this.btnExit, this.scroller);
+    // The top bar's bottom rule: the docked sidebar's one divider under its
+    // fixed block (.action-row's border-bottom), drawn the same — 1px of
+    // \`line\`, the panel's full width — on the bar's last pixel row, so the
+    // scroller below it does not move.
+    this.barRule = div('xp-bar-rule');
+    this.barRule.setAttribute('aria-hidden', 'true');
+
+    this.stage.append(this.brand, this.barRule, this.btnExit, this.scroller);
     if (this.notice) {
       // In the top bar, beside the exit button: seen while the view is
       // looked at, which is when its being incomplete needs explaining — a
@@ -1080,6 +1089,7 @@ class EnlargedView {
 
     const rd = this.reduced;
     fadeTo(this.btnExit, 0, { duration: rd ? T.rdStageOut : T.stageOut, curve: ACC });
+    fadeTo(this.barRule, 0, { duration: rd ? T.rdStageOut : T.stageOut, curve: ACC });
     if (this.noticeEl) fadeTo(this.noticeEl, 0, { duration: rd ? T.rdStageOut : T.stageOut, curve: ACC });
     fadeTo(this.scroller, 0, { duration: rd ? T.rdStageOut : T.stageOut, curve: ACC });
     this.syncBrandWord(false);
@@ -1182,7 +1192,7 @@ class EnlargedView {
       page.part.move?.anim?.cancel();
       cancelTracks(page.heading.el);
     }
-    for (const el of [this.scrim, this.bg, this.stage, this.front, this.btnExit, this.noticeEl, this.scroller, this.brand, this.brandWord]) {
+    for (const el of [this.scrim, this.bg, this.stage, this.front, this.btnExit, this.barRule, this.noticeEl, this.scroller, this.brand, this.brandWord]) {
       if (el) cancelTracks(el);
     }
 

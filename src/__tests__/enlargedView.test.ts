@@ -493,6 +493,32 @@ describe('opening on a note', () => {
     expect(rule('.xp-brand img')).toMatch(/height: 20px;/);
   });
 
+  test('the top bar has a bottom rule: the docked header block\'s divider, edge to edge, on the bar\'s last row', () => {
+    setupPage(1);
+    animCalls = [];
+    open(1);
+    const css = q('style')!.textContent!;
+    const rule = (sel: string) => css.slice(css.indexOf(`${sel} {`), css.indexOf('}', css.indexOf(`${sel} {`)));
+    const bar = q('.xp-bar-rule')!;
+    expect(bar.parentElement).toBe(q('.xp-stage'));
+    expect(bar.getAttribute('aria-hidden')).toBe('true');
+    // The same token and thickness as .action-row's border-bottom.
+    expect(rule('.action-row')).toMatch(/border-bottom: 1px solid var\(--sal-line\);/);
+    expect(rule('.xp-bar-rule')).toMatch(/border-bottom: 1px solid var\(--sal-line\);/);
+    // Full width, like the docked one, and inside the bar: the scroller
+    // still starts at TOP_BAR_H.
+    expect(rule('.xp-bar-rule')).toMatch(new RegExp(`left: 0; right: 0; top: ${TOP_BAR_H - 1}px;`));
+    expect(rule('.xp-scroll')).toMatch(new RegExp(`top: ${TOP_BAR_H}px;`));
+    // It arrives with the exit button and leaves with it.
+    const fadeIn = animCalls.find((c) => c.el === bar && 'opacity' in c.keyframes[0])!;
+    expect(fadeIn.options.delay).toBe(T.exitDelay);
+    settleOpen();
+    animCalls = [];
+    exitBtn().click();
+    const fadeOut = animCalls.find((c) => c.el === bar && 'opacity' in c.keyframes[0])!;
+    expect(fadeOut.options.duration).toBe(T.stageOut);
+  });
+
   test('full images: fetched as notes near the viewport (IntersectionObserver), and only land on their own note', async () => {
     const observed: Element[] = [];
     let fire!: (els: Element[]) => void;
