@@ -463,7 +463,7 @@ describe('opening on a note', () => {
     expect(fadeOf(exitBtn())!.options.delay).toBe(T.exitDelay);
   });
 
-  test('the panel grows leftward from the docked width; the logo drops to the top bar\'s centre line', () => {
+  test('the panel grows leftward from the docked width; the logo settles 16px from the top, as from the left', () => {
     setup();
     open(3);
     const width = animCalls.find((c) => c.el === q('.xp-bg') && 'width' in c.keyframes[0])!;
@@ -471,9 +471,11 @@ describe('opening on a note', () => {
     expect(width.keyframes[1].width).toBe(`${panelWidthFor(window.innerWidth, sidebar.getSidebarWidth())}px`);
     expect(width.options.duration).toBe(T.expand);
     const top = animCalls.find((c) => c.el === q('.xp-brand') && 'top' in c.keyframes[0])!;
-    // Docked, the logo is centred in a 56px header; in the panel, with the
-    // exit button in a 68px bar: 6px lower, and never sideways.
-    expect([top.keyframes[0].top, top.keyframes[1].top]).toEqual(['0px', `${(TOP_BAR_H - 56) / 2}px`]);
+    // Docked, the 20px logo is centred in a 56px header (18px from its top);
+    // in the panel its top is 16px from the panel's top — its left inset
+    // and the exit button's top: the row rises 2px, and never moves sideways.
+    expect([top.keyframes[0].top, top.keyframes[1].top]).toEqual(['0px', '-2px']);
+    expect((56 - 20) / 2 + -2).toBe(16);
     expect(animCalls.some((c) => c.el === q('.xp-brand') && 'left' in c.keyframes[0])).toBe(false);
   });
 
@@ -485,9 +487,10 @@ describe('opening on a note', () => {
     expect(rule('.xp-exit')).toMatch(/top: 16px; right: 16px;/);
     expect(rule('.xp-brand')).toMatch(/left: 16px;/);
     expect(rule('.xp-content')).toMatch(/margin: 0 0 0 16px;/);
-    // The bar is that margin either side of the 36px button, and the logo is
-    // centred with it once dropped: (56 / 2) + 6 = 68 / 2.
+    // The bar is that margin either side of the 36px button; the logo's
+    // 20px box sits 16px down once settled, level with the button's top.
     expect(TOP_BAR_H).toBe(16 + 36 + 16);
+    expect(rule('.xp-brand img')).toMatch(/height: 20px;/);
   });
 
   test('full images: fetched as notes near the viewport (IntersectionObserver), and only land on their own note', async () => {

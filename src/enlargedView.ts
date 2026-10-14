@@ -116,6 +116,7 @@ import {
   Box,
   GridLayout,
   DOCKED_HEADER_H,
+  PANEL_MARGIN,
   PEEK_PX,
   TOP_BAR_H,
   computeGridLayout,
@@ -191,10 +192,15 @@ export const T = {
  *  ~38px past the edge at the 300px maximum width). */
 const FRONT_BLEED_PX = 48;
 const FRAME_RADIUS = RADII.md;
-/** How far the logo moves down as the panel grows (and back), on the
- *  panel's own curve: from centred in the docked header (DOCKED_HEADER_H)
- *  to centred with the exit button in the panel's taller top bar. */
-const BRAND_DROP_PX = (TOP_BAR_H - DOCKED_HEADER_H) / 2;
+/** The logo's height (.xp-brand img, the docked header's .logo). */
+const LOGO_H_PX = 20;
+/** Where the logo row settles as the panel grows (and back from, on
+ *  collapse), on the panel's own curve. Docked, the logo is centred in the
+ *  56px header (DOCKED_HEADER_H), 18px from its top; in the panel its top
+ *  is PANEL_MARGIN from the panel's top, the same as its left inset and
+ *  the exit button's top (design spec §AH, revised 2026-10-13) — so the
+ *  row rises 2px. */
+const BRAND_SETTLED_TOP_PX = PANEL_MARGIN - (DOCKED_HEADER_H - LOGO_H_PX) / 2;
 /** What the top bar's notice leaves for the logo + wordmark on its left
  *  and the exit button on its right. */
 const NOTICE_RESERVE_PX = 300;
@@ -683,7 +689,7 @@ class EnlargedView {
     if (this.reduced) {
       // §12: geometry jumps, only opacity moves.
       this.setPanelWidth(this.panelW, 0);
-      this.setBrandTop(BRAND_DROP_PX, 0);
+      this.setBrandTop(BRAND_SETTLED_TOP_PX, 0);
       fadeTo(this.scrim, 1, { duration: T.rdScrimIn, curve: STD });
       fadeTo(sb, 0, { duration: T.rdListOut, curve: ACC });
       this.scroller.style.opacity = '0';
@@ -695,7 +701,7 @@ class EnlargedView {
     }
 
     this.setPanelWidth(this.panelW, T.expand, from);
-    this.setBrandTop(BRAND_DROP_PX, T.expand, 0);
+    this.setBrandTop(BRAND_SETTLED_TOP_PX, T.expand, 0);
     // Backdrop first (Modal-with-Content), list-only chrome dissolves out
     // (entrance-exit: Dissolve Exit, ease-in), then the grid a band at a
     // time, and the exit button last.
@@ -946,8 +952,9 @@ class EnlargedView {
     }
   }
 
-  /** The logo moves from the docked header's centre line to the top bar's
-   *  (BRAND_DROP_PX) as the panel grows, and back, on the panel's curve. */
+  /** The logo moves from the docked header's centre line to its settled
+   *  inset (BRAND_SETTLED_TOP_PX) as the panel grows, and back, on the
+   *  panel's curve. */
   private setBrandTop(to: number, duration: number, from?: number): void {
     animateNumber(this.brand, 'top', to, { duration, from, curve: STD });
   }
