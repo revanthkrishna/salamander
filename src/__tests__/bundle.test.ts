@@ -1,7 +1,7 @@
 // src/bundle — the feedback.md writer and reader (design spec §AC) against
 // generated input: ordering, the round trip the importer builds on, notes
 // that try to look like structure, the format dispatch, and the reader's
-// error shape. The frozen text fixture has its own file (bundleV2.test.ts).
+// error shape. The frozen text fixture has its own file (bundleV3.test.ts).
 
 import {
   buildFeedbackMarkdown,
@@ -13,11 +13,11 @@ import {
 import {
   capText,
   formatExportDate,
-  FORMAT_VERSION_V2,
+  FORMAT_VERSION_V3,
   JSON_TEXT_LIMITS,
   primaryTargetText,
   toJsonFeedbackItem,
-} from '../bundle/v2';
+} from '../bundle/v3';
 import { FeedbackItem } from '../types';
 
 const HEADER: ExportHeader = {
@@ -28,7 +28,7 @@ const HEADER: ExportHeader = {
 };
 
 /** A stored item whose `context.pageMeta` mirrors its own fields, exactly
- *  as capture.ts writes one (the bundle relies on it — see bundle/v2.ts). */
+ *  as capture.ts writes one (the bundle relies on it — see bundle/v3.ts). */
 function makeItem(overrides: Partial<FeedbackItem> = {}): FeedbackItem {
   const pageUrl = overrides.pageUrl ?? 'https://example.com/page-one?ref=x';
   const normalisedUrl = overrides.normalisedUrl ?? 'https://example.com/page-one';
@@ -87,7 +87,7 @@ describe('buildFeedbackMarkdown', () => {
     const item = makeItem();
     const md = build({ [item.normalisedUrl]: [item] });
     expect(md.split('\n').slice(0, 6)).toEqual([
-      '<!-- salamander-feedback-format: 2 -->',
+      '<!-- salamander-feedback-format: 3 -->',
       'salamander 1.1.0\\',
       '**date exported:** 2026-01-01 12:00 utc+00:00\\',
       '**website:** example.com',
@@ -303,7 +303,7 @@ describe('round trip: buildFeedbackMarkdown -> decodeFeedbackMarkdown', () => {
 
     const decoded = decodeFeedbackMarkdown(build({ [urlA]: [a1, a2], [urlB]: [b1] }));
 
-    expect(decoded.version).toBe(2);
+    expect(decoded.version).toBe(3);
     expect(decoded.entries.map((e) => e.item)).toEqual([asDecoded(a1), asDecoded(a2), asDecoded(b1)]);
     // Each note comes back with the number its heading showed: its position
     // on its page, restarting on the second page.
@@ -405,7 +405,16 @@ describe('decodeFeedbackMarkdown — format dispatch', () => {
 
   test('a newer format is refused', () => {
     const item = makeItem();
-    rejects(build({ [item.normalisedUrl]: [item] }).replace('salamander-feedback-format: 2', 'salamander-feedback-format: 3'), 3);
+    rejects(build({ [item.normalisedUrl]: [item] }).replace('salamander-feedback-format: 3', 'salamander-feedback-format: 4'), 4);
+  });
+
+  test("2.0/2.1's format-2 export (### feedback n) is refused, never read as an empty bundle", () => {
+    const item = makeItem();
+    const v2 = build({ [item.normalisedUrl]: [item] })
+      .replace('salamander-feedback-format: 3', 'salamander-feedback-format: 2')
+      .replace(/### note (\d+)/g, '### feedback $1')
+      .replace(/!\[note (\d+)/g, '![feedback $1');
+    rejects(v2, 2);
   });
 
   test('a file with no stamp, or the stamp anywhere but line 1, is refused', () => {
@@ -474,6 +483,6 @@ describe('src/bundle — the current format is the v2 codec', () => {
     // The reader dispatches on each codec's own version so old files keep
     // reading after a bump; the writer must be the codec FORMAT_VERSION
     // names, or export would stamp a version the reader refuses.
-    expect(FORMAT_VERSION).toBe(FORMAT_VERSION_V2);
+    expect(FORMAT_VERSION).toBe(FORMAT_VERSION_V3);
   });
 });

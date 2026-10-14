@@ -60,7 +60,7 @@ export interface ContainedElement {
 /** §1.4D — page-level metadata. Every field but `title` repeats one on the
  *  enclosing FeedbackItem (capture fills both from the same values), so the
  *  bundle writes only `page_title` and import rebuilds the rest from the
- *  item — see src/bundle/v2.ts. */
+ *  item — see src/bundle/v3.ts. */
 export interface PageMeta {
   url: string;
   normalisedUrl: string;
@@ -221,7 +221,7 @@ export interface SitePage {
 }
 
 // The bundle's snake_case json record type lives with the grammar it
-// belongs to, per format version: src/bundle/v2.ts.
+// belongs to, per format version: src/bundle/v3.ts.
 
 // ---------------------------------------------------------------------------
 // Import errors (REQUIREMENTS §5 — 11 cases; only the 🔴 error rows need a

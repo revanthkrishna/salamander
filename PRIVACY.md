@@ -1,7 +1,7 @@
 # Privacy policy
 
 **Extension:** salamander
-**Last updated:** 7 October 2026
+**Last updated:** 13 October 2026
 
 ## The short version
 
@@ -14,8 +14,8 @@ When you capture feedback, salamander saves the following in your browser's loca
 - the screenshot of the region you selected
 - the note you wrote
 - data about the element you selected: its CSS selector, its XPath, the surrounding HTML, and the text inside it
-- the address and title of the page you captured it on
-- interface state, such as whether the sidebar is open and how wide you made it
+- the address and title of the page you captured it on, and any name you give a page in the enlarged view
+- interface state, such as whether the sidebar is open, how wide you made it, and whether you have seen the keyboard shortcut tip
 
 That is all of it. Salamander does not record your browsing history, does not read pages you have not opened it on, and does not capture anything on a page until you select a region and save a note.
 

@@ -229,7 +229,7 @@ export async function getDomainCounts(domain: string): Promise<{ items: number; 
  * Every page of a domain that has notes, for the enlarged view (design spec
  * §AH): pages ordered by their first note's id — ids are allocated in
  * capture order, so that is the order the pages were first noted on, the
- * same order the export writes them in (src/bundle/v2.ts) — and each page's
+ * same order the export writes them in (src/bundle/v3.ts) — and each page's
  * notes in capture order, the order their numbers come from. Each page
  * carries its edited name, or null for its default. Empty when nothing has
  * been captured for the domain.

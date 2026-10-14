@@ -4,15 +4,16 @@
 // decide which codec the rest of the file belongs to (design spec §AC).
 
 /**
- * The feedback.md format this build WRITES, and the only one it reads. The
- * extension is unpublished, so there is no backward compatibility: a bundle
- * stamped with any other version — or with no stamp, like the retired v1
+ * The feedback.md format this build WRITES, and the only one it reads. There
+ * is no backward compatibility: a bundle stamped with any other version — 2
+ * (2.0/2.1's, `### feedback {n}` headings), or no stamp, like the retired v1
  * format (`<!-- annotator-schema-version: 1 -->`) — is refused on import.
+ * 3 renamed the note headings and image alts to `### note {n}` / `note {n}`.
  * Embedded as an HTML comment on the first line (invisible in a rendered
  * markdown viewer). It is not the extension version, which the header
  * carries separately.
  */
-export const FORMAT_VERSION = 2;
+export const FORMAT_VERSION = 3;
 
 const FORMAT_MARKER_RE = /^<!--\s*salamander-feedback-format:\s*(\d+)\s*-->$/;
 

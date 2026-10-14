@@ -2,7 +2,7 @@
 // purpose-built fixture bundles built the same way src/export.ts assembles a
 // real one (fflate zipSync + src/bundle's buildFeedbackMarkdown), so these
 // tests exercise the real grammar rather than a hand-rolled stand-in for it.
-// The frozen text of the format itself is pinned in bundleV2.test.ts.
+// The frozen text of the format itself is pinned in bundleV3.test.ts.
 
 import { zipSync, strToU8 } from 'fflate';
 import { parseImportBundle } from '../import';
@@ -319,8 +319,8 @@ describe('parseImportBundle — §5 error ladder', () => {
   test('#6 a newer format is refused, not read best-effort', async () => {
     const item = makeItem();
     const markdown = markdownFor({ [item.normalisedUrl]: [item] }).replace(
-      '<!-- salamander-feedback-format: 2 -->',
       '<!-- salamander-feedback-format: 3 -->',
+      '<!-- salamander-feedback-format: 4 -->',
     );
     const file = rawZipFile({ 'feedback.md': strToU8(markdown), 'screenshots/1.png': PNG_BYTES });
 

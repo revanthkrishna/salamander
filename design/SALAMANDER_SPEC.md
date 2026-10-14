@@ -811,6 +811,10 @@ REPLACES the v1 bundle format entirely. The extension is unpublished, so there i
 compatibility**: the v1 codec, its frozen fixture and the YAML dependency (`js-yaml`, used only to
 read v1) are removed. A bundle in any other format is rejected on import with a clear error.
 
+**Format 3 (2026-10-13)** renames the note headings and image alts from `### feedback {n}` /
+`feedback {n}` to `### note {n}` / `note {n}`, matching "note" everywhere else. Again with no
+backward compatibility: 2.0/2.1's format-2 exports are refused (E-6) rather than misread.
+
 One file. `feedback.md` is both the human/agent-readable export and the thing import reads back —
 there is no separate data file. Screenshots stay in the zip at `screenshots/{id}.png`, with any
 drawing painted on (§AB).
@@ -821,7 +825,7 @@ written exactly as captured.
 ## The file
 
 ````markdown
-<!-- salamander-feedback-format: 2 -->
+<!-- salamander-feedback-format: 3 -->
 salamander 1.1.0\
 **date exported:** 2026-09-21 21:40 utc-05:00\
 **website:** example.com
@@ -830,7 +834,7 @@ salamander 1.1.0\
 
 ### note 1
 
-![feedback 1 — marked up by the reviewer](screenshots/1.png)
+![note 1 — marked up by the reviewer](screenshots/1.png)
 
 **note:** the "start trial" cta is misaligned on mobile
 
@@ -850,7 +854,7 @@ salamander 1.1.0\
 
 ## Rules
 
-- **Line 1** is the HTML comment `<!-- salamander-feedback-format: 2 -->` — invisible when rendered;
+- **Line 1** is the HTML comment `<!-- salamander-feedback-format: 3 -->` — invisible when rendered;
   it is how import recognises the format. The extension version is a separate thing.
 - **Header**, three lines joined by trailing `\` so they render as separate lines, not one run-on
   paragraph: `salamander {manifest version}`, `**date exported:** {local time} utc{±hh:mm}` as

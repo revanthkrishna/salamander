@@ -1,19 +1,19 @@
-// src/bundle/v2.ts
-// Format version 2 of feedback.md (design spec §AC): one Markdown file that
+// src/bundle/v3.ts
+// Format version 3 of feedback.md (design spec §AC): one Markdown file that
 // is both what a person or coding agent reads and what import reads back.
-// src/__tests__/fixtures/feedback-v2.md is the golden copy of what this
-// writer produces; bundleV2.test.ts holds the writer and the reader to it.
+// src/__tests__/fixtures/feedback-v3.md is the golden copy of what this
+// writer produces; bundleV3.test.ts holds the writer and the reader to it.
 //
-//   <!-- salamander-feedback-format: 2 -->     line 1: the format stamp
+//   <!-- salamander-feedback-format: 3 -->     line 1: the format stamp
 //   salamander 1.1.0\                           header: three lines joined by
 //   **date exported:** 2026-09-21 21:40 utc-05:00\    trailing `\` so they
 //   **website:** example.com                    render as separate lines
 //
 //   ## page "{normalised url}"                  pages in first-capture order
 //
-//   ### note {n}                            notes in capture order, n =
+//   ### note {n}                                notes in capture order, n =
 //                                               position on the page from 1
-//   ![feedback {n}](screenshots/{id}.png)       alt gains " — marked up by the
+//   ![note {n}](screenshots/{id}.png)           alt gains " — marked up by the
 //                                               reviewer" when drawn on (§AB)
 //   **note:** {note, or "(none)"}
 //
@@ -64,7 +64,7 @@ import { hasStrokes } from '../drawing';
 import { formatMarker } from './version';
 
 /** The format version this file writes and reads. */
-export const FORMAT_VERSION_V2 = 2;
+export const FORMAT_VERSION_V3 = 3;
 
 /** What the header says about the export itself. Passed in rather than read
  *  here, so the writer is pure and a test can pin its output exactly. */
@@ -163,7 +163,7 @@ export function buildFeedbackMarkdown(
     .sort((a, b) => a.items[0].id - b.items[0].id);
 
   const top = [
-    formatMarker(FORMAT_VERSION_V2),
+    formatMarker(FORMAT_VERSION_V3),
     `salamander ${header.extensionVersion}\\`,
     `**date exported:** ${formatExportDate(header.exportedAt, header.utcOffsetMinutes)}\\`,
     `**website:** ${header.website}`,

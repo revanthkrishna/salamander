@@ -4,20 +4,21 @@
 // format, and a reader that dispatches on the line-1 format stamp
 // (src/bundle/version.ts) to the codec that understands the file.
 //
-// There is one format today, version 2 (`v2.ts`, design spec §AC), with a
-// committed fixture of real text under src/__tests__/fixtures/. The
-// extension is unpublished, so nothing older is read: a file with any other
-// stamp — including the retired v1 format — is refused. A future revision is
+// There is one format today, version 3 (`v3.ts`, design spec §AC), with a
+// committed fixture of real text under src/__tests__/fixtures/. Nothing
+// older is read: a file with any other stamp is refused — including version
+// 2 (2.0/2.1's exports, whose notes were headed `### feedback {n}`) and the
+// retired v1 format. A future revision is
 // a new `vN.ts`, a bump of FORMAT_VERSION, a new `case` below and a new
 // fixture.
 
 import { FeedbackItem } from '../types';
 import { parseFormatVersion } from './version';
-import * as v2 from './v2';
-import type { DecodedBundleEntry } from './v2';
+import * as v3 from './v3';
+import type { DecodedBundleEntry } from './v3';
 
 export { FORMAT_VERSION, parseFormatVersion } from './version';
-export type { DecodedBundleEntry, DecodedBundleItem, ExportHeader } from './v2';
+export type { DecodedBundleEntry, DecodedBundleItem, ExportHeader } from './v3';
 
 export interface DecodedBundle {
   /** The format version the file declared. */
@@ -44,9 +45,9 @@ export class UnsupportedFormatError extends Error {
  */
 export function buildFeedbackMarkdown(
   pages: Record<string, FeedbackItem[]>,
-  header: v2.ExportHeader,
+  header: v3.ExportHeader,
 ): string {
-  return v2.buildFeedbackMarkdown(pages, header);
+  return v3.buildFeedbackMarkdown(pages, header);
 }
 
 /**
@@ -66,8 +67,8 @@ export function decodeFeedbackMarkdown(markdown: string): DecodedBundle {
     // Each case names the codec's OWN version, not FORMAT_VERSION: when a
     // v3 arrives, FORMAT_VERSION moves to 3 and this case keeps reading the
     // v2 files people have already exported.
-    case v2.FORMAT_VERSION_V2:
-      return { version, entries: v2.decodeFeedbackMarkdown(markdown) };
+    case v3.FORMAT_VERSION_V3:
+      return { version, entries: v3.decodeFeedbackMarkdown(markdown) };
     default:
       throw new UnsupportedFormatError(version);
   }

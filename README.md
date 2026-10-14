@@ -60,10 +60,10 @@ feedback-example_com-2026-09-22.zip
     └── 2.png
 ```
 
-`feedback.md` (format 2 — the full rules are in `design/SALAMANDER_SPEC.md` §AC, the frozen example in `src/__tests__/fixtures/feedback-v2.md`):
+`feedback.md` (format 3 — the full rules are in `design/SALAMANDER_SPEC.md` §AC, the frozen example in `src/__tests__/fixtures/feedback-v3.md`):
 
 ````markdown
-<!-- salamander-feedback-format: 2 -->
+<!-- salamander-feedback-format: 3 -->
 salamander 2.1.0\
 **date exported:** 2026-09-22 14:05 utc+01:00\
 **website:** example.com
@@ -72,7 +72,7 @@ salamander 2.1.0\
 
 ### note 1
 
-![feedback 1 — marked up by the reviewer](screenshots/1.png)
+![note 1 — marked up by the reviewer](screenshots/1.png)
 
 **note:** the "start trial" cta is misaligned on mobile
 
@@ -102,7 +102,7 @@ salamander 2.1.0\
 </details>
 ````
 
-- Line 1 is the format stamp import checks; only format 2 is read (no backward compatibility — the extension was never published with another format).
+- Line 1 is the format stamp import checks; only format 3 is read (no backward compatibility: 2.0/2.1's format-2 exports, with `### feedback n` headings, are refused).
 - One `## page` section per normalised URL, notes in capture order. `### note n` is the note's position on its page (from 1 on every page, the same number the sidebar shows); `screenshots/{id}.png` is the note's internal id, unique across the site. Each note's JSON is the complete record; the visible `**note:**` line is for people and ignored on import.
 - Free text in the JSON is capped (`text` 120, `html` 300, `area_text` 200, element text/attributes 80) and ends in `…` when cut. Notes and identifiers are never cut.
 - `page_title` is the page's name as the enlarged view shows it: the name you gave it there, else the HTML title captured with its notes. Re-importing brings a given name back as those notes' title.
@@ -184,7 +184,7 @@ src/
   tooltip.ts             the one tooltip every surface uses
   export.ts              zip assembly, drawing composite, chrome.downloads
   import.ts              the validation ladder
-  bundle/                feedback.md format 2 writer/reader (v2.ts), version stamp, dispatch
+  bundle/                feedback.md format 3 writer/reader (v3.ts), version stamp, dispatch
   storage.ts             chrome.storage.local layout, session state
   imageStore.ts          IndexedDB wrapper
   messages.ts, rpc.ts    typed message contract and the content script's send()
@@ -198,7 +198,7 @@ src/
   urlNorm.ts             URL/domain normalisation, the export filename
   copy.ts                every user-facing string
   types.ts               the data model
-  __tests__/             jest suites, helpers, fixtures (feedback-v2.md is frozen) and the emitted-CSS golden files
+  __tests__/             jest suites, helpers, fixtures (feedback-v3.md is frozen) and the emitted-CSS golden files
 tests/                   Playwright specs, helper and fixture page
 design/                  SALAMANDER_SPEC.md, MOTION_SPEC.md, the design canvas exports
 docs/                    technical review, refactor notes, development plan, v1 archive (historical)

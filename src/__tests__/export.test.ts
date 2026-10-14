@@ -3,7 +3,7 @@
 // image's real pixel size; an item without one exports the stored PNG byte
 // for byte, never touching a canvas; feedback.md carries no drawing data,
 // only the alt text saying the image is marked up (design spec §AC —
-// bundleV2.test.ts pins the text itself). Also: the header's clock and
+// bundleV3.test.ts pins the text itself). Also: the header's clock and
 // version come from the injected environment, and a whole export imports
 // back to the same items (the round trip §AC requires).
 //
@@ -254,7 +254,7 @@ describe('export: the header and the round trip (design spec §AC)', () => {
   test('the header takes the manifest version and the local time from the environment', async () => {
     const files = await exportAndUnzip([makeItem(1)]);
     const lines = strFromU8(files['feedback.md']).split('\n');
-    expect(lines[0]).toBe('<!-- salamander-feedback-format: 2 -->');
+    expect(lines[0]).toBe('<!-- salamander-feedback-format: 3 -->');
     expect(lines[1]).toBe('salamander 9.8.7\\');
     expect(lines[2]).toMatch(/^\*\*date exported:\*\* \d{4}-\d\d-\d\d \d\d:\d\d utc[+-]\d\d:\d\d\\$/);
     expect(lines[3]).toBe('**website:** example.com');

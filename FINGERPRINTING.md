@@ -6,7 +6,7 @@ coding agent reading the exported `feedback.md` later.
 All code lives in `src/selectorBuilder.ts` (selector/xpath generation) and `src/contextCapture.ts`
 (everything built on top of it — primary target, contained elements, area text, page metadata,
 size governance). The on-disk shape is `CapturedContext` in `src/types.ts`; the exported shape is
-the json record in `src/bundle/v2.ts` (REQUIREMENTS FR-CX, FR-EX-5).
+the json record in `src/bundle/v3.ts` (REQUIREMENTS FR-CX, FR-EX-5).
 
 ## Why this is simpler than it used to be
 
@@ -99,7 +99,7 @@ would throw in the cross-origin case anyway.
 
 ## What the export does on top
 
-`src/bundle/v2.ts` derives `text` (the primary target's visible text: tags dropped, entities
+`src/bundle/v3.ts` derives `text` (the primary target's visible text: tags dropped, entities
 decoded, whitespace collapsed) from the stored `html` snippet at export time, and caps the free
 text in the record — `text` 120, `html` 300, `area_text` 200, each contained element's `text` and
 attribute values 80 — ending a cut value in a single `…` (capture's `...[truncated]` marker is
