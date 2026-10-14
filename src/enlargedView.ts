@@ -67,9 +67,10 @@
 // durations (MOTION_SPEC §12).
 //
 // ── Behaviour ───────────────────────────────────────────────────────────────
-// Opening focuses the clicked note's text area, caret at the end, its row
-// about a quarter of the way down with at least 80px of whatever precedes
-// it peeking at the top (enlargedLayout.ts, scrollTopFor). Each note
+// Opening focuses the clicked note's text area, caret at the end, scrolled
+// so the last 40px of whatever comes right before it (the previous row, or
+// its page's heading) peek under the top bar (enlargedLayout.ts,
+// scrollTopFor). Each note
 // autosaves (debounced 700ms; flushed on blur, collapse and unload). A note can never be saved empty: an emptied text
 // area says "note required", and closing is refused — exit, Esc, the scrim
 // and the toolbar icon — with focus moved to it, until it has text again; a
@@ -1617,8 +1618,8 @@ class EnlargedView {
     else s.scrollTop = top;
   }
 
-  /** ↑/↓ step, the page keys page (keeping PEEK_PX of overlap, like the
-   *  opening peek), Home/End go to the ends. False for any other key. */
+  /** ↑/↓ step, the page keys page (keeping PEEK_PX of overlap), Home/End
+   *  go to the ends. False for any other key. */
   private scrollByKey(key: string): boolean {
     const h = this.scrollerHeight();
     const top = this.scroller.scrollTop;

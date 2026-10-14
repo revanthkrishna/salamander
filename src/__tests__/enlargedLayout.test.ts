@@ -18,8 +18,8 @@ import {
   PAD_BOTTOM,
   PAD_TOP,
   PANEL_PAD_X,
+  OPEN_PEEK_PX,
   PEEK_PX,
-  LANDING_FRACTION,
   ROW_GAP,
   TOP_BAR_H,
   computeGridLayout,
@@ -268,7 +268,7 @@ describe('narrow panels', () => {
   });
 });
 
-describe('opening on a note: a quarter of the way down, the notes before it peeking', () => {
+describe('opening on a note: a fixed 40px peek of what comes before it', () => {
   // Page a: one wide note per row, two rows; page b: two rows as well.
   // Each row is 28 + 8 + 200 + 12 + 96 = 344px tall.
   function site() {
@@ -277,61 +277,70 @@ describe('opening on a note: a quarter of the way down, the notes before it peek
       { contentW: 1000 },
     );
   }
-  /** Where a box `y` sits on screen, as a fraction of a panel `panelH`
-   *  tall whose scroller (under the top bar) is scrolled to `top`. */
-  const onPanel = (y: number, top: number, panelH: number) => (TOP_BAR_H + y - top) / panelH;
+  /** Where content `y` is on screen, below the top bar, at scroll `top`. */
+  const underBar = (y: number, top: number) => y - top;
 
-  test('the site\'s first row starts at the top, with no peek', () => {
-    expect(scrollTopFor(site(), 1, 900 - TOP_BAR_H)).toBe(0);
+  test('the peek is 40px; the page keys keep their own 80px overlap', () => {
+    expect(OPEN_PEEK_PX).toBe(40);
+    expect(PEEK_PX).toBe(80);
   });
 
-  test('a later row lands 25% down the panel, with more than PEEK_PX of the previous row above it', () => {
+  test('the site\'s first row starts at the top, with no peek — every note in it', () => {
+    const g = computeGridLayout([page('a', [267, 100], [267, 100]), page('b', [900, 200])], { contentW: 1000 });
+    expect(g.notes.get(1)!.row).toBe(0);
+    expect(g.notes.get(2)!.row).toBe(0);
+    expect(scrollTopFor(g, 1, 900 - TOP_BAR_H)).toBe(0);
+    expect(scrollTopFor(g, 2, 900 - TOP_BAR_H)).toBe(0);
+  });
+
+  test('a later row on a page: the previous row\'s last 40px under the top bar, then the row at its gap', () => {
     const g = site();
     const top = scrollTopFor(g, 2, 900 - TOP_BAR_H)!;
-    expect(onPanel(g.rows[1].top, top, 900)).toBeCloseTo(LANDING_FRACTION, 2);
-    expect(g.rows[0].bottom - top).toBeGreaterThan(PEEK_PX);
+    expect(underBar(g.rows[0].bottom, top)).toBe(OPEN_PEEK_PX);
+    expect(underBar(g.rows[1].top, top)).toBe(OPEN_PEEK_PX + ROW_GAP);
   });
 
-  test('a page\'s first row lands there too, its heading on screen and the previous page\'s last row peeking', () => {
-    // Enough after it that the landing is not clamped by the content's end.
+  test('a page\'s first row: its heading\'s last 40px peek, the row at its heading gap under it', () => {
+    // Enough after it that the scroll is not clamped by the content's end.
     const g = computeGridLayout(
       [page('a', [900, 200], [900, 200]), page('b', [900, 200], [900, 200], [900, 200], [900, 200])],
       { contentW: 1000 },
     );
+    const h = g.headings[1].box;
     const top = scrollTopFor(g, 3, 1200 - TOP_BAR_H)!;
-    expect(onPanel(g.rows[2].top, top, 1200)).toBeCloseTo(LANDING_FRACTION, 2);
-    expect(g.headings[1].box.y).toBeGreaterThanOrEqual(top);
-    expect(g.rows[1].bottom - top).toBeGreaterThanOrEqual(PEEK_PX);
+    expect(underBar(h.y + h.h, top)).toBe(OPEN_PEEK_PX);
+    expect(underBar(g.rows[2].top, top)).toBe(OPEN_PEEK_PX + HEADING_GAP);
+    // The previous page's last row is above the top bar, out of sight.
+    expect(underBar(g.rows[1].bottom, top)).toBeLessThan(0);
   });
 
-  test('on a short window the peek never drops below PEEK_PX: the row sits lower instead', () => {
-    const g = computeGridLayout(
-      [page('a', [900, 100], [900, 100]), page('b', [900, 100], [900, 100])],
-      { contentW: 1000 },
-    );
-    const top = scrollTopFor(g, 3, 600 - TOP_BAR_H)!;
-    expect(g.rows[1].bottom - top).toBe(PEEK_PX);
-    expect(onPanel(g.rows[2].top, top, 600)).toBeGreaterThan(LANDING_FRACTION);
+  test('the same peek on a tall and on a short window, while both fit', () => {
+    const g = site();
+    expect(scrollTopFor(g, 2, 1400 - TOP_BAR_H)).toBe(scrollTopFor(g, 2, 520 - TOP_BAR_H));
+  });
+
+  test('too short for the peek and the text area: the text area wins, shown whole', () => {
+    const g = site();
+    const n = g.notes.get(2)!;
+    const vh = 420 - TOP_BAR_H;
+    const top = scrollTopFor(g, 2, vh)!;
+    // With the peek the text area would end below the window...
+    expect(n.text.y + n.text.h - (g.rows[0].bottom - OPEN_PEEK_PX)).toBeGreaterThan(vh);
+    // ...so the scroll goes on until it is on screen, half a row gap to spare.
+    expect(n.text.y + n.text.h + ROW_GAP / 2 - top).toBe(vh);
+    expect(underBar(g.rows[0].bottom, top)).toBeLessThan(OPEN_PEEK_PX);
   });
 
   test('clamped to what the content can scroll', () => {
     const g = site();
     expect(scrollTopFor(g, 4, 10000)).toBe(0);
     const max = g.height - 700;
-    expect(max).toBeLessThan(g.rows[2].bottom - PEEK_PX);
+    expect(max).toBeLessThan(g.rows[2].bottom - OPEN_PEEK_PX);
     expect(scrollTopFor(g, 4, 700)).toBe(max);
   });
 
   test('an unknown note has no position', () => {
     expect(scrollTopFor(site(), 99, 600)).toBeNull();
-  });
-
-  test('a row too tall for its landing gives up as much as its text area needs to be on screen', () => {
-    const g = computeGridLayout([page('a', [900, 200]), page('b', [600, 560])], { contentW: 1000 });
-    const n = g.notes.get(2)!;
-    const top = scrollTopFor(g, 2, 700)!;
-    expect(n.text.y + n.text.h - top).toBeLessThanOrEqual(700);
-    expect(g.rows[0].bottom - top).toBeLessThan(PEEK_PX);
   });
 });
 

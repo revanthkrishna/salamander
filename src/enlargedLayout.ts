@@ -95,13 +95,15 @@ export const HEADING_GAP = 16;
 export const GROUP_GAP = 64;
 export const PAD_TOP = 24;
 export const PAD_BOTTOM = 64;
-/** The least of what precedes the opened note that shows above it (design
- *  spec §AH): the bottom of the previous row — another page's, if need be —
- *  cut off by the top of the scroller, so it is plain there is more above. */
+/** How much of what comes right before the opened note shows above it
+ *  (design spec §AH, revised 2026-10-13): the last 40px of the previous row
+ *  — or, for a page's first row, of its heading — cut off by the top of the
+ *  scroller, so it is plain there is more above. Fixed: the note lands just
+ *  under it, near the top, on every window tall enough for it. */
+export const OPEN_PEEK_PX = 40;
+/** The overlap the page keys keep (PageUp/PageDown scroll a screen less
+ *  this), so the reader never loses their place. */
 export const PEEK_PX = 80;
-/** Where the opened note's row lands: this fraction of the way down the
- *  panel (design spec §AH, "about 25% down"). */
-export const LANDING_FRACTION = 0.25;
 
 /** The panel's margin, the same on every side of its top bar (design spec
  *  §AH, revised 2026-10-12): the exit button's top and right, the logo's
@@ -331,35 +333,30 @@ export function computeGridLayout(pages: LayoutPage[], opts: GridOptions): GridL
 }
 
 /**
- * Where to scroll to open the view on note `id` (design spec §AH).
+ * Where to scroll to open the view on note `id` (design spec §AH, revised
+ * 2026-10-13).
  *
- * The note's row lands about a quarter of the way down the panel
- * (LANDING_FRACTION of the panel's height — the scroller plus the
- * `topInset` of the top bar above it), and whatever precedes it — the
- * previous row's bottom, on this page or the one before — peeks above it,
- * cut off by the scroller's edge, so it is plain there is more above. Never
- * less than PEEK_PX of it: on a short window, where a quarter of the way
- * down would leave less, the row sits lower instead. A page's first row
- * brings its heading on screen with it (a note is never opened under a
- * heading it cannot see). The note's own text area — which the view
- * focuses — always ends up on screen, even if a very tall row has to give
- * up its peek for it. With nothing before it (the site's first row), or
- * too little to fill the space above, it starts at the top. Clamped to what
- * the content can scroll; null for an unknown id.
+ * Whatever comes right before the note's row — the previous row on its
+ * page, or, for a page's first row, the page's heading — shows its last
+ * OPEN_PEEK_PX under the top bar, cut off by the scroller's edge; the row
+ * follows it at its usual gap. A note in the site's first row starts at the
+ * top, with no peek. On a window too short for both the peek and the note's
+ * text area (which the view focuses), the text area wins: the scroll goes
+ * as far as it takes to show it whole, with half a row gap under it for its
+ * message. Clamped to what the content can scroll, so content shorter than
+ * the window is simply all there; null for an unknown id.
  */
-export function scrollTopFor(layout: GridLayout, id: number, viewportH: number, topInset = TOP_BAR_H): number | null {
+export function scrollTopFor(layout: GridLayout, id: number, viewportH: number): number | null {
   const note = layout.notes.get(id);
   if (!note) return null;
+  if (note.row === 0) return 0;
   const row = layout.rows[note.row];
-  const landing = LANDING_FRACTION * (viewportH + topInset) - topInset;
-  let top = row.top - landing;
-  if (note.row > 0) top = Math.min(top, layout.rows[note.row - 1].bottom - PEEK_PX);
-  // A page's first row sits under its heading: keep the heading in view.
   const heading = row.first ? layout.headings.find((h) => h.page === row.page) : undefined;
-  if (heading) top = Math.min(top, heading.box.y);
+  const before = heading ? heading.box.y + heading.box.h : layout.rows[note.row - 1].bottom;
+  const peekTop = before - OPEN_PEEK_PX;
   const textOnScreen = note.text.y + note.text.h + ROW_GAP / 2 - viewportH;
   const max = Math.max(0, layout.height - Math.max(0, viewportH));
-  return Math.round(Math.min(max, Math.max(0, top, textOnScreen)));
+  return Math.round(Math.min(max, Math.max(0, peekTop, textOnScreen)));
 }
 
 // ---------------------------------------------------------------------------

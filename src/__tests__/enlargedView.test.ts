@@ -17,8 +17,9 @@ import {
   contentWidthFor,
   maxShotHeightFor,
   panelWidthFor,
-  PEEK_PX,
+  OPEN_PEEK_PX,
   TOP_BAR_H,
+  scrollTopFor,
 } from '../enlargedLayout';
 import {
   DELETE_ERROR_MESSAGE,
@@ -375,26 +376,25 @@ describe('opening on a note', () => {
     expect(shadow().activeElement).toBe(ta);
   });
 
-  test('scrolled so its row is a quarter of the way down, the notes before it peeking', () => {
+  test('scrolled so the row before it peeks 40px under the top bar, the note right under it', () => {
     setup();
     open(5);
     const layout = expectedLayout();
     const top = scroller().scrollTop;
     const at = layout.notes.get(5)!.row;
-    // jsdom: the panel is the 768px window, its scroller starts under the top bar.
-    expect((TOP_BAR_H + layout.rows[at].top - top) / window.innerHeight).toBeCloseTo(0.25, 2);
-    expect(layout.rows[at - 1].bottom - top).toBeGreaterThanOrEqual(PEEK_PX);
+    expect(layout.rows[at - 1].page).toBe(layout.rows[at].page);
+    expect(layout.rows[at - 1].bottom - top).toBe(OPEN_PEEK_PX);
+    expect(top).toBe(scrollTopFor(layout, 5, window.innerHeight - TOP_BAR_H));
   });
 
-  test('from a page\'s first note, its heading is on screen and the previous page\'s notes peek', () => {
+  test('from a page\'s first note, its heading peeks 40px under the top bar', () => {
     setup();
     open(3);
     const layout = expectedLayout();
     const top = scroller().scrollTop;
-    const at = layout.notes.get(3)!.row;
-    expect(layout.headings.find((h) => h.page === PRICING)!.box.y).toBeGreaterThanOrEqual(top);
-    expect(layout.rows[at - 1].page).toBe(BLOG);
-    expect(layout.rows[at - 1].bottom - top).toBeGreaterThanOrEqual(PEEK_PX);
+    const h = layout.headings.find((x) => x.page === PRICING)!.box;
+    expect(layout.notes.get(3)!.row).toBe(layout.rows.findIndex((r) => r.page === PRICING));
+    expect(h.y + h.h - top).toBe(OPEN_PEEK_PX);
   });
 
   test('the site\'s first note opens at the top, with no peek', () => {
