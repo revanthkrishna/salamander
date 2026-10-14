@@ -1355,6 +1355,45 @@ describe('delete all, in the top bar', () => {
     expect(qa('.xp-note')).toHaveLength(8);
   });
 
+  /** Open with delete all held in flight; `settle(ok)` answers it. */
+  function inFlight(extra: Partial<EnlargedViewCallbacks> = {}) {
+    let resolve!: (ok: boolean) => void;
+    setup();
+    const cbs = open(3, makeCallbacks({ onDeleteAll: jest.fn(() => new Promise<boolean>((r) => (resolve = r))), ...extra }));
+    settleOpen();
+    return { cbs, start: () => (da().click(), yes().click()), settle: async (ok: boolean) => (resolve(ok), await flush()) };
+  }
+
+  test('with a note emptied, Esc or exit while it runs neither trips the empty-note lock nor moves focus', async () => {
+    for (const ask of [() => keydown(yes(), 'Escape'), () => exitBtn().click()]) {
+      const f = inFlight();
+      typeInto(textareaOf(5), '');
+      f.start();
+      const focused = shadow().activeElement;
+      expect(confirmBox().contains(focused)).toBe(true);
+      animCalls = [];
+      ask();
+      // Parked, as for a delete: no shake, focus not pulled to the empty note.
+      expect(wrapper()!.dataset.state).toBe('open');
+      expect(shadow().activeElement).toBe(focused);
+      expect(animCalls.some((c) => c.el === note(5) && 'transform' in c.keyframes[0])).toBe(false);
+      await f.settle(true);
+      expect(wrapper()!.dataset.state).toBe('closing');
+      jest.advanceTimersByTime(T.collapseSettle);
+      sidebar.destroySidebar();
+    }
+  });
+
+  test('with a note emptied, a collapse parked behind a failed delete all still meets the lock', async () => {
+    const f = inFlight();
+    typeInto(textareaOf(5), '');
+    f.start();
+    keydown(yes(), 'Escape');
+    await f.settle(false);
+    expect(wrapper()!.dataset.state).toBe('open');
+    expect(shadow().activeElement).toBe(textareaOf(5));
+  });
+
   test('a collapse asked for while it runs waits for the outcome', async () => {
     let resolve!: (ok: boolean) => void;
     setup();

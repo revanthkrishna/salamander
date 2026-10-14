@@ -1090,10 +1090,13 @@ class EnlargedView {
   requestCollapse(opts: { immediate?: boolean | undefined } = {}): boolean {
     if (this.state === 'closed' || this.state === 'closing') return true;
     this.commitRenames();
-    if (this.blockIfEmpty()) return false;
     // A delete still in flight decides what the list should look like, so
     // the collapse waits for it. (The note going away is exempt from the
-    // empty lock: deleting is always allowed.)
+    // empty lock: deleting is always allowed. While delete all is in
+    // flight every note is going, so the lock waits too: on success there
+    // is nothing left to hold the view open, and on failure the parked
+    // collapse comes back through here and meets it then.)
+    if (!this.deletingAll && this.blockIfEmpty()) return false;
     if (this.pendingDeletes > 0 && !opts.immediate) {
       this.collapseAfterDeletes = true;
       return true;
