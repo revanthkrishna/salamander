@@ -1936,6 +1936,10 @@ function fadeInEl(el: HTMLElement, delay: number): void {
   fadeTo(el, 1, { duration: T.fade, delay, curve: STD });
 }
 
+/** Ids in the sidebar's shadow root, for the question's ARIA names. */
+const DELETE_ALL_QUESTION_ID = 'xp-delete-all-question';
+const DELETE_ALL_DESC_ID = 'xp-delete-all-desc';
+
 /** The top bar's "delete all" and the question it turns into. */
 interface DeleteAllControl {
   group: HTMLDivElement;
@@ -1964,15 +1968,24 @@ function buildDeleteAll(): DeleteAllControl {
   button.dataset.tip = DELETE_ALL_SITE_LABEL;
   button.inert = false;
 
+  // Announced as the menu's question is (actionMenu.ts): an alertdialog
+  // named by its question and described by what it would do, so focus
+  // landing on "cancel" reads both. The description is for AT only.
   const confirm = div('xp-confirm');
-  confirm.setAttribute('role', 'group');
-  confirm.setAttribute('aria-label', DELETE_ALL_SITE_LABEL);
+  confirm.setAttribute('role', 'alertdialog');
+  confirm.setAttribute('aria-labelledby', DELETE_ALL_QUESTION_ID);
+  confirm.setAttribute('aria-describedby', DELETE_ALL_DESC_ID);
   confirm.inert = true;
   confirm.setAttribute('aria-hidden', 'true');
   confirm.style.opacity = '0';
   const question = document.createElement('span');
   question.className = 'xp-confirm-text';
+  question.id = DELETE_ALL_QUESTION_ID;
   question.textContent = DELETE_ALL_QUESTION;
+  const desc = document.createElement('span');
+  desc.className = 'sr-only';
+  desc.id = DELETE_ALL_DESC_ID;
+  desc.textContent = DELETE_ALL_SITE_LABEL;
   const yes = document.createElement('button');
   yes.type = 'button';
   yes.className = 'xp-confirm-btn is-danger';
@@ -1983,7 +1996,9 @@ function buildDeleteAll(): DeleteAllControl {
   cancel.textContent = CANCEL_LABEL;
   const answers = div('xp-confirm-actions');
   answers.append(yes, cancel);
-  confirm.append(question, answers);
+  // The description is out of the flow (sr-only is absolute), so the row
+  // lays out exactly as without it.
+  confirm.append(question, answers, desc);
 
   group.append(button, confirm);
   return { group, button, confirm, yes, cancel };

@@ -1154,6 +1154,22 @@ describe('delete all, in the top bar', () => {
     expect(cbs.onDeleteAll).not.toHaveBeenCalled();
   });
 
+  test('the question is announced as the menu\'s is: an alertdialog named by "confirm?", described by what it does', () => {
+    setup();
+    open(3);
+    settleOpen();
+    da().click();
+    const box = confirmBox();
+    expect(box.getAttribute('role')).toBe('alertdialog');
+    const label = shadow().getElementById(box.getAttribute('aria-labelledby')!)!;
+    const desc = shadow().getElementById(box.getAttribute('aria-describedby')!)!;
+    expect(label.textContent).toBe('confirm?');
+    expect(desc.textContent).toBe('delete all notes on this website');
+    // For AT only: visually hidden, out of the row's flow.
+    expect(desc.classList.contains('sr-only')).toBe(true);
+    expect(box.contains(desc) && box.contains(cancel())).toBe(true);
+  });
+
   test('cancel puts the button back, focused', () => {
     setup();
     const cbs = open(3);
