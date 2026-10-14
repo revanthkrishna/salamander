@@ -1,6 +1,6 @@
 # salamander
 
-> Chrome extension for visual feedback on any webpage. Select an area, draw on it if you like, write a note; salamander screenshots the area, records where it sits in the DOM, and exports everything as a bundle a developer or an AI coding agent can act on without the live page.
+> Chrome extension for design feedback on any webpage. Select an area, draw on it if you like, write a note; salamander screenshots the area, records where it sits in the DOM, and exports everything as a bundle a developer or an AI coding agent can act on without the live page.
 
 Version 2.2.0 · Manifest V3 · MIT
 

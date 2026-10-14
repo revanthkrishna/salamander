@@ -2,7 +2,7 @@
 
 ## Overview
 
-Salamander is a Chrome MV3 extension that captures visual feedback from webpages. The reviewer selects an area, optionally draws on it, attaches a note; the extension screenshots the area, records DOM context, and exports a `.zip` (screenshots + one `feedback.md`) that a person or an AI coding agent reads and that the extension imports back.
+Salamander is a Chrome MV3 extension that captures design feedback from webpages. The reviewer selects an area, optionally draws on it, attaches a note; the extension screenshots the area, records DOM context, and exports a `.zip` (screenshots + one `feedback.md`) that a person or an AI coding agent reads and that the extension imports back.
 
 **Core constraint:** all data stays on the device; there are no network requests (CSP `connect-src 'none'`). Metadata lives in `chrome.storage.local`, image data in extension-origin IndexedDB, ephemeral state in `chrome.storage.session`.
 
