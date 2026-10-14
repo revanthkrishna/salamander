@@ -268,18 +268,22 @@ test('delete all in the top bar: asked in place, Esc and cancel keep everything,
 
   // Asking: "confirm?" and two answers, focus on cancel; Esc puts the button
   // back and the view stays open.
+  const box = page.locator('#annotator-sidebar-host .xp-delete-all-group');
   await page.locator(S.enlargedDeleteAll).click();
+  await expect(box).toHaveAttribute('data-face', 'confirm');
   await expect(page.locator(S.enlargedConfirm)).toContainText('confirm?');
+  // The box morphs to the question's width and the question fades in.
+  await expect(page.locator(S.enlargedConfirm)).toHaveCSS('opacity', '1');
   await expect(page.locator(S.enlargedConfirmYes)).toHaveText('yes, delete all');
   await expect(page.locator(S.enlargedConfirmCancel)).toBeFocused();
   await page.keyboard.press('Escape');
-  await expect(page.locator(S.enlargedConfirm)).toBeHidden();
+  await expect(box).toHaveAttribute('data-face', 'button');
   await expect(page.locator(S.enlargedDeleteAll)).toBeFocused();
   await expect(page.locator(S.enlargedOpen)).toHaveCount(1);
   // Cancel, from the keyboard.
   await page.keyboard.press('Enter');
   await page.keyboard.press('Enter');
-  await expect(page.locator(S.enlargedConfirm)).toBeHidden();
+  await expect(box).toHaveAttribute('data-face', 'button');
   await expect(page.locator(S.enlargedNote)).toHaveCount(4);
 
   // Allowed with a note emptied; yes deletes the whole site.

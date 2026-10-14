@@ -186,6 +186,27 @@ down + fades in"):
   150ms `std`; error text fades out over **120ms, `acc`** (exit ≈ 65–75% of the 200ms entrance, per
   the entrance/exit asymmetry rule).
 
+## 11a. Delete all ↔ its question (the top bar, 2026-10-13)
+
+The top bar's **delete all** and the question it turns into ("confirm?", "yes, delete all",
+"cancel") are two faces of **one box** — the exit button's 36px secondary box (fill, 1px border,
+radius md), which is the same for both, so only its **width** morphs. Modelled on the "more
+options" menu's morph into its question (`actionMenu.ts`, `MENU_MORPH_MS`), so the two feel the
+same:
+
+- **0–200ms, `std`**: the box's width, from what it is on screen to the arriving face's natural
+  width, **anchored on its right edge** (it sits left of the exit button; the tools row is
+  right-aligned). The box clips (with the focus ring's 4px of room), and the arriving face is laid
+  out at its final width, pinned right, so the box uncovers it rather than reflowing it.
+- **0–90ms, `acc`**: the leaving face fades out (it is out of the flow and inert at once).
+- **80ms delay + 120ms, `std`**: the arriving face fades in — out, then in, ending with the morph.
+- **Going back** (cancel, Esc, a press elsewhere, Tab away, a failed delete) is the same, reversed.
+  **Interruptible** (§13): a reversal mid-morph starts from the live width and the live opacities.
+- **After yes** the view closes as in §6; the box fades out with the rest of the top bar.
+- **Focus** moves to cancel as the question arrives, and back to the button for cancel and Esc.
+  The button's focus ring is drawn by the box, so it follows the morph.
+- **Reduced motion** (§12): no width morph; the faces crossfade in 100ms.
+
 ## 12. Reduced motion (`prefers-reduced-motion: reduce`)
 
 Governing rule (kept from the existing spec): **no spatial motion** — layout/position changes

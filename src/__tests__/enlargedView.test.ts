@@ -12,6 +12,7 @@
 import * as sidebar from '../sidebar';
 import { FeedbackItem, SitePage } from '../types';
 import { T, EnlargedSite, EnlargedViewCallbacks, defaultPageName } from '../enlargedView';
+import { ACC, STD } from '../flip';
 import {
   computeGridLayout,
   contentWidthFor,
@@ -1075,8 +1076,21 @@ describe('delete all, in the top bar', () => {
   const confirmBox = () => q<HTMLElement>('.xp-confirm')!;
   const yes = () => q<HTMLButtonElement>('.xp-confirm-btn.is-danger')!;
   const cancel = () => q<HTMLButtonElement>('.xp-confirm-btn:not(.is-danger)')!;
+  const box = () => q<HTMLElement>('.xp-delete-all-group')!;
+  /** The box shows the question (its face), which takes focus and clicks;
+   *  the button's face is inert, and the other way round. */
+  const asking = () => {
+    const on = box().dataset.face === 'confirm';
+    expect(confirmBox().inert).toBe(!on);
+    expect(da().inert).toBe(on);
+    return on;
+  };
   const css = () => q('style')!.textContent!;
-  const rule = (sel: string) => css().slice(css().indexOf(`${sel} {`), css().indexOf('}', css().indexOf(`${sel} {`)));
+  /** The rule whose selector is exactly `sel`, on a line of its own. */
+  const rule = (sel: string) => {
+    const at = css().indexOf(`\n  ${sel} {`);
+    return css().slice(at, css().indexOf('}', at));
+  };
 
   test('left of the exit button: "delete all" with the note delete\'s trash glyph, in the menu item\'s danger ink', () => {
     setup();
@@ -1091,7 +1105,7 @@ describe('delete all, in the top bar', () => {
     // In the tools, before the exit button in the DOM and in Tab order.
     expect(q('.xp-tools')!.contains(button)).toBe(true);
     expect(button.compareDocumentPosition(exitBtn()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(confirmBox().hidden).toBe(true);
+    expect(asking()).toBe(false);
   });
 
   test('more room between it and exit than between the question\'s two buttons', () => {
@@ -1099,7 +1113,20 @@ describe('delete all, in the top bar', () => {
     open(3);
     // 16 (margin) + 36 (exit) + 20: the tools end 20px left of exit.
     expect(rule('.xp-tools')).toMatch(/right: 72px;/);
-    expect(rule('.xp-confirm-actions')).toMatch(/gap: 8px;/);
+    expect(rule('.xp-confirm-actions')).toMatch(/gap: 4px;/);
+  });
+
+  test('one box for both faces: the exit button\'s height, fill, border and radius', () => {
+    setup();
+    open(3);
+    const r = rule('.xp-delete-all-group');
+    expect(r).toMatch(/height: 36px;/);
+    expect(r).toMatch(/background: var\(--sal-surface\);/);
+    expect(r).toMatch(/border: 1px solid var\(--sal-line\);/);
+    expect(r).toMatch(/border-radius: var\(--sal-radius-md\);/);
+    expect(r).toMatch(/justify-content: flex-end;/);
+    // The answers sit 3px inside it: 36 - 2 (border) - 6.
+    expect(rule('.xp-confirm-btn')).toMatch(/height: 28px;/);
   });
 
   test('clicking it asks in place — "confirm?", then "yes, delete all" and "cancel" — with focus on cancel', () => {
@@ -1107,8 +1134,8 @@ describe('delete all, in the top bar', () => {
     const cbs = open(3);
     settleOpen();
     da().click();
-    expect(confirmBox().hidden).toBe(false);
-    expect(da().hidden).toBe(true);
+    expect(asking()).toBe(true);
+    expect(da().inert).toBe(true);
     expect(q('.xp-confirm-text')!.textContent).toBe('confirm?');
     expect([yes().textContent, cancel().textContent]).toEqual(['yes, delete all', 'cancel']);
     // Side by side, the confirming one first, in the menu question's order.
@@ -1125,8 +1152,8 @@ describe('delete all, in the top bar', () => {
     settleOpen();
     da().click();
     cancel().click();
-    expect(confirmBox().hidden).toBe(true);
-    expect(da().hidden).toBe(false);
+    expect(asking()).toBe(false);
+    expect(da().inert).toBe(false);
     expect(shadow().activeElement).toBe(da());
     expect(cbs.onDeleteAll).not.toHaveBeenCalled();
   });
@@ -1137,7 +1164,7 @@ describe('delete all, in the top bar', () => {
     settleOpen();
     da().click();
     keydown(cancel(), 'Escape');
-    expect(confirmBox().hidden).toBe(true);
+    expect(asking()).toBe(false);
     expect(shadow().activeElement).toBe(da());
     expect(wrapper()!.dataset.state).toBe('open');
     // The next Esc closes, as ever.
@@ -1151,16 +1178,16 @@ describe('delete all, in the top bar', () => {
     settleOpen();
     da().click();
     textareaOf(5).dispatchEvent(new Event('pointerdown', { bubbles: true, composed: true }));
-    expect(confirmBox().hidden).toBe(true);
+    expect(asking()).toBe(false);
     expect(wrapper()!.dataset.state).toBe('open');
     da().click();
     textareaOf(6).focus();
-    expect(confirmBox().hidden).toBe(true);
+    expect(asking()).toBe(false);
     expect(shadow().activeElement).toBe(textareaOf(6));
     // A press on the question itself keeps it.
     da().click();
     yes().dispatchEvent(new Event('pointerdown', { bubbles: true, composed: true }));
-    expect(confirmBox().hidden).toBe(false);
+    expect(asking()).toBe(true);
   });
 
   test('from the keyboard: Enter asks, Tab moves between the answers, Enter on yes deletes', async () => {
@@ -1174,16 +1201,76 @@ describe('delete all, in the top bar', () => {
     // Tab on to exit leaves the question, which goes back to the button...
     keydown(cancel(), 'Tab');
     expect(shadow().activeElement).toBe(exitBtn());
-    expect(confirmBox().hidden).toBe(true);
+    expect(asking()).toBe(false);
     keydown(exitBtn(), 'Tab', { shiftKey: true });
     expect(shadow().activeElement).toBe(da());
     // ...and Shift+Tab within it moves between the answers.
     da().click();
     keydown(cancel(), 'Tab', { shiftKey: true });
     expect(shadow().activeElement).toBe(yes());
-    expect(confirmBox().hidden).toBe(false);
+    expect(asking()).toBe(true);
     yes().click();
     expect(cbs.onDeleteAll).toHaveBeenCalledTimes(1);
+  });
+
+  test('the box morphs between the faces\' widths on the right edge, the content crossfading: out, then in', () => {
+    setup();
+    open(3);
+    settleOpen();
+    stubRect(box(), { left: 600, top: 16, width: 104, height: 36 });
+    // Laid out for the question, the box is the question's width.
+    const natural = () => (box().dataset.face === 'confirm' ? 245 : 104);
+    box().getBoundingClientRect = () => ({ width: natural(), height: 36 }) as DOMRect;
+    animCalls = [];
+    da().click();
+    const width = animCalls.find((c) => c.el === box() && 'width' in c.keyframes[0])!;
+    expect([width.keyframes[0].width, width.keyframes[1].width]).toEqual(['104px', '245px']);
+    expect(width.options.duration).toBe(T.askMorph);
+    expect(width.options.easing).toBe(STD.css);
+    const out = animCalls.find((c) => c.el === da() && 'opacity' in c.keyframes[0])!;
+    const into = animCalls.find((c) => c.el === confirmBox() && 'opacity' in c.keyframes[0])!;
+    expect([out.keyframes[1].opacity, out.options.duration, out.options.easing]).toEqual(['0', T.askOut, ACC.css]);
+    expect([into.keyframes[1].opacity, into.options.duration, into.options.delay]).toEqual(['1', T.askIn, T.askInDelay]);
+    // Out, then in, both done with the morph.
+    expect(T.askInDelay).toBeLessThan(T.askOut + 1);
+    expect(T.askInDelay + T.askIn).toBe(T.askMorph);
+    // The same as the "more options" menu's morph into its question.
+    expect(T.askMorph).toBe(200);
+  });
+
+  test('a reversal mid-morph turns round from the width it had reached', () => {
+    setup();
+    open(3);
+    settleOpen();
+    const natural = () => (box().dataset.face === 'confirm' ? 245 : 104);
+    box().getBoundingClientRect = () => ({ width: natural(), height: 36 }) as DOMRect;
+    da().click();
+    jest.advanceTimersByTime(T.askMorph / 2);
+    animCalls = [];
+    keydown(cancel(), 'Escape');
+    const back = animCalls.find((c) => c.el === box() && 'width' in c.keyframes[0])!;
+    const from = parseFloat(back.keyframes[0].width as string);
+    expect(from).toBeGreaterThan(104);
+    expect(from).toBeLessThan(245);
+    expect(back.keyframes[1].width).toBe('104px');
+    // The faces turn round from where their fades are too.
+    const fadeIn = animCalls.find((c) => c.el === da() && 'opacity' in c.keyframes[0])!;
+    expect(fadeIn.keyframes[1].opacity).toBe('1');
+    expect(shadow().activeElement).toBe(da());
+  });
+
+  test('reduced motion: a crossfade only, no size morph', () => {
+    reducedMotion = true;
+    setup();
+    open(3);
+    settleOpen();
+    box().getBoundingClientRect = () => ({ width: box().dataset.face === 'confirm' ? 245 : 104, height: 36 }) as DOMRect;
+    animCalls = [];
+    da().click();
+    expect(animCalls.some((c) => c.el === box() && 'width' in c.keyframes[0])).toBe(false);
+    const into = animCalls.find((c) => c.el === confirmBox() && 'opacity' in c.keyframes[0])!;
+    expect(into.options.duration).toBe(T.rdAskFade);
+    expect(asking()).toBe(true);
   });
 
   test('Tab order starts in the top bar: delete all, exit, then the pages', () => {
@@ -1252,7 +1339,7 @@ describe('delete all, in the top bar', () => {
     yes().click();
     await flush();
     expect(wrapper()!.dataset.state).toBe('open');
-    expect(confirmBox().hidden).toBe(true);
+    expect(asking()).toBe(false);
     expect(shadow().activeElement).toBe(da());
     const notice = q('.xp-notice')!;
     expect(notice.textContent).toBe(DELETE_ALL_FAILED_MESSAGE);

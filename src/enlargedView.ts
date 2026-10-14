@@ -144,6 +144,7 @@ import {
   clamp,
   fadeTo,
   now,
+  trackedValue,
 } from './flip';
 
 // ---------------------------------------------------------------------------
@@ -182,12 +183,21 @@ export const T = {
   errorIn: 200,
   errorOut: 120,
   shake: 200,
+  /** Delete all ↔ its question (MOTION_SPEC §11a): the box's size morph —
+   *  the "more options" menu's into its question (actionMenu.ts,
+   *  MENU_MORPH_MS) — with its content crossfading inside it: out, then in,
+   *  ending with the morph. */
+  askMorph: 200,
+  askOut: 90,
+  askInDelay: 80,
+  askIn: 120,
   // Reduced motion (§12): crossfades only, ~halved.
   rdScrimIn: 100,
   rdListOut: 75,
   rdStageIn: 125,
   rdExpandSettle: 160,
   rdStageOut: 75,
+  rdAskFade: 100,
   rdListInDelay: 50,
   rdListIn: 100,
   rdCollapseSettle: 200,
@@ -1236,7 +1246,7 @@ class EnlargedView {
       page.part.move?.anim?.cancel();
       cancelTracks(page.heading.el);
     }
-    for (const el of [this.scrim, this.bg, this.stage, this.front, this.btnExit, this.barRule, this.deleteAll?.group, this.noticeEl, this.scroller, this.brand, this.brandWord]) {
+    for (const el of [this.scrim, this.bg, this.stage, this.front, this.btnExit, this.barRule, this.deleteAll?.group, this.deleteAll?.button, this.deleteAll?.confirm, this.noticeEl, this.scroller, this.brand, this.brandWord]) {
       if (el) cancelTracks(el);
     }
 
@@ -1385,29 +1395,64 @@ class EnlargedView {
   // ─── Delete all (design spec §AH, 2026-10-13) ─────────────────────────────
 
   private isAskingDeleteAll(): boolean {
-    return !!this.deleteAll && !this.deleteAll.confirm.hidden;
+    return !!this.deleteAll && this.deleteAll.group.dataset.face === 'confirm';
   }
 
-  /** "delete all" asks in place: "confirm?", then "yes, delete all" and
-   *  "cancel", focus on cancel. Allowed with an empty note on screen —
-   *  deleting is never what the empty-note lock refuses. */
+  /** "delete all" asks in place: its box morphs into the question's —
+   *  "confirm?", then "yes, delete all" and "cancel" — focus on cancel.
+   *  Allowed with an empty note on screen — deleting is never what the
+   *  empty-note lock refuses. */
   private askDeleteAll(): void {
     if (this.state !== 'open' && this.state !== 'opening') return;
     if (this.deletingAll || this.isAskingDeleteAll()) return;
-    const d = this.deleteAll;
-    d.confirm.hidden = false;
-    d.cancel.focus({ preventScroll: true });
-    d.button.hidden = true;
+    this.showDeleteAllFace('confirm');
+    this.deleteAll.cancel.focus({ preventScroll: true });
   }
 
   /** Back to the button — with focus on it for cancel and Esc, left where
    *  it went for a press or a focus elsewhere. */
   private cancelDeleteAll(refocus: boolean): void {
     if (!this.isAskingDeleteAll() || this.deletingAll) return;
+    this.showDeleteAllFace('button');
+    if (refocus) this.deleteAll.button.focus({ preventScroll: true });
+  }
+
+  /**
+   * Turn the delete-all box to `face` (design spec §AH; MOTION_SPEC §11a).
+   * The face going away leaves the flow at once, pinned to the box's right
+   * edge, and stops taking focus and clicks (inert); the one arriving takes
+   * the flow, so the box's natural width is its. The box's width then
+   * morphs from what it is on screen right now — mid-morph included, so a
+   * reversal turns round where it is — to that width, anchored on the
+   * right (the tools row is right-aligned); its height, radius, fill and
+   * border are the same for both faces. The content crossfades: the old
+   * face out, then the new one in, ending with the morph. Under reduced
+   * motion, only the crossfade.
+   */
+  private showDeleteAllFace(face: 'button' | 'confirm'): void {
     const d = this.deleteAll;
-    d.button.hidden = false;
-    if (refocus) d.button.focus({ preventScroll: true });
-    d.confirm.hidden = true;
+    const box = d.group;
+    const measured = box.getBoundingClientRect().width;
+    const from = trackedValue(box, 'width', measured);
+    // Stop a width morph still running (its live value is `from`), so the
+    // natural width below is measured, not the morph's.
+    animateNumber(box, 'width', from, { duration: 0, curve: STD });
+    box.style.width = '';
+    box.dataset.face = face;
+    const [incoming, outgoing] = face === 'confirm' ? [d.confirm, d.button] : [d.button, d.confirm];
+    outgoing.inert = true;
+    outgoing.setAttribute('aria-hidden', 'true');
+    incoming.inert = false;
+    incoming.removeAttribute('aria-hidden');
+    const to = box.getBoundingClientRect().width;
+    if (this.reduced) {
+      fadeTo(outgoing, 0, { duration: T.rdAskFade, curve: ACC });
+      fadeTo(incoming, 1, { duration: T.rdAskFade, curve: STD });
+      return;
+    }
+    if (from > 0 && to > 0) animateNumber(box, 'width', to, { duration: T.askMorph, from, curve: STD });
+    fadeTo(outgoing, 0, { duration: T.askOut, curve: ACC });
+    fadeTo(incoming, 1, { duration: T.askIn, delay: T.askInDelay, curve: STD });
   }
 
   /**
@@ -1887,7 +1932,10 @@ interface DeleteAllControl {
 }
 
 function buildDeleteAll(): DeleteAllControl {
+  // The box: it carries the fill, border and radius of both faces, and
+  // morphs between their widths (showDeleteAllFace).
   const group = div('xp-delete-all-group');
+  group.dataset.face = 'button';
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'xp-delete-all';
@@ -1899,11 +1947,14 @@ function buildDeleteAll(): DeleteAllControl {
   button.append(icon, label);
   button.setAttribute('aria-label', DELETE_ALL_SITE_LABEL);
   button.dataset.tip = DELETE_ALL_SITE_LABEL;
+  button.inert = false;
 
   const confirm = div('xp-confirm');
   confirm.setAttribute('role', 'group');
   confirm.setAttribute('aria-label', DELETE_ALL_SITE_LABEL);
-  confirm.hidden = true;
+  confirm.inert = true;
+  confirm.setAttribute('aria-hidden', 'true');
+  confirm.style.opacity = '0';
   const question = document.createElement('span');
   question.className = 'xp-confirm-text';
   question.textContent = DELETE_ALL_QUESTION;

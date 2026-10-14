@@ -358,9 +358,10 @@ notes, one very wide), then page C (one tall note, one default).
       view does not jump. A page's last note takes its heading with it. Deleting the site's last note
       collapses back to the empty list. Reload to confirm it's really gone.
 - [ ] **3.4a. (delete all in the top bar)** Left of the exit button, clearly further from it than
-      anything else in the bar: a red "delete all" with the trash glyph. Click it → in its place,
-      "confirm?", then "yes, delete all" (red) and "cancel", close together; the cursor ring is on
-      cancel. Esc → back to the button, the view still open (the next Esc closes it). Ask again
+      anything else in the bar: a red "delete all" with the trash glyph. Click it → its box widens to the left
+      (smoothly, nothing jumping) as "delete all" fades out and "confirm?", "yes, delete all" (red)
+      and "cancel" fade in inside it, the two buttons close together; the cursor ring is on cancel.
+      Press Esc while it is still widening → it turns round from where it is. Esc → back to the button, the view still open (the next Esc closes it). Ask again
       and click a note → back to the button. Ask again, Tab to "yes, delete all" with Shift+Tab and
       press Enter → every note of every page goes: the view closes onto the empty list ("no
       feedback on this page yet"), nothing flies back into the list. Visit page A and C → empty

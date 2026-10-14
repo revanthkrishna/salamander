@@ -1177,9 +1177,14 @@ with one wide note, and the tops of the next row cut off by the bottom edge. Dec
   press. It is the menu's **delete all for this website** — every note on every page and every
   screenshot, the same `DELETE_DOMAIN_DATA` — named "delete all notes on this website" (its
   accessible name and tooltip).
-  - **Asked in place, no separate box:** clicked, it becomes **"confirm?"** (13px, `text`), then
-    **"yes, delete all"** (the menu question's soft danger fill) and **"cancel"** (the plain
-    secondary button), side by side, 12px after the question and 8px apart; focus moves to cancel.
+  - **Asked in place, no separate box:** clicked, the button's box **morphs** into the question's
+    (MOTION_SPEC §11a, the "more options" menu's morph into its question as the model): the same
+    36px box, wider, holding **"confirm?"** (13px, `text`, 12px in), then **"yes, delete all"**
+    (the menu question's soft danger fill) and **"cancel"** (surface, 1px `line`), 28px tall, side
+    by side 4px apart and 3px inside the box's edges, 12px after the question; the button's content
+    fades out, then the question's fades in. Focus moves to cancel. Back to the button is the same
+    morph, reversed, from wherever it is. (Revised 2026-10-13 from three loose 36px controls, so
+    the box has something to morph into.)
   - **Cancel**, **Esc** (which then does not close the view — the next Esc does), a press anywhere
     else, or focus moving off the question (Tab) puts the button back — focused, for cancel and Esc;
     a press or Tab elsewhere goes where it went.

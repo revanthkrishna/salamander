@@ -3,7 +3,7 @@
 // enlargedView.ts unchanged. Appended to the sidebar's single <style>
 // (sidebar.ts): the view renders inside the sidebar's shadow root.
 
-import { FOCUS_RING_CSS, STATE_TRANSITION_CSS } from '../theme';
+import { FOCUS_RING_CSS, RADII, STATE_TRANSITION_CSS } from '../theme';
 import {
   DOCKED_HEADER_H,
   EXIT_BTN_PX,
@@ -16,7 +16,6 @@ import {
   TOP_BAR_H,
 } from '../enlargedLayout';
 import { STD } from '../flip';
-import { CONFIRM_ACTIONS_GAP_PX } from '../sidebarMetrics';
 
 const EXIT_BTN = EXIT_BTN_PX;
 /** The top bar's tools (the notice, "delete all") → the exit button: wider
@@ -24,6 +23,10 @@ const EXIT_BTN = EXIT_BTN_PX;
 const TOOLS_GAP_PX = 20;
 /** What the tools leave on the top bar's left for the logo + wordmark. */
 const BRAND_RESERVE_PX = 232;
+/** The question's two answers sit this far inside the delete-all box (its
+ *  right, top and bottom), and this far apart. */
+const ASK_INSET_PX = 3;
+const ASK_ACTIONS_GAP_PX = 4;
 
 // ---------------------------------------------------------------------------
 // CSS — appended to the sidebar's single <style> (sidebar.ts)
@@ -142,52 +145,85 @@ export const ENLARGED_VIEW_CSS = `
 
   /* "delete all" (design spec §AH, 2026-10-13): the menu's destructive
      item as a top-bar button — the note delete's trash glyph and the menu
-     item's danger ink, on the exit button's secondary box; the note
-     delete's danger tint on hover and press. Asked, it turns in place into
-     "confirm?" and two answers, the confirming one with the menu
-     question's soft danger fill. */
+     item's danger ink, in the exit button's secondary box. The box is the
+     group: it carries the fill, border and radius for both of its faces —
+     the button, and the question it turns into ("confirm?" and two
+     answers) — and morphs between their widths (enlargedView.ts,
+     showDeleteAllFace), clipped, anchored on its right edge. The face not
+     shown is out of the flow, pinned to that edge, and inert. */
   .xp-delete-all-group {
+    position: relative;
     flex-shrink: 0;
-    display: flex; align-items: center;
-    pointer-events: auto;
-  }
-  .xp-delete-all, .xp-confirm-btn {
-    flex-shrink: 0;
-    height: ${EXIT_BTN}px; margin: 0; padding: 0 12px;
-    display: flex; align-items: center; gap: 8px;
-    white-space: nowrap;
+    box-sizing: border-box;
+    height: ${EXIT_BTN}px;
+    display: flex; align-items: stretch; justify-content: flex-end;
+    /* Clipped while it morphs, but by the focus ring's reach (4px) past
+       its inside edge, so a ring on the button or an answer is never cut. */
+    overflow: clip; overflow-clip-margin: 4px;
     background: var(--sal-surface);
     border: 1px solid var(--sal-line);
     border-radius: var(--sal-radius-md);
+    pointer-events: auto;
+  }
+  .xp-delete-all-group[data-face="button"] .xp-confirm,
+  .xp-delete-all-group[data-face="confirm"] .xp-delete-all {
+    position: absolute; top: 0; right: 0; bottom: 0;
+  }
+  .xp-delete-all {
+    flex-shrink: 0;
+    margin: 0; padding: 0 12px;
+    display: flex; align-items: center; gap: 8px;
+    white-space: nowrap;
+    background: transparent;
+    border: none;
+    border-radius: ${RADII.md - 1}px;
+    color: var(--sal-danger);
     font-family: var(--sal-font-body); font-size: 13px; font-weight: 500; line-height: 1;
     cursor: pointer;
     ${STATE_TRANSITION_CSS}
   }
-  .xp-delete-all[hidden], .xp-confirm[hidden] { display: none; }
-  .xp-delete-all { color: var(--sal-danger); }
-  .xp-delete-all:hover {
-    background: linear-gradient(var(--sal-danger-soft), var(--sal-danger-soft)), var(--sal-surface);
-  }
-  .xp-delete-all:active {
-    background: linear-gradient(var(--sal-danger-press), var(--sal-danger-press)), var(--sal-surface);
-  }
+  .xp-delete-all:hover { background: var(--sal-danger-soft); }
+  .xp-delete-all:active { background: var(--sal-danger-press); }
   .xp-delete-all-icon { width: 16px; height: 16px; flex-shrink: 0; display: inline-flex; }
   .xp-delete-all-icon svg { width: 100%; height: 100%; display: block; }
-  .xp-confirm { display: flex; align-items: center; gap: 12px; }
+  /* The question: inset 12px on the left like the button's label, the two
+     answers 3px from the box's other edges. */
+  .xp-confirm {
+    flex-shrink: 0;
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 ${ASK_INSET_PX}px 0 12px;
+    white-space: nowrap;
+  }
   .xp-confirm-text {
     font-family: var(--sal-font-body); font-size: 13px; line-height: 1;
     color: var(--sal-text);
-    white-space: nowrap;
   }
-  .xp-confirm-actions { display: flex; align-items: center; gap: ${CONFIRM_ACTIONS_GAP_PX}px; }
-  .xp-confirm-btn { color: var(--sal-text); }
+  .xp-confirm-actions { display: flex; align-items: center; gap: ${ASK_ACTIONS_GAP_PX}px; }
+  .xp-confirm-btn {
+    flex-shrink: 0;
+    box-sizing: border-box;
+    height: ${EXIT_BTN - 2 - ASK_INSET_PX * 2}px; margin: 0; padding: 0 10px;
+    display: flex; align-items: center;
+    white-space: nowrap;
+    background: var(--sal-surface);
+    border: 1px solid var(--sal-line);
+    border-radius: ${RADII.md - 1 - ASK_INSET_PX}px;
+    color: var(--sal-text);
+    font-family: var(--sal-font-body); font-size: 13px; font-weight: 500; line-height: 1;
+    cursor: pointer;
+    ${STATE_TRANSITION_CSS}
+  }
   .xp-confirm-btn:hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
   .xp-confirm-btn:active { background: var(--sal-press); }
   .xp-confirm-btn.is-danger { background: var(--sal-danger-soft); border-color: transparent; color: var(--sal-danger); }
   .xp-confirm-btn.is-danger:hover { background: var(--sal-danger-hover); }
   .xp-confirm-btn.is-danger:active { background: var(--sal-danger-press); }
   .xp-confirm-btn[aria-disabled="true"] { cursor: default; }
-  .xp-delete-all:focus-visible, .xp-confirm-btn:focus-visible { outline: none; ${FOCUS_RING_CSS} }
+  /* The button fills the box, so its ring is the box's — and follows the
+     box through a morph. */
+  .xp-delete-all:focus-visible { outline: none; }
+  .xp-delete-all-group:has(.xp-delete-all:focus-visible) { ${FOCUS_RING_CSS} }
+  .xp-confirm-btn:focus-visible { outline: none; ${FOCUS_RING_CSS} }
   .xp-exit:hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
   .xp-exit:active { background: var(--sal-press); border-color: var(--sal-line-strong); }
   .xp-exit:focus-visible { outline: none; ${FOCUS_RING_CSS} }
