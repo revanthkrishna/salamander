@@ -461,6 +461,7 @@ The §G tooltip is a first-run hint, not a permanent label: it appears with the 
 hides for good after ~5s. Once hidden it does not come back for the rest of the page session,
 including in later add-mode sessions. The preview rect itself is unaffected and keeps following the
 cursor. The timer is not persisted (a fresh page load shows it again).
+(2026-10-13: once in a while the same tooltip says the Option/Alt+N tip instead — §AI.)
 
 ## O. The comment box's footer extension gets the note's border
 
@@ -592,6 +593,7 @@ Constraints, in order of importance:
 ## U. The exit button is a collapse-panel icon
 
 **Superseded 2026-10-12 by §AH (enlarged view 2.0)** where it describes the layout, the rail, the peeks or navigation between notes.
+**Superseded 2026-10-13 by §AH's "The panel"**: the exit button is a simple right-pointing chevron again.
 
 `.xp-exit` drops the × for a "collapse the panel to the right" glyph, in §1's icon language
 (1.8px stroke, round caps/joins, `currentColor`, 24×24 viewBox): a rounded rectangle outline with a
@@ -1144,19 +1146,49 @@ with one wide note, and the tops of the next row cut off by the bottom edge. Dec
   **top bar**, right-aligned against the exit button, in `danger`, for as long as it is open.
   There rather than in the sidebar's banner: the banner sits in the list the view covers, and its
   8 seconds have run out by the time the view closes; the top bar is seen at the moment the view's
-  being incomplete needs explaining. **(impl)**
+  being incomplete needs explaining. **(impl)** (Since 2026-10-13 it sits left of the top bar's
+  **delete all**, the tools' row being right-aligned against the exit button; see "The panel".)
 
 ## The panel
 
 - Unchanged: the sidebar grows leftward to 75% of the viewport (at least 560px or the viewport,
   never narrower than the docked width), over the scrim, right-anchored; the page is never
   re-laid out.
-- **Top bar, 68px, one 16px margin on every side** (revised 2026-10-12): the logo and wordmark
-  top left, 16px in (the docked header's own inset, so the logo never moves sideways), centred
-  with the exit button — it drops 6px from the docked header's 56px centre line as the panel
-  grows; and **one exit button** 16px from the top and 16px from the right — a 36px secondary
-  icon button with v5 §U's collapse-panel glyph (the owner asked to keep it, 2026-10-12, after a first build drew
-  an arrow), "exit enlarged view (esc)". The x / ↑ / ↓ rail and the peek carousel are gone.
+- **Top bar, 68px, one 16px margin on every side** (revised 2026-10-12, and again 2026-10-13): the
+  logo and wordmark top left, **16px in and 16px down** — the logo's top inset equals its left inset
+  (the docked header's own inset, so the logo never moves sideways) and the exit button's top; as the
+  panel grows it rises 2px from where the docked header centres it (18px down in a 56px row) and
+  settles there. The first build centred it with the exit button, 24px down, which left more room
+  above it than beside it. **One exit button** 16px from the top and 16px from the right — a 36px
+  secondary icon button with a **simple right-pointing chevron, "›"** (`ICON_CHEVRON_RIGHT`, the icon
+  set's 1.8px round stroke; it replaced v5 §U's collapse-panel glyph at the owner's request,
+  2026-10-13), "exit enlarged view (esc)". The x / ↑ / ↓ rail and the peek carousel are gone.
+- **A rule under the top bar** (2026-10-13): the docked sidebar's one divider under its fixed block
+  (`.action-row`'s border-bottom), drawn the same — 1px of `line`, edge to edge across the panel —
+  on the bar's last pixel row, so the scroller below it does not move. It fades in and out with the
+  exit button.
+- **Delete all** (2026-10-13), left of the exit button and **20px** from it (more than the 8px
+  between the controls inside it): "delete all" with the note delete's trash glyph (§S), 13px/500
+  body face, in the menu item's `danger` ink, on the exit button's 36px secondary box (`surface`,
+  1px `line`, radius md); the note delete's danger tint layered over the surface on hover and
+  press. It is the menu's **delete all for this website** — every note on every page and every
+  screenshot, the same `DELETE_DOMAIN_DATA` — named "delete all notes on this website" (its
+  accessible name and tooltip).
+  - **Asked in place, no separate box:** clicked, it becomes **"confirm?"** (13px, `text`), then
+    **"yes, delete all"** (the menu question's soft danger fill) and **"cancel"** (the plain
+    secondary button), side by side, 12px after the question and 8px apart; focus moves to cancel.
+  - **Cancel**, **Esc** (which then does not close the view — the next Esc does), a press anywhere
+    else, or focus moving off the question (Tab) puts the button back — focused, for cancel and Esc;
+    a press or Tab elsewhere goes where it went.
+  - **Yes** deletes. Edits still waiting on their debounce are dropped (they would only fail
+    against notes that are gone). Nothing is left, so the view closes onto the list's empty state:
+    every note fades, none morphs (the list has no thumbnail left to land on), and focus goes to
+    "add note". It is allowed while a note is empty: deleting is never what the empty-note lock
+    refuses. A collapse asked for while it runs waits for its outcome, as for a delete.
+  - **A failure** puts the button back, focused, and says "couldn't delete feedback. try again." in
+    the top bar, where the site-load notice goes; the view stays as it was.
+  - The top bar's notices sit left of it, in the same right-aligned row, and ellipsize against the
+    wordmark's room. **(impl)**
 - **The scroller** fills the panel below the top bar. Its content column is inset the same
   **16px** each side (`PANEL_PAD_X = PANEL_MARGIN`), so the logo, the headings and the first notes
   share one left edge, and the exit button's right edge is the column's right edge. A thin scrollbar in `line-strong`, a stable gutter
@@ -1281,30 +1313,32 @@ One **group** (revised 2026-10-12): its **bar**, directly above its **screenshot
 
 - Clicking a note in the list opens the view with **that note's text area focused**, caret at the
   end of its text.
-- The note's **row lands about 25% down the panel** (a quarter of the panel's height, top bar
-  included), and whatever precedes it — the previous row's bottom, on this page or the page before
-  — **peeks** above it, cut off by the top bar. **At least 80px** of it always shows: on a short
-  window, where a quarter of the way down would leave less, the row sits lower instead (a page's
-  first row, which brings its heading with it, sits lower sooner — it needs 80 + 64 + 78px
-  above). With nothing before it (the site's first row), or too little content above to fill the
-  space, it starts at the top with no peek. If the row is too tall for that, it gives up as much
-  as its text area needs to be on screen. Content shorter than the window is simply all there,
-  from the top. On a 1440×900 window a mid-page row's top lands at 225px (25%), with the end of
-  the previous row above it. (The first build placed the row by the 80px peek alone,
-  which put it ~14% down on a 900px window, hugging the top bar; the owner chose 25%.)
+- **A fixed 40px peek** (revised 2026-10-13, replacing "about 25% down"): whatever comes right
+  before the focused note — the previous row, or, for a page's first row, the page's heading —
+  shows its last **40px** under the top bar, cut off by it, and the note's row follows at its usual
+  gap (40px after a row, 16px after a heading). The owner found the 25% landing put the note too
+  far down. **(impl)** The heading counts as "what comes before" a page's first note, so its
+  address line and the foot of its name peek; the previous page's notes are above, out of sight.
+- **The site's first row** (every note in it) starts at the top, with no peek.
+- **A window too short** for both the peek and the focused note's text area: the text area wins —
+  the view scrolls as far as it takes to show it whole, with half a row gap (20px) under it for its
+  message line, and the peek gets what is left.
+- Content shorter than the window is simply all there, from the top; near the end of the site the
+  scroll is clamped to what the content can scroll, so the peek can be more than 40px there.
 
 ## Keyboard and accessibility
 
-- Tab moves through the controls in reading order — exit, then per page its ✎ (or, renaming, the
-  field, ✓, ×), then each note's delete and text area — wrapping (the view is modal). Focus the
+- Tab moves through the controls in reading order — the top bar's delete all (or, while it asks,
+  "yes, delete all" and "cancel"), exit, then per page its ✎ (or, renaming, the field, ✓, ×), then
+  each note's delete and text area — wrapping (the view is modal). Focus the
   **keyboard** brings to a note scrolls just enough to show it whole, with 24px to spare. Focus a
   **click** gives does not scroll anything (revised 2026-10-12): Chrome focuses a button on
   pointerdown, and scrolling then moved the delete out from under the pointer before mouseup, so
   a delete on a scrolled view took two clicks. Nor does the focus the view hands to the next
   delete after a deletion: the scroll stays where the reviewer left it, unless the content got too
   short for it.
-- **Esc** collapses — unless a page is being renamed (Esc cancels that) or a note is empty
-  (refused). **↑/↓** scroll 64px, PageUp/PageDown a screen less the 80px peek, Home/End to the
+- **Esc** collapses — unless delete all is asking (Esc cancels the question), a page is being
+  renamed (Esc cancels that) or a note is empty (refused). **↑/↓** scroll 64px, PageUp/PageDown a screen less the 80px peek, Home/End to the
   ends, whenever focus is not in a text field. Keyboard isolation (NF-ISO-1) is unchanged: the
   host page never sees a key. (The docked sidebar now isolates its keys too, and add mode does
   while a box is being placed — REQUIREMENTS NF-ISO-1.)
@@ -1325,8 +1359,9 @@ MOTION_SPEC's curves and durations are reused unchanged.
   easing away) — a clone in the front layer, clipped where the scroller clips, swapped for the
   real screenshot when it lands. Notes with no visible thumbnail (other pages, scrolled entirely
   out of the list) fade in; headings, headers and text areas fade in a band at a time from 150ms,
-  50ms apart, capped at two steps; the exit button last (300ms). The scroller holds still until
-  the morph settles.
+  50ms apart, capped at two steps; the exit button, delete all and the top bar's rule last
+  (300ms). The logo row rises 2px to its 16px inset on the panel's curve. The scroller holds
+  still until the morph settles.
 - **Close:** notes on screen in the panel that have a thumbnail in the list morph back into it
   (340ms std); everything else fades out (120ms acc); the panel shrinks back. A collapse mid-open
   reverses from the live state — the panel's width and every clone in flight.
@@ -1341,6 +1376,31 @@ Add mode cannot coexist with the view (and Option/Alt+N does nothing while it is
 the ~¾ width and its right anchoring stay; the theme and tokens stay; the page never re-lays out;
 the host page cannot scroll while it is open (§T), though the view's own scroller and text areas
 do — a text area at its end hands the wheel on to the scroller, not to the page. Space on a focused button (or link, or any control Space activates) is its click and is never cancelled as a scroll — on a site too short to scroll, cancelling it left delete, exit and the pencil unreachable by Space.
+
+# AI. The Option/Alt+N tip (2026-10-13)
+
+The shortcut (REQUIREMENTS FR-AM-2a) is invisible until someone reads add note's tooltip. Once in a
+while, the hint that follows the cursor at the start of add mode (§G, "click or drag to select")
+says instead **"tip: ⌥N to add a note"** on macOS and **"tip: alt+n to add a note"** elsewhere
+(copy.ts, `addNoteTip`). It is the same tooltip: the same look, the same place beside the cursor,
+the same 5 seconds (§N), replacing the usual hint that one time.
+
+- **When:** the **third** time in a browser session that add mode starts from a **single click on
+  add note**. The switch, a double-click, shift+click and the shortcut itself do not count; nor do
+  the restarts the switch makes on its own. A start counts once the double-click window (400ms)
+  has passed without a dblclick, so the first click of a double-click is not a single click — and
+  if that click showed the tip, the double-click takes it back. "Session" is until the browser
+  restarts: the count lives in `chrome.storage.session`, through the service worker (the content
+  script cannot reach session storage).
+- **How often:** at most **three times per install**, counted in `chrome.storage.local` (an
+  uninstall clears it, so a reinstall starts again) — so at most once a session, in three sessions.
+- **Never again** once the shortcut has fired even once: a flag in the same `chrome.storage.local`
+  record, set when Option/Alt+N starts add mode.
+- It gets a 5-second window of its own, even on a page whose first-run hint has had its window: it
+  is shown on purpose, rarely, and must be seen to count. The usual hint's window is then spent on
+  that page.
+- Stored under its own key (`addNoteTip`), which no domain operation — import, delete all — ever
+  touches. **(impl)**
 
 ## The "keep on" switch slides out, and turns round where it is (2026-10-12)
 

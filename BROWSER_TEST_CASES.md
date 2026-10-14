@@ -54,6 +54,14 @@ the same page.
       page focused) and, before placing a box, press "f", "k", "j": YouTube neither goes fullscreen
       nor pauses, Gmail's selection does not move. Space and the arrows still scroll the page. Esc
       still leaves add mode, and after that the site hears keys again.
+- [ ] **R10a. (the Option/Alt+N tip)** In a fresh browser session (quit and reopen Chrome), click
+      **add note** three times, leaving add mode with Esc each time and moving the pointer over the
+      page: the first shows "click or drag to select" beside the cursor (for its first 5 seconds on
+      the page only); the third shows "tip: ⌥N to add a note" (Mac) or "tip: alt+n to add a note"
+      (Windows/Linux) in its place, for 5 seconds, even if the usual hint is used up. A fourth
+      click: no tip. A double-click on add note, the switch and
+      Option/Alt+N do not count. Over three browser sessions it shows three times, then never;
+      press Option/Alt+N once and it never shows again (in this session or the next).
 - [ ] **R11. (extension reloaded under an open sidebar)** Load the unpacked build, open the sidebar
       on a site (with a note or two), then reload the extension in `chrome://extensions` without
       touching the tab. The old sidebar may still show. Click **add note** in it → the sidebar
@@ -293,12 +301,17 @@ notes, one very wide), then page C (one tall note, one default).
       heading of two lines — the page's name in the italic serif with a pencil (the delete's button,
       not red), and under it its address in monospace (not grey), followed on B only by a small
       "this page" label in the same ink (not yellow). The list behind still shows only B's notes.
-      Logo top left; one exit button top right (the collapse-panel glyph); no ↑/↓ rail, no peek cards.
-      The exit button is as far from the top as from the right (16px), the logo as far from the
-      left, and the logo is centred with the exit button.
+      Logo top left; one exit button top right (a simple right-pointing chevron, "›"); no ↑/↓ rail,
+      no peek cards. The exit button is as far from the top as from the right (16px), and the logo
+      as far from the top as from the left (16px): its top is level with the exit button's. A thin
+      rule runs under the top bar, edge to edge — the same line as under the docked sidebar's
+      header block.
 - [ ] **3.1b. (opening position)** The clicked note's text area has the cursor (yellow edge, caret
-      at the end of its text). Above B's heading, the bottom ~80px of A's last row shows, cut off
-      by the top bar. Opening A's first note instead starts at the very top with nothing peeking.
+      at the end of its text). Open B's first note: the bottom 40px of B's heading (its address
+      line, the foot of its name) shows under the top bar, cut off by it, with the note right
+      under. Open a note in a later row: the bottom 40px of the row before it shows instead.
+      Opening A's first note starts at the very top with nothing peeking. Make the window short
+      (~350px tall) and open a later note: its text area is fully on screen, the peek smaller.
 - [ ] **3.1c. (rows)** Up to three notes per row, each at its screenshot's real size (compare with
       the selection you made) — never stretched, never enlarged; the wide one is scaled down to
       the column and has a row to itself; the tiny one sits centred over a text area wider than it.
@@ -311,7 +324,7 @@ notes, one very wide), then page C (one tall note, one default).
 - [ ] **3.3.** Edit a note and immediately press Esc without pausing — the edit must still be
       saved (flushed on collapse). Long notes scroll inside their text area; the text area never
       grows.
-- [ ] **3.3a. (keyboard)** Tab goes exit → A's pencil → A's notes (delete, then text area, each) →
+- [ ] **3.3a. (keyboard)** Tab goes delete all → exit → A's pencil → A's notes (delete, then text area, each) →
       B's pencil → … and wraps; a note brought into view by Tab scrolls just enough to show it
       whole (a click on a note never scrolls). With focus on a button, ↑/↓, page up/down and home/end scroll the view.
 - [ ] **3.3b. (empty note)** Clear a note (or leave only spaces): "note required" appears under it
@@ -344,6 +357,14 @@ notes, one very wide), then page C (one tall note, one default).
       note's delete. Scroll part-way down first and do it again: the first click deletes, and the
       view does not jump. A page's last note takes its heading with it. Deleting the site's last note
       collapses back to the empty list. Reload to confirm it's really gone.
+- [ ] **3.4a. (delete all in the top bar)** Left of the exit button, clearly further from it than
+      anything else in the bar: a red "delete all" with the trash glyph. Click it → in its place,
+      "confirm?", then "yes, delete all" (red) and "cancel", close together; the cursor ring is on
+      cancel. Esc → back to the button, the view still open (the next Esc closes it). Ask again
+      and click a note → back to the button. Ask again, Tab to "yes, delete all" with Shift+Tab and
+      press Enter → every note of every page goes: the view closes onto the empty list ("no
+      feedback on this page yet"), nothing flies back into the list. Visit page A and C → empty
+      too. Repeat with a note emptied first ("note required" showing): delete all still works.
 - [ ] **3.5.** After capturing several items, confirm the newest one appears at the **bottom** of
       the sidebar list (chronological order, not reverse).
 - [ ] **3.6.** Capture items on page A, navigate to page B (different URL, same domain) — sidebar

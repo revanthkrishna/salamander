@@ -49,8 +49,9 @@ Elements that exist in **both** views never fade — they travel from their old 
    its clone's frame is clipped by the hidden amount, easing to nothing (or from nothing) on the
    morph's own curve
 3. the logo + wordmark, which ride the panel's left edge as it moves (keeping the docked 16px
-   inset, and dropping 6px on the panel's own curve to centre on the exit button in the 68px top
-   bar)
+   inset, and rising 2px on the panel's own curve so the logo's top settles 16px down — its left
+   inset, and the exit button's top; revised 2026-10-13, it used to drop 6px to centre on the exit
+   button)
 
 Everything that exists in only **one** view fades in place — no slide, no scale, no translate.
 
@@ -59,7 +60,7 @@ Everything that exists in only **one** view fades in place — no slide, no scal
 | | morphs (shared element, travels) | fades only (no movement) |
 |---|---|---|
 | **list-view-only** | — | close button, add/export row, "this page (n)", list items entirely out of the list's scrollport, every list note's text |
-| **enlarged-view-only** | — | exit button, page headings, every note's "#n" + delete header and text area, notes of other pages (and scrolled-out ones) including their screenshots, the "note required" / failure lines |
+| **enlarged-view-only** | — | exit button, delete all (and its question), the top bar's rule, page headings, every note's "#n" + delete header and text area, notes of other pages (and scrolled-out ones) including their screenshots, the "note required" / failure lines |
 | **shared (both views)** | panel bg, every visible list thumbnail ↔ its note's screenshot, logo+wordmark | number badge (on the clone; fades out as it leaves the list, back in as it lands on it) |
 | **backdrop** | — | scrim (fade only, never travels) |
 
@@ -69,7 +70,10 @@ Computed, not fixed (`src/enlargedLayout.ts`, design spec §AH): the panel is
 `max(0.75·vw, min(560, vw), sidebarWidth)`; the content column is the scroller's width less 16px
 each side; each note's screenshot is its selection's CSS size, never scaled up, scaled down to fit
 the column or the visible height; columns of `clamp(shot, 267, column)` packed three to a row and
-centred; the opening scroll position lands the note's row 25% down the panel with at least 80px of what precedes it showing above. A clone's
+centred; the opening scroll position shows the last 40px of whatever comes right before the
+note (the previous row, or its page's heading) under the top bar — the site's first row at the
+top; on a window too short for that and the note's text area, the text area wins (design spec
+§AH, "Opening", revised 2026-10-13). A clone's
 destination is its note's screenshot box in viewport coordinates at that scroll position (one
 layout read of the content's origin per gesture).
 
@@ -83,7 +87,7 @@ layout read of the content's origin per gesture).
   position, measure the list rects of every visible thumbnail on this page (after scroll; the dock
   transform included). Hide those list thumbnails and their notes' real screenshots; place clones
   on the list rects. Focus the clicked note's text area (caret at the end); the list goes inert.
-- **0–450ms, `std`**: panel grows leftward, width 300 → 75% of the viewport; the logo drops 6px.
+- **0–450ms, `std`**: panel grows leftward, width 300 → 75% of the viewport; the logo rises 2px.
 - **0–450ms, `std`, same curve**: every clone morphs list slot → its note's screenshot box.
   Identical curve and duration to the panel, so a clone never outruns the panel's left edge.
 - **0–200ms, `std`**: scrim fades in. **0–150ms, `acc`**: the list fades out.
@@ -92,7 +96,8 @@ layout read of the content's origin per gesture).
   notes (header, screenshot unless it is a clone's, text area) — top down from the opening
   position, 50ms apart, capped at two steps (Grid Cards, Corporate stagger; the last fade ends by
   450ms). What is off screen is simply there.
-- **300ms delay + 200ms, `std`**: the exit button fades in.
+- **300ms delay + 200ms, `std`**: the exit button, delete all and the top bar's rule fade in
+  (and a top-bar notice, if any).
 - **at 500ms**: the clones are swapped for the real screenshots (pixel-identical boxes) and the
   list thumbnails restored. The scroller holds still until then.
 
@@ -100,12 +105,13 @@ layout read of the content's origin per gesture).
 
 - **t0**: flush every pending edit; repaint the (still hidden) list if the view changed this
   page's notes; centre it on the note focus returns to; measure the visible list rects once.
-- **0–340ms, `std`**: panel contracts back to the docked width; the logo rises 6px. Every
+- **0–340ms, `std`**: panel contracts back to the docked width; the logo drops 2px back. Every
   note **on screen in the panel** that has a visible thumbnail in the list gets a clone at its
   current box, which morphs into that thumbnail, its badge fading back in (150ms `std`). Clones
   still in flight (a collapse mid-open) reverse from where they are.
-- **0–120ms, `acc`**: the grid (the whole scroller), the exit button and anything without a
-  thumbnail fade out.
+- **0–120ms, `acc`**: the grid (the whole scroller), the exit button, delete all, the top bar's
+  rule and anything without a thumbnail fade out. After a confirmed **delete all** nothing has a
+  thumbnail any more (the list is repainted empty at t0), so every note fades and none morphs.
 - **150ms delay + 150ms, `acc`**: scrim fades out. **150ms delay + 200ms, `std`**: the list fades
   back in.
 - **at 360ms**: the clones are removed and the list thumbnails restored; focus returns to the list
