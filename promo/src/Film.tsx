@@ -19,7 +19,7 @@ const EXPORT_NAME = DATA.exportName;
 // Before the logo every line holds only for reading time (READ in lib.tsx,
 // ~0.3s once its last word has settled), so the chain fills 0→8.27 with no
 // dead gaps. In the demo a caption stays up while its action is on screen.
-const L1 = 'giving website feedback / is messy';
+const L1 = 'giving design feedback / is messy';
 const L1_AT = B(0.5);
 const L1_OUT = B(0.5) + 90 + 12; // 200ms (12f) after "messy" has fully appeared (settled at 109), the others leave
 const GLIDE_AT = L1_OUT + 8; // once the others have mostly faded, so the move reads on its own
@@ -34,7 +34,7 @@ const HI = 'say hi to';
 const HI_AT = B(14);
 const LOGO1_AT = B(16); // the bam
 const HI_OUT = B(17); // stays above the logo for half a second after it lands
-const TAG1 = 'website feedback made very very easy';
+const TAG1 = 'design feedback made very very easy';
 const TAG1_AT = B(17);
 const HELLO_OUT = B(20.75); // the tagline settles at 632 and reads 0.3s; the brand card leaves, gone 662
 const HELLO_LIFT = 44; // logo + tagline centre on the frame once "say hi to" has left
@@ -167,7 +167,7 @@ const ShotCard: React.FC<{ r: Rect; label: string; width: number; mark: 'circle'
 const EmailCard: React.FC = () => (
   <div style={{ width: 430, background: '#FAFAF9', borderRadius: 16, padding: '20px 24px', boxShadow: '0 30px 70px rgba(0,0,0,0.5)', fontFamily: FONT }}>
     <div style={{ fontSize: 17, color: '#71717A' }}>from: dana · 14 replies</div>
-    <div style={{ fontSize: 25, fontWeight: 600, color: '#18181B', marginTop: 6 }}>re: re: fwd: website feedback</div>
+    <div style={{ fontSize: 25, fontWeight: 600, color: '#18181B', marginTop: 6 }}>re: re: fwd: design feedback</div>
     <div style={{ fontSize: 20, color: '#52525B', marginTop: 8 }}>see attached (the other one)</div>
   </div>
 );
@@ -196,13 +196,13 @@ const Center: React.FC<{ children: React.ReactNode; y?: number }> = ({ children,
   <div style={{ position: 'absolute', left: 0, width: W, top: y, transform: 'translateY(-50%)', display: 'flex', justifyContent: 'center' }}>{children}</div>
 );
 
-/** "giving website feedback / is messy.", word by word; then the other words
+/** "giving design feedback / is messy.", word by word; then the other words
  *  leave and the same "messy." element glides to the exact centre of the
  *  frame, where it stays on top of the pile until the pile leaves. */
 const MESSY_GROW = 1.12;
 const LINE_STYLE: React.CSSProperties = { fontFamily: FONT, fontWeight: 600, fontSize: HERO, letterSpacing: '-0.03em', lineHeight: 1.12, color: C.text, textAlign: 'center', whiteSpace: 'nowrap' };
 const SERIF_SPAN: React.CSSProperties = { fontFamily: SERIF, fontStyle: 'italic', fontWeight: 400, fontSize: '1.06em', letterSpacing: '-0.005em' };
-const HEAD_LINES = [['giving', 'website', 'feedback'], ['is', 'messy']];
+const HEAD_LINES = [['giving', 'design', 'feedback'], ['is', 'messy']];
 let messyOffset: [number, number] | null = null;
 const Headline: React.FC = () => {
   const f = useCurrentFrame();
