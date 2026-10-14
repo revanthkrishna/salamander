@@ -18,6 +18,7 @@ import {
   contentWidthFor,
   maxShotHeightFor,
   panelWidthFor,
+  DOCKED_HEADER_H,
   OPEN_PEEK_PX,
   TOP_BAR_H,
   scrollTopFor,
@@ -485,8 +486,9 @@ describe('opening on a note', () => {
     // above its ink, 24 to the bar's bottom edge — and 24px in.
     expect([top.keyframes[0].top, top.keyframes[1].top]).toEqual(['0px', '6px']);
     expect([left.keyframes[0].left, left.keyframes[1].left]).toEqual(['16px', '24px']);
-    expect((56 - 20) / 2 + 6).toBe(24);
-    expect(24 + 20 + 24).toBe(TOP_BAR_H);
+    // 6px down from the docked pose: (56 - 20) / 2 + 6 = 24, the logo's
+    // margin, with as much under it in the 68px bar.
+    expect((DOCKED_HEADER_H - 20) / 2 + 6).toBe((TOP_BAR_H - 20) / 2);
     for (const c of [top, left]) {
       expect(c.options.duration).toBe(T.expand);
       expect(c.options.easing).toBe(width.options.easing);
@@ -1083,8 +1085,10 @@ describe('delete all, in the top bar', () => {
    *  the button's face is inert, and the other way round. */
   const asking = () => {
     const on = box().dataset.face === 'confirm';
-    expect(confirmBox().inert).toBe(!on);
-    expect(da().inert).toBe(on);
+    // The attribute itself: jsdom has no HTMLElement.inert, and it is what
+    // the browser (and tooltip.ts's observer) acts on.
+    expect(confirmBox().hasAttribute('inert')).toBe(!on);
+    expect(da().hasAttribute('inert')).toBe(on);
     return on;
   };
   const css = () => q('style')!.textContent!;
@@ -1145,7 +1149,7 @@ describe('delete all, in the top bar', () => {
     settleOpen();
     da().click();
     expect(asking()).toBe(true);
-    expect(da().inert).toBe(true);
+    expect(da().hasAttribute('inert')).toBe(true);
     expect(q('.xp-confirm-text')!.textContent).toBe('confirm?');
     expect([yes().textContent, cancel().textContent]).toEqual(['yes, delete all', 'cancel']);
     // Side by side, the confirming one first, in the menu question's order.
@@ -1179,7 +1183,7 @@ describe('delete all, in the top bar', () => {
     da().click();
     cancel().click();
     expect(asking()).toBe(false);
-    expect(da().inert).toBe(false);
+    expect(da().hasAttribute('inert')).toBe(false);
     expect(shadow().activeElement).toBe(da());
     expect(cbs.onDeleteAll).not.toHaveBeenCalled();
   });
@@ -1210,9 +1214,12 @@ describe('delete all, in the top bar', () => {
     textareaOf(6).focus();
     expect(asking()).toBe(false);
     expect(shadow().activeElement).toBe(textareaOf(6));
-    // A press on the question itself keeps it.
+    // A press on the question itself keeps it — its answers, or the box's
+    // own border between them.
     da().click();
     yes().dispatchEvent(new Event('pointerdown', { bubbles: true, composed: true }));
+    expect(asking()).toBe(true);
+    box().dispatchEvent(new Event('pointerdown', { bubbles: true, composed: true }));
     expect(asking()).toBe(true);
   });
 

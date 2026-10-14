@@ -1453,9 +1453,9 @@ class EnlargedView {
     box.style.width = '';
     box.dataset.face = face;
     const [incoming, outgoing] = face === 'confirm' ? [d.confirm, d.button] : [d.button, d.confirm];
-    outgoing.inert = true;
+    outgoing.toggleAttribute('inert', true);
     outgoing.setAttribute('aria-hidden', 'true');
-    incoming.inert = false;
+    incoming.toggleAttribute('inert', false);
     incoming.removeAttribute('aria-hidden');
     const to = box.getBoundingClientRect().width;
     if (this.reduced) {
@@ -1741,9 +1741,11 @@ class EnlargedView {
 
   private onPointerDown = (e: Event): void => {
     this.pointerFocus = true;
-    // A press anywhere but the question puts "delete all" back; the press
-    // then does what it would have (focus a note, exit, close on the scrim).
-    if (this.isAskingDeleteAll() && !(e.target instanceof Node && this.deleteAll.confirm.contains(e.target))) {
+    // A press anywhere but the question's box puts "delete all" back (one
+    // on its 1px border or between its controls is still on the question);
+    // the press then does what it would have (focus a note, exit, close on
+    // the scrim).
+    if (this.isAskingDeleteAll() && !(e.target instanceof Node && this.deleteAll.group.contains(e.target))) {
       this.cancelDeleteAll(false);
     }
   };
@@ -1966,7 +1968,6 @@ function buildDeleteAll(): DeleteAllControl {
   button.append(icon, label);
   button.setAttribute('aria-label', DELETE_ALL_SITE_LABEL);
   button.dataset.tip = DELETE_ALL_SITE_LABEL;
-  button.inert = false;
 
   // Announced as the menu's question is (actionMenu.ts): an alertdialog
   // named by its question and described by what it would do, so focus
@@ -1975,7 +1976,7 @@ function buildDeleteAll(): DeleteAllControl {
   confirm.setAttribute('role', 'alertdialog');
   confirm.setAttribute('aria-labelledby', DELETE_ALL_QUESTION_ID);
   confirm.setAttribute('aria-describedby', DELETE_ALL_DESC_ID);
-  confirm.inert = true;
+  confirm.toggleAttribute('inert', true);
   confirm.setAttribute('aria-hidden', 'true');
   confirm.style.opacity = '0';
   const question = document.createElement('span');
