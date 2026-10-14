@@ -99,8 +99,8 @@ export const ENLARGED_VIEW_CSS = `
     pointer-events: none;
   }
 
-  /* Exit: one secondary icon button, top right — v5 §U's collapse-panel
-     glyph. */
+  /* Exit: one secondary icon button, top right — a right-pointing
+     chevron (icons.ts, ICON_CHEVRON_RIGHT). */
   .xp-exit {
     position: absolute; top: ${PANEL_MARGIN}px; right: ${PANEL_MARGIN}px;
     width: ${EXIT_BTN}px; height: ${EXIT_BTN}px; margin: 0; padding: 0;

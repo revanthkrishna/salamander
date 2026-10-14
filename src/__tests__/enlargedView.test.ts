@@ -1279,17 +1279,16 @@ describe('keyboard', () => {
     expect(wrapper()!.dataset.state).toBe('closing');
   });
 
-  test('the exit button: the collapse-panel glyph, top right, with its name and tooltip', () => {
+  test('the exit button: a right-pointing chevron, top right, with its name and tooltip', () => {
     setupPage(1);
     open(1);
-    // v5 §U's collapse-panel glyph: a rounded panel outline, a divider near
-    // its right, a chevron pointing right in the larger area.
-    const rect = exitBtn().querySelector('rect')!;
-    expect([rect.getAttribute('x'), rect.getAttribute('y'), rect.getAttribute('width'), rect.getAttribute('height'), rect.getAttribute('rx')]).toEqual(
-      ['3', '4', '18', '16', '2.5'],
-    );
+    // A simple "›" in the icon set's stroke language — it replaced v5 §U's
+    // collapse-panel glyph (no panel outline, no divider).
+    expect(exitBtn().querySelector('rect')).toBeNull();
     const d = [...exitBtn().querySelectorAll('path')].map((n) => n.getAttribute('d')).join(' ');
-    expect(d).toBe('M15.5 4v16M8 9.5l3 2.5-3 2.5');
+    expect(d).toBe('M9 6l6 6-6 6');
+    const svg = exitBtn().querySelector('svg')!;
+    expect([svg.getAttribute('viewBox'), svg.getAttribute('stroke-linecap'), svg.getAttribute('stroke-linejoin')]).toEqual(['0 0 24 24', 'round', 'round']);
     expect(exitBtn().querySelector('svg')!.getAttribute('stroke-width')).toBe('1.8');
     expect(exitBtn().getAttribute('aria-label')).toBe('exit enlarged view');
     expect(exitBtn().dataset.tip).toBe('exit enlarged view (esc)');

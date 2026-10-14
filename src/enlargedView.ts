@@ -86,7 +86,7 @@ import { FullImageLoader } from './fullImageLoader';
 import { Clone, CloneLayer } from './cloneLayer';
 // ICON_TRASH is the project's one trash glyph (design spec v5 §S) — the same
 // one the note list's hover delete draws.
-import { ICON_COLLAPSE, ICON_TRASH } from './icons';
+import { ICON_CHEVRON_RIGHT, ICON_TRASH } from './icons';
 import { buildDrawingSvg, hasStrokes } from './drawing';
 import {
   DELETE_ERROR_MESSAGE,
@@ -812,7 +812,7 @@ class EnlargedView {
     this.btnExit = document.createElement('button');
     this.btnExit.type = 'button';
     this.btnExit.className = 'xp-exit';
-    this.btnExit.innerHTML = ICON_COLLAPSE;
+    this.btnExit.innerHTML = ICON_CHEVRON_RIGHT;
     this.btnExit.setAttribute('aria-label', EXIT_ENLARGED_VIEW_LABEL);
     this.btnExit.dataset.tip = EXIT_ENLARGED_VIEW_TIP;
     this.btnExit.addEventListener('click', () => void this.requestCollapse());
