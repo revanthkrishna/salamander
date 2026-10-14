@@ -199,15 +199,23 @@ export const T = {
  *  ~38px past the edge at the 300px maximum width). */
 const FRONT_BLEED_PX = 48;
 const FRAME_RADIUS = RADII.md;
-/** The logo's height (.xp-brand img, the docked header's .logo). */
+/** The logo's height (.xp-brand img, the docked header's .logo) — its
+ *  visible height too: the mark fills it, and the wordmark's glyphs sit
+ *  inside its band. The view never scales it. */
 const LOGO_H_PX = 20;
+/** The logo's margin in the panel's top bar, the same above it, below it
+ *  and to its left (design spec §AH, revised 2026-10-13): centred
+ *  vertically in the 68px bar — so on the exit button's centre line, with
+ *  24px above its ink and 23 clear rows above the bar's 1px rule — and as
+ *  far in from the panel's left edge. */
+const LOGO_INSET_PX = (TOP_BAR_H - LOGO_H_PX) / 2;
 /** Where the logo row settles as the panel grows (and back from, on
- *  collapse), on the panel's own curve. Docked, the logo is centred in the
- *  56px header (DOCKED_HEADER_H), 18px from its top; in the panel its top
- *  is PANEL_MARGIN from the panel's top, the same as its left inset and
- *  the exit button's top (design spec §AH, revised 2026-10-13) — so the
- *  row rises 2px. */
-const BRAND_SETTLED_TOP_PX = PANEL_MARGIN - (DOCKED_HEADER_H - LOGO_H_PX) / 2;
+ *  collapse), on the panel's own curve. Docked, the logo is 16px in
+ *  (PANEL_MARGIN, the .xp-brand rule's left) and centred in the 56px header
+ *  (DOCKED_HEADER_H), 18px from its top; settled it is LOGO_INSET_PX from
+ *  the top and the left — 6px down and 8px right. */
+const BRAND_SETTLED_TOP_PX = LOGO_INSET_PX - (DOCKED_HEADER_H - LOGO_H_PX) / 2;
+const BRAND_SETTLED_LEFT_PX = LOGO_INSET_PX;
 /** ↑ / ↓ scroll step (the browser's own arrow-key step is ~40px; a row of
  *  notes is ~250px, so this moves a useful amount without skipping one). */
 const ARROW_SCROLL_PX = 64;
@@ -710,7 +718,7 @@ class EnlargedView {
     if (this.reduced) {
       // §12: geometry jumps, only opacity moves.
       this.setPanelWidth(this.panelW, 0);
-      this.setBrandTop(BRAND_SETTLED_TOP_PX, 0);
+      this.setBrandPose(BRAND_SETTLED_TOP_PX, BRAND_SETTLED_LEFT_PX, 0);
       fadeTo(this.scrim, 1, { duration: T.rdScrimIn, curve: STD });
       fadeTo(sb, 0, { duration: T.rdListOut, curve: ACC });
       this.scroller.style.opacity = '0';
@@ -722,7 +730,7 @@ class EnlargedView {
     }
 
     this.setPanelWidth(this.panelW, T.expand, from);
-    this.setBrandTop(BRAND_SETTLED_TOP_PX, T.expand, 0);
+    this.setBrandPose(BRAND_SETTLED_TOP_PX, BRAND_SETTLED_LEFT_PX, T.expand, { top: 0, left: PANEL_MARGIN });
     // Backdrop first (Modal-with-Content), list-only chrome dissolves out
     // (entrance-exit: Dissolve Exit, ease-in), then the grid a band at a
     // time, and the exit button last.
@@ -993,11 +1001,13 @@ class EnlargedView {
     }
   }
 
-  /** The logo moves from the docked header's centre line to its settled
-   *  inset (BRAND_SETTLED_TOP_PX) as the panel grows, and back, on the
-   *  panel's curve. */
-  private setBrandTop(to: number, duration: number, from?: number): void {
-    animateNumber(this.brand, 'top', to, { duration, from, curve: STD });
+  /** The logo moves from the docked header's pose to its settled inset
+   *  (BRAND_SETTLED_TOP_PX, BRAND_SETTLED_LEFT_PX) as the panel grows, and
+   *  back, on the panel's curve — from wherever it is when a collapse turns
+   *  an open round. Its size never changes. */
+  private setBrandPose(top: number, left: number, duration: number, from?: { top: number; left: number }): void {
+    animateNumber(this.brand, 'top', top, { duration, from: from?.top, curve: STD });
+    animateNumber(this.brand, 'left', left, { duration, from: from?.left, curve: STD });
   }
 
   /** The wordmark, which the list header hides at a narrow sidebar width
@@ -1135,14 +1145,14 @@ class EnlargedView {
       this.panelSnapTimer = setTimeout(() => {
         this.panelSnapTimer = null;
         this.setPanelWidth(this.mount.getSidebarWidth(), 0);
-        this.setBrandTop(0, 0);
+        this.setBrandPose(0, PANEL_MARGIN, 0);
       }, T.rdStageOut);
       this.settleTimer = setTimeout(() => this.finish(true), T.rdCollapseSettle);
       return;
     }
 
     this.setPanelWidth(this.mount.getSidebarWidth(), T.collapse);
-    this.setBrandTop(0, T.collapse);
+    this.setBrandPose(0, PANEL_MARGIN, T.collapse);
     fadeTo(this.scrim, 0, { duration: T.scrimOut, delay: T.scrimOutDelay, curve: ACC });
     fadeTo(sb, 1, { duration: T.listIn, delay: T.listInDelay, curve: STD });
 

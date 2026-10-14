@@ -302,8 +302,9 @@ notes, one very wide), then page C (one tall note, one default).
       not red), and under it its address in monospace (not grey), followed on B only by a small
       "this page" label in the same ink (not yellow). The list behind still shows only B's notes.
       Logo top left; one exit button top right (a simple right-pointing chevron, "›"); no ↑/↓ rail,
-      no peek cards. The exit button is as far from the top as from the right (16px), and the logo
-      as far from the top as from the left (16px): its top is level with the exit button's. A thin
+      no peek cards. The exit button is as far from the top as from the right (16px). The logo is the
+      same size as in the docked sidebar, centred top-to-bottom in the bar (as much room above as
+      below, down to the rule) and as far from the left edge as from the top. A thin
       rule runs under the top bar, edge to edge — the same line as under the docked sidebar's
       header block.
 - [ ] **3.1b. (opening position)** The clicked note's text area has the cursor (yellow edge, caret

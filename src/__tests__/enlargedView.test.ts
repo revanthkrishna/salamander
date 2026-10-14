@@ -467,23 +467,53 @@ describe('opening on a note', () => {
     expect(fadeOf(exitBtn())!.options.delay).toBe(T.exitDelay);
   });
 
-  test('the panel grows leftward from the docked width; the logo settles 16px from the top, as from the left', () => {
+  test('the panel grows leftward from the docked width; the logo, its size unchanged, settles centred in the top bar, as far in', () => {
     setup();
     open(3);
     const width = animCalls.find((c) => c.el === q('.xp-bg') && 'width' in c.keyframes[0])!;
     expect(width.keyframes[0].width).toBe(`${sidebar.getSidebarWidth()}px`);
     expect(width.keyframes[1].width).toBe(`${panelWidthFor(window.innerWidth, sidebar.getSidebarWidth())}px`);
     expect(width.options.duration).toBe(T.expand);
-    const top = animCalls.find((c) => c.el === q('.xp-brand') && 'top' in c.keyframes[0])!;
-    // Docked, the 20px logo is centred in a 56px header (18px from its top);
-    // in the panel its top is 16px from the panel's top — its left inset
-    // and the exit button's top: the row rises 2px, and never moves sideways.
-    expect([top.keyframes[0].top, top.keyframes[1].top]).toEqual(['0px', '-2px']);
-    expect((56 - 20) / 2 + -2).toBe(16);
-    expect(animCalls.some((c) => c.el === q('.xp-brand') && 'left' in c.keyframes[0])).toBe(false);
+    const brand = q('.xp-brand')!;
+    const top = animCalls.find((c) => c.el === brand && 'top' in c.keyframes[0])!;
+    const left = animCalls.find((c) => c.el === brand && 'left' in c.keyframes[0])!;
+    // Docked, the 20px logo is 16px in and centred in a 56px header (18px
+    // from its top). In the panel it is centred in the 68px bar — 24px
+    // above its ink, 24 to the bar's bottom edge — and 24px in.
+    expect([top.keyframes[0].top, top.keyframes[1].top]).toEqual(['0px', '6px']);
+    expect([left.keyframes[0].left, left.keyframes[1].left]).toEqual(['16px', '24px']);
+    expect((56 - 20) / 2 + 6).toBe(24);
+    expect(24 + 20 + 24).toBe(TOP_BAR_H);
+    for (const c of [top, left]) {
+      expect(c.options.duration).toBe(T.expand);
+      expect(c.options.easing).toBe(width.options.easing);
+    }
+    // Never scaled.
+    expect(animCalls.some((c) => c.el === brand && ('transform' in c.keyframes[0] || 'scale' in c.keyframes[0]))).toBe(false);
+    // Collapsing takes it back to the docked pose.
+    settleOpen();
+    animCalls = [];
+    exitBtn().click();
+    const backLeft = animCalls.find((c) => c.el === brand && 'left' in c.keyframes[0])!;
+    const backTop = animCalls.find((c) => c.el === brand && 'top' in c.keyframes[0])!;
+    expect([backLeft.keyframes[0].left, backLeft.keyframes[1].left]).toEqual(['24px', '16px']);
+    expect([backTop.keyframes[0].top, backTop.keyframes[1].top]).toEqual(['6px', '0px']);
+    expect(backLeft.options.duration).toBe(T.collapse);
   });
 
-  test('the top bar has one margin on every side: the exit button\'s top and right, the logo\'s left, the content\'s inset', () => {
+  test('a collapse mid-open takes the logo back from where it had got to', () => {
+    setup();
+    open(3);
+    jest.advanceTimersByTime(T.expand / 2);
+    animCalls = [];
+    exitBtn().click();
+    const back = animCalls.find((c) => c.el === q('.xp-brand') && 'left' in c.keyframes[0])!;
+    const from = parseFloat(back.keyframes[0].left as string);
+    expect(from).toBeGreaterThan(16);
+    expect(from).toBeLessThan(24);
+  });
+
+  test('the top bar has one margin on every side: the exit button\'s top and right, the docked logo\'s left, the content\'s inset', () => {
     setupPage(1);
     open(1);
     const css = q('style')!.textContent!;
@@ -492,7 +522,7 @@ describe('opening on a note', () => {
     expect(rule('.xp-brand')).toMatch(/left: 16px;/);
     expect(rule('.xp-content')).toMatch(/margin: 0 0 0 16px;/);
     // The bar is that margin either side of the 36px button; the logo's
-    // 20px box sits 16px down once settled, level with the button's top.
+    // 20px box is centred in it once settled, on the button's centre line.
     expect(TOP_BAR_H).toBe(16 + 36 + 16);
     expect(rule('.xp-brand img')).toMatch(/height: 20px;/);
   });

@@ -48,10 +48,10 @@ Elements that exist in **both** views never fade — they travel from their old 
    list slot ↔ its place in the grid. One cut by the list's edge leaves (and lands) exactly as cut:
    its clone's frame is clipped by the hidden amount, easing to nothing (or from nothing) on the
    morph's own curve
-3. the logo + wordmark, which ride the panel's left edge as it moves (keeping the docked 16px
-   inset, and rising 2px on the panel's own curve so the logo's top settles 16px down — its left
-   inset, and the exit button's top; revised 2026-10-13, it used to drop 6px to centre on the exit
-   button)
+3. the logo + wordmark, which ride the panel's left edge as it moves, at the docked size (never
+   scaled), and move on the panel's own curve from the docked pose (16px in, centred in the 56px
+   header) to centred in the 68px top bar and as far in: 6px down and 8px right (revised
+   2026-10-13)
 
 Everything that exists in only **one** view fades in place — no slide, no scale, no translate.
 
@@ -87,7 +87,8 @@ layout read of the content's origin per gesture).
   position, measure the list rects of every visible thumbnail on this page (after scroll; the dock
   transform included). Hide those list thumbnails and their notes' real screenshots; place clones
   on the list rects. Focus the clicked note's text area (caret at the end); the list goes inert.
-- **0–450ms, `std`**: panel grows leftward, width 300 → 75% of the viewport; the logo rises 2px.
+- **0–450ms, `std`**: panel grows leftward, width 300 → 75% of the viewport; the logo moves 6px down and
+  8px right.
 - **0–450ms, `std`, same curve**: every clone morphs list slot → its note's screenshot box.
   Identical curve and duration to the panel, so a clone never outruns the panel's left edge.
 - **0–200ms, `std`**: scrim fades in. **0–150ms, `acc`**: the list fades out.
@@ -105,7 +106,7 @@ layout read of the content's origin per gesture).
 
 - **t0**: flush every pending edit; repaint the (still hidden) list if the view changed this
   page's notes; centre it on the note focus returns to; measure the visible list rects once.
-- **0–340ms, `std`**: panel contracts back to the docked width; the logo drops 2px back. Every
+- **0–340ms, `std`**: panel contracts back to the docked width; the logo moves back up 6px and left 8px. Every
   note **on screen in the panel** that has a visible thumbnail in the list gets a clone at its
   current box, which morphs into that thumbnail, its badge fading back in (150ms `std`). Clones
   still in flight (a collapse mid-open) reverse from where they are.

@@ -1154,12 +1154,15 @@ with one wide note, and the tops of the next row cut off by the bottom edge. Dec
 - Unchanged: the sidebar grows leftward to 75% of the viewport (at least 560px or the viewport,
   never narrower than the docked width), over the scrim, right-anchored; the page is never
   re-laid out.
-- **Top bar, 68px, one 16px margin on every side** (revised 2026-10-12, and again 2026-10-13): the
-  logo and wordmark top left, **16px in and 16px down** — the logo's top inset equals its left inset
-  (the docked header's own inset, so the logo never moves sideways) and the exit button's top; as the
-  panel grows it rises 2px from where the docked header centres it (18px down in a 56px row) and
-  settles there. The first build centred it with the exit button, 24px down, which left more room
-  above it than beside it. **One exit button** 16px from the top and 16px from the right — a 36px
+- **Top bar, 68px** (revised 2026-10-12, and again 2026-10-13): the logo and wordmark top left, **at
+  the docked sidebar's size** (never scaled), **centred vertically in the bar, and as far in from the
+  left**: its visible artwork (the 20px mark band, which holds the wordmark's glyphs) has 24px above
+  it, 23 clear rows below it before the bar's 1px rule (24 to the bar's bottom edge) and 23 clear
+  columns between the panel's 1px left border and it — the same margin on three sides, within a
+  pixel, and on the exit button's centre line. As the panel grows it moves from the docked header's
+  pose (16px in, centred in the 56px row) 8px right and 6px down, on the panel's curve. (Earlier
+  builds of this revision left it 16px in under a 24px top margin — the owner's first complaint —
+  then 16px down, with 30px under it.) **One exit button** 16px from the top and 16px from the right — a 36px
   secondary icon button with a **simple right-pointing chevron, "›"** (`ICON_CHEVRON_RIGHT`, the icon
   set's 1.8px round stroke; it replaced v5 §U's collapse-panel glyph at the owner's request,
   2026-10-13), "exit enlarged view (esc)". The x / ↑ / ↓ rail and the peek carousel are gone.
@@ -1189,9 +1192,9 @@ with one wide note, and the tops of the next row cut off by the bottom edge. Dec
     the top bar, where the site-load notice goes; the view stays as it was.
   - The top bar's notices sit left of it, in the same right-aligned row, and ellipsize against the
     wordmark's room. **(impl)**
-- **The scroller** fills the panel below the top bar. Its content column is inset the same
-  **16px** each side (`PANEL_PAD_X = PANEL_MARGIN`), so the logo, the headings and the first notes
-  share one left edge, and the exit button's right edge is the column's right edge. A thin scrollbar in `line-strong`, a stable gutter
+- **The scroller** fills the panel below the top bar. Its content column is inset **16px** each side
+  (`PANEL_PAD_X = PANEL_MARGIN`), so the headings and the first notes share one left edge with the
+  docked sidebar's content (the logo, centred in its bar, sits 8px further in), and the exit button's right edge is the column's right edge. A thin scrollbar in `line-strong`, a stable gutter
   (the column never changes width with its content's height), overscroll contained. The content
   is hard-cut by the top bar's edge (no fade) — which is what makes the peek read as "more above".
 
@@ -1361,7 +1364,8 @@ MOTION_SPEC's curves and durations are reused unchanged.
   real screenshot when it lands. Notes with no visible thumbnail (other pages, scrolled entirely
   out of the list) fade in; headings, headers and text areas fade in a band at a time from 150ms,
   50ms apart, capped at two steps; the exit button, delete all and the top bar's rule last
-  (300ms). The logo row rises 2px to its 16px inset on the panel's curve. The scroller holds
+  (300ms). The logo moves 8px right and 6px down to its centred inset on the panel's curve, its
+  size unchanged. The scroller holds
   still until the morph settles.
 - **Close:** notes on screen in the panel that have a thumbnail in the list morph back into it
   (340ms std); everything else fades out (120ms acc); the panel shrinks back. A collapse mid-open
