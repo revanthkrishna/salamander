@@ -1170,8 +1170,8 @@ with one wide note, and the tops of the next row cut off by the bottom edge. Dec
   (`.action-row`'s border-bottom), drawn the same — 1px of `line`, edge to edge across the panel —
   on the bar's last pixel row, so the scroller below it does not move. It fades in and out with the
   exit button.
-- **Delete all** (2026-10-13), left of the exit button and **20px** from it (more than the 8px
-  between the controls inside it): "delete all" with the note delete's trash glyph (§S), 13px/500
+- **Delete all** (2026-10-13), left of the exit button and **6px** from it (revised 2026-10-13
+  from 20px: the docked action row's gap between export and "more options"): "delete all" with the note delete's trash glyph (§S), 13px/500
   body face, in the menu item's `danger` ink, on the exit button's 36px secondary box (`surface`,
   1px `line`, radius md); the note delete's danger tint layered over the surface on hover and
   press. It is the menu's **delete all for this website** — every note on every page and every
@@ -1180,7 +1180,8 @@ with one wide note, and the tops of the next row cut off by the bottom edge. Dec
   - **Asked in place, no separate box:** clicked, the button's box **morphs** into the question's
     (MOTION_SPEC §11a, the "more options" menu's morph into its question as the model): the same
     36px box, wider, holding **"confirm?"** (13px, `text`, 12px in), then **"yes, delete all"**
-    (the menu question's soft danger fill) and **"cancel"** (surface, 1px `line`), 28px tall, side
+    (the menu question's soft danger fill, bordered like cancel in `dangerHover`, `dangerPress` on
+    hover) and **"cancel"** (surface, 1px `line`), 28px tall, side
     by side 4px apart and 3px inside the box's edges, 12px after the question; the button's content
     fades out, then the question's fades in. Focus moves to cancel. Back to the button is the same
     morph, reversed, from wherever it is. (Revised 2026-10-13 from three loose 36px controls, so

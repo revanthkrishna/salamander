@@ -803,7 +803,7 @@
     transition: background-color 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out, transform 80ms ease-out;
   }
   .xp-tools {
-    position: absolute; top: 16px; right: 72px;
+    position: absolute; top: 16px; right: 58px;
     left: 232px;
     height: 36px;
     display: flex; align-items: center; justify-content: flex-end; gap: 16px;
@@ -878,8 +878,8 @@
   }
   .xp-confirm-btn:hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
   .xp-confirm-btn:active { background: var(--sal-press); }
-  .xp-confirm-btn.is-danger { background: var(--sal-danger-soft); border-color: transparent; color: var(--sal-danger); }
-  .xp-confirm-btn.is-danger:hover { background: var(--sal-danger-hover); }
+  .xp-confirm-btn.is-danger { background: var(--sal-danger-soft); border-color: var(--sal-danger-hover); color: var(--sal-danger); }
+  .xp-confirm-btn.is-danger:hover { background: var(--sal-danger-hover); border-color: var(--sal-danger-press); }
   .xp-confirm-btn.is-danger:active { background: var(--sal-danger-press); }
   .xp-confirm-btn[aria-disabled="true"] { cursor: default; }
   .xp-delete-all:focus-visible { outline: none; }

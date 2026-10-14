@@ -1108,12 +1108,20 @@ describe('delete all, in the top bar', () => {
     expect(asking()).toBe(false);
   });
 
-  test('more room between it and exit than between the question\'s two buttons', () => {
+  test('the docked action row\'s gap from exit, and a tighter one between the question\'s two buttons', () => {
     setup();
     open(3);
-    // 16 (margin) + 36 (exit) + 20: the tools end 20px left of exit.
-    expect(rule('.xp-tools')).toMatch(/right: 72px;/);
+    // 16 (margin) + 36 (exit) + 6: the tools end export's gap to "more
+    // options" (sidebarMetrics.EXPORT_GROUP_GAP_PX) left of exit.
+    expect(rule('.xp-tools')).toMatch(/right: 58px;/);
     expect(rule('.xp-confirm-actions')).toMatch(/gap: 4px;/);
+  });
+
+  test('"yes, delete all" is bordered like cancel, in a danger tint', () => {
+    setup();
+    open(3);
+    expect(rule('.xp-confirm-btn.is-danger')).toMatch(/border-color: var\(--sal-danger-hover\);/);
+    expect(rule('.xp-confirm-btn.is-danger:hover')).toMatch(/border-color: var\(--sal-danger-press\);/);
   });
 
   test('one box for both faces: the exit button\'s height, fill, border and radius', () => {

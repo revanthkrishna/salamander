@@ -16,11 +16,12 @@ import {
   TOP_BAR_H,
 } from '../enlargedLayout';
 import { STD } from '../flip';
+import { EXPORT_GROUP_GAP_PX } from '../sidebarMetrics';
 
 const EXIT_BTN = EXIT_BTN_PX;
 /** The top bar's tools (the notice, "delete all") → the exit button: wider
  *  than the gaps inside the tools, so exit stands apart. */
-const TOOLS_GAP_PX = 20;
+const TOOLS_GAP_PX = EXPORT_GROUP_GAP_PX;
 /** What the tools leave on the top bar's left for the logo + wordmark. */
 const BRAND_RESERVE_PX = 232;
 /** The question's two answers sit this far inside the delete-all box (its
@@ -123,7 +124,8 @@ export const ENLARGED_VIEW_CSS = `
     ${STATE_TRANSITION_CSS}
   }
   /* The top bar's tools, right-aligned against the exit button and
-     TOOLS_GAP_PX from it — more than between the controls inside: the notice
+     TOOLS_GAP_PX from it — the docked action row's gap between export and
+     "more options" (sidebarMetrics.ts). Inside, the notice
      (the site could not be read in full; a delete-all that failed), then
      "delete all". Bounded on the left by the logo + wordmark's room; a
      notice too long for what is left ellipsizes. */
@@ -215,8 +217,8 @@ export const ENLARGED_VIEW_CSS = `
   }
   .xp-confirm-btn:hover { background: var(--sal-hover); border-color: var(--sal-line-strong); }
   .xp-confirm-btn:active { background: var(--sal-press); }
-  .xp-confirm-btn.is-danger { background: var(--sal-danger-soft); border-color: transparent; color: var(--sal-danger); }
-  .xp-confirm-btn.is-danger:hover { background: var(--sal-danger-hover); }
+  .xp-confirm-btn.is-danger { background: var(--sal-danger-soft); border-color: var(--sal-danger-hover); color: var(--sal-danger); }
+  .xp-confirm-btn.is-danger:hover { background: var(--sal-danger-hover); border-color: var(--sal-danger-press); }
   .xp-confirm-btn.is-danger:active { background: var(--sal-danger-press); }
   .xp-confirm-btn[aria-disabled="true"] { cursor: default; }
   /* The button fills the box, so its ring is the box's — and follows the
